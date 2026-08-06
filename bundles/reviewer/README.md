@@ -5,8 +5,8 @@ plus human review. Approval and merge stay human.
 
 ## What it installs
 
-- Preset `default` 0.1.0 (priority 10) — spec, plan, tasks, checklist templates.
-- Extension `code-review` 0.1.0 — `/speckit.code-review` with `--publish`.
+- Preset `default` 0.2.0 (priority 10) — spec, plan, tasks, checklist templates.
+- Extension `code-review` 0.1.1 — `/speckit.code-review` with `--publish`.
 
 Integration-agnostic: it inherits the project's active agent integration.
 

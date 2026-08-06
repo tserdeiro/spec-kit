@@ -73,7 +73,7 @@ command -v git >/dev/null 2>&1 || {
 # asserted against them below, so a manifest edit that is not reflected here
 # fails loudly instead of silently weakening the test.
 ROLES="product developer reviewer"
-BUNDLE_VERSION="0.1.0"
+BUNDLE_VERSION="0.2.0"
 product_extensions="linear"
 developer_extensions="git linear code-review bug"
 reviewer_extensions="code-review"
@@ -102,9 +102,9 @@ def archive(source: pathlib.Path, name: str) -> None:
             if path.is_file():
                 bundle.write(path, path.relative_to(source).as_posix())
 
-archive(repository_root / "packages/spec-kit-linear", "spec-kit-linear-v0.1.0.zip")
-archive(repository_root / "packages/spec-kit-code-review", "spec-kit-code-review-v0.1.0.zip")
-archive(repository_root / "presets/default", "default-0.1.0.zip")
+archive(repository_root / "packages/spec-kit-linear", "spec-kit-linear-v0.2.0.zip")
+archive(repository_root / "packages/spec-kit-code-review", "spec-kit-code-review-v0.1.1.zip")
+archive(repository_root / "presets/default", "default-0.2.0.zip")
 PY
 
 # The bundle artifacts themselves, built the way they will be published, so
@@ -252,7 +252,7 @@ for role in $ROLES; do
   # 1b. The preset resolves all four templates from `default`.
   for template in $TEMPLATES; do
     resolved=$(cd "$consumer_root" && specify preset resolve "$template" 2>&1 | tr -d '\n')
-    [[ "$resolved" == *"default v0.1.0"* ]] ||
+    [[ "$resolved" == *"default v0.2.0"* ]] ||
       fail "$role: template '$template' does not resolve from the default preset"
     [[ "$resolved" == *".specify/presets/default/templates/$template.md"* ]] ||
       fail "$role: template '$template' resolves outside the installed preset"
@@ -300,7 +300,7 @@ for extension in $developer_extensions; do
     fail "coexist: developer's '$extension' did not survive removing the reviewer bundle"
 done
 resolved=$(cd "$consumer_root" && specify preset resolve tasks-template 2>&1 | tr -d '\n')
-[[ "$resolved" == *"default v0.1.0"* ]] ||
+[[ "$resolved" == *"default v0.2.0"* ]] ||
   fail "coexist: the shared default preset did not survive removing the reviewer bundle"
 listed=$(cd "$consumer_root" && specify bundle list 2>&1 | tr -d '\n')
 [[ "$listed" == *"developer v$BUNDLE_VERSION"* && "$listed" != *"reviewer v$BUNDLE_VERSION"* ]] ||
