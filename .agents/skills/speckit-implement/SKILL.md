@@ -232,8 +232,10 @@ This distribution delivers **one branch and one draft PR per task**. As you
 implement, wrap every task in this loop:
 
 1. **Starting a task** — before touching any code for `T###`, create its
-   branch from an up-to-date `main` (or from the previous PR's branch when
-   this task stacks): `git switch -c NNN-T###-short-slug`.
+   branch from the repository's up-to-date **default branch** — resolve it
+   with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` —
+   or from the previous PR's branch when this task stacks:
+   `git switch -c NNN-T###-short-slug`.
    The branch is what projects the task to *In Progress* in Linear.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review

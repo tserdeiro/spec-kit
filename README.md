@@ -141,6 +141,11 @@ El flujo completo, con el estado que Linear refleja solo:
 
 Reglas de oro:
 
+- **La rama base es la default branch del repositorio** (aquí `main`; en
+  otros proyectos puede ser `dev`): los branches de tarea salen de ella
+  actualizada y los PRs vuelven a ella. No hay nada que configurar — `gh`
+  apunta solo a la default branch que el repo tiene en GitHub, y los
+  comandos la resuelven en vez de asumir un nombre.
 - **Nunca actualices Linear a mano.** Cada sincronización (automática tras
   los comandos, o `push --apply` a mano) deriva los estados de tus
   checkboxes, branches y PRs. Si no cambió nada, no escribe nada.
