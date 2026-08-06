@@ -11,6 +11,10 @@ description: "Dependency-ordered, traceable delivery units for feature implement
 
 - **One branch per task**, named `NNN-T###-short-slug` (feature number, task
   id); its pull request opens as `draft`.
+- **Starting a task means creating its branch first**: before touching any
+  code for `T###`, run `git switch -c NNN-T###-short-slug`. If you are the
+  implementing agent, do this as the first action of the task — the branch
+  is what projects the task to *In Progress*.
 - A reviewed PR stays under ~400 authored executable lines. A task that
   exceeds it splits into
   [stacked PRs](https://docs.github.com/en/pull-requests/get-started/stacked-prs-quickstart),
