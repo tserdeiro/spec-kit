@@ -1,0 +1,83 @@
+{
+  "repository": {
+    "project_label": {
+      "id": "44444444-4444-4444-8444-444444444444",
+      "group_id": "33333333-3333-4333-8333-333333333333",
+      "name": "sample-repository",
+      "marker": "speckit-linear:repository:sample-repository"
+    },
+    "shared_views": [
+      {
+        "id": "55555555-5555-4555-8555-555555555555",
+        "kind": "project",
+        "name": "sample-repository / Features",
+        "filter": {
+          "project_label_id": "44444444-4444-4444-8444-444444444444"
+        }
+      },
+      {
+        "id": "66666666-6666-4666-8666-666666666666",
+        "kind": "issue",
+        "name": "sample-repository / Work",
+        "filter": {
+          "project_label_id": "44444444-4444-4444-8444-444444444444"
+        }
+      }
+    ]
+  },
+  "feature": {
+    "identifier": "001",
+    "project": {
+      "identity": "feature:001",
+      "title": "001: Local projection",
+      "marker": "speckit-linear:feature:001",
+      "project_label_id": "44444444-4444-4444-8444-444444444444",
+      "managed_description": "<!-- speckit-linear:feature:001 -->\nSource: `specs/001-local-projection/spec.md#L1`\nPlan: `specs/001-local-projection/plan.md#L1`\n<!-- /speckit-linear -->",
+      "source": {
+        "path": "specs/001-local-projection/spec.md",
+        "line": 1
+      }
+    },
+    "tasks": [
+      {
+        "identity": "task:001:T001",
+        "title": "T001 Parse authoritative artifacts",
+        "completed": false,
+        "project_identity": "feature:001",
+        "marker": "speckit-linear:task:001:T001",
+        "managed_description": "<!-- speckit-linear:task:001:T001 -->\nSource: `specs/001-local-projection/tasks.md#L5`\nStatus: incomplete\n<!-- /speckit-linear -->",
+        "source": {
+          "path": "specs/001-local-projection/tasks.md",
+          "line": 5
+        },
+        "assignee_alias": null
+      },
+      {
+        "identity": "task:001:T002",
+        "title": "T002 Model the desired hierarchy",
+        "completed": true,
+        "project_identity": "feature:001",
+        "marker": "speckit-linear:task:001:T002",
+        "managed_description": "<!-- speckit-linear:task:001:T002 -->\nSource: `specs/001-local-projection/tasks.md#L6`\nStatus: complete\n<!-- /speckit-linear -->",
+        "source": {
+          "path": "specs/001-local-projection/tasks.md",
+          "line": 6
+        },
+        "assignee_alias": null
+      },
+      {
+        "identity": "task:001:T003",
+        "title": "T003 Render a stable dry-run plan",
+        "completed": false,
+        "project_identity": "feature:001",
+        "marker": "speckit-linear:task:001:T003",
+        "managed_description": "<!-- speckit-linear:task:001:T003 -->\nSource: `specs/001-local-projection/tasks.md#L10`\nStatus: incomplete\n<!-- /speckit-linear -->",
+        "source": {
+          "path": "specs/001-local-projection/tasks.md",
+          "line": 10
+        },
+        "assignee_alias": null
+      }
+    ]
+  }
+}

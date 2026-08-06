@@ -1,0 +1,122 @@
+"""The write contract: what may be mutated, and with which input fields.
+
+The assignee may be set only when a Txxx Issue is created; every update kind
+must keep forbidding it unconditionally, exactly like
+`leadId`/`memberIds`/`archive`/`delete`.
+"""
+
+from __future__ import annotations
+
+import unittest
+import uuid
+from unittest.mock import patch
+
+from spec_kit_linear.allowlist import ALLOWED_INPUTS, PUSH_MUTATIONS, assert_allowed
+from spec_kit_linear.errors import AppError
+
+
+class AssigneeAtCreationAllowlistTests(unittest.TestCase):
+    def test_issue_create_permits_assignee_id(self) -> None:
+        create_id = str(uuid.uuid4())
+        # Should not raise.
+        assert_allowed("issue.create", {"id": create_id, "title": "T001 Title", "teamId": "team-1", "assigneeId": "user-1"})
+        self.assertIn("assigneeId", ALLOWED_INPUTS["issue.create"])
+
+    def test_issue_update_rejects_assignee_id(self) -> None:
+        # assigneeId is not even in issue.update's ALLOWED_INPUTS, so this is
+        # rejected as an unexpected field before the preserved-field check
+        # ever runs -- an even stronger guarantee than a per-value check.
+        with self.assertRaises(AppError) as raised:
+            assert_allowed("issue.update", {"title": "Changed title", "assigneeId": "user-1"})
+        self.assertEqual(raised.exception.code, 6)
+        self.assertEqual(raised.exception.diagnostics[0].code, "mutation_input_not_allowed")
+
+    def test_issue_lifecycle_update_rejects_assignee_id(self) -> None:
+        with self.assertRaises(AppError) as raised:
+            assert_allowed("issue.lifecycle.update", {"stateId": "state-1", "assigneeId": "user-1"})
+        self.assertEqual(raised.exception.code, 6)
+        self.assertEqual(raised.exception.diagnostics[0].code, "mutation_input_not_allowed")
+
+    def test_every_other_mutation_kind_rejects_assignee_id(self) -> None:
+        # Structural sweep: no mutation kind other than "issue.create" may
+        # ever accept assigneeId, fail-closed with a mutation_policy error
+        # (code 6) rather than a silent pass-through.
+        for kind in sorted(PUSH_MUTATIONS - {"issue.create"}):
+            with self.assertRaises(AppError, msg=kind) as raised:
+                assert_allowed(kind, {"assigneeId": "user-1"})
+            self.assertEqual(raised.exception.code, 6, kind)
+            self.assertEqual(raised.exception.category, "mutation_policy", kind)
+            self.assertIn(raised.exception.diagnostics[0].code, {"mutation_input_not_allowed", "mutation_preserved_field"}, kind)
+
+    def test_issue_create_still_rejects_lead_and_member_fields(self) -> None:
+        create_id = str(uuid.uuid4())
+        with self.assertRaises(AppError) as raised:
+            assert_allowed("issue.create", {"id": create_id, "title": "T001", "teamId": "team-1", "leadId": "user-1"})
+        self.assertEqual(raised.exception.diagnostics[0].code, "mutation_input_not_allowed")
+
+    def test_per_kind_assignee_exception_still_rejects_a_hypothetical_update_kind(self) -> None:
+        # Proves the create-only exception in assert_allowed is a real,
+        # per-kind check and not merely an accident of assigneeId being
+        # absent from every other kind's ALLOWED_INPUTS.
+        patched = dict(ALLOWED_INPUTS)
+        patched["issue.lifecycle.update"] = frozenset(ALLOWED_INPUTS["issue.lifecycle.update"] | {"assigneeId"})
+        with patch("spec_kit_linear.allowlist.ALLOWED_INPUTS", patched):
+            with self.assertRaises(AppError) as raised:
+                assert_allowed("issue.lifecycle.update", {"stateId": "state-1", "assigneeId": "user-1"})
+        self.assertEqual(raised.exception.code, 6)
+        self.assertEqual(raised.exception.diagnostics[0].code, "mutation_preserved_field")
+
+
+class WriteSurfaceTests(unittest.TestCase):
+    def test_the_write_surface_is_exactly_the_six_projection_operations(self) -> None:
+        self.assertEqual(
+            PUSH_MUTATIONS,
+            frozenset(
+                {
+                    "project.create",
+                    "project.update",
+                    "project.label.attach",
+                    "issue.create",
+                    "issue.update",
+                    "issue.lifecycle.update",
+                }
+            ),
+        )
+        self.assertEqual(set(ALLOWED_INPUTS), set(PUSH_MUTATIONS))
+
+    def test_destructive_and_out_of_scope_kinds_are_never_allowed(self) -> None:
+        for kind in (
+            "issue.delete",
+            "issue.archive",
+            "project.delete",
+            "project.archive",
+            "project.label.detach",
+            "milestone.create",
+            "milestone.update",
+            "issue.milestone.update",
+            "workflow_state.create",
+            "project_label.create",
+            "issue_label.create",
+            "custom_view.create",
+            "custom_view.update",
+            "custom_view.delete",
+            "bridge_comment.create",
+            "initiative.create",
+        ):
+            with self.subTest(kind=kind):
+                with self.assertRaises(AppError) as raised:
+                    assert_allowed(kind, {"id": str(uuid.uuid4()), "name": "anything"})
+                self.assertEqual(raised.exception.code, 6)
+                self.assertEqual(raised.exception.diagnostics[0].code, "mutation_not_allowed")
+
+    def test_no_input_table_carries_a_hierarchy_or_ownership_field(self) -> None:
+        for kind, fields in ALLOWED_INPUTS.items():
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    fields & {"leadId", "memberIds", "parentId", "projectMilestoneId", "archive", "delete"},
+                    frozenset(),
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

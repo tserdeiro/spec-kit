@@ -1,0 +1,472 @@
+from __future__ import annotations
+
+import inspect
+import json
+import tempfile
+import unittest
+
+from tests.support.fixtures import isolate_operator_global_env
+from contextlib import redirect_stdout
+from io import StringIO
+from pathlib import Path
+from unittest.mock import patch
+
+from spec_kit_linear import cli as cli_module
+from spec_kit_linear.cli import main
+from spec_kit_linear.config import load_yaml_subset
+from spec_kit_linear.linear_client import RemoteBinding, RemoteProjectLabel, RemoteSharedView, RemoteTeamSummary, RemoteWorkflowState
+
+
+WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+TEAM_ID = "22222222-2222-4222-8222-222222222222"
+GROUP_ID = "33333333-3333-4333-8333-333333333333"
+LABEL_ID = "44444444-4444-4444-8444-444444444444"
+PROJECT_VIEW_ID = "55555555-5555-4555-8555-555555555555"
+ISSUE_VIEW_ID = "66666666-6666-4666-8666-666666666666"
+COMPLETED_STATE_ID = "77777777-7777-4777-8777-777777777777"
+OPEN_STATE_ID = "88888888-8888-4888-8888-888888888888"
+STARTED_STATE_ID = "99999999-9999-4999-8999-999999999999"
+REVIEW_STATE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+SLUG = "spec-kit"
+
+
+def _full_binding() -> RemoteBinding:
+    return RemoteBinding(
+        workspace_id=WORKSPACE_ID,
+        team_id=TEAM_ID,
+        team_key="WOR",
+        project_label_group_id=GROUP_ID,
+        project_label_group_name="Repository",
+        project_label_id=LABEL_ID,
+        project_label_name=SLUG,
+        project_label_parent_id=GROUP_ID,
+        project_view_id=PROJECT_VIEW_ID,
+        project_view_type="project",
+        project_view_shared=True,
+        issue_view_id=ISSUE_VIEW_ID,
+        issue_view_type="issue",
+        issue_view_shared=True,
+    )
+
+
+class _OnboardClient:
+    """Fake client for `onboard`'s read-only resolution. Deliberately has no
+    `mutation` method: any attempt by onboard to call it fails with
+    AttributeError, which is the structural "never mutates" guarantee this
+    test double already provides for `install` (see test_cli.py)."""
+
+    def __init__(
+        self,
+        *,
+        workspace_id: str = WORKSPACE_ID,
+        teams: tuple[RemoteTeamSummary, ...] = (),
+        project_labels: tuple[RemoteProjectLabel, ...] = (),
+        shared_views: tuple[RemoteSharedView, ...] = (),
+        workflow_states: tuple[RemoteWorkflowState, ...] = (),
+        binding: RemoteBinding | None = None,
+    ) -> None:
+        self.workspace_id = workspace_id
+        self._teams_by_id = {team.id: team for team in teams}
+        self._teams_by_key: dict[str, list[RemoteTeamSummary]] = {}
+        for team in teams:
+            self._teams_by_key.setdefault(team.key, []).append(team)
+        self._project_labels = project_labels
+        self._shared_views = shared_views
+        self._workflow_states = workflow_states
+        self._binding = binding
+        self.inspect_binding_calls = 0
+        self.find_workflow_states_by_team_calls: list[str] = []
+
+    def resolve_workspace_id(self) -> str:
+        return self.workspace_id
+
+    def resolve_team_by_id(self, team_id: str) -> RemoteTeamSummary:
+        return self._teams_by_id[team_id]
+
+    def find_team_by_key(self, key: str) -> tuple[RemoteTeamSummary, ...]:
+        return tuple(self._teams_by_key.get(key, ()))
+
+    def find_project_labels_by_name(self, name: str) -> tuple[RemoteProjectLabel, ...]:
+        return tuple(item for item in self._project_labels if item.name == name)
+
+    def find_shared_views_by_name(self, name: str) -> tuple[RemoteSharedView, ...]:
+        return tuple(item for item in self._shared_views if item.name == name)
+
+    def find_workflow_states_by_team(self, team_id: str) -> tuple[RemoteWorkflowState, ...]:
+        self.find_workflow_states_by_team_calls.append(team_id)
+        return self._workflow_states
+
+    def inspect_binding(self, _config: object) -> RemoteBinding:
+        self.inspect_binding_calls += 1
+        if self._binding is None:
+            raise AssertionError("inspect_binding should not have been called with a partial repository binding")
+        return self._binding
+
+
+def _full_fixture_client(team: RemoteTeamSummary, *, workflow_states: tuple[RemoteWorkflowState, ...] = ()) -> _OnboardClient:
+    group = RemoteProjectLabel(id=GROUP_ID, name="Repository", is_group=True, updated_at="2099-01-01T00:00:00Z", parent_id=None)
+    label = RemoteProjectLabel(id=LABEL_ID, name=SLUG, is_group=False, updated_at="2099-01-01T00:00:00Z", parent_id=GROUP_ID)
+    views = (
+        RemoteSharedView(id=PROJECT_VIEW_ID, name=f"{SLUG} / Features", type="project", shared=True),
+        RemoteSharedView(id=ISSUE_VIEW_ID, name=f"{SLUG} / Work", type="issue", shared=True),
+    )
+    return _OnboardClient(teams=(team,), project_labels=(group, label), shared_views=views, workflow_states=workflow_states, binding=_full_binding())
+
+
+class OnboardTests(unittest.TestCase):
+    def setUp(self) -> None:
+        isolate_operator_global_env(self)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+
+    def _invoke(self, arguments: list[str]) -> tuple[int, dict[str, object]]:
+        output = StringIO()
+        with redirect_stdout(output):
+            code = main(arguments)
+        return code, json.loads(output.getvalue())
+
+    def test_onboard_requires_repository(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _OnboardClient(teams=(team,))
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--json"])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(payload["diagnostics"][0]["code"], "onboard_repository_required")
+
+    def test_onboard_requires_team(self) -> None:
+        client = _OnboardClient()
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(["onboard", "--root", str(self.root), "--repository", SLUG, "--json"])
+
+        self.assertEqual(result, 2)
+        self.assertEqual(payload["diagnostics"][0]["code"], "onboard_team_required")
+
+    def test_onboard_apply_writes_the_committed_root_config(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertFalse(payload["dry_run"])
+        shared_path = Path(payload["changes"]["config_path"])
+        self.assertEqual(shared_path.name, "speckit-linear.yml")
+        self.assertTrue(shared_path.exists())
+        written = load_yaml_subset(shared_path)
+        self.assertEqual(written["repository"]["slug"], SLUG)
+        self.assertEqual(written["repository"]["project_label_group_id"], GROUP_ID)
+        self.assertEqual(written["repository"]["project_label_id"], LABEL_ID)
+        self.assertEqual(written["repository"]["project_view_id"], PROJECT_VIEW_ID)
+        self.assertEqual(written["repository"]["issue_view_id"], ISSUE_VIEW_ID)
+        self.assertEqual(payload["changes"]["missing_remote_resources"], [])
+        self.assertEqual(client.inspect_binding_calls, 1)
+
+    def test_onboard_dry_run_writes_nothing(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--dry-run", "--json"]
+            )
+
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["dry_run"])
+        self.assertFalse(Path(payload["changes"]["config_path"]).exists())
+        self.assertFalse((self.root / ".gitignore").exists())
+
+    def test_onboard_never_configures_the_shared_config_as_gitignored(self) -> None:
+        # The shared speckit-linear.yml is committed by default; onboard must
+        # only ever gitignore .speckit-linear.env -- never the shared config,
+        # and never a consumer's own project .env.
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(result, 0)
+        gitignore_content = (self.root / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn(".speckit-linear.env", gitignore_content)
+        self.assertNotIn("speckit-linear.yml", gitignore_content)
+        self.assertNotIn(".env\n", gitignore_content.replace(".speckit-linear.env", ""))
+        self.assertEqual(payload["changes"]["gitignore_entries_added"], [".speckit-linear.env"])
+
+    def test_onboard_preserves_an_already_present_gitignore(self) -> None:
+        (self.root / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            self._invoke(["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"])
+
+        content = (self.root / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("node_modules/", content)
+        self.assertIn(".speckit-linear.env", content)
+
+    def test_onboard_zero_matches_reports_what_is_missing_in_linear(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _OnboardClient(teams=(team,))
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(result, 0)
+        missing = payload["changes"]["missing_remote_resources"]
+        self.assertIn("project_label_group", missing)
+        self.assertIn("project_label", missing)
+        self.assertIn("project_view", missing)
+        self.assertIn("issue_view", missing)
+        warning = next(item for item in payload["diagnostics"] if item["code"] == "onboard_missing_remote")
+        self.assertEqual(warning["severity"], "warning")
+        self.assertIn("Repository", warning["message"])
+        self.assertIn(f"{SLUG} / Features", warning["message"])
+        # Nothing was created remotely and no side artifact was written.
+        self.assertEqual(client.inspect_binding_calls, 0)
+
+    def test_onboard_ambiguous_label_group_aborts(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        groups = (
+            RemoteProjectLabel(id="a", name="Repository", is_group=True, updated_at="2099-01-01T00:00:00Z", parent_id=None),
+            RemoteProjectLabel(id="b", name="Repository", is_group=True, updated_at="2099-01-01T00:00:00Z", parent_id=None),
+        )
+        client = _OnboardClient(teams=(team,), project_labels=groups)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(result, 6)
+        self.assertEqual(payload["diagnostics"][0]["code"], "project_label_group_ambiguous")
+
+    def test_onboard_ambiguous_shared_view_aborts(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        views = (
+            RemoteSharedView(id="a", name=f"{SLUG} / Features", type="project", shared=True),
+            RemoteSharedView(id="b", name=f"{SLUG} / Features", type="project", shared=True),
+        )
+        client = _OnboardClient(teams=(team,), shared_views=views)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(result, 6)
+        self.assertEqual(payload["diagnostics"][0]["code"], "shared_view_ambiguous")
+
+    def test_onboard_never_mutates_linear(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team)
+        self.assertFalse(hasattr(client, "mutation"))
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, _ = self._invoke(["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--apply", "--json"])
+
+        self.assertEqual(result, 0)
+
+    def test_onboard_is_idempotent_on_rerun(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            first_result, first_payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+            second_result, second_payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(first_result, 0)
+        self.assertEqual(second_result, 0)
+        first_written = load_yaml_subset(Path(first_payload["changes"]["config_path"]))
+        second_written = load_yaml_subset(Path(second_payload["changes"]["config_path"]))
+        self.assertEqual(first_written, second_written)
+        # A rerun with the same flags reports no further config diff.
+        self.assertEqual(second_payload["changes"]["config_changes"], [])
+        self.assertEqual(second_payload["changes"]["gitignore_entries_added"], [])
+
+    def test_onboard_source_never_calls_the_mutation_transport(self) -> None:
+        # Static, structural guarantee alongside the scripted-transport check
+        # above (a fake client with no `mutation` method): onboard's own
+        # source, and every helper it calls, contains no literal
+        # `.mutation(` call anywhere -- the same guarantee doc "onboard"
+        # requires ("performs NO GraphQL mutations, ever").
+        for function in (cli_module.run_onboard, cli_module._resolve_repository_label, cli_module._resolve_lifecycle):
+            source = inspect.getsource(function)
+            self.assertNotIn(".mutation(", source)
+
+    def test_onboard_default_resolves_lowest_position_state(self) -> None:
+        # No flags at all: installing the extension means sync is on by
+        # default, so lifecycle resolution now runs unconditionally.
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        states = (
+            RemoteWorkflowState(id="c1111111-1111-4111-8111-111111111111", name="Done", type="completed", updated_at="2099-01-01T00:00:00Z", position=2.0),
+            RemoteWorkflowState(id="c2222222-2222-4222-8222-222222222222", name="Merged", type="completed", updated_at="2099-01-01T00:00:00Z", position=1.0),
+            RemoteWorkflowState(id="c3333333-3333-4333-8333-333333333333", name="Todo", type="unstarted", updated_at="2099-01-01T00:00:00Z", position=0.0),
+        )
+        client = _full_fixture_client(team, workflow_states=states)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(result, 0)
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertEqual(written["lifecycle"]["completed_state_id"], "c2222222-2222-4222-8222-222222222222")
+        self.assertEqual(written["lifecycle"]["open_state_id"], "c3333333-3333-4333-8333-333333333333")
+        self.assertEqual(client.find_workflow_states_by_team_calls, [TEAM_ID])
+
+    def test_onboard_default_tied_position_warns_and_continues(self) -> None:
+        # Behavior change: an ambiguous default resolution must never fail
+        # onboarding -- it warns (candidates listed) and continues without a
+        # lifecycle section, exit 0. This scenario used to fail closed under
+        # the now-removed --with-lifecycle flag.
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        states = (
+            RemoteWorkflowState(id="c1111111-1111-4111-8111-111111111111", name="Done", type="completed", updated_at="2099-01-01T00:00:00Z", position=1.0),
+            RemoteWorkflowState(id="c2222222-2222-4222-8222-222222222222", name="Merged", type="completed", updated_at="2099-01-01T00:00:00Z", position=1.0),
+            RemoteWorkflowState(id="c3333333-3333-4333-8333-333333333333", name="Todo", type="unstarted", updated_at="2099-01-01T00:00:00Z", position=0.0),
+        )
+        client = _full_fixture_client(team, workflow_states=states)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(result, 0)
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertNotIn("lifecycle", written)
+        codes = [item["code"] for item in payload["diagnostics"]]
+        self.assertIn("lifecycle_state_ambiguous", codes)
+        self.assertIn("lifecycle_skipped", codes)
+        ambiguous = next(item for item in payload["diagnostics"] if item["code"] == "lifecycle_state_ambiguous")
+        self.assertEqual(ambiguous["severity"], "warning")
+
+    def test_onboard_default_missing_type_warns_and_continues(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        states = (RemoteWorkflowState(id="c3333333-3333-4333-8333-333333333333", name="Todo", type="unstarted", updated_at="2099-01-01T00:00:00Z", position=0.0),)
+        client = _full_fixture_client(team, workflow_states=states)
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+            )
+
+        self.assertEqual(result, 0)
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertNotIn("lifecycle", written)
+        codes = [item["code"] for item in payload["diagnostics"]]
+        self.assertIn("lifecycle_state_missing", codes)
+        self.assertIn("lifecycle_skipped", codes)
+
+    def _lifecycle_states(self, *states: RemoteWorkflowState) -> tuple[RemoteWorkflowState, ...]:
+        return (
+            RemoteWorkflowState(id=COMPLETED_STATE_ID, name="Done", type="completed", updated_at="2099-01-01T00:00:00Z", position=3.0),
+            RemoteWorkflowState(id=OPEN_STATE_ID, name="Todo", type="unstarted", updated_at="2099-01-01T00:00:00Z", position=0.0),
+            *states,
+        )
+
+    def _onboard_with(self, states: tuple[RemoteWorkflowState, ...]) -> dict[str, object]:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team, workflow_states=states)
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"])
+        self.assertEqual(result, 0)
+        return payload
+
+    def test_onboard_resolves_the_started_and_review_states_by_name(self) -> None:
+        states = self._lifecycle_states(
+            RemoteWorkflowState(id=STARTED_STATE_ID, name="In Progress", type="started", updated_at="2099-01-01T00:00:00Z", position=1.0),
+            RemoteWorkflowState(id=REVIEW_STATE_ID, name="In Review", type="started", updated_at="2099-01-01T00:00:00Z", position=2.0),
+        )
+
+        payload = self._onboard_with(states)
+
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertEqual(written["lifecycle"]["started_state_id"], STARTED_STATE_ID)
+        self.assertEqual(written["lifecycle"]["review_state_id"], REVIEW_STATE_ID)
+        self.assertEqual(written["lifecycle"]["completed_state_id"], COMPLETED_STATE_ID)
+        self.assertEqual(written["lifecycle"]["open_state_id"], OPEN_STATE_ID)
+        self.assertEqual(payload["changes"]["missing_remote_resources"], [])
+
+    def test_onboard_reports_a_missing_in_review_state_and_keeps_the_rest(self) -> None:
+        states = self._lifecycle_states(
+            RemoteWorkflowState(id=STARTED_STATE_ID, name="In Progress", type="started", updated_at="2099-01-01T00:00:00Z", position=1.0),
+        )
+
+        payload = self._onboard_with(states)
+
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertEqual(written["lifecycle"]["started_state_id"], STARTED_STATE_ID)
+        self.assertNotIn("review_state_id", written["lifecycle"])
+        self.assertEqual(payload["changes"]["missing_remote_resources"], ["review_state"])
+        warning = next(item for item in payload["diagnostics"] if item["code"] == "lifecycle_review_state_missing")
+        self.assertEqual(warning["severity"], "warning")
+        self.assertIn("In Review", warning["message"])
+
+    def test_onboard_never_resolves_in_progress_onto_the_in_review_state(self) -> None:
+        # A Team that calls its in-progress state something else still
+        # resolves positionally, but the state reserved by name for review
+        # must never be handed to both fields.
+        states = self._lifecycle_states(
+            RemoteWorkflowState(id=STARTED_STATE_ID, name="Doing", type="started", updated_at="2099-01-01T00:00:00Z", position=1.0),
+            RemoteWorkflowState(id=REVIEW_STATE_ID, name="In Review", type="started", updated_at="2099-01-01T00:00:00Z", position=2.0),
+        )
+
+        payload = self._onboard_with(states)
+
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertEqual(written["lifecycle"]["started_state_id"], STARTED_STATE_ID)
+        self.assertEqual(written["lifecycle"]["review_state_id"], REVIEW_STATE_ID)
+
+    def test_onboard_reports_both_intermediate_states_missing_without_failing(self) -> None:
+        payload = self._onboard_with(self._lifecycle_states())
+
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertEqual(set(written["lifecycle"]), {"completed_state_id", "open_state_id"})
+        self.assertEqual(payload["changes"]["missing_remote_resources"], ["started_state", "review_state"])
+
+    def test_onboard_is_still_idempotent_with_the_four_workflow_states(self) -> None:
+        states = self._lifecycle_states(
+            RemoteWorkflowState(id=STARTED_STATE_ID, name="In Progress", type="started", updated_at="2099-01-01T00:00:00Z", position=1.0),
+            RemoteWorkflowState(id=REVIEW_STATE_ID, name="In Review", type="started", updated_at="2099-01-01T00:00:00Z", position=2.0),
+        )
+
+        first = self._onboard_with(states)
+        second = self._onboard_with(states)
+
+        self.assertEqual(
+            load_yaml_subset(Path(first["changes"]["config_path"])),
+            load_yaml_subset(Path(second["changes"]["config_path"])),
+        )
+        self.assertEqual(second["changes"]["config_changes"], [])
+
+    def test_onboard_dry_run_rejects_combination_with_apply(self) -> None:
+        client = _OnboardClient()
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            result, payload = self._invoke(
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--dry-run", "--apply", "--json"]
+            )
+
+        self.assertEqual(result, 2)
+        self.assertEqual(payload["diagnostics"][0]["code"], "onboard_mode")
+
+
+if __name__ == "__main__":
+    unittest.main()

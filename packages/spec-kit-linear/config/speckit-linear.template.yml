@@ -1,0 +1,40 @@
+schema_version: "1.0"
+
+linear:
+  workspace_id: "00000000-0000-0000-0000-000000000000"
+  team_id: "00000000-0000-0000-0000-000000000000"
+  team_key: "TEAM"
+
+repository:
+  slug: "repository-slug"
+  project_label_group_id: "00000000-0000-0000-0000-000000000000"
+  project_label_id: "00000000-0000-0000-0000-000000000000"
+  project_label: "repository-slug"
+  project_view_id: "00000000-0000-0000-0000-000000000000"
+  issue_view_id: "00000000-0000-0000-0000-000000000000"
+
+# Optional. Omit to leave Txxx Issue workflow state untouched by push;
+# `doctor` then reports lifecycle sync as disabled. completed_state_id and
+# open_state_id are required together. started_state_id ("In Progress") and
+# review_state_id ("In Review") are each optional: without them the tasks
+# that derive to those states keep the state they already have, and a
+# ready-for-review task falls back to started_state_id. `onboard` fills all
+# four in automatically from the Team's workflow states.
+# lifecycle:
+#   completed_state_id: "00000000-0000-0000-0000-000000000000"
+#   open_state_id: "00000000-0000-0000-0000-000000000000"
+#   started_state_id: "00000000-0000-0000-0000-000000000000"
+#   review_state_id: "00000000-0000-0000-0000-000000000000"
+
+# Optional. Maps a `[@alias]` marker in tasks.md to a Linear account; the
+# assignee is set only when the Txxx Issue is created.
+# team:
+#   members:
+#     alias: "name@example.com"
+
+# Optional; both default to true. lifecycle_enabled gates whether a
+# `push --hook` invocation runs at all; auto_apply whether it applies what it
+# renders instead of only previewing it.
+# hooks:
+#   lifecycle_enabled: true
+#   auto_apply: true
