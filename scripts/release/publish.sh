@@ -124,6 +124,20 @@ Path("catalog/bundles.json").write_text(json.dumps(c, indent=2) + "\n")
 print("lock and catalogs rewritten")
 EOF
 
+# --- Conformance at the consistent point --------------------------------
+# Lock and catalogs now match the manifests; prove the whole composition
+# still installs before anything is committed, tagged, or published. On
+# failure, revert the rewrite and abort with nothing to undo. (Added after
+# the 0.2.1 release shipped while conformance was red: the operator's bump
+# had omitted the catalogs and nothing here checked.)
+if ! bash scripts/conformance/bundles.sh; then
+  git checkout -- versions.lock.yml catalog
+  for entry in ${pending_ext[@]+"${pending_ext[@]}"}; do
+    git tag -d "${entry%%:*}/v${entry##*:}" >/dev/null 2>&1 || true
+  done
+  fail "bundle conformance failed; the rewrite and the local tags were reverted, nothing was published"
+fi
+
 git add versions.lock.yml catalog
 git commit -q -m "chore(release): record the release pins"
 
