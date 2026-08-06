@@ -217,7 +217,7 @@ In order, before or alongside Stage 7:
    `SPECIFY_FEATURE_DIRECTORY` for the underlying scripts. Delivered
    2026-08-06.
 3. `/speckit.chore` — one command from the Linear issue to its issue-key
-   branch and the existing delivery flow.
+   branch and the existing delivery flow. Delivered 2026-08-06.
 
 ## Releases
 

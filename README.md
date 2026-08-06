@@ -167,9 +167,11 @@ El camino corto — sin spec ni plan:
 
 1. El bug o chore **nace como Issue en Linear** (lo crea una persona), p.
    ej. `WOR-123`.
-2. Un branch con la clave del issue: `wor-123-slug-corto`. Los estados se
-   derivan igual que en features: branch o PR draft → *In Progress*, PR
-   ready → *In Review*, merge → *Done*.
+2. `/speckit.chore WOR-123` arranca el lado repo: crea el branch con la
+   clave del issue (`wor-123-slug-corto`) desde el default branch al día
+   y proyecta *In Progress*. Los estados se derivan igual que en
+   features: branch o PR draft → *In Progress*, PR ready → *In Review*,
+   merge → *Done*.
 3. Si es un **bug**, usa el trío de triage: `/speckit.bug.assess` (pégale
    el reporte o la URL) → `/speckit.bug.fix` → `/speckit.bug.test`. Los
    tres reportes quedan en `.specify/bugs/<slug>/` y viajan en el PR como
@@ -224,8 +226,8 @@ specify bundle install developer
   ├─ code-review ..... ídem → .specify/extensions/code-review/
   └─ preset default .. se resuelve en nuestro catálogo de presets
                        → templates a .specify/presets/ y registra los
-                         comandos (/speckit.pr, /speckit.doctor) como
-                         skills de TU agente
+                         comandos (/speckit.pr, /speckit.chore,
+                         /speckit.doctor) como skills de TU agente
 ```
 
 **Después de instalar, todo es local**: comandos, templates y extensiones
