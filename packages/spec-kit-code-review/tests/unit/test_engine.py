@@ -9,7 +9,6 @@ on disk.
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 import unittest
 from pathlib import Path
@@ -20,7 +19,7 @@ from spec_kit_code_review.engine import canonical_executable, install_engine, re
 from spec_kit_code_review.errors import EXIT_PREREQUISITE, AppError
 from spec_kit_code_review.paths import OCR_TOOL_NAME, tool_root
 from spec_kit_code_review.process import sha256_file
-from tests.support.fixtures import FAKE_OCR_SOURCE, install_fake_npm
+from tests.support.fixtures import FAKE_OCR_SOURCE, install_fake_npm, sealed_path
 
 
 TAG = "v1.8.3"
@@ -45,14 +44,7 @@ class EngineCase(unittest.TestCase):
         return canonical_executable(TAG, {**self.environment, **overrides})
 
     def _path(self) -> str:
-        """This test's fakes first, plus what their interpreter needs."""
-
-        directories = [str(self.bin)]
-        located = shutil.which("python3")
-        if located:
-            directories.append(str(Path(located).resolve().parent))
-        directories.extend(["/usr/bin", "/bin"])
-        return ":".join(directories)
+        return sealed_path(self.bin)
 
 
 class ResolutionTests(EngineCase):

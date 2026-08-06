@@ -233,3 +233,26 @@ def clean_environment(**overrides: str) -> dict[str, str]:
     environment = {key: value for key, value in os.environ.items() if not key.startswith("SPECKIT_CODE_REVIEW_")}
     environment.update(overrides)
     return environment
+
+
+def sealed_path(fake_bin) -> str:
+    """A PATH of exactly two directories: the test's fakes, and symlinks to
+    the real runtime tools the code under test needs (git, uv, specify,
+    python3). System directories never enter it, so an "absent tool" really
+    is absent on any machine — including CI runners, where `gh` lives in
+    `/usr/bin` and would otherwise leak into the sealed environment.
+    """
+
+    import shutil as _shutil
+    from pathlib import Path as _Path
+
+    fake_bin = _Path(fake_bin)
+    runtime = fake_bin.parent / "runtime-bin"
+    runtime.mkdir(parents=True, exist_ok=True)
+    for tool in ("git", "sh", "bash", "uv", "specify", "python3"):
+        located = _shutil.which(tool)
+        if located:
+            link = runtime / tool
+            if not link.exists():
+                link.symlink_to(_Path(located).resolve())
+    return f"{fake_bin}:{runtime}"

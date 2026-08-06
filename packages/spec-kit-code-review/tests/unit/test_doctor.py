@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 import unittest
 from pathlib import Path
@@ -30,6 +29,7 @@ from tests.support.fixtures import (
     install_fake_ocr,
     install_fake_ocr_at,
     isolate_operator_global_env,
+    sealed_path,
     write_lock,
 )
 from tests.support.repo import TemporaryRepository
@@ -94,22 +94,7 @@ class DoctorCase(unittest.TestCase):
         return overrides
 
     def _path(self) -> str:
-        """A PATH holding only this test's fakes plus the runtime tools doctor needs.
-
-        The real ``ocr`` and ``gh`` of the developer's machine stay out of it, so
-        an "absent tool" case really is absent; ``uv`` and ``specify`` are added
-        back by directory because the runtime and speckit groups look for them.
-        """
-
-        directories = [str(self.bin)]
-        for tool in ("uv", "specify", "python3"):
-            located = shutil.which(tool)
-            if located:
-                directory = str(Path(located).resolve().parent)
-                if directory not in directories:
-                    directories.append(directory)
-        directories.extend(["/usr/bin", "/bin"])
-        return ":".join(directories)
+        return sealed_path(self.bin)
 
     def _write_lock(self) -> None:
         digest = self.lock_digest

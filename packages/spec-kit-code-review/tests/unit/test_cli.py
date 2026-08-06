@@ -37,6 +37,7 @@ from tests.support.fixtures import (
     install_fake_ocr,
     install_payload_executable,
     isolate_operator_global_env,
+    sealed_path,
     write_lock,
 )
 from tests.support.repo import TemporaryRepository
@@ -126,15 +127,7 @@ class CliCase(unittest.TestCase):
         install_fake_ocr(self.bin, state)
 
     def _path(self) -> str:
-        directories = [str(self.bin)]
-        for tool in ("uv", "specify", "python3"):
-            located = shutil.which(tool)
-            if located:
-                directory = str(Path(located).resolve().parent)
-                if directory not in directories:
-                    directories.append(directory)
-        directories.extend(["/usr/bin", "/bin"])
-        return ":".join(directories)
+        return sealed_path(self.bin)
 
     def invoke(self, *arguments: str, cwd: Path | None = None) -> tuple[int, str, str]:
         argv = list(arguments)
