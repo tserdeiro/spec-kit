@@ -9,13 +9,13 @@ description: "Dependency-ordered delivery units for the guided flow"
 
 ## Phase 1: Orientation (US1)
 
-- [ ] T001 Instruct the task branch at task start in presets/default/templates/tasks-template.md
+- [x] T001 Instruct the task branch at task start in presets/default/templates/tasks-template.md
   - **Traces**: FR-002; outcome: the implementing agent is told to create `NNN-T###-slug` before touching code
   - **Depends on**: none
   - **Boundaries**: presets/default only; no CLI, no extension code
   - **Evidence**: template diff; conformance `scripts/conformance/bundles.sh` still green
   - **Delivery**: single PR
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #1 merged 2026-08-06; conformance passed; WOR-18 Done
 
 - [ ] T002 Add the NEXT column to status in packages/spec-kit-linear
   - **Traces**: FR-001, SC-001; outcome: every task/work-item row suggests its next action, in text and --json
