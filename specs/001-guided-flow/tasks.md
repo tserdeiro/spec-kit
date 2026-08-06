@@ -17,13 +17,13 @@ description: "Dependency-ordered delivery units for the guided flow"
   - **Delivery**: single PR
   - **Completion evidence**: PR #1 merged 2026-08-06; conformance passed; WOR-18 Done
 
-- [ ] T002 Add the NEXT column to status in packages/spec-kit-linear
+- [x] T002 Add the NEXT column to status in packages/spec-kit-linear
   - **Traces**: FR-001, SC-001; outcome: every task/work-item row suggests its next action, in text and --json
   - **Depends on**: none
   - **Boundaries**: reporting/cli of spec-kit-linear; output only, no new command or flag
   - **Evidence**: `uv run pytest packages/spec-kit-linear/tests` -> green, with new NEXT tests
   - **Delivery**: single PR
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #3 merged 2026-08-06; 332 tests green; WOR-19 Done
 
 ## Phase 2: Execution (US2)
 
