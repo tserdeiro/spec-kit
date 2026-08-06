@@ -214,7 +214,8 @@ In order, before or alongside Stage 7:
    guarding it after the fact. Delivered 2026-08-06.
 2. `implement` feature argument — the preset append bridges a feature
    named in the command (`/speckit.implement 003-slug`) to
-   `SPECIFY_FEATURE` for the underlying scripts.
+   `SPECIFY_FEATURE_DIRECTORY` for the underlying scripts. Delivered
+   2026-08-06.
 3. `/speckit.chore` — one command from the Linear issue to its issue-key
    branch and the existing delivery flow.
 
