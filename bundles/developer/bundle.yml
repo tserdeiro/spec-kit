@@ -3,7 +3,7 @@ schema_version: "1.0"
 bundle:
   id: "developer"
   name: "Developer"
-  version: "0.1.0"
+  version: "0.2.0"
   role: "developer"
   description: "Implements tasks one branch at a time, self-reviews, and opens draft PRs."
   author: "tserdeiro"
@@ -23,12 +23,12 @@ provides:
     - id: "bug"
       version: "1.0.0"
     - id: "linear"
-      version: "0.1.0"
+      version: "0.2.0"
     - id: "code-review"
-      version: "0.1.0"
+      version: "0.1.1"
   presets:
     - id: "default"
-      version: "0.1.0"
+      version: "0.2.0"
       priority: 10
       strategy: "replace"
 

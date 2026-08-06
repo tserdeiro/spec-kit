@@ -5,8 +5,8 @@ Linear as the projection.
 
 ## What it installs
 
-- Preset `default` 0.1.0 (priority 10) — spec, plan, tasks, checklist templates.
-- Extension `linear` 0.1.0 — `onboard`, `push`, `status`, `doctor`.
+- Preset `default` 0.2.0 (priority 10) — spec, plan, tasks, checklist templates.
+- Extension `linear` 0.2.0 — `onboard`, `push`, `status`, `doctor`.
 
 Integration-agnostic: it inherits the project's active agent integration.
 

@@ -5,11 +5,11 @@ PR, self-review before `ready for review`.
 
 ## What it installs
 
-- Preset `default` 0.1.0 (priority 10) — spec, plan, tasks, checklist templates.
+- Preset `default` 0.2.0 (priority 10) — spec, plan, tasks, checklist templates.
 - Extension `git` 1.0.0 — branch creation and numbering (ships with Spec Kit).
 - Extension `bug` 1.0.0 — `/speckit.bug.assess|fix|test` triage trio (ships with Spec Kit).
-- Extension `linear` 0.1.0 — task, work-item and PR state projection.
-- Extension `code-review` 0.1.0 — `/speckit.code-review` self-review.
+- Extension `linear` 0.2.0 — task, work-item and PR state projection.
+- Extension `code-review` 0.1.1 — `/speckit.code-review` self-review.
 
 Integration-agnostic: it inherits the project's active agent integration.
 

@@ -37,3 +37,6 @@ venv/
 # Installed copy of presets/default (regenerate: specify preset add --dev presets/default)
 /.specify/presets/
 
+
+# Session-local agent state
+/.claude/

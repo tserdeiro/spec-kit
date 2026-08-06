@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- The persisted session `repository_root` is expanded on read; phase 2 of
+  the review works again for any repository under the home directory
+  (`.specify/bugs/session-root-redaction/`).
+
 ## 0.1.0
 
 First release of the fresh repository. One context-aware review command —

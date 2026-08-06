@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - `status` shows a `NEXT` column: the suggested next action per task and
   work item, derived from the same observable state as the projection

@@ -3,7 +3,7 @@ schema_version: "1.0"
 preset:
   id: "default"
   name: "Default Workflow Templates"
-  version: "0.1.0"
+  version: "0.2.0"
   description: "Spec, plan, tasks, and checklist templates with the branch-per-task and stacked-PR delivery conventions"
   author: "tserdeiro"
   repository: "https://github.com/tserdeiro/spec-kit"
