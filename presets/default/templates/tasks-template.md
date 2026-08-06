@@ -90,11 +90,3 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[P]` 
 - **Parallel opportunities**: [task IDs and why their boundaries do not overlap]
 - **Stack order**: [PR 1 -> PR 2, or `Not applicable`]
 
-## Product handoff
-
-- **Analysis**: [pending | clean with requirement/task counts and coverage]
-- **Technical approval**: [pending | record]
-- **Linear synchronization**: [pending | reviewed dry-run and applied mapping]
-- **Assignment**: [pending | every executable task individually assigned]
-- **Handoff state**: `not-ready-for-development` until every gate above is complete.
-
