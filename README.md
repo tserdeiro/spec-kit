@@ -16,6 +16,7 @@ sin fork: solo composición.
 - [🐛 Bugs y chores](#-bugs-y-chores)
 - [🧰 Comandos](#-comandos)
 - [🧬 ¿Cómo funciona por dentro?](#-cómo-funciona-por-dentro)
+- [🏢 Rollout en tu equipo](#-rollout-en-tu-equipo)
 - [🔄 Actualizar](#-actualizar)
 - [❓ Problemas frecuentes](#-problemas-frecuentes)
 - [🔐 Integridad](#-integridad)
@@ -230,6 +231,56 @@ specify bundle install developer
 **Después de instalar, todo es local**: comandos, templates y extensiones
 viven en tu repo; los catálogos solo se consultan al instalar o al correr
 `bundle update`. Este repositorio nunca participa en tu runtime.
+
+## 🏢 Rollout en tu equipo
+
+**Instalar es un evento por-repositorio, no por-dev**: todo lo que el
+paso 3 instala queda dentro del repo y se commitea. Quien clona después
+recibe el producto ya instalado.
+
+| Una vez por repositorio (se commitea) | Cada dev, en su máquina |
+| --- | --- |
+| `specify init` + los 3 `catalog add` | `gh auth login` |
+| `specify bundle install developer` | su `.speckit-linear.env` con **su** API key (gitignoreado) |
+| `onboard` (el binding de Linear, sin secretos) | `doctor --fix` una vez (instala el motor de revisión localmente) |
+
+- **Con el bundle `developer` alcanza para todos**: es el superconjunto de
+  `product` y `reviewer`. Los roles definen qué comandos *usa* cada quien,
+  no qué instala.
+- **Agentes distintos conviven**: instala las integraciones que tu equipo
+  usa hoy; cuando aparezca un dev con otro agente, cualquiera corre
+  `specify integration install <agente>` + `specify bundle update --all`
+  (re-registra los comandos del preset en el agente nuevo) y lo commitea.
+  No hace falta predecir.
+
+**¿Cómo sabe el sistema quién está en qué?** No lo sabe — lo *deriva*,
+por pregunta, de la realidad observable:
+
+| Pregunta | De dónde sale la respuesta |
+| --- | --- |
+| ¿En qué tarea estaba mi dev? | El branch en el que está parado (`002-T003-slug` codifica feature y tarea) + `tasks.md` + `/speckit.linear.status --all` |
+| ¿A qué tarea le hago review? | A un PR explícito, siempre — nunca a "lo que alguien estaba haciendo" |
+| ¿Cómo no se pisan dos devs? | Cada tarea vive en su branch; cualquier `push` ve todos los branches y PRs del repo y reconcilia idempotente |
+| ¿Quién tiene asignado qué? | Linear (producto asigna); la columna `ASSIGNEE` del status lo muestra |
+
+- **`push` reconcilia lo que su alcance cubre**: tu feature seleccionada
+  (más los bugs/chores, que van en todo push). Las tareas de otro plan las
+  deriva un push que las incluya (`--all`, o el de quien trabaja ese
+  plan) — y como todo es idempotente, repetir da "0 operaciones".
+- **`implement` no elige entre planes**: opera sobre la feature activa
+  (`.specify/feature.json`, u `export SPECIFY_FEATURE=...` por terminal) y
+  toma su primera tarea sin marcar. Elegir *qué* plan trabaja cada quien
+  es decisión humana (la asignación en Linear); el primer movimiento tras
+  un pull es siempre `/speckit.linear.status --all`.
+
+Dos fricciones conocidas, con su mitigación:
+
+1. **`.specify/feature.json` es compartido**: dos personas creando
+   features *a la vez* se lo disputan — creación secuencial, o
+   `SPECIFY_FEATURE` por terminal (la implementación no depende de él: manda
+   el branch).
+2. **Una tarea = un assignee**: dos devs en la misma tarea colisionarían en
+   el branch; la asignación en Linear es el semáforo.
 
 ## 🔄 Actualizar
 
