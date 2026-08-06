@@ -27,7 +27,8 @@ The branch is what projects the task to *In Progress*; it must exist and
 follow the convention before the PR opens.
 
 - Correctly named branch checked out → continue.
-- On `main` or a misnamed branch with the work committed → create the
+- On the repository's default branch or a misnamed branch with the work
+  committed → create the
   correctly named branch **at the current commit** (`git switch -c
   NNN-T###-short-slug`) and continue there. Never rename a branch that
   already has an open PR.
@@ -53,8 +54,9 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` — every section, in its order:
   Requirements: the task's **Traces** line. Tasks: the `T###`, or
   `N/A (short path)`.
 - **Outcome** — the task's outcome line, phrased as the delivered result.
-- **Changes** — summarize the real diff (`git diff main...HEAD --stat`),
-  not the plan.
+- **Changes** — summarize the real diff against the repository's default
+  branch (`BASE=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)`;
+  `git diff $BASE...HEAD --stat`), not the plan.
 - **Verification evidence** — the task's **Evidence** commands with their
   actual, truthful results; run them if you have not.
 - **Risk and delivery** — honest risks; `Stack: standalone`, or
