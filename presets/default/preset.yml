@@ -38,6 +38,11 @@ provides:
       description: "Quality checklist"
       replaces: "checklist-template"
 
+    - type: "command"
+      name: "speckit.pr"
+      file: "commands/pr.md"
+      description: "Guarantee the task branch and open the canonical draft PR from the feature artifacts"
+
 tags:
   - "workflow"
   - "templates"
