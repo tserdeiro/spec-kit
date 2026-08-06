@@ -267,18 +267,21 @@ por pregunta, de la realidad observable:
   (más los bugs/chores, que van en todo push). Las tareas de otro plan las
   deriva un push que las incluya (`--all`, o el de quien trabaja ese
   plan) — y como todo es idempotente, repetir da "0 operaciones".
-- **`implement` no elige entre planes**: opera sobre la feature activa
-  (`.specify/feature.json`, u `export SPECIFY_FEATURE=...` por terminal) y
-  toma su primera tarea sin marcar. Elegir *qué* plan trabaja cada quien
-  es decisión humana (la asignación en Linear); el primer movimiento tras
-  un pull es siempre `/speckit.linear.status --all`.
+- **`implement` no elige entre planes**: opera sobre la feature que
+  nombres en el comando (`/speckit.implement 003` — el agente la resuelve
+  bajo `specs/` y la deja como feature activa *local*) o, sin argumento,
+  sobre la feature activa (`.specify/feature.json`), y toma su primera
+  tarea sin marcar. Ese cambio de feature activa nunca viaja en los
+  commits de tarea. Elegir *qué* plan trabaja cada quien es decisión
+  humana (la asignación en Linear); el primer movimiento tras un pull es
+  siempre `/speckit.linear.status --all`.
 
 Dos fricciones conocidas, con su mitigación:
 
 1. **`.specify/feature.json` es compartido**: dos personas creando
-   features *a la vez* se lo disputan — creación secuencial, o
-   `SPECIFY_FEATURE` por terminal (la implementación no depende de él: manda
-   el branch).
+   features *a la vez* se lo disputan — creación secuencial, o nombrar la
+   feature en el comando (`/speckit.implement 003`); la implementación no
+   depende del archivo: manda el branch.
 2. **Una tarea = un assignee**: dos devs en la misma tarea colisionarían en
    el branch; la asignación en Linear es el semáforo.
 
