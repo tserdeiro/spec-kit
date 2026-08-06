@@ -1,0 +1,35 @@
+schema_version: "1.0"
+
+bundle:
+  id: "developer"
+  name: "Developer"
+  version: "0.1.0"
+  role: "developer"
+  description: "Implements tasks one branch at a time, self-reviews, and opens draft PRs."
+  author: "tserdeiro"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=0.13.0,<0.14.0"
+  tools: []
+  mcp: []
+
+# Integration-agnostic: inherits the project's active agent integration.
+
+provides:
+  extensions:
+    - id: "git"
+      version: "1.0.0"
+    - id: "bug"
+      version: "1.0.0"
+    - id: "linear"
+      version: "0.1.0"
+    - id: "code-review"
+      version: "0.1.0"
+  presets:
+    - id: "default"
+      version: "0.1.0"
+      priority: 10
+      strategy: "replace"
+
+tags: ["developer", "implementation", "code-review", "role"]

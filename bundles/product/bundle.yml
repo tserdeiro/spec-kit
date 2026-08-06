@@ -1,0 +1,29 @@
+schema_version: "1.0"
+
+bundle:
+  id: "product"
+  name: "Product"
+  version: "0.1.0"
+  role: "product"
+  description: "Turns business needs into specs, plans, and tasks, projected into Linear."
+  author: "tserdeiro"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=0.13.0,<0.14.0"
+  tools: []
+  mcp: []
+
+# Integration-agnostic: inherits the project's active agent integration.
+
+provides:
+  extensions:
+    - id: "linear"
+      version: "0.1.0"
+  presets:
+    - id: "default"
+      version: "0.1.0"
+      priority: 10
+      strategy: "replace"
+
+tags: ["product", "spec", "linear", "role"]

@@ -1,0 +1,29 @@
+schema_version: "1.0"
+
+bundle:
+  id: "reviewer"
+  name: "Reviewer"
+  version: "0.1.0"
+  role: "reviewer"
+  description: "Runs the final agentic review on a pull request before human approval."
+  author: "tserdeiro"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=0.13.0,<0.14.0"
+  tools: []
+  mcp: []
+
+# Integration-agnostic: inherits the project's active agent integration.
+
+provides:
+  extensions:
+    - id: "code-review"
+      version: "0.1.0"
+  presets:
+    - id: "default"
+      version: "0.1.0"
+      priority: 10
+      strategy: "replace"
+
+tags: ["reviewer", "code-review", "role"]
