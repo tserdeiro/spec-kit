@@ -211,7 +211,7 @@ In order, before or alongside Stage 7:
 
 1. `publish.sh --bump` — produce the coherent version bump (manifests,
    bundle pins, conformance pin, changelog skeletons) instead of only
-   guarding it after the fact.
+   guarding it after the fact. Delivered 2026-08-06.
 2. `implement` feature argument — the preset append bridges a feature
    named in the command (`/speckit.implement 003-slug`) to
    `SPECIFY_FEATURE` for the underlying scripts.
