@@ -6,11 +6,11 @@ It supersedes the previous 1,291-line plan and the design contracts
 `spec-kit-linear.md` and `spec-kit-code-review.md`, which are deleted;
 each package's README is now its reference.
 
-**Status: stages 0–5 delivered** and accepted against the published
-artifacts on 2026-08-04; the acceptance evidence lives under
-[`validation/`](../validation/). Stage 6 is in progress — the first feature
-delivered through the product's own workflow. New work measures itself
-against the vision and extends this plan explicitly.
+**Status: delivered.** Stages 0–5 accepted against the published artifacts
+on 2026-08-04; Stage 6 — the first feature delivered through the product's
+own workflow — on 2026-08-06. The acceptance evidence lives under
+[`validation/`](../validation/). New work measures itself against the
+vision and extends this plan explicitly.
 
 ## Product
 
@@ -90,7 +90,7 @@ specified — and every stage below is done:
 | 3 — Workflow steps 4–7 | 2026-08-04 | `validation/linear-stage3-acceptance.md` |
 | 4 — Roles | 2026-08-04 | `validation/bundles-stage4-acceptance.md` |
 | 5 — Bugs and chores | 2026-08-04 | `validation/linear-stage5-acceptance.md` |
-| 6 — Guided flow | in progress | the feature's own `specs/` artifacts and PRs |
+| 6 — Guided flow | 2026-08-06 | `validation/guided-flow-stage6-acceptance.md` |
 
 ### Stage 0 — Truth repair (done)
 
@@ -153,7 +153,7 @@ specified — and every stage below is done:
 - Bugs use upstream's bundled `bug` extension (assess → fix → test), its
   reports traveling in the PR as evidence; the developer bundle ships it.
 
-### Stage 6 — Guided flow (in progress)
+### Stage 6 — Guided flow (done)
 
 The middle of the workflow (steps 4–5) is where an inexperienced developer
 gets lost: branch naming, opening the draft PR, filling the canonical body.
