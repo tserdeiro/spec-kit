@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # The whole maintainer release in one invocation (Stage 6, T005).
 #
-# The human bumps versions and changelogs first; this script does everything
-# mechanical, in the order the distribution's release flow established:
-# refuse a dirty tree -> tag and build each extension whose manifest version
-# has no tag yet -> rewrite the lock and catalogs from the manifests ->
-# commit the pins -> tag and build the bundles -> push everything -> create
-# the GitHub releases. `--dry-run` prints the plan and touches nothing.
+# `--bump <component>=<version> ...` rewrites every pin a release needs
+# coherently — manifests, bundle pins, conformance BUNDLE_VERSION,
+# changelog skeletons — so the human only writes the changelog entries,
+# reviews the diff, and commits. (Added after the 0.2.1 incident: the
+# hand-made bump was the only step that could drift.)
+#
+# Then the plain invocation does everything mechanical, in the order the
+# distribution's release flow established: refuse a dirty tree -> tag and
+# build each extension whose manifest version has no tag yet -> rewrite the
+# lock and catalogs from the manifests -> commit the pins -> tag and build
+# the bundles -> push everything -> create the GitHub releases. `--dry-run`
+# prints the plan and touches nothing.
 set -euo pipefail
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -16,9 +22,84 @@ cd "$repo_root"
 dry_run=false
 [ "${1:-}" = "--dry-run" ] && dry_run=true
 [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] && {
-  echo "Usage: publish.sh [--dry-run]" >&2; exit 2; }
+  echo "Usage: publish.sh [--dry-run | --bump <linear|code-review|preset|bundles>=<x.y.z> ...]" >&2; exit 2; }
 
 fail() { echo "ERROR: $1" >&2; exit 1; }
+
+# --- Bump mode -------------------------------------------------------------
+if [ "${1:-}" = "--bump" ]; then
+  shift
+  [ $# -ge 1 ] || fail "usage: publish.sh --bump <linear|code-review|preset|bundles>=<x.y.z> ..."
+  [ -z "$(git status --porcelain)" ] || fail "the tree is dirty; commit or stash first"
+  python3 - "$@" <<'EOF' || exit 1
+import re, sys
+from pathlib import Path
+
+targets = {}
+for arg in sys.argv[1:]:
+    key, _, version = arg.partition("=")
+    if key not in ("linear", "code-review", "preset", "bundles") or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        sys.exit(f"ERROR: invalid bump '{arg}'; expected <linear|code-review|preset|bundles>=<x.y.z>")
+    targets[key] = version
+
+if set(targets) & {"linear", "code-review", "preset"} and "bundles" not in targets:
+    sys.exit("ERROR: the bundles pin what they install and move together; add bundles=<x.y.z>")
+
+parse = lambda v: tuple(int(p) for p in v.split("."))
+def current(text, path):
+    m = re.search(r'^  version: "(\d+\.\d+\.\d+)"', text, re.M)
+    if not m:
+        sys.exit(f"ERROR: no version found in {path}")
+    return m.group(1)
+
+# Validate everything first, write only when the whole bump is coherent —
+# a half-applied bump is exactly the drift this mode exists to prevent.
+writes = []
+
+manifests = {"linear": Path("packages/spec-kit-linear/extension.yml"),
+             "code-review": Path("packages/spec-kit-code-review/extension.yml"),
+             "preset": Path("presets/default/preset.yml")}
+for key, path in manifests.items():
+    if key not in targets:
+        continue
+    text = path.read_text()
+    old = current(text, path)
+    if parse(targets[key]) <= parse(old):
+        sys.exit(f"ERROR: {key} is already {old}; {targets[key]} does not move it forward")
+    writes.append((path, text.replace(f'version: "{old}"', f'version: "{targets[key]}"', 1),
+                   f"{old} -> {targets[key]}"))
+
+if "bundles" in targets:
+    for role in ("product", "developer", "reviewer"):
+        path = Path(f"bundles/{role}/bundle.yml")
+        text = path.read_text()
+        old = current(text, path)
+        if parse(targets["bundles"]) <= parse(old):
+            sys.exit(f"ERROR: bundles/{role} is already {old}; {targets['bundles']} does not move it forward")
+        text = text.replace(f'version: "{old}"', f'version: "{targets["bundles"]}"', 1)
+        for key, pin in (("linear", "linear"), ("code-review", "code-review"), ("preset", "default")):
+            if key in targets:
+                text = re.sub(rf'(- id: "{pin}"\n      version: ")[^"]+', rf'\g<1>{targets[key]}', text)
+        writes.append((path, text, f"{old} -> {targets['bundles']} (pins updated)"))
+    conf = Path("scripts/conformance/bundles.sh")
+    writes.append((conf, re.sub(r'BUNDLE_VERSION="[^"]+"', f'BUNDLE_VERSION="{targets["bundles"]}"',
+                                conf.read_text()), f"BUNDLE_VERSION -> {targets['bundles']}"))
+
+for key, package in (("linear", "spec-kit-linear"), ("code-review", "spec-kit-code-review")):
+    if key not in targets:
+        continue
+    path = Path(f"packages/{package}/CHANGELOG.md")
+    writes.append((path, path.read_text().replace(
+        "# Changelog\n", f"# Changelog\n\n## {targets[key]}\n\n- TODO\n", 1),
+        f"skeleton for {targets[key]}"))
+
+for path, text, note in writes:
+    path.write_text(text)
+    print(f"  {path}: {note}")
+EOF
+  echo "bump applied; write the changelog entries (replace TODO), review the diff, commit, then run publish.sh"
+  exit 0
+fi
 
 # --- Preconditions ---------------------------------------------------------
 [ -z "$(git status --porcelain)" ] || fail "the tree is dirty; commit or stash first"
@@ -57,6 +138,14 @@ git rev-parse -q --verify "refs/tags/spec-kit-linear/v$linear_version" >/dev/nul
 git rev-parse -q --verify "refs/tags/spec-kit-code-review/v$review_version" >/dev/null || pending_ext+=("spec-kit-code-review:$review_version")
 pending_bundles=true
 git rev-parse -q --verify "refs/tags/bundles/v$bundle_version" >/dev/null && pending_bundles=false
+
+# A pending extension must carry its written changelog entry — the bump
+# only leaves a skeleton.
+for entry in ${pending_ext[@]+"${pending_ext[@]}"}; do
+  log="packages/${entry%%:*}/CHANGELOG.md"
+  grep -q "^## ${entry##*:}$" "$log" || fail "$log has no '## ${entry##*:}' section; write the changelog entry first"
+  ! grep -q "^- TODO$" "$log" || fail "$log still has a TODO entry; write the changelog first"
+done
 
 echo "release plan:"
 for entry in ${pending_ext[@]+"${pending_ext[@]}"}; do echo "  - ${entry%%:*} v${entry##*:}"; done
