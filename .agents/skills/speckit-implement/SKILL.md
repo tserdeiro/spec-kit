@@ -1,12 +1,14 @@
 ---
-name: "speckit-implement"
-description: "Execute the implementation plan by processing and executing all tasks defined in tasks.md"
-compatibility: "Requires spec-kit project structure with .specify/ directory"
+name: speckit-implement
+description: Execute the implementation plan by processing and executing all tasks
+  defined in tasks.md
+compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: "github-spec-kit"
-  source: "templates/commands/implement.md"
+  author: github-spec-kit
+  source: preset:default
 ---
 
+# Speckit Implement Skill
 
 ## User Input
 
@@ -221,3 +223,22 @@ Report final status with summary of completed work.
 - [ ] Implementation validated against specification, plan, and test coverage
 - [ ] Extension hooks dispatched or skipped according to the rules in Mandatory Post-Execution Hooks above
 - [ ] Completion reported to user with summary of completed work
+
+
+
+## Task delivery loop (tserdeiro/spec-kit)
+
+This distribution delivers **one branch and one draft PR per task**. As you
+implement, wrap every task in this loop:
+
+1. **Starting a task** — before touching any code for `T###`, create its
+   branch from an up-to-date `main` (or from the previous PR's branch when
+   this task stacks): `git switch -c NNN-T###-short-slug`.
+   The branch is what projects the task to *In Progress* in Linear.
+2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
+   invariant and opens the draft PR with the canonical body. Self-review
+   with `/speckit.code-review`, fix what it finds, then mark the PR
+   `ready for review`.
+3. **Between tasks** — `/speckit.linear.status` shows every task's derived
+   state and its suggested next action. A task is finished when a human
+   merged its PR and its checkbox records the completion evidence.
