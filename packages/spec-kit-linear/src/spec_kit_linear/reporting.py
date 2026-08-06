@@ -9,7 +9,7 @@ from .domain import DesiredState
 from .linear_client import RemoteWorkItem
 from .remote_discovery import RemoteDiscovery
 from .work_items import WorkItemState
-from .work_state import SOURCE_NONE, TaskWorkState
+from .work_state import SOURCE_NONE, TaskWorkState, next_action
 
 
 def _task_code(identity: str) -> str:
@@ -53,6 +53,15 @@ def build_task_rows(
                     "local_complete": task.completed,
                     "derived_state": derived.state if derived is not None else None,
                     "state_source": derived.source if derived is not None else None,
+                    "next": next_action(
+                        derived.state,
+                        derived.source,
+                        checked=task.completed,
+                        feature=desired.feature.identifier,
+                        task=_task_code(task.identity),
+                    )
+                    if derived is not None
+                    else None,
                     "remote_identifier": adopted.identifier if adopted is not None else None,
                     "remote_state": adopted.state_name if adopted is not None else None,
                     "assignee": adopted.assignee_name if adopted is not None else None,
@@ -117,6 +126,7 @@ def build_work_item_rows(
                 "identifier": item.identifier,
                 "derived_state": item.state,
                 "state_source": item.source,
+                "next": next_action(item.state, item.source),
                 "detail": item.detail,
                 "known_remotely": remote is not None,
                 "title": remote.title if remote is not None else None,
@@ -131,7 +141,7 @@ def render_work_item_table(work_item_rows: list[dict[str, object]]) -> str:
 
     if not work_item_rows:
         return ""
-    headers = ("ISSUE", "DERIVED", "FROM", "BRANCH", "TITLE", "STATE")
+    headers = ("ISSUE", "DERIVED", "FROM", "BRANCH", "TITLE", "STATE", "NEXT")
     rows = [
         (
             str(row["identifier"]),
@@ -140,6 +150,7 @@ def render_work_item_table(work_item_rows: list[dict[str, object]]) -> str:
             str(row["detail"]),
             str(row["title"] or ("not found in Linear" if not row["known_remotely"] else "—")),
             str(row["remote_state"] or "—"),
+            str(row["next"] or "—"),
         )
         for row in work_item_rows
     ]
@@ -174,7 +185,7 @@ def render_status_table(task_rows: list[dict[str, object]], remote_only_rows: li
         return "No local features were selected.\n"
 
     remote_only_by_feature = {row["feature"]: row["issues"] for row in (remote_only_rows or [])}
-    headers = ("TASK", "DONE", "DERIVED", "FROM", "ISSUE", "STATE", "ASSIGNEE")
+    headers = ("TASK", "DONE", "DERIVED", "FROM", "ISSUE", "STATE", "ASSIGNEE", "NEXT")
     lines: list[str] = []
     for feature in task_rows:
         lines.append(f"Feature {feature['feature']}")
@@ -189,6 +200,7 @@ def render_status_table(task_rows: list[dict[str, object]], remote_only_rows: li
                 str(task["remote_identifier"] or "—"),
                 str(task["remote_state"] or "—"),
                 str(task["assignee"] or "—"),
+                str(task.get("next") or "—"),
             )
             for task in feature["tasks"]
         ]

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `status` shows a `NEXT` column: the suggested next action per task and
+  work item, derived from the same observable state as the projection
+  (open the draft PR, self-review then mark ready, await the final review,
+  record completion evidence). Output only — no new command, no new flag.
+
 ## 0.1.0
 
 First release of the fresh repository. Five commands — `onboard`, `push`
