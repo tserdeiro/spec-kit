@@ -132,7 +132,10 @@ EOF
 # had omitted the catalogs and nothing here checked.)
 if ! bash scripts/conformance/bundles.sh; then
   git checkout -- versions.lock.yml catalog
-  fail "bundle conformance failed; the lock/catalog rewrite was reverted and nothing was published"
+  for entry in ${pending_ext[@]+"${pending_ext[@]}"}; do
+    git tag -d "${entry%%:*}/v${entry##*:}" >/dev/null 2>&1 || true
+  done
+  fail "bundle conformance failed; the rewrite and the local tags were reverted, nothing was published"
 fi
 
 git add versions.lock.yml catalog
