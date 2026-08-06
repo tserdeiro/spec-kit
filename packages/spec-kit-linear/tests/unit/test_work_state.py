@@ -190,3 +190,32 @@ class PullRequestScanTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NextActionTests(unittest.TestCase):
+    """FR-001: one suggested action per derived state, and nothing else."""
+
+    def test_the_whole_map(self) -> None:
+        from spec_kit_linear.work_state import next_action
+
+        cases = [
+            (("completed", "checkbox"), {"checked": True}, None),
+            (("completed", "pr"), {"checked": False},
+             "record completion evidence and check the box in tasks.md"),
+            (("completed", "pr"), {}, None),  # work item: no checkbox
+            (("review", "pr"), {}, "await the final review and the human merge"),
+            (("started", "pr"), {},
+             "self-review (/speckit.code-review), then mark ready for review"),
+            (("started", "branch"), {}, "open the draft PR"),
+            (("unstarted", "none"), {"feature": "001", "task": "T004"},
+             "start: create branch 001-T004-<slug>"),
+            (("unstarted", "none"), {}, "start: create branch NNN-T###-<slug>"),
+        ]
+        for (state, source), kwargs, expected in cases:
+            with self.subTest(state=state, source=source, **kwargs):
+                self.assertEqual(next_action(state, source, **kwargs), expected)
+
+    def test_it_never_suggests_for_the_unknown(self) -> None:
+        from spec_kit_linear.work_state import next_action
+
+        self.assertIsNone(next_action("something-new", "pr"))

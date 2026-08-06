@@ -149,3 +149,35 @@ def _rank_key(pull_request: PullRequest) -> str:
     if pull_request.is_merged:
         return "merged"
     return "draft" if pull_request.is_draft else "ready"
+
+
+def next_action(
+    state: str,
+    source: str,
+    *,
+    checked: bool | None = None,
+    feature: str | None = None,
+    task: str | None = None,
+) -> str | None:
+    """The suggested next step for a derived state (FR-001, Stage 6).
+
+    Pure text over the observable state the derivation already computed —
+    it never adds signals and never mutates anything. ``checked`` applies
+    to feature tasks only (`tasks.md` is their durable record); work items
+    have no checkbox. Returns ``None`` when nothing is pending.
+    """
+
+    if state == STATE_COMPLETED:
+        if checked is False:
+            return "record completion evidence and check the box in tasks.md"
+        return None
+    if state == STATE_REVIEW:
+        return "await the final review and the human merge"
+    if state == STATE_STARTED:
+        if source == SOURCE_PULL_REQUEST:
+            return "self-review (/speckit.code-review), then mark ready for review"
+        return "open the draft PR"
+    if state == STATE_UNSTARTED:
+        prefix = f"{feature}-{task}" if feature and task else "NNN-T###"
+        return f"start: create branch {prefix}-<slug>"
+    return None
