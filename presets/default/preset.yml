@@ -1,0 +1,44 @@
+schema_version: "1.0"
+
+preset:
+  id: "default"
+  name: "Default Workflow Templates"
+  version: "0.1.0"
+  description: "Spec, plan, tasks, and checklist templates with the branch-per-task and stacked-PR delivery conventions"
+  author: "tserdeiro"
+  repository: "https://github.com/tserdeiro/spec-kit"
+  license: "MIT"
+
+requires:
+  speckit_version: ">=0.13.0,<0.14.0"
+
+provides:
+  templates:
+    - type: "template"
+      name: "spec-template"
+      file: "templates/spec-template.md"
+      description: "Feature specification"
+      replaces: "spec-template"
+
+    - type: "template"
+      name: "plan-template"
+      file: "templates/plan-template.md"
+      description: "Implementation plan"
+      replaces: "plan-template"
+
+    - type: "template"
+      name: "tasks-template"
+      file: "templates/tasks-template.md"
+      description: "Task list with branch-per-task and stacked-PR conventions"
+      replaces: "tasks-template"
+
+    - type: "template"
+      name: "checklist-template"
+      file: "templates/checklist-template.md"
+      description: "Quality checklist"
+      replaces: "checklist-template"
+
+tags:
+  - "workflow"
+  - "templates"
+  - "sdd"
