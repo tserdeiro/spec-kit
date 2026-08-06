@@ -1,6 +1,6 @@
 # spec-kit — Visión de producto
 
-Documento de visión y autoridad de producto. [`plan.md`](plan.md) deriva de este documento; ante un conflicto, manda esta visión. Implementada por completo (Etapas 0–5) el 2026-08-04, verificada contra artefactos publicados.
+Documento de visión y autoridad de producto. [`plan.md`](plan.md) deriva de este documento; ante un conflicto, manda esta visión. Implementada por completo (Etapas 0–6) el 2026-08-06, verificada contra artefactos publicados.
 
 ## Qué es
 
@@ -90,6 +90,15 @@ SDD (Spec-Driven Development) + code review, con Linear como seguimiento:
 7. **Revisión final** — el revisor ejecuta el mismo comando con `--publish`
    y suma su revisión humana → merge humano → *Done*.
 
+**Integración por feature**: el branch que `/speckit.specify` crea
+(`NNN-slug`, desde el branch default) es la unidad de integración. La fase
+de producto commitea sus artefactos ahí y cierra abriendo su PR draft hacia
+el default — el gate de revisión del spec. Cada tarea sale de ese branch y
+mergea hacia él; completadas todas las tareas, ese mismo PR — ya compuesto
+de PRs revisados — recibe la revisión final y entra al default por merge
+commit, y el branch de feature se borra. Nada a medias llega al branch
+default.
+
 Un único comando de revisión que detecta su contexto: sin candidato revisa
 el diff pendiente (consultivo); con PR revisa el candidato anclado a su
 commit. Solo publica con `--publish`, `changes-requested` sale con exit 1, y
@@ -118,7 +127,10 @@ Dos extensiones first-party, más las oficiales de upstream (`git`, `bug`):
   (`--dry-run`/`--apply`, la reconciliación), `status`, `doctor --fix`,
   `completions`. Núcleo del flujo, no un opcional. Requiere en el team los
   estados *In Progress* e *In Review* (los resuelve por nombre; sin
-  *In Review*, degrada con aviso).
+  *In Review*, degrada con aviso). Convive con la integración nativa
+  GitHub↔Linear (links por branch o magic words, transiciones en tiempo
+  real, configurada por equipo): esa integración adelanta estados; `push`
+  sigue siendo la reconciliación idempotente que manda.
 - **Code review**: `/speckit.code-review` (el comando único) + `doctor
   --fix` + `completions`. Envuelve [Open Code Review](https://github.com/alibaba/open-code-review)
   en modo delegación, fail-closed, con el pin del motor viajando dentro de

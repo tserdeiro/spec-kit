@@ -6,9 +6,10 @@ It supersedes the previous 1,291-line plan and the design contracts
 `spec-kit-linear.md` and `spec-kit-code-review.md`, which are deleted;
 each package's README is now its reference.
 
-**Status: delivered.** Stages 0–5 accepted against the published artifacts
-on 2026-08-04; Stage 6 — the first feature delivered through the product's
-own workflow — on 2026-08-06. The acceptance evidence lives under
+**Status: Stage 7 in progress.** Stages 0–5 accepted against the published
+artifacts on 2026-08-04; Stage 6 — the first feature delivered through the
+product's own workflow — on 2026-08-06. Stage 7 and its queued chores were
+defined the same day. The acceptance evidence lives under
 [`validation/`](../validation/). New work measures itself against the
 vision and extends this plan explicitly.
 
@@ -91,6 +92,7 @@ specified — and every stage below is done:
 | 4 — Roles | 2026-08-04 | `validation/bundles-stage4-acceptance.md` |
 | 5 — Bugs and chores | 2026-08-04 | `validation/linear-stage5-acceptance.md` |
 | 6 — Guided flow | 2026-08-06 | `validation/guided-flow-stage6-acceptance.md` |
+| 7 — Integration branch | in progress | — |
 
 ### Stage 0 — Truth repair (done)
 
@@ -178,6 +180,43 @@ Linear, self-review before ready, human review and merge.
   tags, builds, lock digests, push, GitHub releases.
 - Exit: every point lands through the seven steps it improves, and the
   frictions each point closes are felt (and recorded) while delivering it.
+
+### Stage 7 — Integration-branch delivery (in progress)
+
+The feature branch upstream already creates (`NNN-slug`) stops being
+vestigial and becomes the feature's integration branch, per the vision's
+"Integración por feature". Dogfooded like Stage 6: one point, one task,
+one PR, human merge.
+
+- 7.1 The product phase commits its artifacts on the feature branch and
+  closes by opening the draft feature PR (`NNN-slug` → default branch):
+  the spec-review gate that later becomes the final feature PR.
+- 7.2 `implement` retargets: the loop first merges the default branch into
+  the feature branch; each task branches from it and its PR targets it
+  (`implement-append.md`, `pr.md`). Later refreshes from the default
+  branch are the developer's duty.
+- 7.3 Feature closure: every task checked → the feature PR turns ready →
+  final human review of the composed whole → **merge commit** → the
+  feature branch is deleted.
+- 7.4 Linear links natively: task PRs carry the closing magic word
+  (`Fixes WOR-###`); work-item branches already match Linear's branch
+  format. The README documents the per-team GitHub integration settings.
+  `push` stays the reconciler.
+- Exit: one feature delivered through its integration branch, states
+  visible in Linear in real time, nothing half-done on the default branch.
+
+### Queued short-path chores
+
+In order, before or alongside Stage 7:
+
+1. `publish.sh --bump` — produce the coherent version bump (manifests,
+   bundle pins, conformance pin, changelog skeletons) instead of only
+   guarding it after the fact.
+2. `implement` feature argument — the preset append bridges a feature
+   named in the command (`/speckit.implement 003-slug`) to
+   `SPECIFY_FEATURE` for the underlying scripts.
+3. `/speckit.chore` — one command from the Linear issue to its issue-key
+   branch and the existing delivery flow.
 
 ## Releases
 
