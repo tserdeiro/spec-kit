@@ -15,6 +15,7 @@ sin fork: solo composición.
 - [📆 El día a día: features](#-el-día-a-día-features)
 - [🐛 Bugs y chores](#-bugs-y-chores)
 - [🧰 Comandos](#-comandos)
+- [🧬 ¿Cómo funciona por dentro?](#-cómo-funciona-por-dentro)
 - [🔄 Actualizar](#-actualizar)
 - [❓ Problemas frecuentes](#-problemas-frecuentes)
 - [🔐 Integridad](#-integridad)
@@ -188,6 +189,47 @@ trío `/speckit.bug.*`.
 
 No hay más superficie que esta: cada comando expone solo lo que su paso
 necesita (y hay tests que lo fijan).
+
+## 🧬 ¿Cómo funciona por dentro?
+
+Una duda razonable: si el paso 1 instala el CLI de `github/spec-kit`, ¿de
+dónde salen las extensiones y comandos de esta distribución?
+
+**El CLI de upstream es la maquinaria, no el contenido** — como instalar
+`npm`: te da la *capacidad* de instalar cosas, no las cosas. Trae los
+comandos core, las integraciones de agentes y un sistema de instalación
+con catálogos. Esta distribución publica el contenido donde esa maquinaria
+sabe consumirlo:
+
+- Los [catálogos](catalog/) son nuestro "registry": tres JSON estáticos
+  servidos desde este repo que mapean `id + versión → URL de descarga`.
+  El paso 3 los registra en tu repo (`.specify/*-catalogs.yml`) y desde
+  entonces `specify` conoce nuestro índice además del oficial.
+- Las URLs apuntan a nuestras **GitHub Releases**: ZIPs construidos
+  reproduciblemente y pinneados por versión y digest.
+
+Qué pasa exactamente en `specify bundle install developer`:
+
+```text
+specify bundle install developer
+  │
+  ├─ busca "developer" en el stack de catálogos (el nuestro, prioridad 1)
+  ├─ descarga developer-<versión>.zip de nuestras releases
+  ├─ lee su bundle.yml: los componentes con versiones exactas
+  │
+  ├─ git, bug ........ vienen DENTRO del CLI de upstream (no descargan nada)
+  ├─ linear .......... se resuelve en nuestro catálogo de extensiones
+  │                    → ZIP de la release → .specify/extensions/linear/
+  ├─ code-review ..... ídem → .specify/extensions/code-review/
+  └─ preset default .. se resuelve en nuestro catálogo de presets
+                       → templates a .specify/presets/ y registra los
+                         comandos (/speckit.pr, /speckit.doctor) como
+                         skills de TU agente
+```
+
+**Después de instalar, todo es local**: comandos, templates y extensiones
+viven en tu repo; los catálogos solo se consultan al instalar o al correr
+`bundle update`. Este repositorio nunca participa en tu runtime.
 
 ## 🔄 Actualizar
 
