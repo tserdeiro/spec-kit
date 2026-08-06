@@ -1,0 +1,58 @@
+schema_version: "1.0"
+
+distribution:
+  id: tserdeiro/spec-kit
+  stage: 0
+
+upstream:
+  repository: https://github.com/github/spec-kit.git
+  tag: v0.13.0
+  commit: 9a30db484b0876cb7e5a391cf735d59bd968e985
+  git_tree: a949d15b75f41220e1a4c88d9493dea81e22fdb3
+  git_archive_sha256: e9a556c6250e1323152943bb8b41422b094b21c4197578dfd593a9c338841d28
+  install_source: git+https://github.com/github/spec-kit.git@v0.13.0
+  package: specify-cli
+  package_version: 0.13.0
+  python: ">=3.11"
+
+extensions:
+  git:
+    id: git
+    version: 1.0.0
+    provenance: bundled-with-github/spec-kit@v0.13.0
+    manifest_sha256: 89711dec9716473fba4afc54f7224bcb28ebd3c55fb5aaa30df854ab02b07a75
+
+  linear:
+    id: linear
+    version: 0.1.0
+    provenance: first-party-monorepo
+    path: packages/spec-kit-linear
+    tag: spec-kit-linear/v0.1.0
+    # commit and digests are recorded by the first release build in the
+    # fresh repository (scripts/release/build-release.sh).
+    conformance_evidence: validation/linear-stage5-acceptance.md
+
+  code-review:
+    id: code-review
+    version: 0.1.0
+    provenance: first-party-monorepo
+    path: packages/spec-kit-code-review
+    tag: spec-kit-code-review/v0.1.0
+    # commit and digests are recorded by the first release build in the
+    # fresh repository (scripts/release/build-release.sh).
+    conformance_evidence: validation/code-review-acceptance.md
+    external_tools:
+      open_code_review:
+        source: https://github.com/alibaba/open-code-review
+        license: Apache-2.0
+        release_tag: v1.8.3
+        version_string: "open-code-review v1.8.3 (80a579466)"
+        npm_package: "@alibaba-group/open-code-review"
+        binaries:
+          darwin-arm64: ed12e4599a7d2ddf5ac09324193d9781bd0a4215e867631432bc04cf5918f324
+          darwin-amd64: a5f884bb9a04abb2068e8f9f3b3c567cb65f0847f61876c7c44deb42b8c2d61a
+          linux-amd64: 445c2c3d7528d6a642b2eb83dc76978d7a5558b838d0c385b0c841b094104c17
+          linux-arm64: 4badb4b02fb9f7b4e91b5078fa78e88bfa8e3864f43bedd216b179494e9df4d7
+        requires:
+          git: ">=2.41"
+          node: ">=14"   # solo para el wrapper npm
