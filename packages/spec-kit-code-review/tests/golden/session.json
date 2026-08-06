@@ -1,0 +1,231 @@
+{
+  "budget": {
+    "counted": 1,
+    "files": [
+      {
+        "added": 1,
+        "binary": false,
+        "counted": 1,
+        "path": "<variable>"
+      }
+    ],
+    "limit": 400,
+    "over_budget": false
+  },
+  "candidate": {
+    "base_branch": null,
+    "base_commit": "<variable>",
+    "base_observed_at": "<variable>",
+    "candidate_id": "<variable>",
+    "cross_repository": false,
+    "head_commit": "<variable>",
+    "merge_base": "<variable>",
+    "pr_number": null,
+    "pr_url": null,
+    "repository": null,
+    "resolved_at": "<variable>",
+    "selector_kind": "refs",
+    "state": null
+  },
+  "candidate_id": "<variable>",
+  "config_sha256": "<variable>",
+  "containment_suffix": "<variable>",
+  "engine": {
+    "adapter_version": "2",
+    "config_path": "<variable>",
+    "executable": "<variable>",
+    "invocations": [
+      {
+        "argv": [
+          "<workspace>/bin/ocr",
+          "delegate",
+          "preview",
+          "--repo",
+          "<workspace>/evidence/path-<slug>/<sha1>/worktree",
+          "--from",
+          "<sha1>",
+          "--to",
+          "<sha1>",
+          "--rule",
+          "<workspace>/evidence/path-<slug>/<sha1>/raw/rule.effective.json"
+        ],
+        "returncode": 0
+      },
+      {
+        "argv": [
+          "<workspace>/bin/ocr",
+          "delegate",
+          "rule",
+          "--repo",
+          "<workspace>/evidence/path-<slug>/<sha1>/worktree",
+          "--rule",
+          "<workspace>/evidence/path-<slug>/<sha1>/raw/rule.effective.json",
+          "--",
+          "src/feature.py"
+        ],
+        "returncode": 0
+      }
+    ],
+    "status": "success",
+    "version": "<variable>"
+  },
+  "environment": {
+    "forbidden_roots": [
+      "<workspace>/consumer",
+      "<workspace>/evidence/path-<slug>/<sha1>/worktree"
+    ],
+    "head_commit": "<variable>",
+    "permitted_git_writes": [
+      "objects and packs brought in by one bounded fetch (a single SHA, or refs/pull/<n>/head)",
+      "FETCH_HEAD, which git updates as an effect of that fetch",
+      "worktree metadata under .git/worktrees/<name>",
+      "the reflog derived from those operations"
+    ],
+    "repository_root": "<workspace>/consumer",
+    "working_root": "<workspace>/evidence/path-<slug>/<sha1>/worktree",
+    "worktree_path": "<variable>"
+  },
+  "head_commit": "<variable>",
+  "merge_base": "<variable>",
+  "opened_at": "<variable>",
+  "packet": {
+    "bytes": "<variable>",
+    "containment_suffix": "<variable>",
+    "packet_sha256": "<variable>",
+    "pr_metadata_sha256": "<variable>",
+    "seeded_findings": [],
+    "truncations": []
+  },
+  "packet_sha256": "<variable>",
+  "phase": "open",
+  "pr_metadata_sha256": "<variable>",
+  "repository_root": "<workspace>/consumer",
+  "rules": {
+    "assignments": [
+      {
+        "path": "<variable>",
+        "rules": [
+          "Review this change."
+        ]
+      }
+    ],
+    "candidate": null,
+    "candidate_kind": null,
+    "candidate_path": null,
+    "count": 2,
+    "fail_closed": false,
+    "path": "<variable>",
+    "present": true,
+    "reason": null,
+    "ref": "<sha1>",
+    "ref_kind": "head",
+    "rule_source": "repo",
+    "seeded_findings": [],
+    "sha256": "<variable>"
+  },
+  "schema_version": "1.0",
+  "scope": {
+    "adapter_version": "2",
+    "excluded_count": 0,
+    "files": [
+      {
+        "path": "<variable>",
+        "reason": null,
+        "state": "included"
+      }
+    ],
+    "from": "<sha1>",
+    "included_count": 1,
+    "merge_base": "<variable>",
+    "mode": "range",
+    "to": "<sha1>"
+  },
+  "sdd": {
+    "bug_artifacts": [],
+    "checklist_summary": {
+      "checked": 2,
+      "files": 1,
+      "items": 2
+    },
+    "checklists": [
+      {
+        "bytes": "<variable>",
+        "path": "<variable>",
+        "present": true,
+        "sha256": "<variable>"
+      }
+    ],
+    "constitution": {
+      "bytes": "<variable>",
+      "path": "<variable>",
+      "present": true,
+      "sha256": "<variable>"
+    },
+    "feature_json": {
+      "bytes": "<variable>",
+      "path": "<variable>",
+      "present": true,
+      "sha256": "<variable>"
+    },
+    "forecast_total": 210,
+    "plan": {
+      "bytes": "<variable>",
+      "path": "<variable>",
+      "present": true,
+      "sha256": "<variable>"
+    },
+    "present": true,
+    "requirement_ids": [
+      "FR-001",
+      "FR-002"
+    ],
+    "resolution": {
+      "ambiguous": false,
+      "bug_slug": null,
+      "candidates": [],
+      "feature": "001-review-skeleton",
+      "source": "feature.json"
+    },
+    "spec": {
+      "bytes": "<variable>",
+      "path": "<variable>",
+      "present": true,
+      "sha256": "<variable>"
+    },
+    "task_entries": [
+      {
+        "done": true,
+        "forecast": 120,
+        "id": "T001",
+        "pr_strategy": "single",
+        "reached": false,
+        "referenced_paths": [],
+        "title": "Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)"
+      },
+      {
+        "done": false,
+        "forecast": 90,
+        "id": "T002",
+        "pr_strategy": "single",
+        "reached": false,
+        "referenced_paths": [],
+        "title": "Report prerequisites without any write (forecast: 90 lines, PR strategy: single)"
+      }
+    ],
+    "tasks": {
+      "bytes": "<variable>",
+      "path": "<variable>",
+      "present": true,
+      "sha256": "<variable>"
+    }
+  },
+  "selector": {
+    "base_ref": "main",
+    "head_ref": "feature",
+    "kind": "refs",
+    "repository": null,
+    "value": null
+  },
+  "verdict": null,
+  "working_root": "<workspace>/evidence/path-<slug>/<sha1>/worktree"
+}

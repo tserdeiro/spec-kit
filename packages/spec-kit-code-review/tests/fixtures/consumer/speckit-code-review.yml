@@ -1,0 +1,47 @@
+schema_version: "1.0"
+
+repository:
+  slug: "consumer"
+  github: "tserdeiro/consumer"
+  remote: "origin"
+
+engine:
+  mode: "delegate"
+  ocr_version: "v1.8.3"
+  rule_batch_size: 100
+  timeout_seconds: 300
+
+packet:
+  max_bytes_per_artifact: 60000
+  max_total_bytes: 400000
+  include_checklists: true
+  include_pr_body: true
+
+budget:
+  limit: 400
+  executable_globs:
+    - "src/**"
+    - "tests/**"
+  excluded_globs:
+    - "**/*.md"
+    - "uv.lock"
+  generated_markers:
+    - "@generated"
+    - "DO NOT EDIT"
+  generated_marker_scan_lines: 5
+
+publish:
+  event: "request-changes"
+  batch_size: 25
+  max_inline_comments: 100
+  max_listed_files: 3000
+  max_scanned_comments: 300
+  summary_marker: "speckit-code-review:summary"
+
+evidence:
+  keep_sessions: 20
+  open_session_warn_hours: 24
+
+review:
+  language: "English"
+  severity_floor: "info"

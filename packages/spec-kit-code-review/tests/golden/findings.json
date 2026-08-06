@@ -1,0 +1,100 @@
+{
+  "anchorable": 3,
+  "by_severity": {
+    "blocking": 3,
+    "info": 0,
+    "major": 1,
+    "minor": 1,
+    "nit": 0
+  },
+  "count": 5,
+  "degraded": 2,
+  "discarded": [
+    {
+      "end_line": 11,
+      "path": "src/never_existed.py",
+      "reason": "the path does not exist at the head commit",
+      "severity": "nit",
+      "start_line": 11,
+      "title": "A file the candidate does not contain"
+    }
+  ],
+  "findings": [
+    {
+      "anchorable": false,
+      "category": "maintainability",
+      "content": "Line 2 predates this candidate.",
+      "degraded_reason": "the range is not inside a hunk of the candidate's diff",
+      "end_line": 2,
+      "id": "F001",
+      "path": "src/module.py",
+      "rule_source": "repo",
+      "severity": "minor",
+      "side": "RIGHT",
+      "start_line": 2,
+      "title": "An untouched line is worth revisiting"
+    },
+    {
+      "anchorable": true,
+      "category": "correctness",
+      "content": "first",
+      "end_line": 11,
+      "id": "F002",
+      "path": "src/module.py",
+      "rule_source": "repo",
+      "severity": "blocking",
+      "side": "RIGHT",
+      "start_line": 11,
+      "title": "A — the first of a tie"
+    },
+    {
+      "anchorable": true,
+      "category": "correctness",
+      "content": "second",
+      "end_line": 11,
+      "id": "F003",
+      "path": "src/module.py",
+      "rule_source": "repo",
+      "severity": "blocking",
+      "side": "RIGHT",
+      "start_line": 11,
+      "title": "B — the second of a tie"
+    },
+    {
+      "anchorable": true,
+      "category": "correctness",
+      "content": "first",
+      "end_line": 12,
+      "id": "F004",
+      "path": "src/module.py",
+      "rule_source": "repo",
+      "severity": "blocking",
+      "side": "RIGHT",
+      "start_line": 11,
+      "title": "A — the first of a tie"
+    },
+    {
+      "anchorable": false,
+      "category": "tests",
+      "content": "The guard and its test were removed together.",
+      "degraded_reason": "side: LEFT is never anchored inline; it is reported in the summary",
+      "end_line": 2,
+      "id": "F005",
+      "path": "src/removed.py",
+      "rule_source": "sdd",
+      "sdd_reference": "specs/001-thing/spec.md#FR-001",
+      "severity": "major",
+      "side": "LEFT",
+      "start_line": 1,
+      "title": "A test was deleted with the code it covered"
+    }
+  ],
+  "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "verdict": {
+    "blocking": 3,
+    "causes": [],
+    "is_approval": false,
+    "notes": [],
+    "value": "changes-requested"
+  }
+}

@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# A candidate-provided "engine". Nothing in this repository may ever be resolved
+# as an executable by the reviewer.
+echo "ocr version v1.8.3"

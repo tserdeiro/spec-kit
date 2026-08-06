@@ -1,0 +1,14 @@
+installed:
+- code-review
+settings:
+  auto_execute_hooks: true
+hooks:
+  after_implement:
+  - extension: code-review
+    command: speckit.code-review.local
+    enabled: true
+    optional: true
+    priority: 30
+    prompt: Run a local pre-PR review of the implemented change?
+    description: Preview review findings on the working tree before opening a pull request
+    condition: null

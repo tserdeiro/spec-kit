@@ -1,0 +1,14 @@
+{
+  "rules": [
+    {
+      "path": "src/**/*.py",
+      "rule": "Production code must validate its inputs and must never interpolate repository content into a shell.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "tests/**/*.py",
+      "rule": "Every behaviour change needs a test that fails without it.",
+      "merge_system_rule": true
+    }
+  ]
+}
