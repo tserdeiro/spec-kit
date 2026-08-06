@@ -37,13 +37,13 @@ description: "Dependency-ordered delivery units for the guided flow"
 
 ## Phase 3: Health and release (US3, US4)
 
-- [ ] T004 Create the /speckit.doctor preset command in presets/default
+- [x] T004 Create the /speckit.doctor preset command in presets/default
   - **Traces**: FR-004, SC-003; outcome: one command, both doctors, one summary with remediations
   - **Depends on**: none
   - **Boundaries**: presets/default/commands
   - **Evidence**: run against this repo (healthy) and with the engine root emptied (remediation surfaced)
   - **Delivery**: single PR
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #5 merged 2026-08-06; remediations surfaced verbatim in the live consumer; WOR-21 Done
 
 - [ ] T005 Create scripts/release/publish.sh
   - **Traces**: FR-005, SC-004; outcome: one invocation performs tags, builds, lock digests, push, releases; fails closed on dirty tree
