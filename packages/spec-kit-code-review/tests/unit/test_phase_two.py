@@ -470,3 +470,17 @@ class RedactedSessionPathTests(PhaseTwoCase):
         )
         self.assertTrue(restore_outcome.get("restored"), restore_outcome)
         self.assertFalse(real_worktree.exists(), "the redacted path leaked the worktree")
+
+    def test_a_tilde_redacted_repository_root_still_closes(self) -> None:
+        session_file = Path(self.session) / "session.json"
+        document = json.loads(session_file.read_text(encoding="utf-8"))
+        real_root = Path(document["repository_root"])
+        fake_home = real_root.parent
+        document["repository_root"] = "~" + str(real_root)[len(str(fake_home)):]
+        session_file.write_text(json.dumps(document), encoding="utf-8")
+
+        self.environment["HOME"] = str(fake_home)
+        code, payload = self.close()
+
+        self.assertEqual(code, 1, payload)
+        self.assertEqual(payload["verdict"]["value"], "changes-requested")

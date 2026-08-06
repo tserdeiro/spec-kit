@@ -75,8 +75,13 @@ class ReviewSession:
 
     @property
     def repository_root(self) -> Path | None:
+        # Session documents persist redacted paths (the home directory
+        # becomes `~`); expand on the way back in, or every consumer of this
+        # root — the phase-2 repository guard first — compares a literal
+        # tilde against the real path and mismatches for any repository
+        # under the home directory.
         value = self.payload.get("repository_root")
-        return Path(value) if value else None
+        return Path(value).expanduser() if value else None
 
     @property
     def opened_at(self) -> str | None:
