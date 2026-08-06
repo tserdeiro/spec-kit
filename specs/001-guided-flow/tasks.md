@@ -45,13 +45,13 @@ description: "Dependency-ordered delivery units for the guided flow"
   - **Delivery**: single PR
   - **Completion evidence**: PR #5 merged 2026-08-06; remediations surfaced verbatim in the live consumer; WOR-21 Done
 
-- [ ] T005 Create scripts/release/publish.sh
+- [x] T005 Create scripts/release/publish.sh
   - **Traces**: FR-005, SC-004; outcome: one invocation performs tags, builds, lock digests, push, releases; fails closed on dirty tree
   - **Depends on**: none
   - **Boundaries**: scripts/release; composes build-release.sh and build-bundles.sh
   - **Evidence**: dry exercise against a throwaway tag; used for this feature's own release
   - **Delivery**: single PR
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #6 merged 2026-08-06; one publish.sh run released linear 0.2.0 + code-review 0.1.1 + bundles 0.2.0; WOR-22 Done
 
 ## Dependencies and parallel work
 
