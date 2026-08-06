@@ -27,13 +27,13 @@ description: "Dependency-ordered delivery units for the guided flow"
 
 ## Phase 2: Execution (US2)
 
-- [ ] T003 Create the /speckit.pr preset command in presets/default
+- [x] T003 Create the /speckit.pr preset command in presets/default
   - **Traces**: FR-003, SC-002; outcome: one agent command guarantees the branch and opens the canonical draft PR, idempotently
   - **Depends on**: T001
   - **Boundaries**: presets/default/commands; gh is the only writer; no extension code
   - **Evidence**: dogfooded on T003's own PR; bundles conformance green with the grown preset
   - **Delivery**: single PR
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #4 merged 2026-08-06, opened by following pr.md verbatim; WOR-20 Done
 
 ## Phase 3: Health and release (US3, US4)
 
