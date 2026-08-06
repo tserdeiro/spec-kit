@@ -6,10 +6,11 @@ It supersedes the previous 1,291-line plan and the design contracts
 `spec-kit-linear.md` and `spec-kit-code-review.md`, which are deleted;
 each package's README is now its reference.
 
-**Status: delivered.** All six stages completed and accepted against the
-published artifacts on 2026-08-04; the acceptance evidence lives under
-[`validation/`](../validation/). New work measures itself against the vision
-and extends this plan explicitly.
+**Status: stages 0–5 delivered** and accepted against the published
+artifacts on 2026-08-04; the acceptance evidence lives under
+[`validation/`](../validation/). Stage 6 is in progress — the first feature
+delivered through the product's own workflow. New work measures itself
+against the vision and extends this plan explicitly.
 
 ## Product
 
@@ -89,6 +90,7 @@ specified — and every stage below is done:
 | 3 — Workflow steps 4–7 | 2026-08-04 | `validation/linear-stage3-acceptance.md` |
 | 4 — Roles | 2026-08-04 | `validation/bundles-stage4-acceptance.md` |
 | 5 — Bugs and chores | 2026-08-04 | `validation/linear-stage5-acceptance.md` |
+| 6 — Guided flow | in progress | the feature's own `specs/` artifacts and PRs |
 
 ### Stage 0 — Truth repair (done)
 
@@ -150,6 +152,32 @@ specified — and every stage below is done:
   feature tasks and the harness never creating or editing Issue content.
 - Bugs use upstream's bundled `bug` extension (assess → fix → test), its
   reports traveling in the PR as evidence; the developer bundle ships it.
+
+### Stage 6 — Guided flow (in progress)
+
+The middle of the workflow (steps 4–5) is where an inexperienced developer
+gets lost: branch naming, opening the draft PR, filling the canonical body.
+This stage makes the flow tell — and do — the next step. It is also the
+first feature **dogfooded through the product's own workflow**: one spec,
+one task per point below, one branch and one draft PR per task, states in
+Linear, self-review before ready, human review and merge.
+
+- 6.1 The tasks template instructs the implementing agent to create the
+  task branch (`NNN-T###-slug`) when it starts a task; today the naming is
+  a documented convention nobody enforces at start. (`default` preset.)
+- 6.2 `/speckit.pr` — a preset agent command that guarantees the branch
+  invariant (validates the name, creates the branch if missing), fills the
+  canonical PR body from the feature artifacts (tracker, evidence, `Stack`
+  line), and opens the draft PR with `gh`. No CLI code.
+- 6.3 `status` gains a `NEXT` column: the suggested next action per task
+  and work item, derived from the same observable state the projection
+  already computes. Output only — no new command, no new flag.
+- 6.4 `/speckit.doctor` — a preset agent command that runs both
+  extensions' doctors and summarizes one result with remediations.
+- 6.5 `scripts/release/publish.sh` — the maintainer release in one step:
+  tags, builds, lock digests, push, GitHub releases.
+- Exit: every point lands through the seven steps it improves, and the
+  frictions each point closes are felt (and recorded) while delivering it.
 
 ## Releases
 
