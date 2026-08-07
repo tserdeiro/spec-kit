@@ -1,0 +1,50 @@
+name: Conformance
+
+# Bundle conformance at PR time, so a composition break surfaces in review
+# instead of at publish (the 0.3.0 release failed exactly this way). The
+# script is hermetic: it builds the artifacts from the checkout and serves
+# them from a loopback server; only the pinned CLI install touches the
+# network.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "presets/**"
+      - "bundles/**"
+      - "catalog/**"
+      - "scripts/conformance/**"
+      - "packages/*/extension.yml"
+      - ".github/workflows/conformance.yml"
+  pull_request:
+    paths:
+      - "presets/**"
+      - "bundles/**"
+      - "catalog/**"
+      - "scripts/conformance/**"
+      - "packages/*/extension.yml"
+      - ".github/workflows/conformance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  bundles:
+    name: role-bundle conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install the pinned Spec Kit CLI (versions.lock.yml upstream tag)
+        run: |
+          set -euo pipefail
+          uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.13.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Configure git for the temporary consumer repository
+        run: |
+          set -euo pipefail
+          git config --global user.email "ci@example.invalid"
+          git config --global user.name "spec-kit CI"
+          git config --global init.defaultBranch main
+      - run: bash scripts/conformance/bundles.sh
