@@ -27,12 +27,13 @@ description: "Dependency-ordered delivery units for the integration branch"
 
 ## Phase 2: Gate and closure (US2, US3)
 
-- [ ] T003 Instruct the product-phase gate in presets/default/templates/tasks-template.md
+- [x] T003 Instruct the product-phase gate in presets/default/templates/tasks-template.md
   - **Traces**: FR-003, SC-001; outcome: a completed product phase commits its artifacts on the feature branch and opens the draft feature PR
   - **Depends on**: none
   - **Boundaries**: presets/default templates only
   - **Evidence**: this feature's own draft PR opened at the close of this product phase; conformance green
   - **Delivery**: single PR into 002-integration-branch
+  - **Completion evidence**: PR #20 merged into 002-integration-branch 2026-08-06; conformance passed; WOR-42 Done; gate itself dogfooded by PR #17
 
 - [ ] T004 Instruct the feature closure in presets/default/commands/implement-append.md
   - **Traces**: FR-004, SC-003; outcome: all tasks checked → feature PR ready → human review → merge commit → branch deleted → push reconciles
