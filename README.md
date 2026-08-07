@@ -164,6 +164,16 @@ Reglas de oro:
   El comando de revisión te avisa si te pasas.
 - La revisión **nunca aprueba ni mergea** — eso es siempre humano. Exit 1
   del comando significa "hay hallazgos que corregir", no que algo falló.
+- **El stack se deriva, no se inventa**: si la tarea o la sección
+  `## Documentation` del plan definen stack o enlaces de doc, eso manda;
+  si no, el agente lee los manifests reales y el código vecino y
+  reutiliza lo instalado. Una dependencia nueva o reimplementar lo que
+  una lib ya cubre es **siempre decisión humana**, y una API desconocida
+  se verifica contra su doc oficial antes de usarse. Declara el principio
+  en la constitución de tu repo (`/speckit.constitution`) para que cada
+  plan se auto-chequee contra él. (Tip opcional: el MCP de
+  [Context7](https://context7.com) le sirve al agente docs actualizadas
+  por versión.)
 
 **Linear en tiempo real** (opcional, recomendado): un admin conecta
 GitHub en Linear (Settings → Integrations → GitHub) — **una sola vez por

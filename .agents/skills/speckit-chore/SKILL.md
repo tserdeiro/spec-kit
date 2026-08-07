@@ -44,6 +44,11 @@ each outcome.
 
 ## 3. Hand off to the delivery flow
 
-Make the change directly, then the flow ends as always: `/speckit.pr`
+Make the change directly — **with the stack derived, never invented**:
+if the issue links stack or documentation, that rules; otherwise read
+the real manifests and neighboring code and reuse what is installed.
+Never add a dependency or reimplement what an installed library covers
+(human decisions); verify any unfamiliar API against official
+documentation before use. Then the flow ends as always: `/speckit.pr`
 opens the canonical draft PR, self-review with `/speckit.code-review`,
 fix, mark `ready for review`, human review and merge.

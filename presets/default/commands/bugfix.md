@@ -40,6 +40,11 @@ execute these steps in order and report each outcome.
   report or reproduction) → `/speckit.bug.fix` → `/speckit.bug.test`.
   The three reports under `.specify/bugs/<slug>/` travel in the PR as
   evidence.
+- **The stack is derived, never invented**: the issue author describes
+  the symptom, not the technology — read the real manifests and the
+  neighboring code, reuse what is installed, never add a dependency or
+  reimplement what an installed library covers (human decisions), and
+  verify any unfamiliar API against official documentation before use.
 - Then the flow ends as always: `/speckit.pr` opens the canonical draft
   PR, self-review with `/speckit.code-review`, fix, mark
   `ready for review`, human review and merge.
