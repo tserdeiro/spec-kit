@@ -110,8 +110,9 @@ Camino corto, sin spec ni plan:
 
 1. El bug o chore **nace como Issue en Linear** (lo crea un humano); el
    harness nunca crea ni edita su contenido, solo proyecta su estado.
-2. Un branch por issue-key (`wor-123-slug`) → los estados se derivan igual
-   que en features: branch o PR draft → *In Progress*, PR ready →
+2. Un branch por issue-key (`wor-123-slug`, o el formato nativo del botón
+   de Linear `usuario/wor-123-slug`) → los estados se derivan igual que
+   en features: branch o PR draft → *In Progress*, PR ready →
    *In Review*, merge → *Done*.
 3. **Bugs**: el trío oficial `/speckit.bug.assess` → `.fix` → `.test`
    (evaluar sin tocar, tocar acotado, verificar sin sobre-reclamar); sus
@@ -123,9 +124,10 @@ Camino corto, sin spec ni plan:
 
 Dos extensiones first-party, más las oficiales de upstream (`git`, `bug`):
 
-- **Linear**: `onboard` (alta one-shot: resuelve todos los IDs y deja el
-  mapeo PR→estado del team para la integración nativa — crea los ausentes,
-  jamás pisa uno distinto), `push`
+- **Linear**: `onboard` (alta one-shot: resuelve todos los IDs y crea lo
+  vinculable ausente — label del repositorio, vistas compartidas y el
+  mapeo PR→estado del team para la integración nativa — jamás pisa nada
+  existente distinto), `push`
   (`--dry-run`/`--apply`, la reconciliación), `status`, `doctor --fix`,
   `completions`. Núcleo del flujo, no un opcional. Requiere en el team los
   estados *In Progress* e *In Review* (los resuelve por nombre; sin

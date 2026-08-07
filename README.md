@@ -91,10 +91,11 @@ specify bundle install developer   # o: product | reviewer
 
 ### 4. Conecta Linear
 
-`onboard` resuelve todo solo y escribe `speckit-linear.yml` (se commitea:
-no contiene secretos; tu API key vive en `.speckit-linear.env`, que queda
-gitignoreado). Desde tu agente, `/speckit.linear.onboard`, o desde la
-terminal:
+`onboard` resuelve y **crea** todo lo vinculable solo — el label del
+repositorio, sus dos vistas compartidas y el mapeo PR→estado del equipo —
+y escribe `speckit-linear.yml` (se commitea: no contiene secretos; tu API
+key vive en `.speckit-linear.env`, que queda gitignoreado). Desde tu
+agente, `/speckit.linear.onboard`, o desde la terminal:
 
 ```bash
 LINEAR_API_KEY=... bash .specify/extensions/linear/scripts/bash/run.sh onboard --team-key <EQUIPO> --repository <slug>
@@ -375,8 +376,9 @@ Después vuelve a correr los dos `doctor`.
   instala y verifica; necesita `npm` disponible.
 - **Un paso no se refleja en Linear** → corre `status` para ver el estado
   derivado y su fuente; revisa que el branch siga la convención
-  (`NNN-T###-slug` o `wor-123-slug`) y que `gh auth status` esté OK (sin
-  `gh`, los estados que dependen de PRs no se calculan y lo verás avisado).
+  (`NNN-T###-slug`, `wor-123-slug`, o el formato del botón de Linear
+  `usuario/wor-123-slug`) y que `gh auth status` esté OK (sin `gh`, los
+  estados que dependen de PRs no se calculan y lo verás avisado).
 - **"was observed … but no such Issue exists" con un issue recién creado**
   → el índice de búsqueda de Linear tarda ~1–2 min en ver issues nuevos;
   el aviso no falla nada — reintenta el `push` y lo proyecta.

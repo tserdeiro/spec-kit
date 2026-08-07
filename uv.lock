@@ -86,7 +86,7 @@ dev = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "spec-kit-linear"
-version = "0.2.0"
+version = "0.4.0"
 source = { editable = "packages/spec-kit-linear" }
 
 [package.dev-dependencies]

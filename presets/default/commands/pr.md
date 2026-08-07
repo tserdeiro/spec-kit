@@ -96,5 +96,6 @@ The feature PR's title is `feat(<area>): <feature outcome>`.
 
 Title in English, `type(scope): subject`, matching the branch's commit.
 Report the PR URL, then remind the flow: the next steps are the
-self-review (`/speckit.code-review`), `ready for review`, and the state
-projection (`/speckit.linear.push` or its lifecycle hook).
+self-review (`/speckit.code-review`) and `ready for review` — Linear's
+native integration transitions the issue on that event, and
+`/speckit.linear.push --apply` reconciles anything it missed.

@@ -41,10 +41,12 @@ native GitHub integration's job; `push` remains the idempotent reconciler.
 ## Getting started
 
 ```bash
-LINEAR_API_KEY=... spec-kit-linear onboard --team-key WOR --repository my-repo
-spec-kit-linear doctor
-spec-kit-linear push --current            # preview
-spec-kit-linear push --current --apply    # write
+# In a consumer repository the launcher lives under .specify/extensions:
+linear=".specify/extensions/linear/scripts/bash/run.sh"
+LINEAR_API_KEY=... bash "$linear" onboard --team-key WOR --repository my-repo
+bash "$linear" doctor
+bash "$linear" push --current            # preview
+bash "$linear" push --current --apply    # write
 ```
 
 `onboard` resolves the `Repository` Project Label group, its `<slug>` child

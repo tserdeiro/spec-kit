@@ -26,12 +26,6 @@ repository:
 #   started_state_id: "00000000-0000-0000-0000-000000000000"
 #   review_state_id: "00000000-0000-0000-0000-000000000000"
 
-# Optional. Maps a `[@alias]` marker in tasks.md to a Linear account; the
-# assignee is set only when the Txxx Issue is created.
-# team:
-#   members:
-#     alias: "name@example.com"
-
 # Optional; both default to true. lifecycle_enabled gates whether a
 # `push --hook` invocation runs at all; auto_apply whether it applies what it
 # renders instead of only previewing it.

@@ -30,8 +30,9 @@ execute these steps in order and report each outcome.
   '*wor-123-*'`), switch to it instead and say so. Re-running this
   command must never create a duplicate.
 - The branch is what projects the issue to *In Progress*: run
-  `/speckit.linear.push --apply` (or let the lifecycle hook do it) and
-  report the state.
+  `/speckit.linear.push --apply` — a branch alone is not a PR event, so
+  Linear's native integration has nothing to move yet — and report the
+  state.
 
 ## 3. Triage, then deliver
 

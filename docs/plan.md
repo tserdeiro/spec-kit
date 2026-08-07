@@ -219,6 +219,26 @@ one PR, human merge.
    into the triage trio, `chore` into the direct change. Delivered
    2026-08-06.
 
+### Post-delivery maintenance (2026-08-06 → 2026-08-07)
+
+Short-path rounds after Stage 7, each delivered PR-by-PR and, where they
+changed shipped content, released:
+
+- **Native assignment** — the custom `[@alias]`/`team.members` path was
+  removed; assignment is Linear's UI or the official Linear MCP
+  (`linear 0.4.0`).
+- **Native over custom** — four no-op lifecycle hooks removed
+  (`after_plan`/`after_tasks` remain: creation), Linear's
+  "Copy git branch name" format accepted, `onboard` creates the missing
+  repository bindings (label group, label, both views) and the team's
+  PR-automation mapping (`linear 0.3.0`–`0.4.0`, `bundles 0.5.0`).
+- **Platform enforcement** — merge-commit-only, auto-delete of merged
+  branches, and a default-branch ruleset applied natively on GitHub;
+  documented for consumer repositories.
+- **Tooling** — `publish.sh --bump` produces the coherent version bump;
+  bundle conformance runs in CI on composition PRs and derives its
+  version from the manifests.
+
 ## Releases
 
 `versions.lock.yml` pins upstream and each extension (tag, commit, digest).
