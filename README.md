@@ -173,6 +173,27 @@ distinto. Con eso las tarjetas se mueven solas: los PRs de tarea llevan
 (`wor-123-slug`) ya usan el formato que Linear vincula. `push` sigue
 siendo la reconciliación que manda — la integración solo suma frescura;
 sin ella, todo funciona igual con `push`.
+
+**Asignación**: asignar es **nativo de Linear** — el harness nunca asigna
+a nadie. Dos formas, ambas quedan como verdad en Linear y se reflejan en
+la columna `ASSIGNEE` del `status`:
+
+1. **La UI de Linear**: arrastra o asigna en la tarjeta, como siempre.
+2. **El MCP oficial de Linear desde tu agente** (setup una vez por dev,
+   con tu propia sesión — lo que asignes queda auditado como vos):
+
+   ```bash
+   claude mcp add --transport http linear-server https://mcp.linear.app/mcp
+   ```
+
+   (Codex: `codex mcp add linear --url https://mcp.linear.app/mcp`.)
+   Con eso puedes pedirle al agente cosas como *"asigna el plan 003 a
+   Facu"* justo después de crear las tareas, o *"asigna este bug al dev
+   con menos tareas activas"* — el agente consulta la carga real del
+   equipo en Linear, te propone y asigna con tu ok.
+
+Regla que no cambia: **una tarea = un assignee** (el semáforo contra
+pisadas), y reasignar en Linear jamás será revertido por un `push`.
 - El body del PR usa el template canónico
   [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
 
