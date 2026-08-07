@@ -59,6 +59,10 @@ writes = []
 manifests = {"linear": Path("packages/spec-kit-linear/extension.yml"),
              "code-review": Path("packages/spec-kit-code-review/extension.yml"),
              "preset": Path("presets/default/preset.yml")}
+# The Python packaging metadata must tell the same version as the extension
+# manifest, or `--version` lies (it did, at 0.2.0, until the docs truth pass).
+package_metadata = {"linear": "packages/spec-kit-linear",
+                    "code-review": "packages/spec-kit-code-review"}
 for key, path in manifests.items():
     if key not in targets:
         continue
@@ -68,6 +72,16 @@ for key, path in manifests.items():
         sys.exit(f"ERROR: {key} is already {old}; {targets[key]} does not move it forward")
     writes.append((path, text.replace(f'version: "{old}"', f'version: "{targets[key]}"', 1),
                    f"{old} -> {targets[key]}"))
+    if key in package_metadata:
+        package = Path(package_metadata[key])
+        pyproject = package / "pyproject.toml"
+        writes.append((pyproject, re.sub(r'^version = "[^"]+"', f'version = "{targets[key]}"',
+                                         pyproject.read_text(), count=1, flags=re.M),
+                       f"version -> {targets[key]}"))
+        init = next((package / "src").glob("*/__init__.py"))
+        writes.append((init, re.sub(r'__version__ = "[^"]+"', f'__version__ = "{targets[key]}"',
+                                    init.read_text(), count=1),
+                       f"__version__ -> {targets[key]}"))
 
 if "bundles" in targets:
     for role in ("product", "developer", "reviewer"):

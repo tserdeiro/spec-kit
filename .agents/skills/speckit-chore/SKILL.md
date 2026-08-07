@@ -1,7 +1,14 @@
 ---
-name: speckit.chore
-description: Start a maintenance chore from its Linear issue key, on its issue-key branch.
+name: speckit-chore
+description: Start a maintenance chore from its Linear issue key, on its issue-key
+  branch.
+compatibility: Requires spec-kit project structure with .specify/ directory
+metadata:
+  author: github-spec-kit
+  source: preset:default
 ---
+
+# Speckit Chore Skill
 
 # Spec Kit Chore
 

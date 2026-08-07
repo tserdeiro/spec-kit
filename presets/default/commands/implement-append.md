@@ -39,5 +39,6 @@ implement, wrap every task in this loop:
    feature, composed of task PRs a human already reviewed one by one.
    Approving and merging are never yours — a human merges it into the
    default branch with a **merge commit** (no squash: the task history
-   must survive). After that merge, delete the feature branch (local and
-   remote) and reconcile with `/speckit.linear.push --apply`.
+   must survive). After that merge, delete your local feature branch
+   (GitHub deletes the remote when the repository auto-deletes merged
+   branches) and reconcile with `/speckit.linear.push --apply`.

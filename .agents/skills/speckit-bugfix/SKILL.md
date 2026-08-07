@@ -1,16 +1,22 @@
 ---
-name: speckit.chore
-description: Start a maintenance chore from its Linear issue key, on its issue-key branch.
+name: speckit-bugfix
+description: Start a bug fix from its Linear issue key — issue-key branch, then the
+  triage trio.
+compatibility: Requires spec-kit project structure with .specify/ directory
+metadata:
+  author: github-spec-kit
+  source: preset:default
 ---
 
-# Spec Kit Chore
+# Speckit Bugfix Skill
 
-One command from the Linear issue to working on its branch, for minimal
-maintenance work — no spec, no plan, no triage. For a bug, use
-`/speckit.bugfix` instead. Work items are born in Linear by a human; this
-command never creates or edits issue content — it only starts the
-repository side. You (the agent) execute these steps in order and report
-each outcome.
+# Spec Kit Bugfix
+
+One command from the Linear issue to triaging the bug on its branch. For
+minimal maintenance without triage, use `/speckit.chore` instead. Work
+items are born in Linear by a human; this command never creates or edits
+issue content — it only starts the repository side. You (the agent)
+execute these steps in order and report each outcome.
 
 ## 1. Resolve the issue
 
@@ -35,8 +41,12 @@ each outcome.
   Linear's native integration has nothing to move yet — and report the
   state.
 
-## 3. Hand off to the delivery flow
+## 3. Triage, then deliver
 
-Make the change directly, then the flow ends as always: `/speckit.pr`
-opens the canonical draft PR, self-review with `/speckit.code-review`,
-fix, mark `ready for review`, human review and merge.
+- Run the triage trio in order: `/speckit.bug.assess` (paste the user's
+  report or reproduction) → `/speckit.bug.fix` → `/speckit.bug.test`.
+  The three reports under `.specify/bugs/<slug>/` travel in the PR as
+  evidence.
+- Then the flow ends as always: `/speckit.pr` opens the canonical draft
+  PR, self-review with `/speckit.code-review`, fix, mark
+  `ready for review`, human review and merge.

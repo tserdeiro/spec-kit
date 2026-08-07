@@ -1,27 +1,26 @@
 # Product bundle
 
-Steps 1–3 of the feature workflow: business need → spec → plan → tasks, with
-Linear as the projection.
+Steps 1-3 of the feature workflow: specs, plans, and tasks,
+projected into Linear, closed by the draft feature PR (the gate).
 
 ## What it installs
 
-- Preset `default` 0.2.1 (priority 10) — spec, plan, tasks, checklist templates.
-- Extension `linear` 0.2.0 — `onboard`, `push`, `status`, `doctor`.
+- Preset `default` — spec, plan, tasks, checklist templates and the
+  workflow commands.
+- Extension `linear` — Project, Issue and state projection.
+
+The exact pinned versions live in [`bundle.yml`](bundle.yml) — this page
+deliberately names none, so it cannot rot.
 
 Integration-agnostic: it inherits the project's active agent integration.
 
 ## Install
 
-Register this distribution's catalogs once per repository, then install:
-
-```bash
-base=https://raw.githubusercontent.com/tserdeiro/spec-kit/main/catalog
-specify bundle catalog add $base/bundles.json --id tserdeiro --policy install-allowed --priority 5
-specify extension catalog add $base/extensions.json --name tserdeiro --install-allowed --priority 5
-specify preset catalog add $base/presets.json --name tserdeiro --install-allowed --priority 5
-
-specify bundle install product
-```
+Follow the canonical steps in the
+[root README](../../README.md#-primeros-pasos) (register the three
+catalogs once per repository, then `specify bundle install product`).
+This page does not duplicate them, so there is exactly one install path
+to keep true.
 
 ## Verify
 
