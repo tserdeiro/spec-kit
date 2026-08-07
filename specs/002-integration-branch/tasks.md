@@ -45,12 +45,13 @@ description: "Dependency-ordered delivery units for the integration branch"
 
 ## Phase 3: Documentation (US4)
 
-- [ ] T005 Document the model and Linear's GitHub integration in README.md
+- [x] T005 Document the model and Linear's GitHub integration in README.md
   - **Traces**: FR-006, SC-004; outcome: the workflow section teaches the integration-branch flow; a block documents per-team GitHub integration and magic-word linking
   - **Depends on**: T001, T002, T003, T004
   - **Boundaries**: README (Spanish) and validation/ evidence only
   - **Evidence**: README sections; `validation/integration-branch-stage7-acceptance.md` with the dogfooded run
   - **Delivery**: single PR into 002-integration-branch
+  - **Completion evidence**: PR #22 merged into 002-integration-branch 2026-08-06; conformance passed; WOR-44 Done
 
 ## Dependencies and parallel work
 
