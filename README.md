@@ -163,13 +163,16 @@ Reglas de oro:
   del comando significa "hay hallazgos que corregir", no que algo falló.
 
 **Linear en tiempo real** (opcional, recomendado): un admin conecta
-GitHub en Linear (Settings → Integrations → GitHub) y habilita las
-transiciones del equipo por evento de PR (draft/abierto/merged). Con eso
-las tarjetas se mueven solas: los PRs de tarea llevan `Fixes WOR-###` en
-el body, y los branches de bugs/chores (`wor-123-slug`) ya usan el
-formato que Linear vincula. `push` sigue siendo la reconciliación que
-manda — la integración solo suma frescura; sin ella, todo funciona igual
-con `push`.
+GitHub en Linear (Settings → Integrations → GitHub) — **una sola vez por
+workspace**; con acceso "All repositories", los repos nuevos no requieren
+nada. El mapeo por equipo (draft → *In Progress*, ready → *In Review*,
+merged → *Done*) **lo deja `onboard` automáticamente** al vincular el
+repo: crea los que faltan y jamás pisa uno que el equipo haya elegido
+distinto. Con eso las tarjetas se mueven solas: los PRs de tarea llevan
+`Fixes WOR-###` en el body, y los branches de bugs/chores
+(`wor-123-slug`) ya usan el formato que Linear vincula. `push` sigue
+siendo la reconciliación que manda — la integración solo suma frescura;
+sin ella, todo funciona igual con `push`.
 - El body del PR usa el template canónico
   [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
 

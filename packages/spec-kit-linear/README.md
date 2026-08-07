@@ -15,7 +15,7 @@ sanitized diagnostics.
 
 | Command | What it does |
 | --- | --- |
-| `onboard` | Binds the repository to a Linear team, resolving every ID read-only. The only setup path. |
+| `onboard` | Binds the repository to a Linear team, resolving every ID, and completes the team's PR-automation mapping (its one remote write: additive, never overwrites). The only setup path. |
 | `push` | Projects the current feature state. Preview by default, `--apply` writes. Idempotent. |
 | `status` | Reports the local feature state and its Linear projection. Never writes. |
 | `doctor` | Diagnoses prerequisites, with `--fix` for the mechanical ones. |
@@ -50,6 +50,15 @@ Team workflow states — `completed`, `unstarted`, and the two `started` states
 named `In Progress` and `In Review` — all by name. Whatever it cannot find is
 reported with a warning naming exactly what to create in Linear; create it
 and run `onboard` again.
+
+It also performs its one remote write: the team's PR-automation mapping for
+Linear's native GitHub integration (`draft` → *In Progress*, `start` →
+*In Review*, `merge` → *Done*). Additive and idempotent — missing mappings
+are created, an existing different mapping is warned about and left
+untouched, branch-scoped rules are never touched. Connecting the GitHub
+integration itself is a one-time human step per workspace (Linear Settings →
+Integrations → GitHub); without it, onboard warns and the mapping stays
+dormant until an admin connects it.
 
 ## Task states
 

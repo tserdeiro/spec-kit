@@ -123,7 +123,9 @@ Camino corto, sin spec ni plan:
 
 Dos extensiones first-party, más las oficiales de upstream (`git`, `bug`):
 
-- **Linear**: `onboard` (alta one-shot que resuelve todos los IDs), `push`
+- **Linear**: `onboard` (alta one-shot: resuelve todos los IDs y deja el
+  mapeo PR→estado del team para la integración nativa — crea los ausentes,
+  jamás pisa uno distinto), `push`
   (`--dry-run`/`--apply`, la reconciliación), `status`, `doctor --fix`,
   `completions`. Núcleo del flujo, no un opcional. Requiere en el team los
   estados *In Progress* e *In Review* (los resuelve por nombre; sin

@@ -13,8 +13,10 @@ import uuid
 from .errors import AppError, Diagnostic
 
 
-# Exactly the operations `planner.build_push_plan` can emit; nothing else is
-# ever a valid mutation.
+# Exactly the operations `planner.build_push_plan` can emit, plus the single
+# operation `onboard` emits (`team.automation.create`: a missing Team
+# PR-automation mapping — additive only, updates and deletes stay forbidden);
+# nothing else is ever a valid mutation.
 PUSH_MUTATIONS = frozenset(
     {
         "project.create",
@@ -23,6 +25,7 @@ PUSH_MUTATIONS = frozenset(
         "issue.create",
         "issue.update",
         "issue.lifecycle.update",
+        "team.automation.create",
     }
 )
 
@@ -41,6 +44,9 @@ ALLOWED_INPUTS = {
     "issue.create": frozenset({"id", "title", "teamId", "projectId", "description", "stateId", "assigneeId"}),
     "issue.update": frozenset({"title", "description"}),
     "issue.lifecycle.update": frozenset({"stateId"}),
+    # No targetBranchId: onboard only manages the Team's global mappings and
+    # never touches branch-scoped rules.
+    "team.automation.create": frozenset({"id", "teamId", "stateId", "event"}),
 }
 
 _ASSIGNEE_AT_CREATION_KINDS = frozenset({"issue.create"})

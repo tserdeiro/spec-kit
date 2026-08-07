@@ -14,7 +14,14 @@ from unittest.mock import patch
 from spec_kit_linear import cli as cli_module
 from spec_kit_linear.cli import main
 from spec_kit_linear.config import load_yaml_subset
-from spec_kit_linear.linear_client import RemoteBinding, RemoteProjectLabel, RemoteSharedView, RemoteTeamSummary, RemoteWorkflowState
+from spec_kit_linear.linear_client import (
+    RemoteBinding,
+    RemoteGitAutomationState,
+    RemoteProjectLabel,
+    RemoteSharedView,
+    RemoteTeamSummary,
+    RemoteWorkflowState,
+)
 
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
@@ -50,10 +57,12 @@ def _full_binding() -> RemoteBinding:
 
 
 class _OnboardClient:
-    """Fake client for `onboard`'s read-only resolution. Deliberately has no
-    `mutation` method: any attempt by onboard to call it fails with
-    AttributeError, which is the structural "never mutates" guarantee this
-    test double already provides for `install` (see test_cli.py)."""
+    """Fake client for `onboard`'s resolution and its single remote write.
+
+    `mutation` asserts the operation kind: anything but
+    `team.automation.create` fails the test, which is the structural
+    guarantee that onboard's only remote write is the additive Team
+    PR-automation mapping."""
 
     def __init__(
         self,
@@ -64,6 +73,8 @@ class _OnboardClient:
         shared_views: tuple[RemoteSharedView, ...] = (),
         workflow_states: tuple[RemoteWorkflowState, ...] = (),
         binding: RemoteBinding | None = None,
+        git_automation_states: tuple[RemoteGitAutomationState, ...] = (),
+        github_integration: bool = True,
     ) -> None:
         self.workspace_id = workspace_id
         self._teams_by_id = {team.id: team for team in teams}
@@ -74,8 +85,25 @@ class _OnboardClient:
         self._shared_views = shared_views
         self._workflow_states = workflow_states
         self._binding = binding
+        self._git_automation_states = git_automation_states
+        self._github_integration = github_integration
         self.inspect_binding_calls = 0
         self.find_workflow_states_by_team_calls: list[str] = []
+        self.find_git_automation_states_calls: list[str] = []
+        self.mutations: list[tuple[str, dict[str, object]]] = []
+
+    def find_git_automation_states(self, team_id: str) -> tuple[RemoteGitAutomationState, ...]:
+        self.find_git_automation_states_calls.append(team_id)
+        return self._git_automation_states
+
+    def has_github_integration(self) -> bool:
+        return self._github_integration
+
+    def mutation(self, document: str, variables: dict[str, object], operation_kind: str | None = None) -> dict[str, object]:
+        if operation_kind != "team.automation.create":
+            raise AssertionError(f"onboard may only create Team PR-automation mappings, got {operation_kind!r}")
+        self.mutations.append((operation_kind, variables))
+        return {"gitAutomationStateCreate": {"success": True, "gitAutomationState": {"id": "created-automation"}}}
 
     def resolve_workspace_id(self) -> str:
         return self.workspace_id
@@ -103,14 +131,28 @@ class _OnboardClient:
         return self._binding
 
 
-def _full_fixture_client(team: RemoteTeamSummary, *, workflow_states: tuple[RemoteWorkflowState, ...] = ()) -> _OnboardClient:
+def _full_fixture_client(
+    team: RemoteTeamSummary,
+    *,
+    workflow_states: tuple[RemoteWorkflowState, ...] = (),
+    git_automation_states: tuple[RemoteGitAutomationState, ...] = (),
+    github_integration: bool = True,
+) -> _OnboardClient:
     group = RemoteProjectLabel(id=GROUP_ID, name="Repository", is_group=True, updated_at="2099-01-01T00:00:00Z", parent_id=None)
     label = RemoteProjectLabel(id=LABEL_ID, name=SLUG, is_group=False, updated_at="2099-01-01T00:00:00Z", parent_id=GROUP_ID)
     views = (
         RemoteSharedView(id=PROJECT_VIEW_ID, name=f"{SLUG} / Features", type="project", shared=True),
         RemoteSharedView(id=ISSUE_VIEW_ID, name=f"{SLUG} / Work", type="issue", shared=True),
     )
-    return _OnboardClient(teams=(team,), project_labels=(group, label), shared_views=views, workflow_states=workflow_states, binding=_full_binding())
+    return _OnboardClient(
+        teams=(team,),
+        project_labels=(group, label),
+        shared_views=views,
+        workflow_states=workflow_states,
+        binding=_full_binding(),
+        git_automation_states=git_automation_states,
+        github_integration=github_integration,
+    )
 
 
 class OnboardTests(unittest.TestCase):
@@ -267,15 +309,18 @@ class OnboardTests(unittest.TestCase):
         self.assertEqual(result, 6)
         self.assertEqual(payload["diagnostics"][0]["code"], "shared_view_ambiguous")
 
-    def test_onboard_never_mutates_linear(self) -> None:
+    def test_onboard_only_mutates_team_automations(self) -> None:
+        # The fake's `mutation` raises on any kind other than
+        # `team.automation.create`; a full apply exercising every onboard
+        # path is therefore the structural proof of the write surface.
         team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
         client = _full_fixture_client(team)
-        self.assertFalse(hasattr(client, "mutation"))
 
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             result, _ = self._invoke(["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--apply", "--json"])
 
         self.assertEqual(result, 0)
+        self.assertTrue(all(kind == "team.automation.create" for kind, _ in client.mutations))
 
     def test_onboard_is_idempotent_on_rerun(self) -> None:
         team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
@@ -466,6 +511,120 @@ class OnboardTests(unittest.TestCase):
 
         self.assertEqual(result, 2)
         self.assertEqual(payload["diagnostics"][0]["code"], "onboard_mode")
+
+
+class OnboardAutomationTests(unittest.TestCase):
+    """The single remote write: missing Team PR-automation mappings."""
+
+    def setUp(self) -> None:
+        isolate_operator_global_env(self)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+
+    def _full_states(self) -> tuple[RemoteWorkflowState, ...]:
+        return (
+            RemoteWorkflowState(id=COMPLETED_STATE_ID, name="Done", type="completed", updated_at="2099-01-01T00:00:00Z", position=3.0),
+            RemoteWorkflowState(id=OPEN_STATE_ID, name="Todo", type="unstarted", updated_at="2099-01-01T00:00:00Z", position=0.0),
+            RemoteWorkflowState(id=STARTED_STATE_ID, name="In Progress", type="started", updated_at="2099-01-01T00:00:00Z", position=1.0),
+            RemoteWorkflowState(id=REVIEW_STATE_ID, name="In Review", type="started", updated_at="2099-01-01T00:00:00Z", position=2.0),
+        )
+
+    def _run(self, client: _OnboardClient, *extra: str) -> dict[str, object]:
+        output = StringIO()
+        with patch("spec_kit_linear.cli._linear_client", return_value=client), redirect_stdout(output):
+            code = main(["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json", *extra])
+        self.assertEqual(code, 0)
+        return json.loads(output.getvalue())
+
+    def test_onboard_creates_the_missing_automation_mappings(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team, workflow_states=self._full_states())
+
+        payload = self._run(client)
+
+        created = {variables["input"]["event"]: variables["input"]["stateId"] for _, variables in client.mutations}
+        self.assertEqual(
+            created,
+            {"draft": STARTED_STATE_ID, "start": REVIEW_STATE_ID, "merge": COMPLETED_STATE_ID},
+        )
+        self.assertEqual(len(payload["changes"]["automation_operations"]), 3)
+        codes = [item["code"] for item in payload["diagnostics"]]
+        self.assertIn("automation_applied", codes)
+
+    def test_onboard_dry_run_plans_the_mappings_but_never_writes(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team, workflow_states=self._full_states())
+
+        payload = self._run(client, "--dry-run")
+
+        self.assertEqual(client.mutations, [])
+        self.assertEqual(len(payload["changes"]["automation_operations"]), 3)
+
+    def test_onboard_is_idempotent_over_a_complete_mapping(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        existing = (
+            RemoteGitAutomationState(id="ga-1", event="draft", state_id=STARTED_STATE_ID, state_name="In Progress", target_branch_id=None),
+            RemoteGitAutomationState(id="ga-2", event="start", state_id=REVIEW_STATE_ID, state_name="In Review", target_branch_id=None),
+            RemoteGitAutomationState(id="ga-3", event="merge", state_id=COMPLETED_STATE_ID, state_name="Done", target_branch_id=None),
+        )
+        client = _full_fixture_client(team, workflow_states=self._full_states(), git_automation_states=existing)
+
+        payload = self._run(client)
+
+        self.assertEqual(client.mutations, [])
+        self.assertEqual(payload["changes"]["automation_operations"], [])
+        codes = [item["code"] for item in payload["diagnostics"]]
+        self.assertIn("automation_complete", codes)
+
+    def test_onboard_never_overwrites_a_different_human_mapping(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        existing = (
+            RemoteGitAutomationState(id="ga-1", event="draft", state_id=OPEN_STATE_ID, state_name="Todo", target_branch_id=None),
+        )
+        client = _full_fixture_client(team, workflow_states=self._full_states(), git_automation_states=existing)
+
+        payload = self._run(client)
+
+        created_events = [variables["input"]["event"] for _, variables in client.mutations]
+        self.assertEqual(created_events, ["start", "merge"])
+        conflict = next(item for item in payload["diagnostics"] if item["code"] == "automation_conflict")
+        self.assertEqual(conflict["severity"], "warning")
+        self.assertIn("draft", conflict["message"])
+
+    def test_onboard_ignores_branch_scoped_rules(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        existing = (
+            RemoteGitAutomationState(id="ga-1", event="draft", state_id=OPEN_STATE_ID, state_name="Todo", target_branch_id="branch-rule"),
+        )
+        client = _full_fixture_client(team, workflow_states=self._full_states(), git_automation_states=existing)
+
+        payload = self._run(client)
+
+        created_events = [variables["input"]["event"] for _, variables in client.mutations]
+        self.assertEqual(created_events, ["draft", "start", "merge"])
+        self.assertNotIn("automation_conflict", [item["code"] for item in payload["diagnostics"]])
+
+    def test_onboard_warns_when_the_github_integration_is_missing(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team, workflow_states=self._full_states(), github_integration=False)
+
+        payload = self._run(client)
+
+        self.assertEqual(len(client.mutations), 3)
+        warning = next(item for item in payload["diagnostics"] if item["code"] == "github_integration_missing")
+        self.assertEqual(warning["severity"], "warning")
+
+    def test_onboard_skips_automation_when_the_lifecycle_is_unresolved(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team, workflow_states=())
+
+        payload = self._run(client)
+
+        self.assertEqual(client.find_git_automation_states_calls, [])
+        self.assertEqual(client.mutations, [])
+        codes = [item["code"] for item in payload["diagnostics"]]
+        self.assertIn("automation_skipped", codes)
 
 
 if __name__ == "__main__":
