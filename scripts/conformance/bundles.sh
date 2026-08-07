@@ -73,7 +73,10 @@ command -v git >/dev/null 2>&1 || {
 # asserted against them below, so a manifest edit that is not reflected here
 # fails loudly instead of silently weakening the test.
 ROLES="product developer reviewer"
-BUNDLE_VERSION="0.5.0"
+# The bundles move together (publish.sh guards it), so the product manifest
+# is the single source for the version this run builds and asserts.
+BUNDLE_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/bundles/product/bundle.yml" | head -1)
+[ -n "$BUNDLE_VERSION" ] || { echo "conformance could not read the bundle version from bundles/product/bundle.yml" >&2; exit 4; }
 
 # Artifact names come from the catalogs — the installer downloads exactly
 # these basenames, so hardcoding them here is how the 0.3.0 publish failed
