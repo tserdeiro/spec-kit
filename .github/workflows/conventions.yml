@@ -1,0 +1,46 @@
+name: Conventions
+
+# The repository standard — `type(scope): subject`, English, one concern —
+# enforced by the platform instead of by discipline: a malformed PR title
+# or commit subject fails this required check before a human ever reviews.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  names:
+    name: type(scope) naming
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR title follows type(scope) subject
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          pattern='^[a-z]+\([a-z0-9-]+\): .+$'
+          if ! printf '%s' "$TITLE" | grep -Eq "$pattern"; then
+            echo "::error::PR title '$TITLE' must follow 'type(scope): subject' (e.g. 'docs(readme): the front door')"
+            exit 1
+          fi
+      - name: Commit subjects follow type(scope) subject
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          pattern='^[a-z]+\([a-z0-9-]+\): .+$'
+          bad=0
+          while IFS= read -r subject; do
+            # GitHub words its own merge commits; everything else is ours.
+            case "$subject" in "Merge "*) continue ;; esac
+            if ! printf '%s' "$subject" | grep -Eq "$pattern"; then
+              echo "::error::commit subject must follow 'type(scope): subject': $subject"
+              bad=1
+            fi
+          done < <(gh api "repos/$REPO/pulls/$PR/commits" --paginate --jq '.[].commit.message | split("\n")[0]')
+          exit "$bad"
