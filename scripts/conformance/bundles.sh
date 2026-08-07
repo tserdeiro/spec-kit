@@ -74,6 +74,18 @@ command -v git >/dev/null 2>&1 || {
 # fails loudly instead of silently weakening the test.
 ROLES="product developer reviewer"
 BUNDLE_VERSION="0.2.1"
+
+# Artifact names come from the catalogs — the installer downloads exactly
+# these basenames, so hardcoding them here is how the 0.3.0 publish failed
+# conformance. The preset version for resolve assertions comes from its
+# manifest, which is what the installed preset reports.
+catalog_zip() {
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]['download_url'].rsplit('/',1)[-1])" "$@"
+}
+LINEAR_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions linear)
+REVIEW_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions code-review)
+PRESET_ZIP=$(catalog_zip "$repository_root/catalog/presets.json" presets default)
+PRESET_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/presets/default/preset.yml" | head -1)
 product_extensions="linear"
 developer_extensions="git linear code-review bug"
 reviewer_extensions="code-review"
@@ -86,12 +98,13 @@ TEMPLATES="spec-template plan-template tasks-template checklist-template"
 
 mkdir -p "$serve_root"
 
-python3 - "$repository_root" "$serve_root" <<'PY'
+python3 - "$repository_root" "$serve_root" "$LINEAR_ZIP" "$REVIEW_ZIP" "$PRESET_ZIP" <<'PY'
 import pathlib
 import sys
 import zipfile
 
 repository_root, serve_root = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+linear_zip, review_zip, preset_zip = sys.argv[3:6]
 SKIP = {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache", "dist"}
 
 def archive(source: pathlib.Path, name: str) -> None:
@@ -102,9 +115,9 @@ def archive(source: pathlib.Path, name: str) -> None:
             if path.is_file():
                 bundle.write(path, path.relative_to(source).as_posix())
 
-archive(repository_root / "packages/spec-kit-linear", "spec-kit-linear-v0.2.0.zip")
-archive(repository_root / "packages/spec-kit-code-review", "spec-kit-code-review-v0.1.1.zip")
-archive(repository_root / "presets/default", "default-0.2.1.zip")
+archive(repository_root / "packages/spec-kit-linear", linear_zip)
+archive(repository_root / "packages/spec-kit-code-review", review_zip)
+archive(repository_root / "presets/default", preset_zip)
 PY
 
 # The bundle artifacts themselves, built the way they will be published, so
@@ -252,7 +265,7 @@ for role in $ROLES; do
   # 1b. The preset resolves all four templates from `default`.
   for template in $TEMPLATES; do
     resolved=$(cd "$consumer_root" && specify preset resolve "$template" 2>&1 | tr -d '\n')
-    [[ "$resolved" == *"default v0.2.1"* ]] ||
+    [[ "$resolved" == *"default v$PRESET_VERSION"* ]] ||
       fail "$role: template '$template' does not resolve from the default preset"
     [[ "$resolved" == *".specify/presets/default/templates/$template.md"* ]] ||
       fail "$role: template '$template' resolves outside the installed preset"
@@ -300,7 +313,7 @@ for extension in $developer_extensions; do
     fail "coexist: developer's '$extension' did not survive removing the reviewer bundle"
 done
 resolved=$(cd "$consumer_root" && specify preset resolve tasks-template 2>&1 | tr -d '\n')
-[[ "$resolved" == *"default v0.2.1"* ]] ||
+[[ "$resolved" == *"default v$PRESET_VERSION"* ]] ||
   fail "coexist: the shared default preset did not survive removing the reviewer bundle"
 listed=$(cd "$consumer_root" && specify bundle list 2>&1 | tr -d '\n')
 [[ "$listed" == *"developer v$BUNDLE_VERSION"* && "$listed" != *"reviewer v$BUNDLE_VERSION"* ]] ||
