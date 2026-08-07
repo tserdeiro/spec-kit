@@ -24,14 +24,14 @@ extensions:
 
   linear:
     id: linear
-    version: 0.2.0
+    version: 0.3.0
     provenance: first-party-monorepo
     path: packages/spec-kit-linear
-    tag: spec-kit-linear/v0.2.0
-    commit: e0a1600fa7397b5a5118dbefb0a60fed066eba85
-    subtree_archive_sha256: d1eb8703977f3e99e9424bddb925497da6b1b0a86c9f987e3cf3596d5626343d
-    release_zip_sha256: 213b3ff197f7b4fe4d0c635dd914945c4e26941b4441a64e18f4733f46d93036
-    manifest_sha256: 951318ee3837ac280a5676b9fea6242b5cef9f0c912f63ce4b2d0eeb40038980
+    tag: spec-kit-linear/v0.3.0
+    commit: a8c69f1a3b3517a7a33e8bf1ecbbd2ea6c094d96
+    subtree_archive_sha256: e75af52742c9a4360ad5572cfd4f18527f80ea75a3869a14add26c6b7913e7c6
+    release_zip_sha256: 570c8ad5acfb6ff584700347572210d7f9241e34cca98ec63f5c342e60621c1a
+    manifest_sha256: aad066eb325e12ae477c6841e7e9deec56ee04431b8263b1caa81248b1d7fd10
     conformance_evidence: validation/linear-stage5-acceptance.md
 
   code-review:
