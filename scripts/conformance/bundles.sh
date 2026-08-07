@@ -73,7 +73,7 @@ command -v git >/dev/null 2>&1 || {
 # asserted against them below, so a manifest edit that is not reflected here
 # fails loudly instead of silently weakening the test.
 ROLES="product developer reviewer"
-BUNDLE_VERSION="0.4.0"
+BUNDLE_VERSION="0.4.1"
 
 # Artifact names come from the catalogs — the installer downloads exactly
 # these basenames, so hardcoding them here is how the 0.3.0 publish failed
