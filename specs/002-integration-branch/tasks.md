@@ -9,12 +9,13 @@ description: "Dependency-ordered delivery units for the integration branch"
 
 ## Phase 1: The retargeted loop (US1)
 
-- [ ] T001 Retarget the task delivery loop in presets/default/commands/implement-append.md
+- [x] T001 Retarget the task delivery loop in presets/default/commands/implement-append.md
   - **Traces**: FR-001, FR-002; outcome: tasks branch from the feature branch after it absorbed the up-to-date default branch
   - **Depends on**: none
   - **Boundaries**: presets/default only; no CLI, no extension code
   - **Evidence**: `scripts/conformance/bundles.sh` green; loop text names the feature branch as base and the drift duty
   - **Delivery**: single PR into 002-integration-branch
+  - **Completion evidence**: PR #18 merged into 002-integration-branch 2026-08-06; conformance passed; WOR-28 Done; states derived identically with the feature-branch base (SC-002)
 
 - [ ] T002 Retarget /speckit.pr and add the Linear magic word in presets/default/commands/pr.md
   - **Traces**: FR-001, FR-005, SC-004; outcome: feature-task PRs target the feature branch and carry `Fixes <ISSUE-KEY>`; work items keep the default branch
