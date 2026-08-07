@@ -6,11 +6,11 @@
     "default": {
       "name": "Default Workflow Templates",
       "id": "default",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "description": "Spec, plan, tasks, and checklist templates with the integration-branch delivery workflow and its commands",
       "author": "tserdeiro",
       "repository": "https://github.com/tserdeiro/spec-kit",
-      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.5.0/default-0.3.1.zip",
+      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.6.0/default-0.4.0.zip",
       "homepage": "https://github.com/tserdeiro/spec-kit",
       "documentation": "https://github.com/tserdeiro/spec-kit/blob/main/presets/default/README.md",
       "license": "MIT",
