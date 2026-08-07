@@ -17,12 +17,13 @@ description: "Dependency-ordered delivery units for the integration branch"
   - **Delivery**: single PR into 002-integration-branch
   - **Completion evidence**: PR #18 merged into 002-integration-branch 2026-08-06; conformance passed; WOR-28 Done; states derived identically with the feature-branch base (SC-002)
 
-- [ ] T002 Retarget /speckit.pr and add the Linear magic word in presets/default/commands/pr.md
+- [x] T002 Retarget /speckit.pr and add the Linear magic word in presets/default/commands/pr.md
   - **Traces**: FR-001, FR-005, SC-004; outcome: feature-task PRs target the feature branch and carry `Fixes <ISSUE-KEY>`; work items keep the default branch
   - **Depends on**: T001
   - **Boundaries**: presets/default only; `gh` remains the only writer
   - **Evidence**: dogfooded on this feature's own task PRs; conformance green
   - **Delivery**: single PR into 002-integration-branch
+  - **Completion evidence**: PR #19 merged into 002-integration-branch 2026-08-06, opened following the edited pr.md verbatim (base + magic word); conformance passed; WOR-29 Done
 
 ## Phase 2: Gate and closure (US2, US3)
 
