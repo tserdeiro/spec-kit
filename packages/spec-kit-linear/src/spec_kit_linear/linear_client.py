@@ -103,6 +103,36 @@ query WorkflowStatesByTeam($first: Int!, $after: String, $teamId: ID!) {
 }
 """.strip()
 
+# `onboard` PR-automation sync: the Team's existing git automation states, so
+# the caller creates only the missing global mappings and never overwrites a
+# human's different choice. Branch-scoped rules (targetBranch set) are read so
+# they can be excluded from reconciliation, never touched.
+GIT_AUTOMATION_STATES_BY_TEAM_QUERY = """
+query GitAutomationStatesByTeam($teamId: String!) {
+  team(id: $teamId) {
+    gitAutomationStates {
+      nodes {
+        id
+        event
+        state { id name }
+        targetBranch { id }
+      }
+    }
+  }
+}
+""".strip()
+
+# `onboard` degradation notice: whether the workspace has the GitHub
+# integration connected at all (a one-time human OAuth step).
+GITHUB_INTEGRATION_QUERY = """
+query GithubIntegration($first: Int!, $after: String) {
+  integrations(first: $first, after: $after) {
+    nodes { id service }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+""".strip()
+
 PROJECT_LABELS_BY_NAME_QUERY = """
 query ProjectLabelsByName($first: Int!, $after: String, $name: String!) {
   projectLabels(
@@ -311,6 +341,17 @@ class RemoteWorkflowState:
     updated_at: str
     # `onboard` breaks a tie between same-type states by position.
     position: float = 0.0
+
+
+@dataclass(frozen=True)
+class RemoteGitAutomationState:
+    """A Team PR-automation mapping; `onboard` only ever adds missing ones."""
+
+    id: str
+    event: str
+    state_id: str | None
+    state_name: str | None
+    target_branch_id: str | None
 
 
 @dataclass(frozen=True)
@@ -642,6 +683,35 @@ class LinearClient:
 
         nodes = self.connection(WORKFLOW_STATES_BY_TEAM_QUERY, root_key="workflowStates", variables={"teamId": team_id})
         return tuple(_remote_workflow_state(node) for node in nodes)
+
+    def find_git_automation_states(self, team_id: str) -> tuple[RemoteGitAutomationState, ...]:
+        """List the Team's PR-automation mappings (``onboard``'s automation sync)."""
+
+        data = self.query(GIT_AUTOMATION_STATES_BY_TEAM_QUERY, {"teamId": team_id})
+        team = data.get("team")
+        if not isinstance(team, Mapping):
+            return ()
+        states = team.get("gitAutomationStates")
+        nodes = states.get("nodes") if isinstance(states, Mapping) else None
+        if not isinstance(nodes, list):
+            return ()
+        return tuple(
+            RemoteGitAutomationState(
+                id=_required_string(node, "id", request_id=None),
+                event=_required_string(node, "event", request_id=None),
+                state_id=_optional_id(node, "state"),
+                state_name=_optional_nested_string(node, "state", "name"),
+                target_branch_id=_optional_id(node, "targetBranch"),
+            )
+            for node in nodes
+            if isinstance(node, Mapping)
+        )
+
+    def has_github_integration(self) -> bool:
+        """Whether the workspace's GitHub integration is connected (read-only)."""
+
+        nodes = self.connection(GITHUB_INTEGRATION_QUERY, root_key="integrations", variables={})
+        return any(isinstance(node, Mapping) and node.get("service") == "github" for node in nodes)
 
     def find_users_by_email(self, email: str) -> tuple[RemoteUser, ...]:
         """List every Linear user with an exact email match.

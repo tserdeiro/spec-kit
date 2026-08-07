@@ -7,6 +7,7 @@ import json
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -439,6 +440,7 @@ def run_onboard(args: argparse.Namespace) -> dict[str, Any]:
     repository_overlay.update(view_result.resolved)
     diagnostics.extend(view_result.diagnostics)
     lifecycle_overlay, lifecycle_missing = _resolve_lifecycle(client, team.id, diagnostics)
+    automation_operations = _plan_git_automations(client, team.id, lifecycle_overlay, diagnostics)
 
     root_path = (root / ROOT_CONFIG_FILENAME).resolve()
     existing: dict[str, Any] = load_yaml_subset(root_path) if root_path.exists() else {}
@@ -474,6 +476,11 @@ def run_onboard(args: argparse.Namespace) -> dict[str, Any]:
         # does not have; both are things a human creates in Linear by hand.
         "missing_remote_resources": missing + lifecycle_missing,
         "gitignore_entries_added": [],
+        # The one remote write onboard performs: missing Team PR-automation
+        # mappings, additive only.
+        "automation_operations": [
+            f"team.automation.create {operation['input']['event']}" for operation in automation_operations
+        ],
     }
 
     if apply_changes:
@@ -481,6 +488,17 @@ def run_onboard(args: argparse.Namespace) -> dict[str, Any]:
         root_path.write_text(dump_yaml_subset(merged), encoding="utf-8")
         changes["gitignore_entries_added"] = ensure_gitignore_entries(root / ".gitignore", (REPO_ENV_FILENAME,))
         diagnostics.append(Diagnostic("onboard_apply", "configuration written", str(root_path), severity="info"))
+        if automation_operations:
+            executor = LinearMutationExecutor(client)
+            for operation in automation_operations:
+                executor.execute(operation)
+            diagnostics.append(
+                Diagnostic(
+                    "automation_applied",
+                    "created Team PR-automation mapping(s): " + ", ".join(operation["input"]["event"] for operation in automation_operations),
+                    severity="info",
+                )
+            )
     else:
         diagnostics.append(Diagnostic("onboard_dry_run", "nothing was written; rerun without --dry-run to write the configuration", severity="info"))
 
@@ -666,6 +684,71 @@ def _resolve_lifecycle(client: LinearClient, team_id: str, diagnostics: list[Dia
         Diagnostic("lifecycle_configured", "lifecycle " + " ".join(f"{field}={value}" for field, value in overlay.items()), severity="info")
     )
     return overlay, missing
+
+
+# The distribution's PR-automation semantics, mirrored from the derived state
+# map: a draft PR is work in progress, a ready PR awaits review, a merge is
+# done. `start` is Linear's event for a PR opened ready (or marked ready).
+_AUTOMATION_EVENTS = (
+    ("draft", "started_state_id"),
+    ("start", "review_state_id"),
+    ("merge", "completed_state_id"),
+)
+
+
+def _plan_git_automations(
+    client: LinearClient, team_id: str, lifecycle_overlay: dict[str, str] | None, diagnostics: list[Diagnostic]
+) -> list[dict[str, Any]]:
+    """Plan the missing Team PR-automation mappings — additive and idempotent.
+
+    A mapping the Team already has is never touched: same state produces no
+    operation, a different state produces a warning and no operation.
+    Branch-scoped rules are out of scope entirely.
+    """
+
+    if lifecycle_overlay is None:
+        diagnostics.append(
+            Diagnostic(
+                "automation_skipped",
+                "PR-automation sync was skipped because the lifecycle could not be resolved",
+                severity="warning",
+            )
+        )
+        return []
+    existing = {state.event: state for state in client.find_git_automation_states(team_id) if state.target_branch_id is None}
+    operations: list[dict[str, Any]] = []
+    for event, field in _AUTOMATION_EVENTS:
+        state_id = lifecycle_overlay.get(field)
+        if state_id is None:
+            continue  # the lifecycle resolution already warned about it
+        current = existing.get(event)
+        if current is None:
+            operations.append(
+                {
+                    "kind": "team.automation.create",
+                    "input": {"id": str(uuid.uuid4()), "teamId": team_id, "event": event, "stateId": state_id},
+                }
+            )
+        elif current.state_id != state_id:
+            diagnostics.append(
+                Diagnostic(
+                    "automation_conflict",
+                    f"the Team maps PR '{event}' to '{current.state_name}', not this distribution's state; left untouched",
+                    severity="warning",
+                )
+            )
+    if not operations and "automation_conflict" not in {d.code for d in diagnostics}:
+        diagnostics.append(Diagnostic("automation_complete", "the Team PR-automation mapping is already complete", severity="info"))
+    if not client.has_github_integration():
+        diagnostics.append(
+            Diagnostic(
+                "github_integration_missing",
+                "no GitHub integration is connected to the workspace; the PR-automation mapping stays dormant until "
+                "an admin connects it (Linear Settings -> Integrations -> GitHub, one time per workspace)",
+                severity="warning",
+            )
+        )
+    return operations
 
 
 def _resolve_workflow_state_by_type(states: tuple[RemoteWorkflowState, ...], field: str, diagnostics: list[Diagnostic]) -> str | None:

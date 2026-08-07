@@ -68,7 +68,9 @@ class AssigneeAtCreationAllowlistTests(unittest.TestCase):
 
 
 class WriteSurfaceTests(unittest.TestCase):
-    def test_the_write_surface_is_exactly_the_six_projection_operations(self) -> None:
+    def test_the_write_surface_is_exactly_the_seven_allowed_operations(self) -> None:
+        # Six projection operations (push) plus onboard's single additive
+        # Team PR-automation create.
         self.assertEqual(
             PUSH_MUTATIONS,
             frozenset(
@@ -79,6 +81,7 @@ class WriteSurfaceTests(unittest.TestCase):
                     "issue.create",
                     "issue.update",
                     "issue.lifecycle.update",
+                    "team.automation.create",
                 }
             ),
         )
