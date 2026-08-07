@@ -10,7 +10,7 @@
       "description": "Spec, plan, tasks, and checklist templates with the branch-per-task and stacked-PR delivery conventions",
       "author": "tserdeiro",
       "repository": "https://github.com/tserdeiro/spec-kit",
-      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.4.1/default-0.3.1.zip",
+      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.5.0/default-0.3.1.zip",
       "homepage": "https://github.com/tserdeiro/spec-kit",
       "documentation": "https://github.com/tserdeiro/spec-kit/blob/main/presets/default/README.md",
       "license": "MIT",
