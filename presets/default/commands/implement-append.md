@@ -33,3 +33,11 @@ implement, wrap every task in this loop:
 3. **Between tasks** — `/speckit.linear.status` shows every task's derived
    state and its suggested next action. A task is finished when a human
    merged its PR and its checkbox records the completion evidence.
+4. **Closing the feature** — when every task is checked with its
+   completion evidence, mark the **feature PR** (the draft opened when
+   the product phase closed) `ready for review`: it now shows the whole
+   feature, composed of task PRs a human already reviewed one by one.
+   Approving and merging are never yours — a human merges it into the
+   default branch with a **merge commit** (no squash: the task history
+   must survive). After that merge, delete the feature branch (local and
+   remote) and reconcile with `/speckit.linear.push --apply`.
