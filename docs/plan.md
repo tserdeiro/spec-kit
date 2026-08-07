@@ -6,12 +6,12 @@ It supersedes the previous 1,291-line plan and the design contracts
 `spec-kit-linear.md` and `spec-kit-code-review.md`, which are deleted;
 each package's README is now its reference.
 
-**Status: Stage 7 in progress.** Stages 0–5 accepted against the published
-artifacts on 2026-08-04; Stage 6 — the first feature delivered through the
-product's own workflow — on 2026-08-06. Stage 7 and its queued chores were
-defined the same day. The acceptance evidence lives under
-[`validation/`](../validation/). New work measures itself against the
-vision and extends this plan explicitly.
+**Status: delivered.** Stages 0–5 accepted against the published artifacts
+on 2026-08-04; Stage 6 — the first feature delivered through the product's
+own workflow — and Stage 7 — the integration-branch model, delivered
+through itself — on 2026-08-06, with the three queued chores. The
+acceptance evidence lives under [`validation/`](../validation/). New work
+measures itself against the vision and extends this plan explicitly.
 
 ## Product
 
@@ -92,7 +92,7 @@ specified — and every stage below is done:
 | 4 — Roles | 2026-08-04 | `validation/bundles-stage4-acceptance.md` |
 | 5 — Bugs and chores | 2026-08-04 | `validation/linear-stage5-acceptance.md` |
 | 6 — Guided flow | 2026-08-06 | `validation/guided-flow-stage6-acceptance.md` |
-| 7 — Integration branch | in progress | — |
+| 7 — Integration branch | 2026-08-06 | `validation/integration-branch-stage7-acceptance.md` |
 
 ### Stage 0 — Truth repair (done)
 
@@ -181,7 +181,7 @@ Linear, self-review before ready, human review and merge.
 - Exit: every point lands through the seven steps it improves, and the
   frictions each point closes are felt (and recorded) while delivering it.
 
-### Stage 7 — Integration-branch delivery (in progress)
+### Stage 7 — Integration-branch delivery (done)
 
 The feature branch upstream already creates (`NNN-slug`) stops being
 vestigial and becomes the feature's integration branch, per the vision's

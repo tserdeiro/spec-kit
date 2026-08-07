@@ -322,6 +322,9 @@ Después vuelve a correr los dos `doctor`.
   derivado y su fuente; revisa que el branch siga la convención
   (`NNN-T###-slug` o `wor-123-slug`) y que `gh auth status` esté OK (sin
   `gh`, los estados que dependen de PRs no se calculan y lo verás avisado).
+- **"was observed … but no such Issue exists" con un issue recién creado**
+  → el índice de búsqueda de Linear tarda ~1–2 min en ver issues nuevos;
+  el aviso no falla nada — reintenta el `push` y lo proyecta.
 - **Falta `In Review` en el equipo** → créalo en Linear (Settings → Teams →
   Workflow, tipo *started*) y re-corre `onboard`.
 - Ante la duda: `doctor --fix` de cada extensión, y sus mensajes traen la

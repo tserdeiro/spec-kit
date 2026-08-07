@@ -1,6 +1,6 @@
 # spec-kit — Visión de producto
 
-Documento de visión y autoridad de producto. [`plan.md`](plan.md) deriva de este documento; ante un conflicto, manda esta visión. Implementada por completo (Etapas 0–6) el 2026-08-06, verificada contra artefactos publicados.
+Documento de visión y autoridad de producto. [`plan.md`](plan.md) deriva de este documento; ante un conflicto, manda esta visión. Implementada por completo (Etapas 0–7) el 2026-08-06, verificada contra artefactos publicados.
 
 ## Qué es
 

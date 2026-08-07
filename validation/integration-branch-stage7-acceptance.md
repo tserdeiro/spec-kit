@@ -24,9 +24,10 @@ ritual installs in all three bundles.
 
 ## Closure (SC-003, FR-004)
 
-The ritual of `implement-append.md` step 4 executes on this very feature:
-feature PR #17 ready with every task checked, final human review of the
-composed diff, human merge commit into `main`, branch deleted, `push`
-reconciled. The closing evidence (merge commit hash, date) is recorded
-here by the post-closure bookkeeping chore — this document travels inside
-the feature it validates, so the final line necessarily lands after it.
+The ritual of `implement-append.md` step 4 executed on this very feature:
+feature PR #17 turned ready with every task checked and both CI suites
+green, received the final human review, and a human merged it into `main`
+with merge commit `b8659b4` on 2026-08-06 — task history preserved. The
+feature branch was deleted (remote auto-deleted on merge) and the closing
+`push --all --apply` reconciled with **0 operations**: every state had
+already been derived during delivery.
