@@ -14,11 +14,17 @@ implement, wrap every task in this loop:
    runs without an argument continue it. That persisted change is local
    convenience: **never include `.specify/feature.json` in a task
    commit**. Without an argument, the active feature applies as-is.
-1. **Starting a task** — before touching any code for `T###`, create its
-   branch from the repository's up-to-date **default branch** — resolve it
-   with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` —
-   or from the previous PR's branch when this task stacks:
-   `git switch -c NNN-T###-short-slug`.
+1. **Starting a task** — before touching any code for `T###`:
+   - On the **first task of the feature**, bring the repository's
+     up-to-date default branch into the feature branch (`NNN-slug`):
+     `git fetch`, then on the feature branch
+     `git merge origin/<default>` — resolve the default branch with
+     `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` —
+     and push. Later refreshes from the default branch are the
+     developer's duty, not this loop's.
+   - Create the task branch **from the up-to-date feature branch** — or
+     from the previous task's branch when this task stacks:
+     `git switch -c NNN-T###-short-slug`.
    The branch is what projects the task to *In Progress* in Linear.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review
