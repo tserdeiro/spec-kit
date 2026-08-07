@@ -14,13 +14,6 @@ TITLE_RE = re.compile(r"^#\s+(.+?)\s*$")
 PHASE_RE = re.compile(r"^#{1,6}\s+Phase\s+([0-9]+)(?:\s*:\s*(.+?))?\s*$", re.IGNORECASE)
 TASK_RE = re.compile(r"^\s*-\s+\[([ xX])\]\s+(T[0-9]{3})\b(?:\s*[-:]\s*)?(.*?)\s*$")
 LEADING_MARKERS_RE = re.compile(r"^(?:\[[^\]]+\]\s*)+")
-# doc "Parsing de artefactos" (annotation syntax): a task's leading `[...]`
-# markers may include at most one `[@alias]` assignee annotation. This is
-# extracted from the leading-markers span *before* LEADING_MARKERS_RE strips
-# it from the title below, so the alias is never silently swallowed with the
-# rest of the markers.
-MARKER_TOKEN_RE = re.compile(r"\[([^\]]+)\]")
-ALIAS_TOKEN_RE = re.compile(r"^@(.+)$")
 
 
 def _relative(root: Path, path: Path) -> str:
@@ -62,35 +55,6 @@ def _document_title(path: Path, root: Path) -> tuple[str, SourceRef]:
         category="usage",
         diagnostics=[Diagnostic("artifact_title", "expected '# Title'", str(path))],
     )
-
-
-def _extract_assignee_alias(raw_rest: str, identifier: str, path: Path, line: int) -> str | None:
-    """Extract at most one ``[@alias]`` marker from a task's leading markers.
-
-    Doc "Parsing de artefactos": the annotation lives among the leading
-    ``[...]`` markers after the checkbox (e.g. ``[US1] [@facu]``). Must run
-    before ``LEADING_MARKERS_RE.sub`` strips those markers from the title, or
-    the alias would be silently discarded along with them. Two or more
-    ``[@alias]`` markers on one line is a parse error, not a "last one wins".
-    """
-
-    markers_match = LEADING_MARKERS_RE.match(raw_rest)
-    if not markers_match:
-        return None
-    aliases = [
-        alias_match.group(1)
-        for token in MARKER_TOKEN_RE.findall(markers_match.group(0))
-        for alias_match in (ALIAS_TOKEN_RE.match(token),)
-        if alias_match
-    ]
-    if len(aliases) > 1:
-        raise AppError(
-            f"task {identifier} declares more than one [@alias] assignee marker",
-            code=2,
-            category="usage",
-            diagnostics=[Diagnostic("task_assignee_duplicate", "a task may declare at most one [@alias] marker", str(path), line)],
-        )
-    return aliases[0] if aliases else None
 
 
 def _parse_tasks(path: Path, root: Path) -> tuple[Phase, ...]:
@@ -157,13 +121,11 @@ def _parse_tasks(path: Path, root: Path) -> tuple[Phase, ...]:
         task_ids.add(identifier)
         # TASK_RE's optional dash/colon group only ever consumes a literal
         # "-"/":" separator, never a bare leading space, so group(3) can
-        # start with one extra space before a marker run (e.g. "T004 [@x]
-        # Title"). Strip it before matching LEADING_MARKERS_RE, which is
-        # anchored at the start of the string, or a marker run preceded by
-        # that space would neither be recognized as an alias nor stripped
-        # from the title.
+        # start with one extra space before a marker run. Strip it before
+        # matching LEADING_MARKERS_RE, which is anchored at the start of the
+        # string, or a marker run preceded by that space would not be
+        # stripped from the title.
         raw_rest = task_match.group(3).lstrip()
-        assignee_alias = _extract_assignee_alias(raw_rest, identifier, path, number)
         title = LEADING_MARKERS_RE.sub("", raw_rest).strip()
         title = " ".join(title.split())
         if not title:
@@ -179,7 +141,6 @@ def _parse_tasks(path: Path, root: Path) -> tuple[Phase, ...]:
                 title=title,
                 completed=task_match.group(1).lower() == "x",
                 source=SourceRef(_relative(root, path), number),
-                assignee_alias=assignee_alias,
             )
         )
     finish_phase()

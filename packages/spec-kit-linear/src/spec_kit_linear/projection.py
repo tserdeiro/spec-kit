@@ -37,7 +37,6 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> DesiredStat
                         ],
                     ),
                     source=task.source,
-                    assignee_alias=task.assignee_alias,
                 )
             )
     feature_marker = f"speckit-linear:feature:{feature.identifier}"

@@ -13,7 +13,6 @@ from spec_kit_linear.config import (
     load_config,
     load_yaml_subset,
     resolve_config_path,
-    team_members,
 )
 from spec_kit_linear.errors import AppError
 from tests.support.fixtures import copy_consumer_fixture
@@ -83,45 +82,6 @@ class ConfigTests(unittest.TestCase):
             lifecycle_state_ids(config),
             ("77777777-7777-4777-8777-777777777777", "88888888-8888-4888-8888-888888888888"),
         )
-
-    def test_team_members_section_is_optional_and_absent_by_default(self) -> None:
-        config, _ = load_config(self.fixture_root)
-
-        self.assertEqual(team_members(config), {})
-
-    def test_team_members_section_is_accepted_and_exposed(self) -> None:
-        self._append('\nteam:\n  members:\n    facu: "facu@example.com"\n')
-
-        config, _ = load_config(self.fixture_root)
-
-        self.assertEqual(team_members(config), {"facu": "facu@example.com"})
-
-    def test_team_members_rejects_an_invalid_alias(self) -> None:
-        self._append('\nteam:\n  members:\n    Facu_Nope: "facu@example.com"\n')
-
-        with self.assertRaises(AppError) as raised:
-            load_config(self.fixture_root)
-
-        self.assertEqual(raised.exception.code, 3)
-        self.assertEqual(raised.exception.diagnostics[0].code, "config_team_alias")
-
-    def test_team_members_rejects_an_invalid_email(self) -> None:
-        self._append('\nteam:\n  members:\n    facu: "not-an-email"\n')
-
-        with self.assertRaises(AppError) as raised:
-            load_config(self.fixture_root)
-
-        self.assertEqual(raised.exception.code, 3)
-        self.assertEqual(raised.exception.diagnostics[0].code, "config_team_email")
-
-    def test_team_section_rejects_unknown_keys(self) -> None:
-        self._append("\nteam:\n  lead: true\n")
-
-        with self.assertRaises(AppError) as raised:
-            load_config(self.fixture_root)
-
-        self.assertEqual(raised.exception.code, 3)
-        self.assertEqual(raised.exception.diagnostics[0].code, "config_team_key")
 
     def test_hooks_section_accepts_two_booleans(self) -> None:
         self._append("\nhooks:\n  lifecycle_enabled: false\n  auto_apply: false\n")

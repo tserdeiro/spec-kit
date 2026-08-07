@@ -20,10 +20,6 @@ class Task:
     title: str
     completed: bool
     source: SourceRef
-    # The assignee may be set only at Txxx Issue creation, from a `[@alias]`
-    # marker parsed from tasks.md and resolved against `team.members`
-    # (config.py) at plan time. `None` when the task carries no such marker.
-    assignee_alias: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,7 +59,6 @@ class DesiredTask:
     marker: str
     managed_description: str
     source: SourceRef
-    assignee_alias: str | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -74,7 +69,6 @@ class DesiredTask:
             "marker": self.marker,
             "managed_description": self.managed_description,
             "source": self.source.as_dict(),
-            "assignee_alias": self.assignee_alias,
         }
 
 

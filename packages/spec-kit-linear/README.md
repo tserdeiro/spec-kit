@@ -123,9 +123,8 @@ for the full schema. `--config PATH` or `SPECKIT_LINEAR_CONFIG` override the
 location.
 
 Optional sections: `lifecycle` (the four workflow state IDs a derived state
-is written to), `team.members` (maps a `[@alias]` task marker to an account,
-applied only when the Issue is created), and `hooks`
-(`lifecycle_enabled`/`auto_apply`, both default `true`).
+is written to) and `hooks` (`lifecycle_enabled`/`auto_apply`, both default
+`true`).
 
 ## Credentials
 
@@ -159,13 +158,14 @@ overrides that destination — and only the destination.
 
 ## What push will never do
 
-Delete or archive anything; create sub-issues or checklists; change an
-assignee after the Issue exists, a project lead, project members, or human
-comments; rewrite content outside its own `<!-- speckit-linear:... -->`
-managed block; create a bug or chore Issue, or change anything about one
-except its workflow state; or touch any file under `specs/`. The complete write surface
-is six operation kinds with an enumerated input field list each — see
-[`src/spec_kit_linear/allowlist.py`](src/spec_kit_linear/allowlist.py).
+Delete or archive anything; create sub-issues or checklists; assign anyone
+(assignment is native Linear: the UI or the official Linear MCP acting as
+the human); touch a project lead, project members, or human comments;
+rewrite content outside its own `<!-- speckit-linear:... -->` managed
+block; create a bug or chore Issue, or change anything about one except
+its workflow state; or touch any file under `specs/`. The complete write
+surface is seven operation kinds with an enumerated input field list each
+— see [`src/spec_kit_linear/allowlist.py`](src/spec_kit_linear/allowlist.py).
 
 ## Exit codes
 

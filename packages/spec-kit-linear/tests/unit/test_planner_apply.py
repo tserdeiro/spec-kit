@@ -123,8 +123,8 @@ class PlannerApplyTests(unittest.TestCase):
         )
         return RemoteDiscovery(binding=self.binding, projects=(project,), features=(adoption,))
 
-    def _push_plan(self, discovery: RemoteDiscovery | None = None, *, assignee_ids: dict[str, str] | None = None) -> dict[str, object]:
-        return build_push_plan(self.desired, discovery or self._missing_discovery(), config=self.config, assignee_ids=assignee_ids)
+    def _push_plan(self, discovery: RemoteDiscovery | None = None) -> dict[str, object]:
+        return build_push_plan(self.desired, discovery or self._missing_discovery(), config=self.config)
 
     def test_plan_is_project_then_issues_and_only_uses_allowlisted_inputs(self) -> None:
         plan = self._push_plan()
@@ -267,28 +267,6 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertEqual(project.member_ids, ("manual-member",))
         self.assertTrue(all(issue.assignee_id == "manual-assignee" for issue in project.issues))
         plan = self._push_plan(discovery)
-        self.assertEqual(plan["operations"], [])
-
-    def test_issue_create_includes_resolved_assignee_id_only_for_the_mapped_task(self) -> None:
-        first_task = self.desired.feature.tasks[0]
-        plan = self._push_plan(assignee_ids={first_task.identity: "user-1"})
-
-        creates = {operation["target"]: operation for operation in plan["operations"] if operation["kind"] == "issue.create"}
-        self.assertEqual(creates[first_task.identity]["input"]["assigneeId"], "user-1")
-        self.assertIn("assigneeId", creates[first_task.identity]["allowed_input_fields"])
-        for target, operation in creates.items():
-            if target != first_task.identity:
-                self.assertNotIn("assigneeId", operation["input"])
-
-    def test_existing_issue_reconcile_never_emits_an_assignee_change(self) -> None:
-        # The [@alias] annotation is creation-time only. Even when a resolved
-        # assignee_ids entry disagrees with the remote issue's existing
-        # assignee_id, reconcile of an already-existing Txxx Issue must never
-        # emit any assignee change.
-        discovery = self._complete_discovery()
-        first_task = self.desired.feature.tasks[0]
-        plan = self._push_plan(discovery, assignee_ids={first_task.identity: "some-other-user"})
-
         self.assertEqual(plan["operations"], [])
 
     def test_lifecycle_state_is_projected_from_the_tasks_md_checkbox(self) -> None:

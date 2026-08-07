@@ -291,8 +291,10 @@ class EndpointConfigurationRejectionTests(unittest.TestCase):
             load_config(self.root)
         self.assertEqual([diagnostic.severity for diagnostic in raised.exception.diagnostics], ["error"])
 
-    def test_scan_ignores_operator_chosen_team_member_aliases(self) -> None:
-        self.assertEqual(find_endpoint_keys({"team": {"members": {"endpoint": "a@example.com"}}}), [])
+    def test_scan_flags_endpoint_keys_anywhere_in_the_config(self) -> None:
+        # The team.members skip died with the custom assignee path: an
+        # endpoint key is a redirection attempt wherever it appears.
+        self.assertEqual(find_endpoint_keys({"team": {"members": {"endpoint": "a@example.com"}}}), ["team.members.endpoint"])
         self.assertEqual(find_endpoint_keys({"repository": {"url": "https://github.com/example/x"}}), [])
         self.assertEqual(find_endpoint_keys({"linear": {"endpoint": "x"}}), ["linear.endpoint"])
 
@@ -303,7 +305,7 @@ class EndpointConfigurationRejectionTests(unittest.TestCase):
         self.assertEqual(find_endpoint_keys({"linear": [{"endpoint": "x"}]}), ["linear[0].endpoint"])
         self.assertEqual(find_endpoint_keys({"linear": [{"url": "x"}]}), ["linear[0].url"])
         self.assertEqual(find_endpoint_keys([{"graphql_endpoint": "x"}]), ["[0].graphql_endpoint"])
-        self.assertEqual(find_endpoint_keys({"team": {"members": [{"endpoint": "a@example.com"}]}}), [])
+        self.assertEqual(find_endpoint_keys({"team": {"members": [{"endpoint": "a@example.com"}]}}), ["team.members[0].endpoint"])
 
     def test_secret_scan_walks_sequences_too(self) -> None:
         self.assertEqual(find_secret_keys({"linear": [{"api_key": "x"}]}), ["linear[0].api_key"])

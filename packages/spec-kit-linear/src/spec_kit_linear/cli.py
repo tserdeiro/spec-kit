@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import __version__
-from .assignee_resolution import resolve_task_assignees
 from .completions import generate_completion_script
 from .config import (
     ROOT_CONFIG_FILENAME,
@@ -891,8 +890,7 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
     work_states, work_items = _observe(root, config, desired_states, diagnostics)
     client = _linear_client()
     discovery = discover_and_adopt(client, config, desired_states)
-    assignee_ids = resolve_task_assignees(client, config, desired_states)
-    plans = [build_push_plan(desired, discovery, config=config, assignee_ids=assignee_ids, work_states=work_states) for desired in desired_states]
+    plans = [build_push_plan(desired, discovery, config=config, work_states=work_states) for desired in desired_states]
     # Work items are feature-independent by construction: they are observed
     # from branches named after Linear Issue keys, never from `tasks.md`. So
     # every push reconciles all of them -- with `--feature`, with `--all`, and

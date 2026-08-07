@@ -15,33 +15,12 @@ from spec_kit_linear.allowlist import ALLOWED_INPUTS, PUSH_MUTATIONS, assert_all
 from spec_kit_linear.errors import AppError
 
 
-class AssigneeAtCreationAllowlistTests(unittest.TestCase):
-    def test_issue_create_permits_assignee_id(self) -> None:
-        create_id = str(uuid.uuid4())
-        # Should not raise.
-        assert_allowed("issue.create", {"id": create_id, "title": "T001 Title", "teamId": "team-1", "assigneeId": "user-1"})
-        self.assertIn("assigneeId", ALLOWED_INPUTS["issue.create"])
-
-    def test_issue_update_rejects_assignee_id(self) -> None:
-        # assigneeId is not even in issue.update's ALLOWED_INPUTS, so this is
-        # rejected as an unexpected field before the preserved-field check
-        # ever runs -- an even stronger guarantee than a per-value check.
-        with self.assertRaises(AppError) as raised:
-            assert_allowed("issue.update", {"title": "Changed title", "assigneeId": "user-1"})
-        self.assertEqual(raised.exception.code, 6)
-        self.assertEqual(raised.exception.diagnostics[0].code, "mutation_input_not_allowed")
-
-    def test_issue_lifecycle_update_rejects_assignee_id(self) -> None:
-        with self.assertRaises(AppError) as raised:
-            assert_allowed("issue.lifecycle.update", {"stateId": "state-1", "assigneeId": "user-1"})
-        self.assertEqual(raised.exception.code, 6)
-        self.assertEqual(raised.exception.diagnostics[0].code, "mutation_input_not_allowed")
-
-    def test_every_other_mutation_kind_rejects_assignee_id(self) -> None:
-        # Structural sweep: no mutation kind other than "issue.create" may
-        # ever accept assigneeId, fail-closed with a mutation_policy error
-        # (code 6) rather than a silent pass-through.
-        for kind in sorted(PUSH_MUTATIONS - {"issue.create"}):
+class AssigneeAllowlistTests(unittest.TestCase):
+    def test_no_mutation_kind_accepts_assignee_id(self) -> None:
+        # Assignment is native Linear (the UI or the official Linear MCP);
+        # no harness mutation may ever carry assigneeId, fail-closed with a
+        # mutation_policy error (code 6) rather than a silent pass-through.
+        for kind in sorted(PUSH_MUTATIONS):
             with self.assertRaises(AppError, msg=kind) as raised:
                 assert_allowed(kind, {"assigneeId": "user-1"})
             self.assertEqual(raised.exception.code, 6, kind)
@@ -54,10 +33,10 @@ class AssigneeAtCreationAllowlistTests(unittest.TestCase):
             assert_allowed("issue.create", {"id": create_id, "title": "T001", "teamId": "team-1", "leadId": "user-1"})
         self.assertEqual(raised.exception.diagnostics[0].code, "mutation_input_not_allowed")
 
-    def test_per_kind_assignee_exception_still_rejects_a_hypothetical_update_kind(self) -> None:
-        # Proves the create-only exception in assert_allowed is a real,
-        # per-kind check and not merely an accident of assigneeId being
-        # absent from every other kind's ALLOWED_INPUTS.
+    def test_assignee_id_is_preserved_even_when_an_inputs_table_allows_it(self) -> None:
+        # Proves the unconditional preserved-field check is real and not
+        # merely an accident of assigneeId being absent from every kind's
+        # ALLOWED_INPUTS.
         patched = dict(ALLOWED_INPUTS)
         patched["issue.lifecycle.update"] = frozenset(ALLOWED_INPUTS["issue.lifecycle.update"] | {"assigneeId"})
         with patch("spec_kit_linear.allowlist.ALLOWED_INPUTS", patched):

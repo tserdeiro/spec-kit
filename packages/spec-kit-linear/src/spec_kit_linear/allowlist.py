@@ -30,27 +30,20 @@ PUSH_MUTATIONS = frozenset(
 )
 
 # Each GraphQL input is intentionally enumerated.  In particular there is no
-# leadId, memberIds, parentId, archive or delete field anywhere in this
-# table. The sole exception is `assigneeId`, permitted only on
-# `issue.create`: the assignee may be set when a Txxx Issue is created if
-# `team.members` maps its `[@alias]`, and Linear is the sole authority for
-# reassignment afterward. Every update kind still forbids it unconditionally;
-# see `assert_allowed` below, which enforces this per-kind exception rather
-# than a blanket allow/deny.
+# assigneeId, leadId, memberIds, parentId, archive or delete field anywhere
+# in this table: assignment is native Linear (the UI or the official Linear
+# MCP acting as the human), never the harness.
 ALLOWED_INPUTS = {
     "project.create": frozenset({"id", "name", "teamIds", "description", "labelIds"}),
     "project.update": frozenset({"name", "description"}),
     "project.label.attach": frozenset({"labelId"}),
-    "issue.create": frozenset({"id", "title", "teamId", "projectId", "description", "stateId", "assigneeId"}),
+    "issue.create": frozenset({"id", "title", "teamId", "projectId", "description", "stateId"}),
     "issue.update": frozenset({"title", "description"}),
     "issue.lifecycle.update": frozenset({"stateId"}),
     # No targetBranchId: onboard only manages the Team's global mappings and
     # never touches branch-scoped rules.
     "team.automation.create": frozenset({"id", "teamId", "stateId", "event"}),
 }
-
-_ASSIGNEE_AT_CREATION_KINDS = frozenset({"issue.create"})
-
 
 def assert_allowed(kind: str, input_values: Mapping[str, object]) -> None:
     """Reject unknown and over-broad operations fail-closed."""
@@ -73,9 +66,7 @@ def assert_allowed(kind: str, input_values: Mapping[str, object]) -> None:
             raise _policy_error("mutation_create_id", f"'{kind}' requires an input.id UUID v4")
     elif "id" in input_values:
         raise _policy_error("mutation_update_id", f"'{kind}' must target its remote ID through GraphQL variables, not input.id")
-    forbidden = {"leadId", "memberIds", "parentId", "archive", "delete"} & set(input_values)
-    if "assigneeId" in input_values and kind not in _ASSIGNEE_AT_CREATION_KINDS:
-        forbidden.add("assigneeId")
+    forbidden = {"assigneeId", "leadId", "memberIds", "parentId", "archive", "delete"} & set(input_values)
     if forbidden:
         raise _policy_error("mutation_preserved_field", f"'{kind}' would modify a preserved field")
 

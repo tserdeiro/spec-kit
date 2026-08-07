@@ -121,17 +121,6 @@ class LinearClientTests(unittest.TestCase):
         self.assertEqual(opener.requests[0]["payload"]["variables"]["teamId"], "team-1")
         self.assertNotIn("name", opener.requests[0]["payload"]["variables"])
 
-    def test_find_users_by_email_maps_fields(self) -> None:
-        client, opener, _ = self._client(
-            [MemoryResponse({"data": {"users": {"nodes": [{"id": "user-1", "email": "facu@example.com"}], "pageInfo": {"hasNextPage": False, "endCursor": None}}}})]
-        )
-
-        found = client.find_users_by_email("facu@example.com")
-
-        self.assertEqual(len(found), 1)
-        self.assertEqual((found[0].id, found[0].email), ("user-1", "facu@example.com"))
-        self.assertEqual(opener.requests[0]["payload"]["variables"]["email"], "facu@example.com")
-
     def test_resolve_workspace_id_reads_viewer_organization(self) -> None:
         client, opener, _ = self._client([MemoryResponse({"data": {"viewer": {"organization": {"id": "workspace-1"}}}})])
 

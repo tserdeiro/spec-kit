@@ -26,11 +26,6 @@ UUID_RE = re.compile(
 )
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 SECRET_KEY_RE = re.compile(r"(?:api[_-]?key|token|secret|password|operator|identity)", re.IGNORECASE)
-# doc "Configuracion" > "team.members" (assignee-at-creation): a basic email
-# shape check only. Whether an email resolves to exactly one Linear user is a
-# remote, plan-time concern (assignee_resolution.py), never a local schema
-# check.
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _without_comment(value: str) -> str:
@@ -322,11 +317,6 @@ _ENDPOINT_AMBIGUOUS_KEY_NAMES = frozenset(
     }
 )
 _ENDPOINT_AMBIGUOUS_SCOPES = frozenset({"", "linear"})
-# `team.members` maps an operator-chosen alias to an email; its keys are data,
-# not schema, so an unlucky alias must not be mistaken for a redirection.
-_ENDPOINT_SCAN_SKIP = frozenset({"team.members"})
-
-
 def find_endpoint_keys(value: Any, prefix: str = "") -> list[str]:
     """Return the dotted locations of every endpoint-shaped key in ``value``.
 
@@ -347,8 +337,6 @@ def find_endpoint_keys(value: Any, prefix: str = "") -> list[str]:
     scope = re.sub(r"\[\d+\]", "", prefix)
     for key, nested in value.items():
         location = f"{prefix}.{key}" if prefix else key
-        if re.sub(r"\[\d+\]", "", location) in _ENDPOINT_SCAN_SKIP:
-            continue
         normalized = str(key).strip().lower().replace("-", "_")
         if normalized in _ENDPOINT_KEY_NAMES:
             hits.append(location)
@@ -495,7 +483,6 @@ def validate_config(config: dict[str, Any], source: Path, *, allow_unbound_repos
         _required_uuid(repository, "issue_view_id", source)
     _validate_lifecycle_section(config, source)
     _validate_hooks_section(config, source)
-    _validate_team_section(config, source)
 
 
 _HOOKS_KEYS = frozenset({"lifecycle_enabled", "auto_apply"})
@@ -561,76 +548,6 @@ def _validate_lifecycle_section(config: dict[str, Any], source: Path) -> None:
     _required_uuid(lifecycle, "open_state_id", source)
     _optional_uuid(lifecycle, "started_state_id", source)
     _optional_uuid(lifecycle, "review_state_id", source)
-
-
-def _validate_team_section(config: dict[str, Any], source: Path) -> None:
-    """Validate the optional ``team.members`` section (doc "Configuracion").
-
-    Maps a short human alias -- referenced from a `tasks.md` `[@alias]`
-    marker (see parser.py) -- to the Linear account email that should receive
-    a `Txxx` Issue's `assigneeId` at creation time only. Committed
-    (`SECRET_KEY_RE` never matches "team"/"members"/an email address), so
-    both fields are validated only for shape here: alias as a slug (same
-    shape as `repository.slug`), email with a basic `local@domain.tld` shape.
-    Resolving an email to exactly one Linear user id is a remote, plan-time
-    concern (see assignee_resolution.py), never a local schema check.
-    """
-
-    team = config.get("team")
-    if team is None:
-        return
-    if not isinstance(team, dict):
-        raise AppError(
-            "configuration section 'team' must be a mapping",
-            code=3,
-            category="configuration",
-            diagnostics=[Diagnostic("config_section", "'team' must be a mapping", str(source))],
-        )
-    unknown = sorted(set(team) - {"members"})
-    if unknown:
-        raise AppError(
-            f"configuration section 'team' has unsupported key(s): {', '.join(unknown)}",
-            code=3,
-            category="configuration",
-            diagnostics=[Diagnostic("config_team_key", f"unsupported team key(s): {', '.join(unknown)}", str(source))],
-        )
-    members = team.get("members")
-    if members is None:
-        return
-    if not isinstance(members, dict):
-        raise AppError(
-            "configuration section 'team.members' must be a mapping",
-            code=3,
-            category="configuration",
-            diagnostics=[Diagnostic("config_section", "'team.members' must be a mapping", str(source))],
-        )
-    for alias, email in members.items():
-        if not isinstance(alias, str) or not SLUG_RE.fullmatch(alias):
-            raise AppError(
-                f"configuration value 'team.members' has an invalid alias '{alias}'",
-                code=3,
-                category="configuration",
-                diagnostics=[Diagnostic("config_team_alias", "alias must use lowercase letters, numbers, and hyphens", str(source))],
-            )
-        if not isinstance(email, str) or not EMAIL_RE.fullmatch(email):
-            raise AppError(
-                f"configuration value 'team.members.{alias}' must be a valid email",
-                code=3,
-                category="configuration",
-                diagnostics=[Diagnostic("config_team_email", f"'team.members.{alias}' must look like name@example.com", str(source))],
-            )
-
-
-def team_members(config: Mapping[str, Any]) -> dict[str, str]:
-    """Return the ``team.members`` alias -> email mapping, or ``{}`` when unconfigured."""
-
-    team = config.get("team")
-    if not isinstance(team, Mapping):
-        return {}
-    members = team.get("members")
-    if not isinstance(members, Mapping):
-        return {}
-    return {str(alias): str(email) for alias, email in members.items()}
 
 
 def team_binding(config: Mapping[str, Any]) -> tuple[str, str]:
