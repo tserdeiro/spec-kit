@@ -187,20 +187,6 @@ query SharedViewsByName($first: Int!, $after: String, $name: String!) {
 }
 """.strip()
 
-# "assignee at Txxx Issue creation" (contract "Campos administrados"): resolve
-# a `team.members` email to exactly one Linear user id before it can flow
-# into an `issue.create` input as `assigneeId`. Follows the same by-name
-# connection idiom as the other by-name queries above (`String!` filter
-# argument); not yet exercised against a live workspace either.
-USERS_BY_EMAIL_QUERY = """
-query UsersByEmail($first: Int!, $after: String, $email: String!) {
-  users(first: $first, after: $after, filter: { email: { eq: $email } }) {
-    nodes { id email }
-    pageInfo { hasNextPage endCursor }
-  }
-}
-""".strip()
-
 FEATURE_PROJECTS_QUERY = """
 query FeatureProjects($first: Int!, $after: String, $projectLabelId: ID!) {
   projects(
@@ -352,12 +338,6 @@ class RemoteGitAutomationState:
     state_id: str | None
     state_name: str | None
     target_branch_id: str | None
-
-
-@dataclass(frozen=True)
-class RemoteUser:
-    id: str
-    email: str
 
 
 @dataclass(frozen=True)
@@ -713,22 +693,6 @@ class LinearClient:
         nodes = self.connection(GITHUB_INTEGRATION_QUERY, root_key="integrations", variables={})
         return any(isinstance(node, Mapping) and node.get("service") == "github" for node in nodes)
 
-    def find_users_by_email(self, email: str) -> tuple[RemoteUser, ...]:
-        """List every Linear user with an exact email match.
-
-        Used to resolve a ``team.members`` alias's email to exactly one
-        user id before it can appear as ``assigneeId`` in an ``issue.create``
-        input. Not yet exercised against a live workspace.
-        """
-
-        nodes = self.connection(USERS_BY_EMAIL_QUERY, root_key="users", variables={"email": email})
-        return tuple(
-            RemoteUser(
-                id=_required_string(node, "id", request_id=None),
-                email=_required_string(node, "email", request_id=None),
-            )
-            for node in nodes
-        )
 
     def find_project_labels_by_name(self, name: str) -> tuple[RemoteProjectLabel, ...]:
         """List every project label with an exact name match (`onboard`)."""

@@ -15,7 +15,7 @@ from spec_kit_linear.cli import main
 from spec_kit_linear.config import ROOT_CONFIG_FILENAME, load_config, repository_binding
 from spec_kit_linear.errors import Diagnostic
 from spec_kit_linear.github import PullRequest, PullRequestScan
-from spec_kit_linear.linear_client import RemoteBinding, RemoteIssue, RemoteProject, RemoteUser, RemoteWorkItem
+from spec_kit_linear.linear_client import RemoteBinding, RemoteIssue, RemoteProject, RemoteWorkItem
 from spec_kit_linear.parser import parse_feature
 from spec_kit_linear.projection import project_feature
 from tests.support.fixtures import copy_consumer_fixture, isolate_operator_global_env
@@ -77,21 +77,15 @@ class _FakeClient:
     one: any attempt to write fails with AttributeError, which is the
     structural "never mutates" guarantee the read-only commands need."""
 
-    def __init__(self, projects: tuple[RemoteProject, ...] = (), *, users_by_email: dict[str, tuple[RemoteUser, ...]] | None = None) -> None:
+    def __init__(self, projects: tuple[RemoteProject, ...] = ()) -> None:
         self.credentials = SimpleNamespace(scheme="api_key")
         self._projects = projects
-        self._users_by_email = users_by_email or {}
-        self.email_lookups: list[str] = []
 
     def inspect_binding(self, _config: object) -> RemoteBinding:
         return _sample_binding()
 
     def discover_projects(self, _project_label_id: str) -> tuple[RemoteProject, ...]:
         return self._projects
-
-    def find_users_by_email(self, email: str) -> tuple[RemoteUser, ...]:
-        self.email_lookups.append(email)
-        return self._users_by_email.get(email, ())
 
 
 class _ApplyingClient(_FakeClient):
@@ -272,33 +266,6 @@ class PushTests(CliTestCase):
         self.assertIn("project.create", text)
         self.assertIn("issue.create", text)
 
-    def test_resolves_an_assignee_alias_into_the_issue_create_operation(self) -> None:
-        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
-        config_path.write_text(config_path.read_text(encoding="utf-8") + '\nteam:\n  members:\n    facu: "facu@example.com"\n', encoding="utf-8")
-        tasks_md = self.fixture_root / "specs/001-local-projection/tasks.md"
-        tasks_md.write_text(tasks_md.read_text(encoding="utf-8").replace("- [ ] T001 ", "- [ ] T001 [@facu] "), encoding="utf-8")
-        client = _FakeClient(users_by_email={"facu@example.com": (RemoteUser(id="user-1", email="facu@example.com"),)})
-
-        with patch("spec_kit_linear.cli._linear_client", return_value=client):
-            result, payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
-
-        self.assertEqual(result, 0)
-        create = next(item for item in payload["operations"] if item["target"] == "task:001:T001")
-        self.assertEqual(create["input"]["assigneeId"], "user-1")
-        self.assertEqual(client.email_lookups, ["facu@example.com"])
-
-    def test_unknown_assignee_alias_fails_closed_before_any_write(self) -> None:
-        tasks_md = self.fixture_root / "specs/001-local-projection/tasks.md"
-        tasks_md.write_text(tasks_md.read_text(encoding="utf-8").replace("- [ ] T001 ", "- [ ] T001 [@nobody] "), encoding="utf-8")
-
-        with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
-            result, payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
-
-        self.assertEqual(result, 3)
-        self.assertEqual(payload["diagnostics"][0]["code"], "task_assignee_alias_unknown")
-
-
-class PushHookTests(CliTestCase):
     def test_hook_no_ops_when_lifecycle_is_disabled(self) -> None:
         self._set_hooks(lifecycle_enabled=False)
 

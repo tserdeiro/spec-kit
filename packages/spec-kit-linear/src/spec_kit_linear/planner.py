@@ -57,7 +57,6 @@ def build_push_plan(
     discovery: RemoteDiscovery,
     *,
     config: Mapping[str, object] | None = None,
-    assignee_ids: Mapping[str, str] | None = None,
     work_states: Mapping[str, TaskWorkState] | None = None,
 ) -> dict[str, object]:
     """Diff one feature against an adopted, versioned remote snapshot.
@@ -68,11 +67,6 @@ def build_push_plan(
     yields an empty operation list: the plan is the difference, so applying it
     twice is a no-op.
 
-    ``assignee_ids`` maps a task's ``identity`` to a Linear user id already
-    resolved from its ``[@alias]`` annotation (see ``assignee_resolution.py``).
-    It is consulted *only* on the ``issue.create`` branch: an existing Issue's
-    reconcile never emits an assignee change, even when the annotation in
-    `tasks.md` disagrees with the remote assignee.
 
     ``work_states`` maps a task's ``identity`` to the state derived from
     observable reality moments ago (see ``work_state.py``). It is the
@@ -137,9 +131,6 @@ def build_push_plan(
             state_id = _desired_state_id(config, _task_state(work_states, task))
             if state_id is not None:
                 issue_input["stateId"] = state_id
-            assignee_id = (assignee_ids or {}).get(task.identity)
-            if assignee_id is not None:
-                issue_input["assigneeId"] = assignee_id
             _append_operation(
                 operations, kind="issue.create", target=task.identity,
                 reason="missing_task_issue", input_values=issue_input,

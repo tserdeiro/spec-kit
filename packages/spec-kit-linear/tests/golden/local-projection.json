@@ -49,8 +49,7 @@
         "source": {
           "path": "specs/001-local-projection/tasks.md",
           "line": 5
-        },
-        "assignee_alias": null
+        }
       },
       {
         "identity": "task:001:T002",
@@ -62,8 +61,7 @@
         "source": {
           "path": "specs/001-local-projection/tasks.md",
           "line": 6
-        },
-        "assignee_alias": null
+        }
       },
       {
         "identity": "task:001:T003",
@@ -75,8 +73,7 @@
         "source": {
           "path": "specs/001-local-projection/tasks.md",
           "line": 10
-        },
-        "assignee_alias": null
+        }
       }
     ]
   }
