@@ -231,6 +231,16 @@ Report final status with summary of completed work.
 This distribution delivers **one branch and one draft PR per task**. As you
 implement, wrap every task in this loop:
 
+**Orchestrate when your host can.** If your host supports delegating to
+sub-agents (Claude Code's Task tool, OpenCode agents, or equivalent), run
+this loop as an orchestrator: implement each task in a **fresh sub-agent**,
+so no context carries one task's residue into the next, and keep for
+yourself only what the loop needs — state derivation, branches, commits,
+and the conversation with the human. Everything a sub-agent needs (spec,
+plan, tasks, checkboxes, branches, PRs) is observable from the repository,
+so hand it pointers, never your conversation. Without that capability, run
+the loop yourself as written.
+
 0. **Feature selection** — if the user named a feature in the command
    (`/speckit.implement 003` or `003-checkout-flow`), resolve it to
    exactly one `specs/<dir>/` directory (a unique prefix is enough; if it
