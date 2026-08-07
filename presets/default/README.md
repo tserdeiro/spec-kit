@@ -1,9 +1,10 @@
 # `default` preset
 
 The workflow templates for this distribution: `spec`, `plan`, `tasks`, and
-`checklist`. The `tasks` template carries the branch-per-task and stacked-PR
-delivery conventions; the rest trim the upstream core templates to what the
-flow needs.
+`checklist`, plus the workflow commands (`speckit.pr`, `speckit.bugfix`,
+`speckit.chore`, `speckit.doctor`, and the `speckit.implement` append).
+The `tasks` template carries the integration-branch delivery conventions;
+the rest trim the upstream core templates to what the flow needs.
 
 ## Install
 
