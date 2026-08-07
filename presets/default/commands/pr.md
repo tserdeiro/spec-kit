@@ -16,7 +16,10 @@ GitHub.
 - If the user named a task (`T###`) or an issue key (`WOR-123`-style), use
   it.
 - Otherwise derive it from the current branch: `NNN-T###-*` names a
-  feature task; `<team>-<n>-*` names a work item (bug or chore).
+  feature task; `<team>-<n>-*` names a work item (bug or chore); the
+  **feature branch itself** (`NNN-slug`) with its artifacts committed
+  names the **feature PR** — the spec-review gate that later closes the
+  feature (see step 4's feature variant).
 - Otherwise take the first unchecked task in the active feature's
   `tasks.md` (the active feature comes from `.specify/feature.json`), and
   say which one you picked.
@@ -26,7 +29,8 @@ GitHub.
 The branch is what projects the task to *In Progress*; it must exist and
 follow the convention before the PR opens. The PR's **base** follows from
 what is delivered: a feature task targets its **feature branch**
-(`NNN-slug`); a work item targets the **repository's default branch**
+(`NNN-slug`); a work item — and the feature PR itself — targets the
+**repository's default branch**
 (`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`).
 
 - Correctly named branch checked out → continue.
@@ -67,14 +71,28 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` — every section, in its order:
   `PR N of M, stacked on #<PR>` when this task stacks.
 - **Review focus** — the one question the human reviewer should answer.
 
+**Feature-PR variant** — when step 1 resolved the feature PR, the same
+sections carry the feature, not a task: Work item — the Linear Project
+(from `/speckit.linear.status`) and its Issue range (`T001–T###`); Spec
+Kit evidence — `specs/<feature>/`; Requirements — the spec's FR range;
+Tasks — all of them. Outcome — state that this is the **spec-review
+gate**: draft while tasks deliver into the feature branch, ready when
+every task is checked, closed by a human **merge commit**; reviewing it
+now approves the spec and plan. Changes — the committed artifacts.
+Verification evidence — the Linear projection result. Risk — implementation
+lands task by task into this branch, each PR reviewed before merge; Stack —
+`feature PR; task PRs stack into this branch`. Review focus — do the tasks
+cover the spec with nothing missing and nothing extra?
+
 ## 5. Open the draft
 
 ```bash
 gh pr create --draft --base <base> --title "<type(scope): subject>" --body "<the body>"
 ```
 
-`<base>` is the feature branch for a feature task, the repository's
-default branch for a work item.
+`<base>` is the feature branch for a feature task; the repository's
+default branch for a work item **and for the feature PR itself**.
+The feature PR's title is `feat(<area>): <feature outcome>`.
 
 Title in English, `type(scope): subject`, matching the branch's commit.
 Report the PR URL, then remind the flow: the next steps are the

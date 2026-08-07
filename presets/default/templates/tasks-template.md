@@ -14,7 +14,8 @@ description: "Dependency-ordered, traceable delivery units for feature implement
   branch only once, through the feature PR, as a merge commit.
 - **Closing the product phase opens the gate**: with this file complete,
   commit the feature artifacts on the feature branch and open the
-  **draft feature PR** (`NNN-slug` → default branch). Reviewing it is how
+  **draft feature PR** (`NNN-slug` → default branch) — `/speckit.pr` on
+  the feature branch does it with the canonical body. Reviewing it is how
   the team approves the spec and plan before implementation; the same PR,
   ready once every task is checked, later closes the feature.
 - **One branch per task**, named `NNN-T###-short-slug` (feature number, task
