@@ -648,7 +648,7 @@ def _resolve_repository_label(client: LinearClient, slug: str, repository_overla
         diagnostics.append(
             Diagnostic(
                 "project_label_group_missing",
-                f"no Project Label Group named '{_REPOSITORY_LABEL_GROUP_NAME}' was found; create it in Linear",
+                f"no Project Label Group named '{_REPOSITORY_LABEL_GROUP_NAME}' was found; onboard creates it when it applies",
                 severity="warning",
             )
         )
@@ -669,7 +669,7 @@ def _resolve_repository_label(client: LinearClient, slug: str, repository_overla
         diagnostics.append(
             Diagnostic(
                 "project_label_missing",
-                f"no Project Label named '{slug}' was found under '{_REPOSITORY_LABEL_GROUP_NAME}'; create it in Linear",
+                f"no Project Label named '{slug}' was found under '{_REPOSITORY_LABEL_GROUP_NAME}'; onboard creates it when it applies",
                 severity="warning",
             )
         )

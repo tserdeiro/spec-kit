@@ -44,7 +44,7 @@ def resolve_shared_views_by_name(client: LinearClient, slug: str) -> ViewAdoptio
             diagnostics.append(
                 Diagnostic(
                     "shared_view_missing",
-                    f"no Shared View named '{name}' was found; create it in Linear",
+                    f"no Shared View named '{name}' was found; onboard creates it when it applies",
                     severity="warning",
                 )
             )
