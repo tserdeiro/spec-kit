@@ -53,7 +53,7 @@ from .projection import project_feature
 from .reconciler import apply_plan
 from .remote_discovery import RemoteDiscovery, discover_and_adopt
 from .reporting import render_status_table, render_work_item_table, status_report
-from .view_discovery import resolve_shared_views_by_name
+from .view_discovery import conventional_view_name, resolve_shared_views_by_name
 from .work_items import WorkItemState, derive_work_items, issue_numbers
 from .work_state import TaskWorkState, derive_task_states
 
@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--offline", action="store_true", help="do not contact Linear")
     doctor.add_argument("--fix", action="store_true", help="apply the mechanical, local-only remediations doctor knows how to make")
 
-    onboard = subparsers.add_parser("onboard", help="bind this repository to a Linear team; resolves every ID read-only and never mutates Linear")
+    onboard = subparsers.add_parser("onboard", help="bind this repository to a Linear team; creates the missing bindings and PR-automation mappings, additively")
     _common_arguments(onboard)
     onboard.add_argument("--team-id", help="Linear Team UUID")
     onboard.add_argument("--team-key", help="Linear Team key; resolved to a UUID")
@@ -438,6 +438,9 @@ def run_onboard(args: argparse.Namespace) -> dict[str, Any]:
     view_result = resolve_shared_views_by_name(client, slug)
     repository_overlay.update(view_result.resolved)
     diagnostics.extend(view_result.diagnostics)
+    binding_operations = _plan_repository_bindings(slug, repository_overlay)
+    if apply_changes and binding_operations:
+        _create_repository_bindings(client, slug, repository_overlay, diagnostics)
     lifecycle_overlay, lifecycle_missing = _resolve_lifecycle(client, team.id, diagnostics)
     automation_operations = _plan_git_automations(client, team.id, lifecycle_overlay, diagnostics)
 
@@ -475,8 +478,9 @@ def run_onboard(args: argparse.Namespace) -> dict[str, Any]:
         # does not have; both are things a human creates in Linear by hand.
         "missing_remote_resources": missing + lifecycle_missing,
         "gitignore_entries_added": [],
-        # The one remote write onboard performs: missing Team PR-automation
-        # mappings, additive only.
+        # The remote writes onboard performs: missing repository bindings and
+        # missing Team PR-automation mappings, additive only.
+        "binding_operations": binding_operations,
         "automation_operations": [
             f"team.automation.create {operation['input']['event']}" for operation in automation_operations
         ],
@@ -505,13 +509,12 @@ def run_onboard(args: argparse.Namespace) -> dict[str, Any]:
         diagnostics.append(
             Diagnostic(
                 "onboard_missing_remote",
-                f"missing in Linear: {', '.join(missing)}; create the 'Repository' Project Label group, "
-                f"its '{slug}' child label, and the '{slug} / Features'/'{slug} / Work' Shared Views, then run onboard again",
+                f"missing in Linear: {', '.join(missing)}; onboard creates them when it applies",
                 severity="warning",
             )
         )
     else:
-        diagnostics.append(Diagnostic("onboard_complete", "repository Project Label, child label, and both Shared Views were all resolved", severity="info"))
+        diagnostics.append(Diagnostic("onboard_complete", "repository Project Label, child label, and both Shared Views are all bound", severity="info"))
 
     payload = _success(
         "onboard wrote the repository binding" if apply_changes else "onboard dry-run reviewed the repository binding",
@@ -569,6 +572,66 @@ def _validate_uuid_flag(flag: str, value: str) -> None:
         )
 
 
+# The four bindings onboard creates when resolution left them missing, in
+# dependency order: the child label needs the group, both views need the
+# label. Ambiguity (2+ matches) still aborts during resolution — creation
+# only ever fills a clean absence.
+_BINDING_FIELDS = ("project_label_group_id", "project_label_id", "project_view_id", "issue_view_id")
+
+
+def _plan_repository_bindings(slug: str, repository_overlay: dict[str, Any]) -> list[str]:
+    """Name the missing bindings onboard will create, for the changes report."""
+
+    labels = {
+        "project_label_group_id": f"project.label.create '{_REPOSITORY_LABEL_GROUP_NAME}' (group)",
+        "project_label_id": f"project.label.create '{slug}'",
+        "project_view_id": f"view.create '{conventional_view_name(slug, 'Features')}'",
+        "issue_view_id": f"view.create '{conventional_view_name(slug, 'Work')}'",
+    }
+    return [labels[field] for field in _BINDING_FIELDS if field not in repository_overlay]
+
+
+def _create_repository_bindings(client: LinearClient, slug: str, repository_overlay: dict[str, Any], diagnostics: list[Diagnostic]) -> None:
+    """Create the missing bindings, staged: each id feeds the next create."""
+
+    executor = LinearMutationExecutor(client)
+
+    def create(kind: str, input_values: dict[str, Any]) -> str:
+        result = executor.execute({"kind": kind, "input": {"id": str(uuid.uuid4()), **input_values}})
+        remote_id = result.get("id")
+        if not isinstance(remote_id, str) or not remote_id:
+            raise AppError(
+                "Linear did not return the created resource's id",
+                code=6,
+                category="remote_identity",
+                diagnostics=[Diagnostic("binding_create_id_missing", f"{kind} returned no id; re-run onboard to adopt whatever was created")],
+            )
+        return remote_id
+
+    created: list[str] = []
+    group_id = repository_overlay.get("project_label_group_id")
+    if group_id is None:
+        group_id = create("project.label.create", {"name": _REPOSITORY_LABEL_GROUP_NAME, "isGroup": True})
+        repository_overlay["project_label_group_id"] = group_id
+        created.append(f"Project Label Group '{_REPOSITORY_LABEL_GROUP_NAME}'")
+    label_id = repository_overlay.get("project_label_id")
+    if label_id is None:
+        label_id = create("project.label.create", {"name": slug, "parentId": group_id})
+        repository_overlay["project_label_id"] = label_id
+        repository_overlay["project_label"] = slug
+        created.append(f"Project Label '{slug}'")
+    label_filter = {"labels": {"some": {"id": {"eq": label_id}}}}
+    if "project_view_id" not in repository_overlay:
+        name = conventional_view_name(slug, "Features")
+        repository_overlay["project_view_id"] = create("view.create", {"name": name, "projectFilterData": label_filter, "shared": True})
+        created.append(f"Shared View '{name}'")
+    if "issue_view_id" not in repository_overlay:
+        name = conventional_view_name(slug, "Work")
+        repository_overlay["issue_view_id"] = create("view.create", {"name": name, "filterData": {"project": label_filter}, "shared": True})
+        created.append(f"Shared View '{name}'")
+    diagnostics.append(Diagnostic("binding_created", "created in Linear: " + ", ".join(created), severity="info"))
+
+
 def _resolve_repository_label(client: LinearClient, slug: str, repository_overlay: dict[str, Any]) -> list[Diagnostic]:
     """Adopt the 'Repository' label group and its <slug> child label by name, read-only.
 
@@ -585,7 +648,7 @@ def _resolve_repository_label(client: LinearClient, slug: str, repository_overla
         diagnostics.append(
             Diagnostic(
                 "project_label_group_missing",
-                f"no Project Label Group named '{_REPOSITORY_LABEL_GROUP_NAME}' was found; create it in Linear",
+                f"no Project Label Group named '{_REPOSITORY_LABEL_GROUP_NAME}' was found; onboard creates it when it applies",
                 severity="warning",
             )
         )
@@ -606,7 +669,7 @@ def _resolve_repository_label(client: LinearClient, slug: str, repository_overla
         diagnostics.append(
             Diagnostic(
                 "project_label_missing",
-                f"no Project Label named '{slug}' was found under '{_REPOSITORY_LABEL_GROUP_NAME}'; create it in Linear",
+                f"no Project Label named '{slug}' was found under '{_REPOSITORY_LABEL_GROUP_NAME}'; onboard creates it when it applies",
                 severity="warning",
             )
         )

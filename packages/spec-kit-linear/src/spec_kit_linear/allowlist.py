@@ -13,10 +13,10 @@ import uuid
 from .errors import AppError, Diagnostic
 
 
-# Exactly the operations `planner.build_push_plan` can emit, plus the single
-# operation `onboard` emits (`team.automation.create`: a missing Team
-# PR-automation mapping — additive only, updates and deletes stay forbidden);
-# nothing else is ever a valid mutation.
+# Exactly the operations `planner.build_push_plan` can emit, plus the three
+# `onboard` emits (`team.automation.create`, `project.label.create`,
+# `view.create`: the missing pieces of the one-shot binding — additive only,
+# updates and deletes stay forbidden); nothing else is ever a valid mutation.
 PUSH_MUTATIONS = frozenset(
     {
         "project.create",
@@ -26,6 +26,8 @@ PUSH_MUTATIONS = frozenset(
         "issue.update",
         "issue.lifecycle.update",
         "team.automation.create",
+        "project.label.create",
+        "view.create",
     }
 )
 
@@ -43,7 +45,10 @@ ALLOWED_INPUTS = {
     # No targetBranchId: onboard only manages the Team's global mappings and
     # never touches branch-scoped rules.
     "team.automation.create": frozenset({"id", "teamId", "stateId", "event"}),
+    "project.label.create": frozenset({"id", "name", "parentId", "isGroup"}),
+    "view.create": frozenset({"id", "name", "filterData", "projectFilterData", "shared"}),
 }
+
 
 def assert_allowed(kind: str, input_values: Mapping[str, object]) -> None:
     """Reject unknown and over-broad operations fail-closed."""
@@ -66,7 +71,11 @@ def assert_allowed(kind: str, input_values: Mapping[str, object]) -> None:
             raise _policy_error("mutation_create_id", f"'{kind}' requires an input.id UUID v4")
     elif "id" in input_values:
         raise _policy_error("mutation_update_id", f"'{kind}' must target its remote ID through GraphQL variables, not input.id")
-    forbidden = {"assigneeId", "leadId", "memberIds", "parentId", "archive", "delete"} & set(input_values)
+    forbidden = {"assigneeId", "leadId", "memberIds", "archive", "delete"} & set(input_values)
+    # The one parent relationship the harness itself creates is the repository
+    # label under its group; every other kind treats parentId as hierarchy.
+    if "parentId" in input_values and kind != "project.label.create":
+        forbidden.add("parentId")
     if forbidden:
         raise _policy_error("mutation_preserved_field", f"'{kind}' would modify a preserved field")
 
@@ -92,7 +101,6 @@ def forbidden_operations() -> list[str]:
         "issue.assignee.update",
         "project.lead.update",
         "project.members.update",
-        "custom_view.create",
         "custom_view.update",
         "custom_view.delete",
     ]
