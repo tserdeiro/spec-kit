@@ -9,12 +9,21 @@ description: "Dependency-ordered, traceable delivery units for feature implement
 
 ## Delivery strategy
 
+- **The feature branch (`NNN-slug`) is the integration branch**: every
+  task merges into it, and the feature enters the repository's default
+  branch only once, through the feature PR, as a merge commit.
+- **Closing the product phase opens the gate**: with this file complete,
+  commit the feature artifacts on the feature branch and open the
+  **draft feature PR** (`NNN-slug` → default branch). Reviewing it is how
+  the team approves the spec and plan before implementation; the same PR,
+  ready once every task is checked, later closes the feature.
 - **One branch per task**, named `NNN-T###-short-slug` (feature number, task
-  id); its pull request opens as `draft`.
+  id); its pull request opens as `draft` **against the feature branch**.
 - **Starting a task means creating its branch first**: before touching any
-  code for `T###`, run `git switch -c NNN-T###-short-slug`. If you are the
-  implementing agent, do this as the first action of the task — the branch
-  is what projects the task to *In Progress*.
+  code for `T###`, run `git switch -c NNN-T###-short-slug` from the
+  up-to-date feature branch. If you are the implementing agent, do this as
+  the first action of the task — the branch is what projects the task to
+  *In Progress*.
 - A reviewed PR stays under ~400 authored executable lines. A task that
   exceeds it splits into
   [stacked PRs](https://docs.github.com/en/pull-requests/get-started/stacked-prs-quickstart),

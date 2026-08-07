@@ -24,14 +24,16 @@ GitHub.
 ## 2. Guarantee the branch invariant
 
 The branch is what projects the task to *In Progress*; it must exist and
-follow the convention before the PR opens.
+follow the convention before the PR opens. The PR's **base** follows from
+what is delivered: a feature task targets its **feature branch**
+(`NNN-slug`); a work item targets the **repository's default branch**
+(`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`).
 
 - Correctly named branch checked out → continue.
-- On the repository's default branch or a misnamed branch with the work
-  committed → create the
-  correctly named branch **at the current commit** (`git switch -c
-  NNN-T###-short-slug`) and continue there. Never rename a branch that
-  already has an open PR.
+- On the base branch or a misnamed branch with the work committed →
+  create the correctly named branch **at the current commit**
+  (`git switch -c NNN-T###-short-slug`) and continue there. Never rename
+  a branch that already has an open PR.
 - Uncommitted work → commit it on the correctly named branch first, with
   a `type(scope): subject` message in English.
 
@@ -49,14 +51,16 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` — every section, in its order:
 
 - **Work item** — Tracker: the Linear identifier for the task (from
   `/speckit.linear.status`; `N/A` if the feature is not projected) or the
-  issue key itself for a work item. Spec Kit evidence: `specs/<feature>/`
-  for a task; `.specify/bugs/<slug>/` for a bug; `N/A (chore)` otherwise.
+  issue key itself for a work item — written as **`Fixes WOR-123`** so
+  Linear's GitHub integration links the PR and transitions the issue
+  natively. Spec Kit evidence: `specs/<feature>/` for a task;
+  `.specify/bugs/<slug>/` for a bug; `N/A (chore)` otherwise.
   Requirements: the task's **Traces** line. Tasks: the `T###`, or
   `N/A (short path)`.
 - **Outcome** — the task's outcome line, phrased as the delivered result.
-- **Changes** — summarize the real diff against the repository's default
-  branch (`BASE=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)`;
-  `git diff $BASE...HEAD --stat`), not the plan.
+- **Changes** — summarize the real diff against the PR's base branch
+  (`git diff <base>...HEAD --stat` — the feature branch for a feature
+  task, the repository's default branch for a work item), not the plan.
 - **Verification evidence** — the task's **Evidence** commands with their
   actual, truthful results; run them if you have not.
 - **Risk and delivery** — honest risks; `Stack: standalone`, or
@@ -66,8 +70,11 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` — every section, in its order:
 ## 5. Open the draft
 
 ```bash
-gh pr create --draft --title "<type(scope): subject>" --body "<the body>"
+gh pr create --draft --base <base> --title "<type(scope): subject>" --body "<the body>"
 ```
+
+`<base>` is the feature branch for a feature task, the repository's
+default branch for a work item.
 
 Title in English, `type(scope): subject`, matching the branch's commit.
 Report the PR URL, then remind the flow: the next steps are the
