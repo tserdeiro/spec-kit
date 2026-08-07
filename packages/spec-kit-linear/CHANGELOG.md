@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- `onboard` completes the team's PR-automation mapping for Linear's native
+  GitHub integration (`draft` → In Progress, `start` → In Review, `merge`
+  → Done): creates the missing mappings, warns about — never overwrites —
+  a different human mapping, never touches branch-scoped rules, and warns
+  when the workspace has no GitHub integration connected. Its one remote
+  write, additive-only, behind the mutation allowlist; `--dry-run` plans
+  without writing.
+
 ## 0.2.0
 
 - `status` shows a `NEXT` column: the suggested next action per task and
