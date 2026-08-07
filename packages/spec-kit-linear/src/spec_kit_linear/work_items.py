@@ -56,7 +56,10 @@ def issue_key_pattern(team_key: str) -> re.Pattern[str]:
     separator), ``wor-`` (no number), and ``wor-12x`` (trailing junk) do not.
     """
 
-    return re.compile(rf"^{re.escape(team_key)}-(\d+)(?:-.*)?$", re.IGNORECASE)
+    # The optional single-level prefix is Linear's own "Copy git branch name"
+    # format (`<username>/wor-123-slug`): the native button must produce a
+    # branch this extension derives, or the native path would be second-class.
+    return re.compile(rf"^(?:[^/]+/)?{re.escape(team_key)}-(\d+)(?:-.*)?$", re.IGNORECASE)
 
 
 def work_item_identity(identifier: str) -> str:

@@ -151,9 +151,11 @@ Reglas de oro:
   llega a la default. Los bugs y chores siguen yendo directo a la
   default. Nada que configurar: los comandos resuelven la default branch
   que el repo tiene en GitHub en vez de asumir un nombre.
-- **Nunca actualices Linear a mano.** Cada sincronización (automática tras
-  los comandos, o `push --apply` a mano) deriva los estados de tus
-  checkboxes, branches y PRs. Si no cambió nada, no escribe nada.
+- **Nunca actualices Linear a mano.** El Project y los Issues nacen solos
+  en plan/tareas; los estados los mueve la integración nativa de Linear
+  por eventos de PR, y `push --apply` es la reconciliación idempotente
+  que repara cualquier cosa que falte. Si no cambió nada, no escribe
+  nada.
 - **PRs chicos**: máximo ~400 líneas ejecutables escritas por ti. Si la
   tarea es más grande, se parte en
   [Stacked PRs](https://docs.github.com/en/pull-requests/get-started/stacked-prs-quickstart)
@@ -206,8 +208,11 @@ El camino corto — sin spec ni plan:
 2. `/speckit.bugfix WOR-123` (bugs) o `/speckit.chore WOR-123` (chores)
    arranca el lado repo: crea el branch con la clave del issue
    (`wor-123-slug-corto`) desde el default branch al día y proyecta
-   *In Progress*. Los estados se derivan igual que en features: branch o
-   PR draft → *In Progress*, PR ready → *In Review*, merge → *Done*.
+   *In Progress*. Igual de válido: el botón **Copy git branch name** de
+   la tarjeta de Linear (`usuario/wor-123-slug` — según tu config, al
+   copiarlo Linear te asigna y arranca la tarjeta). Los estados se
+   derivan igual que en features: branch o PR draft → *In Progress*, PR
+   ready → *In Review*, merge → *Done*.
 3. `bugfix` sigue con el trío de triage: `/speckit.bug.assess` (pégale
    el reporte o la URL) → `/speckit.bug.fix` → `/speckit.bug.test`. Los
    tres reportes quedan en `.specify/bugs/<slug>/` y viajan en el PR como
