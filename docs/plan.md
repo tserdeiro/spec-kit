@@ -205,9 +205,7 @@ one PR, human merge.
 - Exit: one feature delivered through its integration branch, states
   visible in Linear in real time, nothing half-done on the default branch.
 
-### Queued short-path chores
-
-In order, before or alongside Stage 7:
+### Short-path chores (delivered with Stage 7)
 
 1. `publish.sh --bump` — produce the coherent version bump (manifests,
    bundle pins, conformance pin, changelog skeletons) instead of only
