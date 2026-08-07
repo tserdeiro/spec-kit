@@ -35,12 +35,13 @@ description: "Dependency-ordered delivery units for the integration branch"
   - **Delivery**: single PR into 002-integration-branch
   - **Completion evidence**: PR #20 merged into 002-integration-branch 2026-08-06; conformance passed; WOR-42 Done; gate itself dogfooded by PR #17
 
-- [ ] T004 Instruct the feature closure in presets/default/commands/implement-append.md
+- [x] T004 Instruct the feature closure in presets/default/commands/implement-append.md
   - **Traces**: FR-004, SC-003; outcome: all tasks checked → feature PR ready → human review → merge commit → branch deleted → push reconciles
   - **Depends on**: T001
   - **Boundaries**: presets/default only; approval and merge stay human
   - **Evidence**: dogfooded by closing this very feature; conformance green
   - **Delivery**: single PR into 002-integration-branch
+  - **Completion evidence**: PR #21 merged into 002-integration-branch 2026-08-06; conformance passed; WOR-43 Done; the ritual executes at this feature's own closure
 
 ## Phase 3: Documentation (US4)
 
