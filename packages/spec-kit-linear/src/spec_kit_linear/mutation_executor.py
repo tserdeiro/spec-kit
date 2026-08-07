@@ -20,6 +20,8 @@ _DOCUMENTS: dict[str, tuple[str, str, str | None, bool, str, str]] = {
     "issue.update": ("issueUpdate", "issueUpdate", "IssueUpdateInput!", True, "issue", "input"),
     "issue.lifecycle.update": ("issueUpdate", "issueUpdate", "IssueUpdateInput!", True, "issue", "input"),
     "team.automation.create": ("gitAutomationStateCreate", "gitAutomationStateCreate", "GitAutomationStateCreateInput!", False, "gitAutomationState", "input"),
+    "project.label.create": ("projectLabelCreate", "projectLabelCreate", "ProjectLabelCreateInput!", False, "projectLabel", "input"),
+    "view.create": ("customViewCreate", "customViewCreate", "CustomViewCreateInput!", False, "customView", "input"),
 }
 
 

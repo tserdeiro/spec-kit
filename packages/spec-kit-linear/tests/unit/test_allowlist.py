@@ -47,9 +47,9 @@ class AssigneeAllowlistTests(unittest.TestCase):
 
 
 class WriteSurfaceTests(unittest.TestCase):
-    def test_the_write_surface_is_exactly_the_seven_allowed_operations(self) -> None:
-        # Six projection operations (push) plus onboard's single additive
-        # Team PR-automation create.
+    def test_the_write_surface_is_exactly_the_nine_allowed_operations(self) -> None:
+        # Six projection operations (push) plus onboard's three additive
+        # creates (automation mapping, repository label, shared view).
         self.assertEqual(
             PUSH_MUTATIONS,
             frozenset(
@@ -61,6 +61,8 @@ class WriteSurfaceTests(unittest.TestCase):
                     "issue.update",
                     "issue.lifecycle.update",
                     "team.automation.create",
+                    "project.label.create",
+                    "view.create",
                 }
             ),
         )
@@ -92,12 +94,19 @@ class WriteSurfaceTests(unittest.TestCase):
                 self.assertEqual(raised.exception.diagnostics[0].code, "mutation_not_allowed")
 
     def test_no_input_table_carries_a_hierarchy_or_ownership_field(self) -> None:
+        # project.label.create is the one sanctioned parent relationship: the
+        # repository label under its group, created by onboard itself.
         for kind, fields in ALLOWED_INPUTS.items():
+            forbidden = {"leadId", "memberIds", "parentId", "projectMilestoneId", "archive", "delete"}
+            if kind == "project.label.create":
+                forbidden -= {"parentId"}
             with self.subTest(kind=kind):
-                self.assertEqual(
-                    fields & {"leadId", "memberIds", "parentId", "projectMilestoneId", "archive", "delete"},
-                    frozenset(),
-                )
+                self.assertEqual(fields & forbidden, frozenset())
+
+    def test_parent_id_stays_forbidden_everywhere_else(self) -> None:
+        with self.assertRaises(AppError) as raised:
+            assert_allowed("issue.update", {"title": "x", "parentId": "issue-0"})
+        self.assertEqual(raised.exception.code, 6)
 
 
 if __name__ == "__main__":

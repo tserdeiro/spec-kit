@@ -50,9 +50,11 @@ spec-kit-linear push --current --apply    # write
 `onboard` resolves the `Repository` Project Label group, its `<slug>` child
 label, the `<slug> / Features` and `<slug> / Work` Shared Views, and four
 Team workflow states — `completed`, `unstarted`, and the two `started` states
-named `In Progress` and `In Review` — all by name. Whatever it cannot find is
-reported with a warning naming exactly what to create in Linear; create it
-and run `onboard` again.
+named `In Progress` and `In Review` — all by name. A binding that resolves
+to nothing is **created** (label group, child label, and both views, in
+dependency order); a name that resolves ambiguously still aborts, and a
+missing workflow state stays a human decision (states shape the team's
+whole workflow, not just this binding).
 
 It also performs its one remote write: the team's PR-automation mapping for
 Linear's native GitHub integration (`draft` → *In Progress*, `start` →
@@ -169,7 +171,7 @@ the human); touch a project lead, project members, or human comments;
 rewrite content outside its own `<!-- speckit-linear:... -->` managed
 block; create a bug or chore Issue, or change anything about one except
 its workflow state; or touch any file under `specs/`. The complete write
-surface is seven operation kinds with an enumerated input field list each
+surface is nine operation kinds with an enumerated input field list each
 — see [`src/spec_kit_linear/allowlist.py`](src/spec_kit_linear/allowlist.py).
 
 ## Exit codes

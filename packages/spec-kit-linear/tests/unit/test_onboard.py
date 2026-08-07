@@ -59,10 +59,9 @@ def _full_binding() -> RemoteBinding:
 class _OnboardClient:
     """Fake client for `onboard`'s resolution and its single remote write.
 
-    `mutation` asserts the operation kind: anything but
-    `team.automation.create` fails the test, which is the structural
-    guarantee that onboard's only remote write is the additive Team
-    PR-automation mapping."""
+    `mutation` asserts the operation kind: anything but the three additive
+    onboard creates (automation mapping, repository label, shared view)
+    fails the test — the structural guarantee of onboard's write surface."""
 
     def __init__(
         self,
@@ -99,11 +98,18 @@ class _OnboardClient:
     def has_github_integration(self) -> bool:
         return self._github_integration
 
+    _MUTATION_RESULTS = {
+        "team.automation.create": ("gitAutomationStateCreate", "gitAutomationState"),
+        "project.label.create": ("projectLabelCreate", "projectLabel"),
+        "view.create": ("customViewCreate", "customView"),
+    }
+
     def mutation(self, document: str, variables: dict[str, object], operation_kind: str | None = None) -> dict[str, object]:
-        if operation_kind != "team.automation.create":
-            raise AssertionError(f"onboard may only create Team PR-automation mappings, got {operation_kind!r}")
+        if operation_kind not in self._MUTATION_RESULTS:
+            raise AssertionError(f"onboard may only create bindings and PR-automation mappings, got {operation_kind!r}")
         self.mutations.append((operation_kind, variables))
-        return {"gitAutomationStateCreate": {"success": True, "gitAutomationState": {"id": "created-automation"}}}
+        result_key, resource_key = self._MUTATION_RESULTS[operation_kind]
+        return {result_key: {"success": True, resource_key: {"id": f"created-{len(self.mutations)}"}}}
 
     def resolve_workspace_id(self) -> str:
         return self.workspace_id
@@ -124,11 +130,32 @@ class _OnboardClient:
         self.find_workflow_states_by_team_calls.append(team_id)
         return self._workflow_states
 
-    def inspect_binding(self, _config: object) -> RemoteBinding:
+    def inspect_binding(self, config: object) -> RemoteBinding:
         self.inspect_binding_calls += 1
-        if self._binding is None:
-            raise AssertionError("inspect_binding should not have been called with a partial repository binding")
-        return self._binding
+        if self._binding is not None:
+            return self._binding
+        if self.mutations:
+            # The remote now holds exactly what onboard just created: echo
+            # the config back as the freshly-inspectable binding.
+            repository = config["repository"]  # type: ignore[index]
+            linear = config["linear"]  # type: ignore[index]
+            return RemoteBinding(
+                workspace_id=linear["workspace_id"],
+                team_id=linear["team_id"],
+                team_key=linear["team_key"],
+                project_label_group_id=repository["project_label_group_id"],
+                project_label_group_name="Repository",
+                project_label_id=repository["project_label_id"],
+                project_label_name=repository["slug"],
+                project_label_parent_id=repository["project_label_group_id"],
+                project_view_id=repository["project_view_id"],
+                project_view_type="project",
+                project_view_shared=True,
+                issue_view_id=repository["issue_view_id"],
+                issue_view_type="issue",
+                issue_view_shared=True,
+            )
+        raise AssertionError("inspect_binding should not have been called with a partial repository binding")
 
 
 def _full_fixture_client(
@@ -261,10 +288,12 @@ class OnboardTests(unittest.TestCase):
 
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             result, payload = self._invoke(
-                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json"]
+                ["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--dry-run", "--json"]
             )
 
         self.assertEqual(result, 0)
+        self.assertEqual(client.mutations, [])
+        self.assertEqual(len(payload["changes"]["binding_operations"]), 4)
         missing = payload["changes"]["missing_remote_resources"]
         self.assertIn("project_label_group", missing)
         self.assertIn("project_label", missing)
@@ -272,8 +301,7 @@ class OnboardTests(unittest.TestCase):
         self.assertIn("issue_view", missing)
         warning = next(item for item in payload["diagnostics"] if item["code"] == "onboard_missing_remote")
         self.assertEqual(warning["severity"], "warning")
-        self.assertIn("Repository", warning["message"])
-        self.assertIn(f"{SLUG} / Features", warning["message"])
+        self.assertIn("onboard creates them when it applies", warning["message"])
         # Nothing was created remotely and no side artifact was written.
         self.assertEqual(client.inspect_binding_calls, 0)
 
@@ -511,6 +539,75 @@ class OnboardTests(unittest.TestCase):
 
         self.assertEqual(result, 2)
         self.assertEqual(payload["diagnostics"][0]["code"], "onboard_mode")
+
+
+class OnboardBindingCreationTests(unittest.TestCase):
+    """The staged creates: group -> label -> views, each id feeding the next."""
+
+    def setUp(self) -> None:
+        isolate_operator_global_env(self)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+
+    def _run(self, client: _OnboardClient, *extra: str) -> dict[str, object]:
+        output = StringIO()
+        with patch("spec_kit_linear.cli._linear_client", return_value=client), redirect_stdout(output):
+            code = main(["onboard", "--root", str(self.root), "--team-id", TEAM_ID, "--repository", SLUG, "--json", *extra])
+        self.assertEqual(code, 0)
+        return json.loads(output.getvalue())
+
+    def test_onboard_creates_the_four_missing_bindings_in_dependency_order(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _OnboardClient(teams=(team,))
+
+        payload = self._run(client)
+
+        kinds = [kind for kind, _ in client.mutations]
+        self.assertEqual(kinds, ["project.label.create", "project.label.create", "view.create", "view.create"])
+        group_input = client.mutations[0][1]["input"]
+        self.assertEqual((group_input["name"], group_input["isGroup"]), ("Repository", True))
+        label_input = client.mutations[1][1]["input"]
+        self.assertEqual((label_input["name"], label_input["parentId"]), (SLUG, "created-1"))
+        features_input = client.mutations[2][1]["input"]
+        self.assertEqual(features_input["name"], f"{SLUG} / Features")
+        self.assertEqual(features_input["projectFilterData"], {"labels": {"some": {"id": {"eq": "created-2"}}}})
+        self.assertTrue(features_input["shared"])
+        work_input = client.mutations[3][1]["input"]
+        self.assertEqual(work_input["name"], f"{SLUG} / Work")
+        self.assertEqual(work_input["filterData"], {"project": {"labels": {"some": {"id": {"eq": "created-2"}}}}})
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertEqual(written["repository"]["project_label_group_id"], "created-1")
+        self.assertEqual(written["repository"]["project_label_id"], "created-2")
+        self.assertEqual(written["repository"]["project_view_id"], "created-3")
+        self.assertEqual(written["repository"]["issue_view_id"], "created-4")
+        self.assertEqual(payload["changes"]["missing_remote_resources"], [])
+        self.assertIn("binding_created", [item["code"] for item in payload["diagnostics"]])
+
+    def test_onboard_creates_only_what_resolution_left_missing(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        group = RemoteProjectLabel(id=GROUP_ID, name="Repository", is_group=True, updated_at="2099-01-01T00:00:00Z", parent_id=None)
+        label = RemoteProjectLabel(id=LABEL_ID, name=SLUG, is_group=False, updated_at="2099-01-01T00:00:00Z", parent_id=GROUP_ID)
+        client = _OnboardClient(teams=(team,), project_labels=(group, label))
+
+        payload = self._run(client)
+
+        kinds = [kind for kind, _ in client.mutations]
+        self.assertEqual(kinds, ["view.create", "view.create"])
+        features_input = client.mutations[0][1]["input"]
+        self.assertEqual(features_input["projectFilterData"], {"labels": {"some": {"id": {"eq": LABEL_ID}}}})
+        written = load_yaml_subset(Path(payload["changes"]["config_path"]))
+        self.assertEqual(written["repository"]["project_label_id"], LABEL_ID)
+        self.assertEqual(written["repository"]["project_view_id"], "created-1")
+
+    def test_onboard_creates_nothing_when_every_binding_resolves(self) -> None:
+        team = RemoteTeamSummary(id=TEAM_ID, key="WOR", name="Work")
+        client = _full_fixture_client(team)
+
+        payload = self._run(client)
+
+        self.assertEqual([kind for kind, _ in client.mutations], [])
+        self.assertEqual(payload["changes"]["binding_operations"], [])
 
 
 class OnboardAutomationTests(unittest.TestCase):
