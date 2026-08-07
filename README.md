@@ -133,21 +133,24 @@ El flujo completo, con el estado que Linear refleja solo:
 
 | Paso | Qué haces | Linear |
 | --- | --- | --- |
-| 1. Especificar | `/speckit.specify` | — |
+| 1. Especificar | `/speckit.specify` — nace el **branch de feature** `NNN-slug` | — |
 | 2. Planificar | `/speckit.plan` | se crea el Project |
-| 3. Tareas | `/speckit.tasks` | se crean los Issues (*Todo*) |
-| 4. Implementar | un branch por tarea: `NNN-T###-slug` (ej. `002-T004-parser-fix`) | *In Progress* |
-| 5. Pull request | PR en **draft** por tarea terminada | *In Progress* |
+| 3. Tareas | `/speckit.tasks`; commit de los artefactos y **draft PR de feature** (`NNN-slug` → default): el gate donde el equipo aprueba spec y plan | se crean los Issues (*Todo*) |
+| 4. Implementar | un branch por tarea **desde el branch de feature**: `NNN-T###-slug` (ej. `002-T004-parser-fix`) | *In Progress* |
+| 5. Pull request | PR en **draft** por tarea terminada, **hacia el branch de feature** | *In Progress* |
 | 6. Auto-revisión | `/speckit.code-review`, corriges, y marcas `ready for review` | *In Review* |
-| 7. Revisión final | el revisor usa el mismo comando con `--publish`; una persona mergea | *Done* |
+| 7. Revisión final | el revisor usa el mismo comando con `--publish`; una persona mergea al branch de feature | *Done* |
+| 8. Cierre | todas `[x]` → el PR de feature pasa a ready → revisión de la película completa → una persona mergea a la default con **merge commit** y el branch de feature se borra | — |
 
 Reglas de oro:
 
-- **La rama base es la default branch del repositorio** (aquí `main`; en
-  otros proyectos puede ser `dev`): los branches de tarea salen de ella
-  actualizada y los PRs vuelven a ella. No hay nada que configurar — `gh`
-  apunta solo a la default branch que el repo tiene en GitHub, y los
-  comandos la resuelven en vez de asumir un nombre.
+- **El branch de feature (`NNN-slug`) es la integración**: los branches
+  de tarea salen de él actualizado y sus PRs vuelven a él; la feature
+  entra a la default branch del repositorio (aquí `main`; en otros
+  proyectos `dev`) **una sola vez**, con merge commit — nada a medias
+  llega a la default. Los bugs y chores siguen yendo directo a la
+  default. Nada que configurar: los comandos resuelven la default branch
+  que el repo tiene en GitHub en vez de asumir un nombre.
 - **Nunca actualices Linear a mano.** Cada sincronización (automática tras
   los comandos, o `push --apply` a mano) deriva los estados de tus
   checkboxes, branches y PRs. Si no cambió nada, no escribe nada.
@@ -158,6 +161,15 @@ Reglas de oro:
   El comando de revisión te avisa si te pasas.
 - La revisión **nunca aprueba ni mergea** — eso es siempre humano. Exit 1
   del comando significa "hay hallazgos que corregir", no que algo falló.
+
+**Linear en tiempo real** (opcional, recomendado): un admin conecta
+GitHub en Linear (Settings → Integrations → GitHub) y habilita las
+transiciones del equipo por evento de PR (draft/abierto/merged). Con eso
+las tarjetas se mueven solas: los PRs de tarea llevan `Fixes WOR-###` en
+el body, y los branches de bugs/chores (`wor-123-slug`) ya usan el
+formato que Linear vincula. `push` sigue siendo la reconciliación que
+manda — la integración solo suma frescura; sin ella, todo funciona igual
+con `push`.
 - El body del PR usa el template canónico
   [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md).
 
