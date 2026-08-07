@@ -252,6 +252,15 @@ implement, wrap every task in this loop:
    - Create the task branch **from the up-to-date feature branch** — or
      from the previous task's branch when this task stacks:
      `git switch -c NNN-T###-short-slug`.
+   - **The stack is derived, never invented**: when the task or the
+     plan's `## Documentation` section defines stack or documentation
+     links, they rule. Otherwise read the real manifests
+     (`package.json`, lockfiles, etc.) and the neighboring code, and
+     reuse what is installed. Never add a dependency and never
+     reimplement what an installed library already covers — both are
+     human decisions to ask for. An API you are not certain of is
+     verified against the linked or official documentation before use,
+     never guessed.
    The branch is what projects the task to *In Progress* in Linear.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review

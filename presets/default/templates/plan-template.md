@@ -10,11 +10,24 @@
 ## Technical context
 
 - **Language/runtime**: [version or NEEDS CLARIFICATION]
-- **Primary dependencies**: [dependencies or standard library only]
+- **Primary dependencies**: [read from the real manifests
+  (`package.json`, lockfiles, etc.) and cite them; a dependency that is
+  not already installed is a human decision, never a plan default]
 - **Storage/state**: [durable state and ownership, or none]
 - **Verification**: [test framework and required repository checks]
 - **Target environment**: [supported platform/runtime]
 - **Constraints**: [compatibility, performance, safety, and review limits]
+
+## Documentation
+
+The documentation this feature's implementation consults — provided by
+the task author when given, official sources otherwise. An API not
+covered by these links is verified against its official documentation
+before use, never guessed.
+
+| Library or API | Version in use | Documentation |
+| --- | --- | --- |
+| [dependency] | [from the manifest] | [link] |
 
 ## Constitution check
 
@@ -22,11 +35,8 @@
 
 | Principle or constraint | Pre-design | Post-design | Evidence |
 | --- | --- | --- | --- |
-| Compose pinned upstream; no core patch | [PASS/FAIL] | [PASS/FAIL] | [artifact or decision] |
-| Preserve native command surface | [PASS/FAIL] | [PASS/FAIL] | [artifact or decision] |
-| Keep integrations consumer-selected | [PASS/FAIL] | [PASS/FAIL] | [artifact or decision] |
-| Repository artifacts remain durable truth | [PASS/FAIL] | [PASS/FAIL] | [artifact or decision] |
-| Preserve source/consumer boundaries and human control | [PASS/FAIL] | [PASS/FAIL] | [artifact or decision] |
+| [principle from `.specify/memory/constitution.md`] | [PASS/FAIL] | [PASS/FAIL] | [artifact or decision] |
+| [one row per constitution principle] | [PASS/FAIL] | [PASS/FAIL] | [artifact or decision] |
 
 ## System boundaries and interfaces
 
@@ -85,6 +95,4 @@
 | Technical approval of plan and tasks | [human approval record] | [pending/complete] |
 | Reviewed Linear dry-run and synchronization | [remote plan and result] | [pending/complete] |
 | Every executable task individually assignable and assigned | [mapping and assignees] | [pending/complete] |
-
-<!-- Stage 2 defines this contract locally. Remote Linear validation begins in Stage 3. -->
 
