@@ -320,6 +320,32 @@ por pregunta, de la realidad observable:
   humana (la asignación en Linear); el primer movimiento tras un pull es
   siempre `/speckit.linear.status --all`.
 
+**Settings de GitHub que hacen cumplir las reglas** (una vez por repo —
+la plataforma enforcea lo que el flujo enseña):
+
+```bash
+gh api -X PATCH repos/<owner>/<repo> -f delete_branch_on_merge=true -F allow_squash_merge=false -F allow_rebase_merge=false
+```
+
+- **Solo merge commits**: la regla "la historia por tarea sobrevive"
+  (cierre de feature sin squash) deja de ser convención — squash y rebase
+  ni aparecen en el botón.
+- **Auto-borrado de branches al mergear**: la limpieza remota post-merge
+  es de GitHub, no tuya.
+- **Protege la default branch** contra force-push y borrado:
+
+```bash
+gh api -X POST repos/<owner>/<repo>/rulesets --input - <<'EOF'
+{"name":"protect-default-branch","target":"branch","enforcement":"active",
+ "conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},
+ "rules":[{"type":"deletion"},{"type":"non_fast_forward"}]}
+EOF
+```
+
+  En repos consumidores puedes sumar `{"type":"pull_request"}` a `rules`
+  para exigir PR antes de mergear a la default (recomendado; este repo
+  fuente no lo usa porque su flujo de release commitea pins directo).
+
 Dos fricciones conocidas, con su mitigación:
 
 1. **`.specify/feature.json` es compartido**: dos personas creando
