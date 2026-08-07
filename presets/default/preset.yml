@@ -54,6 +54,16 @@ provides:
       file: "commands/doctor.md"
       description: "Run every installed extension's doctor and summarize one result with its remediations"
 
+    - type: "command"
+      name: "speckit.chore"
+      file: "commands/chore.md"
+      description: "Start a maintenance chore from its Linear issue key: issue-key branch, then the direct change"
+
+    - type: "command"
+      name: "speckit.bugfix"
+      file: "commands/bugfix.md"
+      description: "Start a bug fix from its Linear issue key: issue-key branch, then the triage trio"
+
 tags:
   - "workflow"
   - "templates"
