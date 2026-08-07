@@ -36,18 +36,6 @@ provides:
       description: Diagnose local and remote prerequisites, with --fix for the mechanical ones
 
 hooks:
-  after_specify:
-    command: speckit.linear.push
-    optional: true
-    priority: 20
-    prompt: Sync Linear after specification?
-    description: Project the Feature Project after specification
-  after_clarify:
-    command: speckit.linear.push
-    optional: true
-    priority: 20
-    prompt: Sync Linear after clarification?
-    description: Project the clarified feature
   after_plan:
     command: speckit.linear.push
     optional: true
@@ -60,18 +48,6 @@ hooks:
     priority: 20
     prompt: Sync Linear after task generation?
     description: Project the Txxx Issues
-  after_implement:
-    command: speckit.linear.push
-    optional: true
-    priority: 20
-    prompt: Sync Linear after implementation?
-    description: Project task completion
-  after_analyze:
-    command: speckit.linear.push
-    optional: true
-    priority: 20
-    prompt: Sync Linear after analysis?
-    description: Project the analyzed feature
 
 tags:
   - linear

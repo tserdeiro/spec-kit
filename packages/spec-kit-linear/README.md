@@ -31,9 +31,12 @@ Flags, in full:
 - `status`: `--feature NNN`, `--current`, `--all`
 - `doctor`: `--offline`, `--fix`
 
-`--hook` is not for manual use: the lifecycle-hook entries in `extension.yml`
-pass it so a hook invocation degrades to a clean no-op when there is no
-configuration yet, and honors the `hooks.*` gates.
+`--hook` is not for manual use: the two lifecycle-hook entries in
+`extension.yml` (`after_plan` and `after_tasks` — the moments the Project
+and the Issues are created, which nothing native can do) pass it so a hook
+invocation degrades to a clean no-op when there is no configuration yet,
+and honors the `hooks.*` gates. Every later state transition is Linear's
+native GitHub integration's job; `push` remains the idempotent reconciler.
 
 ## Getting started
 
@@ -101,8 +104,10 @@ two observations, on the same map minus the checkbox row:
 | Nothing | *left untouched* |
 
 The convention is the Issue key itself: a branch (local or `origin/`) named
-`<team key>-<number>`, optionally with a `-suffix`, references that Issue —
-`wor-123-fix-crash`, `WOR-45`. The team key comes from `linear.team_key` in
+`<team key>-<number>`, optionally with a `-suffix` and optionally behind a
+single-level prefix — Linear's own "Copy git branch name" format
+(`<username>/wor-123-slug`) — references that Issue: `wor-123-fix-crash`,
+`WOR-45`, `devs/wor-45-fix`. The team key comes from `linear.team_key` in
 the configuration and the match is case-insensitive. The last row is the
 difference that matters: an Issue nobody has started is never observed, so a
 backlog is never rewritten.

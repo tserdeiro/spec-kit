@@ -54,10 +54,19 @@ class IssueKeyConventionTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertTrue(pattern.fullmatch(name))
 
+    def test_linears_native_copy_branch_format_matches(self) -> None:
+        # Linear's "Copy git branch name" produces `<username>/wor-123-slug`;
+        # the native button must be a first-class way to start a work item.
+        pattern = issue_key_pattern("WOR")
+
+        for name in ("devs/wor-123-slug", "Facu/WOR-45", "a.b/wor-9-fix"):
+            with self.subTest(name=name):
+                self.assertTrue(pattern.fullmatch(name))
+
     def test_names_that_only_look_like_the_convention_never_match(self) -> None:
         pattern = issue_key_pattern("WOR")
 
-        for name in ("WORX-1", "wor123", "wor-", "wor-12x", "xwor-1", "001-T004", "main", "WOR", "-wor-1"):
+        for name in ("WORX-1", "wor123", "wor-", "wor-12x", "xwor-1", "001-T004", "main", "WOR", "-wor-1", "a/b/wor-1", "/wor-1", "devs/xwor-1"):
             with self.subTest(name=name):
                 self.assertIsNone(pattern.fullmatch(name))
 
