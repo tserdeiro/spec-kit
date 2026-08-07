@@ -2,8 +2,8 @@
 # The whole maintainer release in one invocation (Stage 6, T005).
 #
 # `--bump <component>=<version> ...` rewrites every pin a release needs
-# coherently — manifests, bundle pins, conformance BUNDLE_VERSION,
-# changelog skeletons — so the human only writes the changelog entries,
+# coherently — manifests, bundle pins, changelog skeletons — so the
+# human only writes the changelog entries,
 # reviews the diff, and commits. (Added after the 0.2.1 incident: the
 # hand-made bump was the only step that could drift.)
 #
@@ -81,9 +81,6 @@ if "bundles" in targets:
             if key in targets:
                 text = re.sub(rf'(- id: "{pin}"\n      version: ")[^"]+', rf'\g<1>{targets[key]}', text)
         writes.append((path, text, f"{old} -> {targets['bundles']} (pins updated)"))
-    conf = Path("scripts/conformance/bundles.sh")
-    writes.append((conf, re.sub(r'BUNDLE_VERSION="[^"]+"', f'BUNDLE_VERSION="{targets["bundles"]}"',
-                                conf.read_text()), f"BUNDLE_VERSION -> {targets['bundles']}"))
 
 for key, package in (("linear", "spec-kit-linear"), ("code-review", "spec-kit-code-review")):
     if key not in targets:
@@ -130,8 +127,6 @@ for role in ("product", "developer", "reviewer"):
     if f'- id: "default"\n      version: "{preset}"' not in t:
         sys.exit(1)
 EOF
-grep -q "BUNDLE_VERSION=\"$bundle_version\"" scripts/conformance/bundles.sh || \
-  fail "scripts/conformance/bundles.sh pins another BUNDLE_VERSION; align it first"
 
 pending_ext=()
 git rev-parse -q --verify "refs/tags/spec-kit-linear/v$linear_version" >/dev/null || pending_ext+=("spec-kit-linear:$linear_version")
