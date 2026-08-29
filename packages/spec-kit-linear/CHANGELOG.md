@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0
+
+- Projected titles now respect Linear's limits: Project names clip at 80
+  characters and Issue titles at 255 — deterministically, so
+  reconciliation stays idempotent, and with a warning naming the artifact
+  line to shorten. An over-long spec H1 previously surfaced as a bare
+  INVALID_INPUT.
+- Linear's own error messages now travel in the diagnostics (redacted),
+  and client errors no longer claim to be "read" operations when a
+  mutation failed.
+
 ## 0.6.4
 
 - `onboard` persists an inline `LINEAR_API_KEY` to `.speckit-linear.env`

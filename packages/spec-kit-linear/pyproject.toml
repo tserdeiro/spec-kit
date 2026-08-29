@@ -1,6 +1,6 @@
 [project]
 name = "spec-kit-linear"
-version = "0.6.4"
+version = "0.7.0"
 description = "Local-first Spec Kit to Linear projection"
 readme = "README.md"
 requires-python = ">=3.11"
