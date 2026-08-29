@@ -50,8 +50,18 @@ class BranchConventionTests(unittest.TestCase):
 
 
 class DerivationTests(unittest.TestCase):
-    def test_a_checked_checkbox_wins_over_every_other_observation(self) -> None:
+    def test_an_open_pull_request_outranks_the_checked_checkbox(self) -> None:
         derived = _derive(completed=True, branches=("001-T004",), pull_requests=(_pull_request("001-T004", draft=True),))
+
+        self.assertEqual((derived.state, derived.source), (STATE_STARTED, SOURCE_PULL_REQUEST))
+
+    def test_a_ready_pull_request_with_the_box_already_checked_is_review(self) -> None:
+        derived = _derive(completed=True, pull_requests=(_pull_request("001-T004"),))
+
+        self.assertEqual((derived.state, derived.source), (STATE_REVIEW, SOURCE_PULL_REQUEST))
+
+    def test_a_checked_checkbox_with_no_live_pull_request_is_completed(self) -> None:
+        derived = _derive(completed=True, branches=("001-T004",), pull_requests=(_pull_request("001-T004", state="CLOSED"),))
 
         self.assertEqual((derived.state, derived.source), (STATE_COMPLETED, SOURCE_CHECKBOX))
 

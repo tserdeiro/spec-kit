@@ -14,10 +14,17 @@ The map, highest priority first -- the first rule that applies wins:
 
 | observation                        | state       |
 | ---------------------------------- | ----------- |
-| `[x]` checkbox, or a merged PR     | `completed` |
+| a merged PR                        | `completed` |
 | an open, ready-for-review PR       | `review`    |
-| an open draft PR, or a branch      | `started`   |
+| an open draft PR                   | `started`   |
+| `[x]` checkbox (no live PR)        | `completed` |
+| a branch                           | `started`   |
 | nothing at all                     | `unstarted` |
+
+The pull request, when one is observable, is the fresher witness: the box
+is checked inside the task PR before `ready for review`, so while that PR
+is open the checkbox is a delivery in flight, not a completion. Merged --
+or with no live PR left -- the checkbox is the durable truth.
 
 Which Linear workflow state each of those four names writes to is
 configuration (`lifecycle` in `speckit-linear.yml`), resolved by `onboard`;
@@ -78,12 +85,12 @@ def derive_task_state(
 ) -> TaskWorkState:
     """Apply the priority map above to one task."""
 
-    if completed:
-        return TaskWorkState(STATE_COMPLETED, SOURCE_CHECKBOX)
     pattern = branch_pattern(feature, task)
     pull_request = _strongest_pull_request(pattern, pull_requests)
     if pull_request is not None:
         return TaskWorkState(pull_request_state(pull_request), SOURCE_PULL_REQUEST, pull_request.head_branch)
+    if completed:
+        return TaskWorkState(STATE_COMPLETED, SOURCE_CHECKBOX)
     branch = next((name for name in branches if pattern.fullmatch(name)), None)
     if branch is not None:
         return TaskWorkState(STATE_STARTED, SOURCE_BRANCH, branch)
