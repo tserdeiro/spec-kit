@@ -91,8 +91,9 @@ specify bundle install developer   # o: product | reviewer
 `onboard` resuelve y **crea** solo todo lo vinculable — el label del
 repositorio, sus dos vistas compartidas y el mapeo PR→estado del equipo —
 y escribe `speckit-linear.yml` (se commitea: sin secretos). Tu API key
-vive en `.speckit-linear.env`, gitignoreado — el `doctor --fix` del paso
-siguiente crea el template para pegarla. Desde tu agente,
+vive en `.speckit-linear.env`, gitignoreado — al pasarla inline, `onboard`
+la persiste ahí solo; si aún no diste ninguna, `doctor --fix` crea el
+template para pegarla. Desde tu agente,
 `/speckit.linear.onboard`, o:
 
 ```bash
