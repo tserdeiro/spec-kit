@@ -304,13 +304,13 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
 - **Con `developer` alcanza para todos**: es el superconjunto de
   `product` y `reviewer`; los roles definen qué comandos *usa* cada
   quien, no qué instala.
-- **Agentes distintos conviven, con una default**: los comandos core
-  viven en todos los agentes instalados; los de extensiones y preset,
-  solo en la integración **default** (modelo de upstream). Para sumar un
-  agente y dárselos: `specify integration install <agente> --force` +
-  `specify integration switch <agente>` — el switch **migra** esos
-  comandos al nuevo default (el anterior conserva los core) — y se
-  commitea. La default es una por repo: elíjanla por equipo.
+- **Agentes distintos conviven**: upstream registra los comandos de
+  extensiones y preset solo en la integración **default** — y
+  `/speckit.doctor --fix` espeja esos skills al resto de los agentes
+  instalados, para que ninguno sea de segunda clase. Sumar un agente:
+  `specify integration install <agente> --force`, `/speckit.doctor
+  --fix`, y se commitea. Tras un `bundle update` o un `integration
+  switch`, el mismo doctor re-espeja.
 
 **¿Quién está en qué?** El sistema no lo sabe — lo *deriva* de lo
 observable:

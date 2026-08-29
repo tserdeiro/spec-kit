@@ -42,5 +42,30 @@ yourself.
 
 Warnings that block nothing go in one final line, not in the list.
 
-Never mutate anything outside step 2's explicit `--fix` pass-through;
-never install, download, or configure on your own.
+## 4. Mirror the skills across installed agents
+
+Upstream registers extension and preset commands only for the **default**
+integration ("active-only registration"); this distribution's portability
+principle says no agent is second-class. Close that gap here:
+
+- Read `installed_integrations` from `.specify/integration.json`. With
+  one integration, skip this step silently.
+- Resolve each integration's skills directory from the path prefix of
+  the `files` entries in `.specify/integrations/<key>.manifest.json`
+  (e.g. `.claude/skills/`, `.agents/skills/` — several integrations may
+  share one directory). A directory holding no `speckit-*` skill folders
+  belongs to a command-mode agent: leave it out with one info line.
+- The **source of truth** is the default integration's directory (`ai`
+  in `.specify/init-options.json`). Compare its `speckit-*` skill
+  folders against every other installed integration's directory.
+- Read-only: report missing or differing `speckit-*` skills per
+  directory as one finding with the remediation (`--fix`). With
+  `--fix`: copy each missing or differing `speckit-*` folder from the
+  source into the lagging directories — only `speckit-*` entries, never
+  any other skill — and report what was copied.
+- Re-run after `bundle update` or `integration switch`: both refresh
+  only the default agent's copies.
+
+Never mutate anything outside step 2's explicit `--fix` pass-through and
+step 4's `speckit-*` skill mirror; never install, download, or configure
+on your own.
