@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.4
+
+- `onboard` persists an inline `LINEAR_API_KEY` to `.speckit-linear.env`
+  (gitignored, mode `0600`) so the key it just used keeps authenticating
+  later commands — only when no env file already defines a credential,
+  never touching an existing file, and saying so in its output.
+
 ## 0.6.3
 
 - Credentials get a paved path: `doctor --fix` writes the
