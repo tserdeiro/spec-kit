@@ -304,11 +304,13 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
 - **Con `developer` alcanza para todos**: es el superconjunto de
   `product` y `reviewer`; los roles definen qué comandos *usa* cada
   quien, no qué instala.
-- **Agentes distintos conviven**: cuando aparezca un dev con otro agente,
-  cualquiera corre `specify integration install <agente> --force` +
-  `specify integration switch <agente>` (el switch registra **todos** los
-  comandos — core, preset y extensiones — en el agente nuevo; los demás
-  agentes conservan los suyos) y lo commitea.
+- **Agentes distintos conviven, con una default**: los comandos core
+  viven en todos los agentes instalados; los de extensiones y preset,
+  solo en la integración **default** (modelo de upstream). Para sumar un
+  agente y dárselos: `specify integration install <agente> --force` +
+  `specify integration switch <agente>` — el switch **migra** esos
+  comandos al nuevo default (el anterior conserva los core) — y se
+  commitea. La default es una por repo: elíjanla por equipo.
 
 **¿Quién está en qué?** El sistema no lo sabe — lo *deriva* de lo
 observable:
