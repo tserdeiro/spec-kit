@@ -67,7 +67,7 @@ class PlannerApplyTests(unittest.TestCase):
         self.temporary, self.root = copy_consumer_fixture()
         self.config, _ = load_config(self.root)
         feature = parse_feature(self.root, self.root / "specs/001-local-projection")
-        self.desired = project_feature(feature, repository_binding(self.config))
+        self.desired, _ = project_feature(feature, repository_binding(self.config))
         self.binding = RemoteBinding(
             workspace_id="11111111-1111-4111-8111-111111111111",
             team_id="22222222-2222-4222-8222-222222222222",

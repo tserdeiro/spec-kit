@@ -13,7 +13,9 @@ bash .specify/extensions/linear/scripts/bash/run.sh push --current
 bash .specify/extensions/linear/scripts/bash/run.sh push --current --apply
 ```
 
-The projection is Feature Project → `Txxx` Issues. A Project appears when the
+The projection is Feature Project → `Txxx` Issues. Titles clip at
+Linear's limits — Project names at 80 characters, Issue titles at 255 —
+deterministically, with a warning naming the artifact line to shorten. A Project appears when the
 feature is planned and an Issue per task when tasks are generated.
 
 Each Issue's workflow state is re-derived on every push from what can be

@@ -5,6 +5,10 @@ a **Project** per feature, an **Issue** per `Txxx` task, and each Issue's
 workflow state — including the bugs and chores a human filed directly in
 Linear — derived from what the repository can observe.
 
+Projected titles respect Linear's limits (Project names 80 characters, Issue
+titles 255): over-long ones clip deterministically and `push` warns with the
+artifact line to shorten.
+
 The repository is the sole authority. Linear is a projection and never writes
 a feature artifact. Every remote write goes through one named, allowlisted
 GraphQL mutation, preceded by a fresh read of the exact resources it touches.

@@ -866,7 +866,7 @@ class LinearClient:
             raise _rate_limit_error(headers, request_id, self.endpoint)
         if not 200 <= status < 300:
             raise AppError(
-                "Linear rejected this read query",
+                "Linear rejected this request",
                 code=9,
                 category="graphql",
                 diagnostics=[Diagnostic("linear_http", f"HTTP {status}", redact_text(self.endpoint)), Diagnostic("linear_request", request_id, severity="info")],
@@ -971,6 +971,7 @@ def _graphql_error(errors: object, request_id: str) -> AppError:
     if not isinstance(errors, list) or not errors:
         return _schema_error("linear_errors", "Linear response errors must be a non-empty list", request_id=request_id)
     codes: list[str] = []
+    messages: list[str] = []
     for item in errors:
         if not isinstance(item, dict):
             return _schema_error("linear_errors", "Linear response errors must contain objects", request_id=request_id)
@@ -978,12 +979,22 @@ def _graphql_error(errors: object, request_id: str) -> AppError:
         code = extensions.get("code") if isinstance(extensions, dict) else None
         if isinstance(code, str) and code.isupper() and len(code) <= 64:
             codes.append(code)
+        message = item.get("message")
+        if isinstance(message, str) and message.strip():
+            # Linear's own error text (e.g. "name must be shorter than or
+            # equal to 80 characters") is the remediation; a bare code once
+            # cost a debugging session to recover it. Redacted, because a
+            # server message can echo credentials or user content.
+            messages.append(redact_text(message.strip()[:200]))
     diagnostic = ",".join(sorted(set(codes))) if codes else "unspecified"
+    diagnostics = [Diagnostic("linear_graphql", f"codes={diagnostic}"), Diagnostic("linear_request", request_id, severity="info")]
+    for message in messages[:3]:
+        diagnostics.append(Diagnostic("linear_graphql_message", message, severity="warning"))
     return AppError(
-        "Linear returned GraphQL errors for this read query",
+        "Linear returned GraphQL errors for this request",
         code=9,
         category="graphql",
-        diagnostics=[Diagnostic("linear_graphql", f"codes={diagnostic}"), Diagnostic("linear_request", request_id, severity="info")],
+        diagnostics=diagnostics,
     )
 
 
@@ -995,7 +1006,7 @@ def _authorization_error(status: int, request_id: str, *, source: str | None = N
         # credential — never its value. Renewal starts there.
         diagnostics.append(Diagnostic("linear_credentials_source", f"the credential was defined in {source}; renew it there", severity="warning"))
     return AppError(
-        f"Linear {category} failed for this read request",
+        f"Linear {category} failed for this request",
         code=5,
         category=category,
         diagnostics=diagnostics,

@@ -21,7 +21,7 @@ class RemoteDiscoveryTests(unittest.TestCase):
         self.temporary, self.fixture_root = copy_consumer_fixture()
         self.config, _ = load_config(self.fixture_root)
         feature = parse_feature(self.fixture_root, self.fixture_root / "specs/001-local-projection")
-        self.desired = project_feature(feature, repository_binding(self.config))
+        self.desired, _ = project_feature(feature, repository_binding(self.config))
 
     def tearDown(self) -> None:
         self.temporary.cleanup()

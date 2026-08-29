@@ -188,7 +188,7 @@ class CliTestCase(unittest.TestCase):
     def _desired(self):
         config, _ = load_config(self.fixture_root)
         feature = parse_feature(self.fixture_root, self.fixture_root / "specs/001-local-projection")
-        return project_feature(feature, repository_binding(config))
+        return project_feature(feature, repository_binding(config))[0]
 
     def _files(self) -> dict[Path, bytes]:
         return {path: path.read_bytes() for path in self.fixture_root.rglob("*") if path.is_file()}

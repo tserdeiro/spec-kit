@@ -1001,8 +1001,13 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
 
     feature_dirs = _select_feature_directories(root, args)
     binding = repository_binding(config)
-    desired_states = tuple(project_feature(parse_feature(root, feature_dir), binding) for feature_dir in feature_dirs)
     diagnostics = [Diagnostic("config", "configuration loaded by spec-kit-linear", str(shared_path), severity="info")]
+    projected = []
+    for feature_dir in feature_dirs:
+        state, projection_warnings = project_feature(parse_feature(root, feature_dir), binding)
+        projected.append(state)
+        diagnostics.extend(projection_warnings)
+    desired_states = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
     work_states, work_items = _observe(root, config, desired_states, diagnostics)
     client = _linear_client()
@@ -1133,11 +1138,16 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
     root = _root_from_args(args.root)
     config, shared_path = load_config(root, args.config)
     feature_dirs = _select_feature_directories(root, args)
-    desired = tuple(project_feature(parse_feature(root, feature_dir), repository_binding(config)) for feature_dir in feature_dirs)
     diagnostics = [
         Diagnostic("read_only", "Linear inspection used query-only GraphQL operations", severity="info"),
         Diagnostic("config", "configuration loaded by spec-kit-linear", str(shared_path), severity="info"),
     ]
+    projected = []
+    for feature_dir in feature_dirs:
+        state, projection_warnings = project_feature(parse_feature(root, feature_dir), repository_binding(config))
+        projected.append(state)
+        diagnostics.extend(projection_warnings)
+    desired = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
     work_states, work_items = _observe(root, config, desired, diagnostics)
     client = _linear_client()
