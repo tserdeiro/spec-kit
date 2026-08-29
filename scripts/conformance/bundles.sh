@@ -52,12 +52,17 @@ sorted_words() {
 # Prerequisites.
 # --------------------------------------------------------------------------
 
+pinned_cli=$(sed -n 's/^  package_version: //p' "$repository_root/versions.lock.yml" 2>/dev/null | head -1)
+if [ -z "$pinned_cli" ]; then
+  echo "conformance requires the source checkout's versions.lock.yml (upstream pin unreadable)" >&2
+  exit 4
+fi
 command -v specify >/dev/null 2>&1 || {
-  echo "conformance requires specify-cli 1.0.1 on PATH" >&2
+  echo "conformance requires specify-cli $pinned_cli on PATH" >&2
   exit 4
 }
-if [[ "$(specify version 2>/dev/null)" != *"CLI Version    1.0.1"* ]]; then
-  echo "conformance requires specify-cli 1.0.1" >&2
+if [[ "$(specify version 2>/dev/null)" != *"CLI Version    $pinned_cli"* ]]; then
+  echo "conformance requires specify-cli $pinned_cli" >&2
   exit 4
 fi
 command -v python3 >/dev/null 2>&1 || {

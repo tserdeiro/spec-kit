@@ -39,7 +39,7 @@ jobs:
       - name: Install the pinned Spec Kit CLI (versions.lock.yml upstream tag)
         run: |
           set -euo pipefail
-          uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.0.1
+          uv tool install specify-cli --from "$(sed -n 's/^  install_source: //p' versions.lock.yml)"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Configure git for the temporary consumer repository
         run: |
