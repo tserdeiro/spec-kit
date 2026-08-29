@@ -305,9 +305,9 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
   `product` y `reviewer`; los roles definen qué comandos *usa* cada
   quien, no qué instala.
 - **Agentes distintos conviven**: cuando aparezca un dev con otro agente,
-  cualquiera corre `specify integration install <agente>` +
-  `specify bundle update --all` (re-registra los comandos del preset) y
-  lo commitea.
+  cualquiera corre `specify integration install <agente>`, quita y
+  reinstala el bundle (re-registra los comandos del preset en el agente
+  nuevo) y lo commitea.
 
 **¿Quién está en qué?** El sistema no lo sabe — lo *deriva* de lo
 observable:
@@ -364,14 +364,26 @@ Dos fricciones conocidas, con su mitigación:
 
 ## 🔄 Actualizar
 
-Nada se actualiza solo; las versiones son siempre explícitas:
+Nada se actualiza solo; las versiones son siempre explícitas. Para tomar
+una release nueva de esta distribución, quita tus bundles y reinstálalos
+— el `bundle update` del CLI 0.13.0 rechaza re-aplicar una extensión ya
+instalada, así que ese comando hoy no sirve. Con varios bundles, quita
+**todos** antes de reinstalar: un componente compartido que siga
+instalado se salta y quedaría en la versión vieja.
+
+```bash
+specify bundle remove developer      # por cada bundle de `specify bundle list`
+specify bundle install developer
+```
+
+Tu binding de Linear sobrevive (vive en `speckit-linear.yml` y
+`.speckit-linear.env`, fuera de las extensiones); re-corre los dos
+`doctor --fix` al terminar. Para subir el CLI de upstream (cuando esta
+distribución mueva su pin):
 
 ```bash
 uv tool install specify-cli --force --from git+https://github.com/github/spec-kit.git@<tag-nuevo>
-specify bundle update --all
 ```
-
-Después vuelve a correr los dos `doctor`.
 
 ## ❓ Problemas frecuentes
 
