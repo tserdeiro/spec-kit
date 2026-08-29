@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- `push.md` and the README document the derivation priority the code
+  applies since 0.5.0: an observable pull request speaks first; the
+  checkbox decides only once no live PR remains.
+
 ## 0.5.0
 
 - An observable pull request now outranks the checkbox in task-state
