@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.3
+
+- Credentials get a paved path: `doctor --fix` writes the
+  `.speckit-linear.env` template when no credential is defined anywhere,
+  the missing-credential message names the exact file, a defined
+  credential reports its source (file path or process environment —
+  never the value), and an authentication failure names the source to
+  renew.
+
 ## 0.6.2
 
 - The doctor's lifecycle-hook comparison derives its expected events from

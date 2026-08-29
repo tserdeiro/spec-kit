@@ -3,7 +3,7 @@ schema_version: "1.0"
 bundle:
   id: "reviewer"
   name: "Reviewer"
-  version: "0.9.1"
+  version: "0.9.2"
   role: "reviewer"
   description: "Runs the final agentic review on a pull request before human approval."
   author: "tserdeiro"
