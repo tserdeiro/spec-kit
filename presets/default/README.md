@@ -2,14 +2,16 @@
 
 The workflow templates for this distribution: `spec`, `plan`, `tasks`, and
 `checklist`, plus the workflow commands (`speckit.pr`, `speckit.bugfix`,
-`speckit.chore`, `speckit.doctor`, and the `speckit.implement` append).
-The `tasks` template carries the integration-branch delivery conventions;
-the rest trim the upstream core templates to what the flow needs.
+`speckit.chore`, `speckit.doctor`, and the `speckit.tasks` and
+`speckit.implement` appends). The `tasks` template carries the
+integration-branch delivery conventions — one task in flight per
+developer, no parallel tasks; the rest trim the upstream core templates
+to what the flow needs.
 
 ## Install
 
 ```bash
-specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv1.0.0/default-1.0.0.zip
+specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.7.0/default-0.5.0.zip
 ```
 
 Local development:

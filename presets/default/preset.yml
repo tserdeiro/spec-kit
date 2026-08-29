@@ -3,7 +3,7 @@ schema_version: "1.0"
 preset:
   id: "default"
   name: "Default Workflow Templates"
-  version: "0.4.0"
+  version: "0.5.0"
   description: "Spec, plan, tasks, and checklist templates with the integration-branch delivery workflow and its commands"
   author: "tserdeiro"
   repository: "https://github.com/tserdeiro/spec-kit"
@@ -42,6 +42,12 @@ provides:
       name: "speckit.pr"
       file: "commands/pr.md"
       description: "Guarantee the task branch and open the canonical draft PR from the feature artifacts"
+
+    - type: "command"
+      name: "speckit.tasks"
+      file: "commands/tasks-append.md"
+      description: "Appends the one-task-at-a-time rule to the core tasks command"
+      strategy: "append"
 
     - type: "command"
       name: "speckit.implement"

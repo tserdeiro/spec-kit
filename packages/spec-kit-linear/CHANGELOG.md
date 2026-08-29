@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- An observable pull request now outranks the checkbox in task-state
+  derivation. The delivery flow checks the box inside the task PR before
+  `ready for review`, so an open PR projects review/started — never a
+  premature done — and the checkbox is the durable truth once the PR is
+  merged or gone.
+
 ## 0.4.0
 
 - The custom assignee path is gone: no `[@alias]` markers, no
