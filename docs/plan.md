@@ -249,7 +249,9 @@ changed shipped content, released:
   v0.13.0 to v1.0.1: `bundle update --all` works again (upstream fixed
   the bundler's refresh hook) and bundle conformance now covers the
   update path; baseline assets refreshed; every component re-released
-  requiring specify-cli `>=1.0.1,<1.1.0`.
+  requiring specify-cli `>=1.0.1,<1.1.0`. The doctor and every
+  conformance gate now derive the pinned CLI from the manifest and
+  the lock — a pin move edits those two sources alone.
 
 ## Releases
 
