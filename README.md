@@ -140,12 +140,15 @@ con el estado que Linear refleja solo:
 | --- | --- | --- |
 | 1. Especificar | `/speckit.specify` — nace el **branch de feature** `NNN-slug` | — |
 | 2. Planificar | `/speckit.plan` | se crea el Project |
-| 3. Tareas | `/speckit.tasks`; commit de los artefactos y **draft PR de feature** (`NNN-slug` → default): el gate donde el equipo aprueba spec y plan | se crean los Issues (*Todo*) |
-| 4. Implementar | un branch por tarea **desde el branch de feature**: `NNN-T###-slug` (ej. `002-T004-parser-fix`) | *In Progress* |
-| 5. Pull request | PR en **draft** por tarea terminada, **hacia el branch de feature** | *In Progress* |
+| 3. Tareas | `/speckit.tasks`, y `/speckit.pr` sobre el branch de feature abre su **draft PR** (`NNN-slug` → default): el gate donde el equipo aprueba spec y plan | se crean los Issues (*Todo*) |
+| 4. Implementar | `/speckit.implement` — toma la primera tarea sin marcar y crea su branch `NNN-T###-slug` (ej. `002-T004-parser-fix`) **desde el branch de feature** | *In Progress* |
+| 5. Pull request | `/speckit.pr` — abre el PR **draft** de la tarea, **hacia el branch de feature**, con el body canónico | *In Progress* |
 | 6. Auto-revisión | `/speckit.code-review`, corriges, `[x]` + evidencia en el último commit, y marcas `ready for review` | *In Review* |
-| 7. Revisión final | el revisor usa el mismo comando con `--publish`; una persona mergea al branch de feature | *Done* |
-| 8. Cierre | todas `[x]` → el PR de feature pasa a ready → revisión de la película completa → una persona mergea a la default con **merge commit** y el branch de feature se borra | — |
+| 7. Revisión final | el revisor: `/speckit.code-review --publish` más su revisión humana; una persona mergea al branch de feature | *Done* |
+| 8. Cierre | todas `[x]` → marcas el PR de feature `ready` → revisión de la película completa → una persona mergea a la default con **merge commit** (el branch se borra); `/speckit.linear.push --apply` reconcilia | — |
+
+Los pasos 4–6 los orquesta `/speckit.implement` solo, tarea por tarea;
+cada comando también puede correrse suelto.
 
 Reglas de oro:
 
