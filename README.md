@@ -90,8 +90,9 @@ specify bundle install developer   # o: product | reviewer
 
 `onboard` resuelve y **crea** solo todo lo vinculable — el label del
 repositorio, sus dos vistas compartidas y el mapeo PR→estado del equipo —
-y escribe `speckit-linear.yml` (se commitea: sin secretos; tu API key vive
-en `.speckit-linear.env`, gitignoreado). Desde tu agente,
+y escribe `speckit-linear.yml` (se commitea: sin secretos). Tu API key
+vive en `.speckit-linear.env`, gitignoreado — el `doctor --fix` del paso
+siguiente crea el template para pegarla. Desde tu agente,
 `/speckit.linear.onboard`, o:
 
 ```bash
@@ -298,7 +299,7 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
 | Una vez por repositorio (se commitea) | Cada dev, en su máquina |
 | --- | --- |
 | `specify init` + los 3 `catalog add` | `gh auth login` |
-| `specify bundle install developer` | su `.speckit-linear.env` con **su** API key (gitignoreado) |
+| `specify bundle install developer` | su `.speckit-linear.env` con **su** API key (el template lo crea `doctor --fix`) |
 | `onboard` (el binding de Linear, sin secretos) | `doctor --fix` una vez (instala el motor de revisión localmente) |
 
 - **Con `developer` alcanza para todos**: es el superconjunto de
