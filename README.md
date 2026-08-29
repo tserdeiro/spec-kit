@@ -56,11 +56,11 @@ de Linear (Linear → Settings → API → Personal API keys).
 ### 1. Instala el CLI de Spec Kit (versión exacta)
 
 ```bash
-uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.13.0
+uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.0.1
 uv tool update-shell
 ```
 
-Reinicia la terminal; `specify version` debe decir `0.13.0`.
+Reinicia la terminal; `specify version` debe decir `1.0.1`.
 
 ### 2. Inicializa tu repositorio
 
@@ -305,9 +305,9 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
   `product` y `reviewer`; los roles definen qué comandos *usa* cada
   quien, no qué instala.
 - **Agentes distintos conviven**: cuando aparezca un dev con otro agente,
-  cualquiera corre `specify integration install <agente>`, quita y
-  reinstala el bundle (re-registra los comandos del preset en el agente
-  nuevo) y lo commitea.
+  cualquiera corre `specify integration install <agente>` +
+  `specify bundle update --all` (re-registra los comandos del preset en
+  el agente nuevo) y lo commitea.
 
 **¿Quién está en qué?** El sistema no lo sabe — lo *deriva* de lo
 observable:
@@ -355,35 +355,38 @@ EOF
 
 Dos fricciones conocidas, con su mitigación:
 
-1. **`.specify/feature.json` es compartido**: dos features creándose *a
-   la vez* se lo disputan — creación secuencial, o nombra la feature en
-   el comando (`/speckit.implement 003`); la implementación no depende
-   del archivo: manda el branch.
+1. **`.specify/feature.json` es estado local por checkout** (el CLI lo
+   gitignora desde v1.0.1): cada dev tiene su propia feature activa y el
+   archivo ya no se disputa. Nombrar la feature en el comando
+   (`/speckit.implement 003`) sigue siendo lo más explícito; manda el
+   branch.
 2. **Una tarea = un assignee**: dos devs en la misma tarea colisionarían
    en el branch; la asignación en Linear es el semáforo.
 
 ## 🔄 Actualizar
 
-Nada se actualiza solo; las versiones son siempre explícitas. Para tomar
-una release nueva de esta distribución, quita tus bundles y reinstálalos
-— el `bundle update` del CLI 0.13.0 rechaza re-aplicar una extensión ya
-instalada, así que ese comando hoy no sirve. Con varios bundles, quita
-**todos** antes de reinstalar: un componente compartido que siga
-instalado se salta y quedaría en la versión vieja.
+Nada se actualiza solo; las versiones son siempre explícitas.
+
+**Releases de esta distribución** (bundles, extensiones, preset):
 
 ```bash
-specify bundle remove developer      # por cada bundle de `specify bundle list`
-specify bundle install developer
+specify bundle update --all
 ```
 
-Tu binding de Linear sobrevive (vive en `speckit-linear.yml` y
-`.speckit-linear.env`, fuera de las extensiones); re-corre los dos
-`doctor --fix` al terminar. Para subir el CLI de upstream (cuando esta
-distribución mueva su pin):
+**El CLI de upstream** (solo cuando esta distribución mueva su pin — hoy
+`v1.0.1`): actualiza la herramienta, refresca los assets base del repo
+(la constitución autorada se preserva) y re-aplica los bundles:
 
 ```bash
-uv tool install specify-cli --force --from git+https://github.com/github/spec-kit.git@<tag-nuevo>
+uv tool install specify-cli --force --from git+https://github.com/github/spec-kit.git@v1.0.1
+specify init --here --force --integration <agente>
+specify bundle update --all
 ```
+
+(La primera vez tras subir a v1.0.1, destrackea el puntero local que el
+CLI ahora gitignora: `git rm --cached .specify/feature.json`.)
+
+Tras cualquier actualización, re-corre los dos `doctor --fix`.
 
 ## ❓ Problemas frecuentes
 
@@ -418,11 +421,11 @@ los artefactos publicados, con la evidencia en
 clon independiente:
 
 ```bash
-git clone --branch v0.13.0 --depth 1 \
-  https://github.com/github/spec-kit.git /tmp/spec-kit-v0.13.0
-git -C /tmp/spec-kit-v0.13.0 rev-parse 'v0.13.0^{commit}'
-git -C /tmp/spec-kit-v0.13.0 rev-parse 'v0.13.0^{tree}'
-git -C /tmp/spec-kit-v0.13.0 archive --format=tar v0.13.0 | shasum -a 256
+git clone --branch v1.0.1 --depth 1 \
+  https://github.com/github/spec-kit.git /tmp/spec-kit-v1.0.1
+git -C /tmp/spec-kit-v1.0.1 rev-parse 'v1.0.1^{commit}'
+git -C /tmp/spec-kit-v1.0.1 rev-parse 'v1.0.1^{tree}'
+git -C /tmp/spec-kit-v1.0.1 archive --format=tar v1.0.1 | shasum -a 256
 ```
 
 ## 🗺️ Mapa del repositorio

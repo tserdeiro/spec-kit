@@ -16,7 +16,7 @@ measures itself against the vision and extends this plan explicitly.
 ## Product
 
 An ultra-light, portable SDD distribution composed on top of pinned
-`github/spec-kit` v0.13.0. It covers the whole daily delivery cycle —
+`github/spec-kit` v1.0.1. It covers the whole daily delivery cycle —
 business need → spec → plan → tasks → implementation → review → merge — for
 features, bugs, and chores, with Linear as the tracking system and a single
 agentic code-review command. Three role bundles: `product`, `developer`,
@@ -226,7 +226,7 @@ one PR, human merge.
    into the triage trio, `chore` into the direct change. Delivered
    2026-08-06.
 
-### Post-delivery maintenance (2026-08-06 → 2026-08-07)
+### Post-delivery maintenance (2026-08-06 → 2026-08-29)
 
 Short-path rounds after Stage 7, each delivered PR-by-PR and, where they
 changed shipped content, released:
@@ -245,6 +245,11 @@ changed shipped content, released:
 - **Tooling** — `publish.sh --bump` produces the coherent version bump;
   bundle conformance runs in CI on composition PRs and derives its
   version from the manifests.
+- **Upstream pin v1.0.1** (2026-08-29) — the pinned CLI moved from
+  v0.13.0 to v1.0.1: `bundle update --all` works again (upstream fixed
+  the bundler's refresh hook) and bundle conformance now covers the
+  update path; baseline assets refreshed; every component re-released
+  requiring specify-cli `>=1.0.1,<1.1.0`.
 
 ## Releases
 
