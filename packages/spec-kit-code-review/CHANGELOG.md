@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- The doctor derives its supported Spec Kit range from `extension.yml`
+  — one source of truth; the hardcoded copies that drifted on the
+  v1.0.1 upgrade are gone — and the conformance harness derives the
+  pinned CLI from the source checkout's `versions.lock.yml`.
+
 ## 0.2.0
 
 - The distribution's upstream pin moved from `github/spec-kit` v0.13.0 to

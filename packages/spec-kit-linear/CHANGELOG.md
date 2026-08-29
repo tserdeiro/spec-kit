@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- The conformance harness derives the pinned CLI version from the
+  source checkout's `versions.lock.yml` instead of hardcoding it.
+
 ## 0.6.0
 
 - The distribution's upstream pin moved from `github/spec-kit` v0.13.0 to

@@ -71,7 +71,7 @@ wheels = [
 
 [[package]]
 name = "spec-kit-code-review"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "packages/spec-kit-code-review" }
 
 [package.dev-dependencies]
@@ -86,7 +86,7 @@ dev = [{ name = "pytest", specifier = ">=8" }]
 
 [[package]]
 name = "spec-kit-linear"
-version = "0.6.0"
+version = "0.6.1"
 source = { editable = "packages/spec-kit-linear" }
 
 [package.dev-dependencies]
