@@ -403,6 +403,13 @@ Tras cualquier actualización, re-corre los dos `doctor --fix`.
   (`NNN-T###-slug`, `wor-123-slug`, o el formato del botón de Linear
   `usuario/wor-123-slug`) y que `gh auth status` esté OK (sin `gh`, los
   estados que dependen de PRs no se calculan y lo verás avisado).
+- **"pinned to X but the resolved version is Y" en un `bundle update`
+  recién publicada una release** → los tres catálogos viajan por el CDN
+  de raw.githubusercontent y pueden desfasarse unos minutos entre sí; el
+  chequeo de pins aborta sin dejar nada a medias. Reintenta en ~5 min;
+  si persiste, limpia el caché local
+  (`rm -rf .specify/presets/.cache .specify/extensions/.cache`) y
+  reintenta.
 - **"was observed … but no such Issue exists" con un issue recién creado**
   → el índice de búsqueda de Linear tarda ~1–2 min en ver issues nuevos;
   el aviso no falla nada — reintenta el `push` y lo proyecta.
