@@ -3,7 +3,7 @@ schema_version: "1.0"
 bundle:
   id: "product"
   name: "Product"
-  version: "0.9.0"
+  version: "0.9.1"
   role: "product"
   description: "Turns business needs into specs, plans, and tasks, projected into Linear."
   author: "tserdeiro"
@@ -19,7 +19,7 @@ requires:
 provides:
   extensions:
     - id: "linear"
-      version: "0.6.1"
+      version: "0.6.2"
   presets:
     - id: "default"
       version: "0.7.0"

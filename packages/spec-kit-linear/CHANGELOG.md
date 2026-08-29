@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2
+
+- The doctor's lifecycle-hook comparison derives its expected events from
+  `extension.yml` instead of a hardcoded list that still named the four
+  hooks pruned in 0.4.0 (it warned about them on every healthy setup).
+
 ## 0.6.1
 
 - The conformance harness derives the pinned CLI version from the
