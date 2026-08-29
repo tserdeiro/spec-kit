@@ -39,7 +39,7 @@ from .endpoint import (
     is_default_endpoint,
     resolve_endpoint,
 )
-from .env_files import REPO_ENV_FILENAME, credential_source, load_dotenv_files
+from .env_files import REPO_ENV_FILENAME, credential_source, load_dotenv_files, persist_process_credential
 from .errors import AppError, Diagnostic
 from .git_refs import known_branches
 from .github import cli_diagnostic as github_cli_diagnostic, scan_pull_requests
@@ -533,6 +533,17 @@ def run_onboard(args: argparse.Namespace) -> dict[str, Any]:
         root_path.parent.mkdir(parents=True, exist_ok=True)
         root_path.write_text(dump_yaml_subset(merged), encoding="utf-8")
         changes["gitignore_entries_added"] = ensure_gitignore_entries(root / ".gitignore", (REPO_ENV_FILENAME,))
+        persisted = persist_process_credential(root)
+        if persisted is not None:
+            diagnostics.append(
+                Diagnostic(
+                    "onboard_credentials_persisted",
+                    f"persisted LINEAR_API_KEY to {REPO_ENV_FILENAME} (gitignored) so later commands authenticate; "
+                    "delete the file to keep the key per-invocation",
+                    str(persisted),
+                    severity="info",
+                )
+            )
         diagnostics.append(Diagnostic("onboard_apply", "configuration written", str(root_path), severity="info"))
         if automation_operations:
             executor = LinearMutationExecutor(client)

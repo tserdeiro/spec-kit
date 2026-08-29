@@ -115,6 +115,39 @@ def load_dotenv_files(root: Path, environment: MutableMapping[str, str] | None =
     return diagnostics
 
 
+def persist_process_credential(root: Path, environment: MutableMapping[str, str] | None = None) -> Path | None:
+    """Persist an inline ``LINEAR_API_KEY`` to the repo env file, once.
+
+    ``onboard`` is the one command a key is passed inline to; without this,
+    that key authenticates exactly once and every later command fails until
+    the operator discovers the file by hand. Persist only the API key, only
+    when it came from the process environment, and only when neither env
+    file already defines a credential — an existing file is never touched
+    or shadowed. Returns the path written, or ``None`` when nothing was.
+    """
+
+    if credential_source() != (CREDENTIAL_VARS[0], PROCESS_ENVIRONMENT):
+        return None
+    env_path = root / REPO_ENV_FILENAME
+    if env_path.exists():
+        return None
+    for path in (env_path, OPERATOR_GLOBAL_ENV_PATH):
+        values, _ = _parse_env_file(path)
+        if any((values.get(var) or "").strip() for var in CREDENTIAL_VARS):
+            return None
+    source = os.environ if environment is None else environment
+    value = (source.get(CREDENTIAL_VARS[0]) or "").strip()
+    if not value:
+        return None
+    env_path.write_text(
+        "# spec-kit-linear credentials (gitignored; never commit).\n"
+        f"{CREDENTIAL_VARS[0]}={value}\n",
+        encoding="utf-8",
+    )
+    env_path.chmod(0o600)
+    return env_path
+
+
 def credential_source() -> tuple[str, str] | None:
     """Which variable authenticates, and where it was defined.
 

@@ -129,3 +129,55 @@ class EnvFilesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PersistProcessCredentialTests(EnvFilesTests):
+    def _load(self, environment: dict[str, str]) -> None:
+        load_dotenv_files(self.root, environment)
+
+    def test_persists_an_inline_api_key_to_the_repo_file(self) -> None:
+        environment = {"LINEAR_API_KEY": "lin_api_inline"}
+        self._load(environment)
+
+        written = env_files.persist_process_credential(self.root, environment)
+
+        assert written is not None
+        self.assertEqual(written, self.root / REPO_ENV_FILENAME)
+        content = written.read_text(encoding="utf-8")
+        self.assertIn("LINEAR_API_KEY=lin_api_inline\n", content)
+        self.assertTrue(content.startswith("#"))
+        self.assertEqual(written.stat().st_mode & 0o777, 0o600)
+
+    def test_never_touches_an_existing_repo_file(self) -> None:
+        (self.root / REPO_ENV_FILENAME).write_text("# mine\n", encoding="utf-8")
+        environment = {"LINEAR_API_KEY": "lin_api_inline"}
+        self._load(environment)
+
+        self.assertIsNone(env_files.persist_process_credential(self.root, environment))
+        self.assertEqual((self.root / REPO_ENV_FILENAME).read_text(encoding="utf-8"), "# mine\n")
+
+    def test_never_shadows_a_credential_a_file_already_defines(self) -> None:
+        self._global_env_path.parent.mkdir(parents=True, exist_ok=True)
+        self._global_env_path.write_text("LINEAR_API_KEY=lin_api_global\n", encoding="utf-8")
+        environment = {"LINEAR_API_KEY": "lin_api_inline"}
+        self._load(environment)
+
+        self.assertIsNone(env_files.persist_process_credential(self.root, environment))
+        self.assertFalse((self.root / REPO_ENV_FILENAME).exists())
+
+    def test_a_file_loaded_credential_is_not_re_persisted(self) -> None:
+        (self.root / "other").mkdir()
+        self._global_env_path.parent.mkdir(parents=True, exist_ok=True)
+        self._global_env_path.write_text("LINEAR_API_KEY=lin_api_global\n", encoding="utf-8")
+        environment: dict[str, str] = {}
+        self._load(environment)
+
+        self.assertIsNone(env_files.persist_process_credential(self.root, environment))
+        self.assertFalse((self.root / REPO_ENV_FILENAME).exists())
+
+    def test_an_oauth_token_is_never_persisted(self) -> None:
+        environment = {"LINEAR_OAUTH_ACCESS_TOKEN": "oauth-token"}
+        self._load(environment)
+
+        self.assertIsNone(env_files.persist_process_credential(self.root, environment))
+        self.assertFalse((self.root / REPO_ENV_FILENAME).exists())
