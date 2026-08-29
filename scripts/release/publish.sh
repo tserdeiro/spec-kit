@@ -214,6 +214,14 @@ c["presets"]["default"]["version"] = preset
 c["presets"]["default"]["download_url"] = f"{base}/bundles%2Fv{bundles}/default-{preset}.zip"
 Path("catalog/presets.json").write_text(json.dumps(c, indent=2) + "\n")
 
+# The preset README's direct-install URL rots on every release unless it is
+# rewritten from the same pins the catalogs use (it pointed at a deleted
+# 1.0.0 once, and at 0.7.0 after the 0.7.1 release).
+p = Path("presets/default/README.md")
+p.write_text(re.sub(r"releases/download/bundles%2Fv[^/]+/default-[^\s]+\.zip",
+                    f"releases/download/bundles%2Fv{bundles}/default-{preset}.zip",
+                    p.read_text()))
+
 c = json.loads(Path("catalog/bundles.json").read_text())
 for role in ("product", "developer", "reviewer"):
     c["bundles"][role]["version"] = bundles
@@ -236,7 +244,7 @@ if ! bash scripts/conformance/bundles.sh; then
   fail "bundle conformance failed; the rewrite and the local tags were reverted, nothing was published"
 fi
 
-git add versions.lock.yml catalog
+git add versions.lock.yml catalog presets/default/README.md
 # Nothing staged means the tree already recorded the pins (a bump that
 # carried the catalog rewrite); the tag then lands on that commit.
 git diff --cached --quiet || git commit -q -m "chore(release): record the release pins"
