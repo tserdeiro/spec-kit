@@ -68,8 +68,8 @@ from .process import run_command, sha256_file
 
 CHECK_GROUPS: tuple[str, ...] = ("runtime", "speckit", "git", "ocr", "gh", "config", "rules", "evidence", "hooks")
 
-SPECKIT_VERSION_RANGE = (">=0.13.0", "<0.14.0")
-SPECKIT_SUPPORTED_MAJOR_MINOR = (0, 13)
+SPECKIT_VERSION_RANGE = (">=1.0.1", "<1.1.0")
+SPECKIT_SUPPORTED_MAJOR_MINOR = (1, 0)
 MANAGED_LIFECYCLE_EVENT = "after_implement"
 MANAGED_LIFECYCLE_COMMAND = "speckit.code-review"
 REGISTRY_RELATIVE_PATH = Path(".specify/extensions.yml")

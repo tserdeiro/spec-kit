@@ -53,11 +53,11 @@ sorted_words() {
 # --------------------------------------------------------------------------
 
 command -v specify >/dev/null 2>&1 || {
-  echo "conformance requires specify-cli 0.13.0 on PATH" >&2
+  echo "conformance requires specify-cli 1.0.1 on PATH" >&2
   exit 4
 }
-if [[ "$(specify version 2>/dev/null)" != *"CLI Version    0.13.0"* ]]; then
-  echo "conformance requires specify-cli 0.13.0" >&2
+if [[ "$(specify version 2>/dev/null)" != *"CLI Version    1.0.1"* ]]; then
+  echo "conformance requires specify-cli 1.0.1" >&2
   exit 4
 fi
 command -v python3 >/dev/null 2>&1 || {
@@ -133,6 +133,7 @@ for role in $ROLES; do
     fail "$role: bundle build failed"
   [ -f "$artifacts_root/$role-$BUNDLE_VERSION.zip" ] ||
     fail "$role: bundle build did not produce $role-$BUNDLE_VERSION.zip"
+  cp "$artifacts_root/$role-$BUNDLE_VERSION.zip" "$serve_root/"
 done
 
 # --------------------------------------------------------------------------
@@ -157,7 +158,7 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
 handler = functools.partial(Quiet, directory=str(serve_root))
 with socketserver.TCPServer(("127.0.0.1", 0), handler) as httpd:
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
-    for name, key in (("extensions", "extensions"), ("presets", "presets")):
+    for name, key in (("extensions", "extensions"), ("presets", "presets"), ("bundles", "bundles")):
         source = repository_root / "catalog" / f"{name}.json"
         payload = json.loads(source.read_text(encoding="utf-8"))
         payload["catalog_url"] = f"{base}/{name}.json"
@@ -195,6 +196,8 @@ new_consumer() {
       --name conformance --install-allowed --priority 1 >/dev/null
     specify preset catalog add "$catalog_base/presets.json" \
       --name conformance --install-allowed --priority 1 >/dev/null
+    specify bundle catalog add "$catalog_base/bundles.json" \
+      --id conformance --priority 1 >/dev/null
   )
 }
 
@@ -323,4 +326,26 @@ listed=$(cd "$consumer_root" && specify bundle list 2>&1 | tr -d '\n')
   fail "coexist: 'bundle list' does not report developer alone"
 
 echo "ok: coexist"
+
+# --------------------------------------------------------------------------
+# 3. The documented update path: a catalog-installed bundle survives
+#    `bundle update --all`, which re-applies every owned component (the
+#    0.13.0 CLI crashed here re-installing an already-installed extension).
+# --------------------------------------------------------------------------
+
+new_consumer "update"
+(cd "$consumer_root" && specify bundle install developer >/dev/null) ||
+  fail "update: catalog install of developer failed"
+(cd "$consumer_root" && specify bundle update --all >/dev/null) ||
+  fail "update: 'bundle update --all' failed"
+listed=$(cd "$consumer_root" && specify bundle list 2>&1 | tr -d '\n')
+[[ "$listed" == *"developer v$BUNDLE_VERSION"* ]] ||
+  fail "update: 'bundle list' does not report developer after update"
+for template in $TEMPLATES; do
+  resolved=$(cd "$consumer_root" && specify preset resolve "$template" 2>&1 | tr -d '\n')
+  [[ "$resolved" == *"default v$PRESET_VERSION"* ]] ||
+    fail "update: template '$template' does not resolve after update"
+done
+
+echo "ok: update"
 echo "conformance passed"

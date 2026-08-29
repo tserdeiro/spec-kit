@@ -28,7 +28,19 @@ class ManifestTests(unittest.TestCase):
         self.assertIn('schema_version: "1.0"', text)
         self.assertIn("id: code-review", text)
         self.assertIn(f'version: "{__version__}"', text)
-        self.assertIn('speckit_version: ">=0.13.0,<0.14.0"', text)
+        self.assertIn('speckit_version: ">=1.0.1,<1.1.0"', text)
+
+    def test_the_doctor_gates_on_the_manifest_requirement(self) -> None:
+        # Drift guard: the manifest range and the doctor's constants must
+        # move together (the v1.0.1 upgrade caught them apart).
+        from spec_kit_code_review.doctor import (
+            SPECKIT_SUPPORTED_MAJOR_MINOR,
+            SPECKIT_VERSION_RANGE,
+        )
+
+        self.assertIn(f'speckit_version: "{",".join(SPECKIT_VERSION_RANGE)}"', _manifest_text())
+        floor = SPECKIT_VERSION_RANGE[0].removeprefix(">=")
+        self.assertEqual(tuple(int(part) for part in floor.split("."))[:2], SPECKIT_SUPPORTED_MAJOR_MINOR)
 
     def test_hooks_are_a_top_level_key_never_nested_under_provides(self) -> None:
         text = _manifest_text()

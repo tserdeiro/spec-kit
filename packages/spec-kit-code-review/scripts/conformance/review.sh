@@ -31,12 +31,12 @@ cleanup() {
 trap cleanup EXIT
 
 if ! command -v specify >/dev/null 2>&1; then
-  echo "conformance requires specify-cli 0.13.0 on PATH" >&2
+  echo "conformance requires specify-cli 1.0.1 on PATH" >&2
   exit 4
 fi
 specify_version_output=$(specify version 2>/dev/null)
-if [[ "$specify_version_output" != *"CLI Version    0.13.0"* ]]; then
-  echo "conformance requires specify-cli 0.13.0" >&2
+if [[ "$specify_version_output" != *"CLI Version    1.0.1"* ]]; then
+  echo "conformance requires specify-cli 1.0.1" >&2
   exit 4
 fi
 # The installed launcher runs `uv run --frozen --offline`, which can only work

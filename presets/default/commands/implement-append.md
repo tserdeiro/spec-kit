@@ -27,10 +27,9 @@ their own branches are not this loop's concern.
    is ambiguous or matches nothing, stop and list the candidates) and
    `export SPECIFY_FEATURE_DIRECTORY=specs/<dir>` in every shell where
    you run this feature's scripts. Upstream persists that choice to
-   `.specify/feature.json`, making it the locally active feature — later
-   runs without an argument continue it. That persisted change is local
-   convenience: **never include `.specify/feature.json` in a task
-   commit**. Without an argument, the active feature applies as-is.
+   `.specify/feature.json` — per-checkout local state the CLI keeps
+   gitignored — so later runs without an argument continue it. Without
+   an argument, the active feature applies as-is.
 1. **Starting a task** — before touching any code for `T###`:
    - On the **first task of the feature**, bring the repository's
      up-to-date default branch into the feature branch (`NNN-slug`):

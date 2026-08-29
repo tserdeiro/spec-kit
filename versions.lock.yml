@@ -6,20 +6,20 @@ distribution:
 
 upstream:
   repository: https://github.com/github/spec-kit.git
-  tag: v0.13.0
-  commit: 9a30db484b0876cb7e5a391cf735d59bd968e985
-  git_tree: a949d15b75f41220e1a4c88d9493dea81e22fdb3
-  git_archive_sha256: e9a556c6250e1323152943bb8b41422b094b21c4197578dfd593a9c338841d28
-  install_source: git+https://github.com/github/spec-kit.git@v0.13.0
+  tag: v1.0.1
+  commit: 9118ed15a0ba65053469a94c560ea5d233f75884
+  git_tree: 460b3a777a0bb19709cd027ffe9180a701efcd2b
+  git_archive_sha256: 023415d40960e1927cbf54c06d8c48cc869749ee44d8d119fff1b2953e127919
+  install_source: git+https://github.com/github/spec-kit.git@v1.0.1
   package: specify-cli
-  package_version: 0.13.0
+  package_version: 1.0.1
   python: ">=3.11"
 
 extensions:
   git:
     id: git
     version: 1.0.0
-    provenance: bundled-with-github/spec-kit@v0.13.0
+    provenance: bundled-with-github/spec-kit@v1.0.1
     manifest_sha256: 89711dec9716473fba4afc54f7224bcb28ebd3c55fb5aaa30df854ab02b07a75
 
   linear:
