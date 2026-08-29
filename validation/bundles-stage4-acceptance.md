@@ -1,5 +1,9 @@
 # Stage 4 acceptance — role bundles and the default preset
 
+> Version numbers below predate the renumbering to the `0.x` line; the
+> `bundles/v1.0.0` release they name no longer exists. The evidence is
+> kept as recorded.
+
 **Status: PERFORMED. Date: 2026-08-04.** `scripts/conformance/bundles.sh`
 (exit 0, ~9 s, repeatable) proves in a fresh consumer per role, with the
 real `catalog/*.json` served locally and the real artifacts:
