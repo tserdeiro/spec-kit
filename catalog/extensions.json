@@ -8,8 +8,8 @@
       "id": "linear",
       "description": "Project Spec Kit feature state into Linear: Project at plan, Issues at tasks",
       "author": "tserdeiro",
-      "version": "0.5.1",
-      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/spec-kit-linear%2Fv0.5.1/spec-kit-linear-v0.5.1.zip",
+      "version": "0.6.0",
+      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/spec-kit-linear%2Fv0.6.0/spec-kit-linear-v0.6.0.zip",
       "repository": "https://github.com/tserdeiro/spec-kit",
       "homepage": "https://github.com/tserdeiro/spec-kit",
       "documentation": "https://github.com/tserdeiro/spec-kit/blob/main/packages/spec-kit-linear/README.md",
@@ -18,7 +18,7 @@
       "category": "integration",
       "effect": "read-write",
       "requires": {
-        "speckit_version": ">=0.13.0,<0.14.0"
+        "speckit_version": ">=1.0.1,<1.1.0"
       },
       "provides": {
         "commands": 4,
@@ -42,8 +42,8 @@
       "id": "code-review",
       "description": "One agentic review command for the pending diff or a pull-request candidate, wrapping Open Code Review; never modifies the diff or the artifacts",
       "author": "tserdeiro",
-      "version": "0.1.1",
-      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/spec-kit-code-review%2Fv0.1.1/spec-kit-code-review-v0.1.1.zip",
+      "version": "0.2.0",
+      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/spec-kit-code-review%2Fv0.2.0/spec-kit-code-review-v0.2.0.zip",
       "repository": "https://github.com/tserdeiro/spec-kit",
       "homepage": "https://github.com/tserdeiro/spec-kit",
       "documentation": "https://github.com/tserdeiro/spec-kit/blob/main/packages/spec-kit-code-review/README.md",
@@ -52,7 +52,7 @@
       "category": "quality",
       "effect": "read-only",
       "requires": {
-        "speckit_version": ">=0.13.0,<0.14.0"
+        "speckit_version": ">=1.0.1,<1.1.0"
       },
       "provides": {
         "commands": 3,

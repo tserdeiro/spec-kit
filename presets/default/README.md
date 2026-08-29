@@ -11,7 +11,7 @@ to what the flow needs.
 ## Install
 
 ```bash
-specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.7.0/default-0.5.0.zip
+specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.8.0/default-0.6.0.zip
 ```
 
 Local development:

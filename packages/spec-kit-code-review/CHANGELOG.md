@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- The distribution's upstream pin moved from `github/spec-kit` v0.13.0 to
+  v1.0.1: the manifest requires specify-cli `>=1.0.1,<1.1.0`, the doctor
+  validates the installed CLI against that same range (a test now keeps
+  them from drifting apart), and the conformance harness gates on 1.0.1.
+
 ## 0.1.1
 
 - The persisted session `repository_root` is expanded on read; phase 2 of

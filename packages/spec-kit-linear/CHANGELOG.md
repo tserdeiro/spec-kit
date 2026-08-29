@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- The distribution's upstream pin moved from `github/spec-kit` v0.13.0 to
+  v1.0.1: the extension now requires specify-cli `>=1.0.1,<1.1.0` and its
+  conformance harness gates on 1.0.1.
+
 ## 0.5.1
 
 - `push.md` and the README document the derivation priority the code

@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: code-review
   name: Spec Kit Code Review
-  version: "0.1.1"
+  version: "0.2.0"
   description: >-
     One agentic review command: the pending diff of the working tree, or a
     pull-request candidate, against the repository's versioned review rules and
@@ -14,7 +14,7 @@ extension:
   license: MIT
 
 requires:
-  speckit_version: ">=0.13.0,<0.14.0"
+  speckit_version: ">=1.0.1,<1.1.0"
   tools:
     - name: uv
       required: true

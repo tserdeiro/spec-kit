@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: linear
   name: Spec Kit Linear
-  version: "0.5.1"
+  version: "0.6.0"
   description: "Project Spec Kit feature state into Linear: Project at plan, Issues at tasks"
   author: tserdeiro
   repository: https://github.com/tserdeiro/spec-kit
@@ -11,7 +11,7 @@ extension:
   license: MIT
 
 requires:
-  speckit_version: ">=0.13.0,<0.14.0"
+  speckit_version: ">=1.0.1,<1.1.0"
   tools:
     - name: uv
       required: true
