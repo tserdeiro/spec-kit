@@ -68,8 +68,34 @@ from .process import run_command, sha256_file
 
 CHECK_GROUPS: tuple[str, ...] = ("runtime", "speckit", "git", "ocr", "gh", "config", "rules", "evidence", "hooks")
 
-SPECKIT_VERSION_RANGE = (">=1.0.1", "<1.1.0")
-SPECKIT_SUPPORTED_MAJOR_MINOR = (1, 0)
+def _speckit_requirement() -> tuple[tuple[str, ...], tuple[int, int] | None]:
+    """The supported Spec Kit range, read from this extension's own manifest.
+
+    One source of truth: `extension.yml`'s `requires.speckit_version` — the
+    same line the installer enforces. The doctor gates on the floor's
+    major.minor; an unreadable manifest disables the check with a warning
+    instead of ever failing hard.
+    """
+
+    manifest = Path(__file__).resolve().parents[2] / "extension.yml"
+    try:
+        match = re.search(r'speckit_version:\s*"([^"]+)"', manifest.read_text(encoding="utf-8"))
+    except OSError:
+        match = None
+    if match is None:
+        return ((), None)
+    range_parts = tuple(part.strip() for part in match.group(1).split(","))
+    floor = next((part[2:] for part in range_parts if part.startswith(">=")), None)
+    if floor is None:
+        return (range_parts, None)
+    numbers = floor.split(".")
+    try:
+        return (range_parts, (int(numbers[0]), int(numbers[1])))
+    except (IndexError, ValueError):
+        return (range_parts, None)
+
+
+SPECKIT_VERSION_RANGE, SPECKIT_SUPPORTED_MAJOR_MINOR = _speckit_requirement()
 MANAGED_LIFECYCLE_EVENT = "after_implement"
 MANAGED_LIFECYCLE_COMMAND = "speckit.code-review"
 REGISTRY_RELATIVE_PATH = Path(".specify/extensions.yml")
@@ -247,6 +273,16 @@ def speckit_version_diagnostic(*, timeout: int = 300) -> SpeckitVersion:
         )
     observed = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
     text = ".".join(str(part) for part in observed)
+    if SPECKIT_SUPPORTED_MAJOR_MINOR is None:
+        return SpeckitVersion(
+            text,
+            None,
+            Diagnostic(
+                "speckit_range_unreadable",
+                "could not read requires.speckit_version from extension.yml; version check skipped",
+                severity="warning",
+            ),
+        )
     if observed[:2] != SPECKIT_SUPPORTED_MAJOR_MINOR:
         return SpeckitVersion(
             text,
