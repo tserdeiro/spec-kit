@@ -237,7 +237,9 @@ if ! bash scripts/conformance/bundles.sh; then
 fi
 
 git add versions.lock.yml catalog
-git commit -q -m "chore(release): record the release pins"
+# Nothing staged means the tree already recorded the pins (a bump that
+# carried the catalog rewrite); the tag then lands on that commit.
+git diff --cached --quiet || git commit -q -m "chore(release): record the release pins"
 
 # --- Bundles: tag at the pin commit, build ---------------------------------
 if $pending_bundles; then
