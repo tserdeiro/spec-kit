@@ -43,7 +43,9 @@ Debe funcionar por completo con **todos** los agentes soportados por upstream
 ([Supported AI Coding Agent Integrations](https://github.com/github/spec-kit/blob/main/README.md#-supported-ai-coding-agent-integrations)).
 Ningún agente es de segunda clase: los comandos viajan como `.md` +
 launchers, sin lógica por agente, y las extensiones no tienen dependencias de
-runtime.
+runtime. Donde upstream registra los comandos de extensiones y preset solo
+en el agente default, `/speckit.doctor --fix` los espeja al resto de los
+agentes instalados.
 
 ### Developer Experience
 
@@ -53,7 +55,7 @@ proyectos: **la DX es prioridad**.
 - **Un solo camino de instalación**: registrar los catálogos de la
   distribución e instalar el bundle del rol. `doctor --fix` cierra los
   huecos que queden — incluida la instalación verificada del motor de
-  revisión pinneado.
+  revisión pinneado y el template de credenciales de Linear.
 - Toda fricción se pule; lo automatizable se automatiza. Autocompletado de
   comandos y mensajes con remediación exacta, especialmente para juniors.
 
@@ -127,7 +129,7 @@ Dos extensiones first-party, más las oficiales de upstream (`git`, `bug`):
 - **Linear**: `onboard` (alta one-shot: resuelve todos los IDs y crea lo
   vinculable ausente — label del repositorio, vistas compartidas y el
   mapeo PR→estado del team para la integración nativa — jamás pisa nada
-  existente distinto), `push`
+  existente distinto, y persiste la API key que recibió inline), `push`
   (`--dry-run`/`--apply`, la reconciliación), `status`, `doctor --fix`,
   `completions`. Núcleo del flujo, no un opcional. Requiere en el team los
   estados *In Progress* e *In Review* (los resuelve por nombre; sin

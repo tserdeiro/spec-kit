@@ -41,7 +41,19 @@ DX is the priority; nothing speculative.
 ## Command surface (the whole product)
 
 Native upstream: `specify` plus `/speckit.*` (constitution, specify,
-clarify, plan, checklist, tasks, analyze, implement, converge).
+clarify, plan, checklist, tasks, analyze, implement, converge,
+taskstoissues).
+
+`default` preset (agent-executed workflow commands):
+
+- `speckit.pr` — guarantees the branch invariant and opens the canonical
+  draft PR from the feature artifacts.
+- `speckit.bugfix` / `speckit.chore` — issue-key branch from a Linear
+  issue; `bugfix` continues into the triage trio.
+- `speckit.doctor` — every installed extension's doctor summarized, plus
+  the `speckit-*` skills mirrored across installed agents.
+- Appends to `speckit.tasks` and `speckit.implement` — the one-task
+  delivery loop and its rules.
 
 `spec-kit-linear` extension:
 
@@ -245,13 +257,32 @@ changed shipped content, released:
 - **Tooling** — `publish.sh --bump` produces the coherent version bump;
   bundle conformance runs in CI on composition PRs and derives its
   version from the manifests.
+- **One task in flight** (2026-08-29) — the preset drops `[P]` (a tasks
+  append keeps the core from emitting it), the checkbox travels in the
+  task PR's final commit, and an open PR outranks the checkbox in the
+  derivation (`linear` 0.5.0). The delivery conventions above are the
+  contract.
 - **Upstream pin v1.0.1** (2026-08-29) — the pinned CLI moved from
   v0.13.0 to v1.0.1: `bundle update --all` works again (upstream fixed
   the bundler's refresh hook) and bundle conformance now covers the
   update path; baseline assets refreshed; every component re-released
-  requiring specify-cli `>=1.0.1,<1.1.0`. The doctor and every
-  conformance gate now derive the pinned CLI from the manifest and
-  the lock — a pin move edits those two sources alone.
+  requiring specify-cli `>=1.0.1,<1.1.0`.
+- **Single source of truth** (2026-08-29) — hardcoded copies of manifest
+  facts are gone: the code-review doctor derives its supported CLI range
+  and the linear doctor its lifecycle events from `extension.yml`;
+  conformance and CI derive the pinned CLI from `versions.lock.yml`.
+- **Multi-agent first class** (2026-08-29) — upstream 1.x registers
+  extension and preset commands only on the default integration;
+  `/speckit.doctor --fix` mirrors the `speckit-*` skills to every other
+  installed agent (preset 0.7.0).
+- **Credentials paved path** (2026-08-29) — `onboard` persists the
+  inline key to the gitignored `.speckit-linear.env`, `doctor --fix`
+  writes its template, and an authentication failure names the source
+  to renew — never the value (`linear` 0.6.3–0.6.4).
+- **Linear limits spoken** (2026-08-29) — projected titles clip at
+  Linear's limits (Project 80, Issue 255 characters) with a warning
+  naming the artifact line to shorten, and Linear's own error messages
+  travel redacted in the diagnostics (`linear` 0.7.0).
 
 ## Releases
 
