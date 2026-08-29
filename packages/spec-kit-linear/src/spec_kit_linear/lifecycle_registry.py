@@ -17,22 +17,46 @@ responsibility, not this extension's.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from .errors import Diagnostic
 
 EXTENSION_ID = "linear"
-# Kept in sync with this extension's own extension.yml `hooks:` section
-# (six lifecycle events, all mapped to speckit.linear.push).
-MANAGED_LIFECYCLE_EVENTS: tuple[str, ...] = (
-    "after_specify",
-    "after_clarify",
-    "after_plan",
-    "after_tasks",
-    "after_implement",
-    "after_analyze",
-)
+
+
+def _managed_lifecycle_events() -> tuple[str, ...]:
+    """The lifecycle events this extension's own manifest declares.
+
+    One source of truth: `extension.yml`'s `hooks:` section — the same
+    declarations `specify extension add` registers (a hardcoded copy of
+    this list warned about four hooks the 0.4.0 prune had removed). An
+    unreadable manifest yields no events, degrading the comparison to
+    silence instead of inventing expectations.
+    """
+
+    manifest = Path(__file__).resolve().parents[2] / "extension.yml"
+    try:
+        lines = manifest.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ()
+    events: list[str] = []
+    inside = False
+    for line in lines:
+        if line.rstrip() == "hooks:":
+            inside = True
+            continue
+        if inside:
+            if line and not line.startswith(" "):
+                break
+            match = re.match(r"^  (\w+):\s*$", line)
+            if match:
+                events.append(match.group(1))
+    return tuple(events)
+
+
+MANAGED_LIFECYCLE_EVENTS: tuple[str, ...] = _managed_lifecycle_events()
 MANAGED_LIFECYCLE_COMMAND = "speckit.linear.push"
 
 REGISTRY_RELATIVE_PATH = Path(".specify/extensions.yml")

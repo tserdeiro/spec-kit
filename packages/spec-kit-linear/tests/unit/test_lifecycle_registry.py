@@ -114,10 +114,31 @@ class LifecycleRegistryDiagnosticsTests(unittest.TestCase):
 
     def test_missing_and_divergent_events_are_both_reported(self) -> None:
         registry = _fully_registered_registry(enabled=True)
-        del registry["hooks"]["after_analyze"]
+        missing_event = MANAGED_LIFECYCLE_EVENTS[-1]
+        del registry["hooks"][missing_event]
 
         diagnostics = registry_diagnostics(registry, lifecycle_enabled=False)
 
         self.assertEqual({item.code for item in diagnostics}, {"lifecycle_registry_unregistered", "lifecycle_registry_divergence"})
         unregistered = next(item for item in diagnostics if item.code == "lifecycle_registry_unregistered")
-        self.assertIn("after_analyze", unregistered.message)
+        self.assertIn(missing_event, unregistered.message)
+
+
+class ManifestDerivationTests(unittest.TestCase):
+    def test_the_managed_events_derive_from_the_manifest(self) -> None:
+        # One source of truth: the events come from extension.yml's hooks
+        # section (a hardcoded copy once warned about four pruned hooks).
+        import re
+        from pathlib import Path
+
+        manifest = Path(__file__).resolve().parents[2] / "extension.yml"
+        hooks_block = manifest.read_text(encoding="utf-8").split("\nhooks:\n", 1)[1]
+        declared = []
+        for line in hooks_block.splitlines():
+            if line and not line.startswith(" "):
+                break
+            match = re.match(r"^  (\w+):\s*$", line)
+            if match:
+                declared.append(match.group(1))
+        self.assertEqual(tuple(declared), MANAGED_LIFECYCLE_EVENTS)
+        self.assertEqual(MANAGED_LIFECYCLE_EVENTS, ("after_plan", "after_tasks"))
