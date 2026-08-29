@@ -1,4 +1,4 @@
 """Local-first projection primitives for the Spec Kit Linear extension."""
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"
 

@@ -41,7 +41,13 @@ from .errors import Diagnostic
 ALLOWED_PREFIXES = ("LINEAR_", "SPECKIT_LINEAR_")
 REPO_ENV_FILENAME = ".speckit-linear.env"
 OPERATOR_GLOBAL_ENV_PATH = Path.home() / ".config" / "speckit-linear" / "env"
+CREDENTIAL_VARS = ("LINEAR_API_KEY", "LINEAR_OAUTH_ACCESS_TOKEN")
+PROCESS_ENVIRONMENT = "the process environment"
 _KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Provenance of the credential variables, recorded by load_dotenv_files so a
+# later authentication failure can name the file to renew — never the value.
+_credential_sources: dict[str, str] = {}
 
 
 def _strip_quotes(value: str) -> str:
@@ -94,10 +100,32 @@ def load_dotenv_files(root: Path, environment: MutableMapping[str, str] | None =
 
     target = os.environ if environment is None else environment
     diagnostics: list[Diagnostic] = []
+    _credential_sources.clear()
+    for var in CREDENTIAL_VARS:
+        if (target.get(var) or "").strip():
+            _credential_sources[var] = PROCESS_ENVIRONMENT
     for path in (root / REPO_ENV_FILENAME, OPERATOR_GLOBAL_ENV_PATH):
         values, file_diagnostics = _parse_env_file(path)
         diagnostics.extend(file_diagnostics)
         for key, value in values.items():
             if key not in target:
                 target[key] = value
+                if key in CREDENTIAL_VARS and value.strip():
+                    _credential_sources.setdefault(key, str(path))
     return diagnostics
+
+
+def credential_source() -> tuple[str, str] | None:
+    """Which variable authenticates, and where it was defined.
+
+    Returns ``(variable, source)`` — source is :data:`PROCESS_ENVIRONMENT`
+    or the path of the env file that defined it — or ``None`` when no
+    credential was seen by :func:`load_dotenv_files` this process. Values
+    are never returned or recorded.
+    """
+
+    for var in CREDENTIAL_VARS:
+        source = _credential_sources.get(var)
+        if source is not None:
+            return var, source
+    return None

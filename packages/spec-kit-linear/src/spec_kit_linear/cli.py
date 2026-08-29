@@ -39,7 +39,7 @@ from .endpoint import (
     is_default_endpoint,
     resolve_endpoint,
 )
-from .env_files import REPO_ENV_FILENAME, load_dotenv_files
+from .env_files import REPO_ENV_FILENAME, credential_source, load_dotenv_files
 from .errors import AppError, Diagnostic
 from .git_refs import known_branches
 from .github import cli_diagnostic as github_cli_diagnostic, scan_pull_requests
@@ -319,23 +319,66 @@ def _operation_display_name(operation: Mapping[str, object]) -> str:
 # stays a plain warning with its existing manual hint, unchanged by `--fix`.
 # None of these ever issues a GraphQL mutation or touches `specs/`. A "fixed:"
 # message prefix marks the diagnostics `--fix` actually resolved.
-def _doctor_local_file_diagnostics(root: Path, *, fix: bool) -> list[Diagnostic]:
-    """Missing `.gitignore` entries for this extension's credential file."""
+_CREDENTIALS_TEMPLATE = """# spec-kit-linear credentials (gitignored; never commit).
+# Personal API key: Linear -> Settings -> API -> Personal API keys.
+LINEAR_API_KEY=
+"""
 
+
+def _doctor_local_file_diagnostics(root: Path, *, fix: bool) -> list[Diagnostic]:
+    """The credential file and its `.gitignore` entry, scaffolded on `--fix`."""
+
+    diagnostics: list[Diagnostic] = []
     gitignore_path = root / ".gitignore"
     existing_lines = {line.strip() for line in gitignore_path.read_text(encoding="utf-8").splitlines()} if gitignore_path.exists() else set()
-    if has_gitignore_entry(existing_lines, REPO_ENV_FILENAME):
-        return []
-    if fix:
-        added = ensure_gitignore_entries(gitignore_path, (REPO_ENV_FILENAME,))
-        return [Diagnostic("fixed_gitignore", f"fixed: added missing .gitignore entries: {', '.join(added)}", severity="info")]
-    return [
-        Diagnostic(
-            "gitignore_missing_entries",
-            f".gitignore is missing an entry for {REPO_ENV_FILENAME}, which can carry credentials; run `doctor --fix`, or `onboard`",
-            severity="warning",
+    if not has_gitignore_entry(existing_lines, REPO_ENV_FILENAME):
+        if fix:
+            added = ensure_gitignore_entries(gitignore_path, (REPO_ENV_FILENAME,))
+            diagnostics.append(Diagnostic("fixed_gitignore", f"fixed: added missing .gitignore entries: {', '.join(added)}", severity="info"))
+        else:
+            diagnostics.append(
+                Diagnostic(
+                    "gitignore_missing_entries",
+                    f".gitignore is missing an entry for {REPO_ENV_FILENAME}, which can carry credentials; run `doctor --fix`, or `onboard`",
+                    severity="warning",
+                )
+            )
+
+    recorded = credential_source()
+    env_path = root / REPO_ENV_FILENAME
+    if recorded is not None:
+        variable, source = recorded
+        diagnostics.append(Diagnostic("linear_credentials_source", f"{variable} defined in {source}", severity="info"))
+    elif not env_path.exists():
+        if fix:
+            env_path.write_text(_CREDENTIALS_TEMPLATE, encoding="utf-8")
+            diagnostics.append(
+                Diagnostic(
+                    "fixed_credentials_template",
+                    f"fixed: wrote the credentials template at {REPO_ENV_FILENAME}; paste your LINEAR_API_KEY (Linear -> Settings -> API -> Personal API keys)",
+                    str(env_path),
+                    severity="info",
+                )
+            )
+        else:
+            diagnostics.append(
+                Diagnostic(
+                    "linear_credentials_missing_file",
+                    f"no Linear credential found; run `doctor --fix` to write the {REPO_ENV_FILENAME} template "
+                    "(or set LINEAR_API_KEY in ~/.config/speckit-linear/env for every repo)",
+                    severity="warning",
+                )
+            )
+    else:
+        diagnostics.append(
+            Diagnostic(
+                "linear_credentials_empty",
+                f"{REPO_ENV_FILENAME} exists but defines no LINEAR_API_KEY; paste your key (Linear -> Settings -> API -> Personal API keys)",
+                str(env_path),
+                severity="warning",
+            )
         )
-    ]
+    return diagnostics
 
 
 def run_doctor(args: argparse.Namespace) -> dict[str, Any]:

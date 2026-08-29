@@ -1,19 +1,22 @@
 """Tests for `doctor --fix`.
 
-`--fix` covers exactly one mechanical, local-only remediation: adding the
-missing `.gitignore` entry for `.speckit-linear.env`, the only file this
-extension owns that can carry a credential. Every scenario also proves
-`--fix` never issues any GraphQL mutation (there is no Linear client involved
-anywhere in this file) and that "nothing to fix" is a byte-for-byte no-op.
+`--fix` covers exactly two mechanical, local-only remediations: adding the
+missing `.gitignore` entry for `.speckit-linear.env`, and writing that
+file's credentials template when no credential is defined anywhere. Every
+scenario also proves `--fix` never issues any GraphQL mutation (there is no
+Linear client involved anywhere in this file) and that "nothing to fix" is
+a byte-for-byte no-op.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -76,7 +79,8 @@ class DoctorFixTests(unittest.TestCase):
         (self.root / ".gitignore").write_text(f"{REPO_ENV_FILENAME}\n", encoding="utf-8")
         before = {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file() and ".git/" not in path.as_posix()}
 
-        code, payload = self._doctor("--fix")
+        with mock.patch.dict(os.environ, {"LINEAR_API_KEY": "lin_api_test"}):
+            code, payload = self._doctor("--fix")
 
         self.assertEqual(code, 0)
         after = {path: path.read_bytes() for path in self.root.rglob("*") if path.is_file() and ".git/" not in path.as_posix()}
@@ -95,3 +99,39 @@ class DoctorFixTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CredentialsScaffoldTests(DoctorFixTests):
+    def test_missing_credentials_are_reported_with_the_exact_file(self) -> None:
+        code, payload = self._doctor()
+
+        self.assertEqual(code, 0)
+        self.assertIn("linear_credentials_missing_file", self._codes(payload))
+        self.assertFalse((self.root / REPO_ENV_FILENAME).exists())
+
+    def test_fix_writes_the_credentials_template_without_any_secret(self) -> None:
+        code, payload = self._doctor("--fix")
+
+        self.assertEqual(code, 0)
+        self.assertIn("fixed_credentials_template", self._codes(payload))
+        content = (self.root / REPO_ENV_FILENAME).read_text(encoding="utf-8")
+        self.assertIn("LINEAR_API_KEY=\n", content)
+        self.assertNotIn("lin_api_", content.replace("lin_api_ keys", ""))
+
+    def test_an_empty_template_asks_for_the_key_instead_of_rewriting(self) -> None:
+        (self.root / REPO_ENV_FILENAME).write_text("LINEAR_API_KEY=\n", encoding="utf-8")
+
+        code, payload = self._doctor("--fix")
+
+        self.assertEqual(code, 0)
+        self.assertIn("linear_credentials_empty", self._codes(payload))
+        self.assertEqual((self.root / REPO_ENV_FILENAME).read_text(encoding="utf-8"), "LINEAR_API_KEY=\n")
+
+    def test_a_defined_credential_reports_its_source_never_its_value(self) -> None:
+        with mock.patch.dict(os.environ, {"LINEAR_API_KEY": "lin_api_secret"}):
+            code, payload = self._doctor()
+
+        self.assertEqual(code, 0)
+        source = next(item for item in payload["diagnostics"] if item["code"] == "linear_credentials_source")
+        self.assertIn("the process environment", source["message"])
+        self.assertNotIn("lin_api_secret", json.dumps(payload))

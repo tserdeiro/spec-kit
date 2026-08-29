@@ -826,7 +826,7 @@ class LinearClient:
         request_id: str,
     ) -> dict[str, object]:
         if status in {401, 403}:
-            raise _authorization_error(status, request_id)
+            raise _authorization_error(status, request_id, source=self.credentials.source)
         if 300 <= status < 400:
             # See _RefuseRedirects: a 3xx reaches this point only because the
             # redirect was refused. Permanent and never retried -- following
@@ -987,13 +987,18 @@ def _graphql_error(errors: object, request_id: str) -> AppError:
     )
 
 
-def _authorization_error(status: int, request_id: str) -> AppError:
+def _authorization_error(status: int, request_id: str, *, source: str | None = None) -> AppError:
     category = "authentication" if status == 401 else "authorization"
+    diagnostics = [Diagnostic("linear_auth", f"HTTP {status}"), Diagnostic("linear_request", request_id, severity="info")]
+    if source is not None:
+        # The path (or "the process environment") that defined the rejected
+        # credential — never its value. Renewal starts there.
+        diagnostics.append(Diagnostic("linear_credentials_source", f"the credential was defined in {source}; renew it there", severity="warning"))
     return AppError(
         f"Linear {category} failed for this read request",
         code=5,
         category=category,
-        diagnostics=[Diagnostic("linear_auth", f"HTTP {status}"), Diagnostic("linear_request", request_id, severity="info")],
+        diagnostics=diagnostics,
     )
 
 
