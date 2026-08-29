@@ -305,9 +305,10 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
   `product` y `reviewer`; los roles definen qué comandos *usa* cada
   quien, no qué instala.
 - **Agentes distintos conviven**: cuando aparezca un dev con otro agente,
-  cualquiera corre `specify integration install <agente>` +
-  `specify bundle update --all` (re-registra los comandos del preset en
-  el agente nuevo) y lo commitea.
+  cualquiera corre `specify integration install <agente> --force` +
+  `specify integration switch <agente>` (el switch registra **todos** los
+  comandos — core, preset y extensiones — en el agente nuevo; los demás
+  agentes conservan los suyos) y lo commitea.
 
 **¿Quién está en qué?** El sistema no lo sabe — lo *deriva* de lo
 observable:
