@@ -145,6 +145,21 @@ El flujo completo, con el estado que Linear refleja solo:
 
 Reglas de oro:
 
+- **Una tarea en vuelo por dev, nunca en paralelo**: las tareas se
+  entregan de a una, en orden de dependencias (las listas no llevan
+  marcadores `[P]`). Marcar tu PR `ready for review` es lo que te libera
+  para arrancar la siguiente tarea; si esa siguiente depende de una
+  tarea aún sin mergear, su branch se apila sobre el de la anterior
+  (línea `Stack:` del PR) — no esperes el merge: cuando llegue, GitHub
+  reapunta el PR apilado al branch de feature solo.
+- **El checkbox viaja dentro del PR de la tarea**: tras la auto-revisión
+  y antes de marcar `ready for review`, el último commit del PR marca
+  `[x]` y llena la **Completion evidence** (PR, verificación). Así el
+  checkbox llega al branch de feature únicamente vía el merge humano —
+  ahí `[x]` = mergeado, por construcción — y nadie vuelve a tocar tareas
+  pasadas. Comentarios del reviewer se corrigen en el mismo PR. En la
+  proyección a Linear un PR abierto pesa más que el checkbox: una tarea
+  en review nunca aparece como *Done*.
 - **El branch de feature (`NNN-slug`) es la integración**: los branches
   de tarea salen de él actualizado y sus PRs vuelven a él; la feature
   entra a la default branch del repositorio (aquí `main`; en otros

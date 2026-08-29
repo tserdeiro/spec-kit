@@ -1,12 +1,14 @@
 ---
-name: "speckit-tasks"
-description: "Generate an actionable, dependency-ordered tasks.md for the feature based on available design artifacts."
-compatibility: "Requires spec-kit project structure with .specify/ directory"
+name: speckit-tasks
+description: Generate an actionable, dependency-ordered tasks.md for the feature based
+  on available design artifacts.
+compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: "github-spec-kit"
-  source: "templates/commands/tasks.md"
+  author: github-spec-kit
+  source: preset:default
 ---
 
+# Speckit Tasks Skill
 
 ## User Input
 
@@ -212,3 +214,14 @@ Every task MUST strictly follow this format:
 - [ ] tasks.md generated with all phases, task IDs, and file paths
 - [ ] Extension hooks dispatched or skipped according to the rules in Mandatory Post-Execution Hooks above
 - [ ] Completion reported to user with task count, story breakdown, and MVP scope
+
+
+
+## One task at a time (tserdeiro/spec-kit)
+
+This distribution delivers tasks strictly one at a time, one branch and
+one draft PR each — **where the core guidance above differs, this rule
+wins**: emit no `[P]` markers and no parallel-execution examples. Order
+every task by its dependencies alone (`Depends on`), so the list reads
+as the sequence one developer follows. Who takes which task is decided
+by assignment in Linear, never by markers in this file.

@@ -20,6 +20,11 @@ description: "Dependency-ordered, traceable delivery units for feature implement
   ready once every task is checked, later closes the feature.
 - **One branch per task**, named `NNN-T###-short-slug` (feature number, task
   id); its pull request opens as `draft` **against the feature branch**.
+- **One task in flight per developer, never in parallel**: tasks deliver
+  one at a time, in dependency order. Marking the current PR
+  `ready for review` is what frees the developer to start the next task;
+  a task whose **Depends on** names a task not yet merged stacks its
+  branch on that task's branch (declared in the PR's `Stack:` line).
 - **Starting a task means creating its branch first**: before touching any
   code for `T###`, run `git switch -c NNN-T###-short-slug` from the
   up-to-date feature branch. If you are the implementing agent, do this as
@@ -35,16 +40,16 @@ description: "Dependency-ordered, traceable delivery units for feature implement
 
 ## Task block format
 
-Every task is one resumable delivery unit. Replace all sample values. Use `[P]` only when files do not overlap and dependencies are complete; use `[US#]` in user-story phases.
+Every task is one resumable delivery unit. Replace all sample values. Use `[US#]` in user-story phases. No parallel markers: tasks are ordered by their dependencies alone.
 
 ```markdown
-- [ ] T001 [P?] [US?] Deliver a concrete outcome in exact/path.ext
+- [ ] T001 [US?] Deliver a concrete outcome in exact/path.ext
   - **Traces**: FR-001, SC-001; outcome: [observable result]
   - **Depends on**: none | T###
   - **Boundaries**: [files or system surfaces changed and protected]
   - **Evidence**: `[command]` -> [expected result or required review]
   - **Delivery**: single PR | stacked PR [N] on [T###'s PR]
-  - **Completion evidence**: [record only after completion; checked means evidence exists]
+  - **Completion evidence**: [filled in the task PR's final commit, before ready for review; the merge lands it on the feature branch]
 ```
 
 ## Phase 1: Setup
@@ -94,9 +99,8 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[P]` 
   - **Delivery**: [single PR | stacked PR N on T###]
   - **Completion evidence**: Pending
 
-## Dependencies and parallel work
+## Dependencies and stack order
 
 - **Critical path**: [T### -> T### -> T###]
-- **Parallel opportunities**: [task IDs and why their boundaries do not overlap]
 - **Stack order**: [PR 1 -> PR 2, or `Not applicable`]
 

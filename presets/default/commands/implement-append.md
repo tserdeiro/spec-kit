@@ -1,8 +1,9 @@
 
 ## Task delivery loop (tserdeiro/spec-kit)
 
-This distribution delivers **one branch and one draft PR per task**. As you
-implement, wrap every task in this loop:
+This distribution delivers **one branch and one draft PR per task**, and
+this loop is its delivery contract: **where the core rules above differ,
+this loop wins.** Wrap every task in it as you implement:
 
 **Orchestrate when your host can.** If your host supports delegating to
 sub-agents (Claude Code's Task tool, OpenCode agents, or equivalent), run
@@ -13,6 +14,12 @@ and the conversation with the human. Everything a sub-agent needs (spec,
 plan, tasks, checkboxes, branches, PRs) is observable from the repository,
 so hand it pointers, never your conversation. Without that capability, run
 the loop yourself as written.
+
+**One task at a time.** Task lists here carry no `[P]` markers and no
+task ever runs in parallel. Exactly one task is in flight: one branch,
+one sub-agent, one draft PR. The next task starts only once the current
+one is `ready for review` (step 2). Tasks other developers deliver on
+their own branches are not this loop's concern.
 
 0. **Feature selection** — if the user named a feature in the command
    (`/speckit.implement 003` or `003-checkout-flow`), resolve it to
@@ -32,9 +39,12 @@ the loop yourself as written.
      `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` —
      and push. Later refreshes from the default branch are the
      developer's duty, not this loop's.
-   - Create the task branch **from the up-to-date feature branch** — or
-     from the previous task's branch when this task stacks:
-     `git switch -c NNN-T###-short-slug`.
+   - Create the task branch **from the up-to-date feature branch**:
+     `git switch -c NNN-T###-short-slug`. One exception stacks: when the
+     task's **Depends on** names a task whose PR is not merged yet,
+     branch from that task's branch instead and name it in the PR body's
+     `Stack:` line — never wait idle for that merge; when it lands,
+     GitHub retargets the stacked PR to the feature branch by itself.
    - **The stack is derived, never invented**: when the task or the
      plan's `## Documentation` section defines stack or documentation
      links, they rule. Otherwise read the real manifests
@@ -47,14 +57,24 @@ the loop yourself as written.
    The branch is what projects the task to *In Progress* in Linear.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review
-   with `/speckit.code-review`, fix what it finds, then mark the PR
-   `ready for review`.
-3. **Between tasks** — `/speckit.linear.status` shows every task's derived
-   state and its suggested next action. A task is finished when a human
-   merged its PR and its checkbox records the completion evidence.
-4. **Closing the feature** — when every task is checked with its
-   completion evidence, mark the **feature PR** (the draft opened when
-   the product phase closed) `ready for review`: it now shows the whole
+   with `/speckit.code-review` and fix what it finds. Then, in the PR's
+   **final commit**, check the task's box and fill its **Completion
+   evidence** (the PR and the verification results; a task split into
+   stacked PRs checks it in the stack's last PR), push, and mark the PR
+   `ready for review`. The checked box travels inside the task PR, so it
+   reaches the feature branch only through the human merge; reviewer
+   comments are fixed on this same PR, the box stays checked. Ready for
+   review is what frees you to start the next task (step 1).
+3. **Between tasks** — a task is finished when a human merged its PR:
+   the merge is what lands its checked box and evidence on the feature
+   branch, so there `[x]` means merged, by construction.
+   `/speckit.linear.status` shows every task's derived state and its
+   suggested next action (an open PR outranks the checkbox in the
+   projection, so a task in review never reads as done).
+4. **Closing the feature** — when every box on the feature branch is
+   checked — every task PR merged — mark the **feature PR** (the draft
+   opened when the product phase closed) `ready for review`: it now
+   shows the whole
    feature, composed of task PRs a human already reviewed one by one.
    Approving and merging are never yours — a human merges it into the
    default branch with a **merge commit** (no squash: the task history

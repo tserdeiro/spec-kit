@@ -71,6 +71,13 @@ command exposes only what its step needs.
 
 - One branch per task; PRs open as `draft`; bodies use the canonical
   `.github/PULL_REQUEST_TEMPLATE.md`.
+- One task in flight per developer, in dependency order — never parallel
+  tasks (no `[P]` markers). The next task starts at `ready for review`;
+  a task depending on an unmerged predecessor stacks on its branch.
+- The task PR's final commit — after self-review, before
+  `ready for review` — checks the box and records completion evidence,
+  so a checked box reaches the feature branch only through the human
+  merge. In the Linear derivation an open PR outranks the checkbox.
 - Review budget: a reviewed PR stays under ~400 authored executable lines;
   larger tasks split into stacked PRs. This is a convention plus a warning
   in the review command, not a subsystem.
