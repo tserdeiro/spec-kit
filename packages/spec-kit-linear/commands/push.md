@@ -17,9 +17,12 @@ The projection is Feature Project → `Txxx` Issues. A Project appears when the
 feature is planned and an Issue per task when tasks are generated.
 
 Each Issue's workflow state is re-derived on every push from what can be
-observed right now, never from an event: `[x]` in `tasks.md` or a merged PR
-is *completed*; an open ready-for-review PR is *In Review*; an open draft PR
-or an existing branch is *In Progress*; nothing is *Todo*. Branches and pull
+observed right now, never from an event. An observable pull request speaks
+first: merged is *completed*, open ready-for-review is *In Review*, open
+draft is *In Progress*. With no live PR, a `[x]` checkbox in `tasks.md` is
+*completed*, an existing branch is *In Progress*, and nothing is *Todo* —
+the box is checked inside the task PR before `ready for review`, so an
+open PR is always the fresher witness. Branches and pull
 requests count when they are named `NNN-Txxx` (optionally `-suffix`), e.g.
 `001-T004-add-parser`. Branch reads never fetch; pull requests need `gh` and
 are simply skipped, with one warning, when it is missing or unauthenticated.

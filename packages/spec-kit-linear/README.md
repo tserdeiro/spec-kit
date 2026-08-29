@@ -75,12 +75,16 @@ listened for, so a missed webhook cannot desynchronize anything.
 
 | Observed | Derived state | Linear state |
 | --- | --- | --- |
-| `[x]` in `tasks.md`, or a merged PR | `completed` | `completed_state_id` |
+| A merged PR | `completed` | `completed_state_id` |
 | An open, ready-for-review PR | `review` | `review_state_id` |
-| An open draft PR, or a branch | `started` | `started_state_id` |
+| An open draft PR | `started` | `started_state_id` |
+| `[x]` in `tasks.md` (no live PR) | `completed` | `completed_state_id` |
+| A branch | `started` | `started_state_id` |
 | Nothing | `unstarted` | `open_state_id` |
 
-The first row that applies wins. Branches and pull requests count only when
+The first row that applies wins: the box is checked inside the task PR
+before `ready for review`, so an observable PR is always the fresher
+witness and the checkbox decides only once no live PR remains. Branches and pull requests count only when
 they follow the convention `NNN-Txxx`, optionally with a `-suffix`
 (`001-T004`, `001-T004-add-parser`); several PRs on one task — stacked PRs —
 report the furthest that task reached.
