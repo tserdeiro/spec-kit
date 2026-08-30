@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0
+
+- The managed blocks carry the prose a PM needs: each task Issue leads
+  with its `tasks.md` body, and the spec's Problem/Desired-outcome
+  sections project onto `Project.content` — `Project.description` caps
+  at 255 characters, so only the `Source:`/`Plan:` lines stay there.
+  The task block's `Status:` line is gone: the workflow state already
+  travels natively via `stateId`.
+- Prose blocks reconcile by an embedded `body-hash` comment, never by
+  bytes: Linear rewrites stored markdown (bullets, blank lines), so a
+  byte compare would replan the same write on every push. Trade-off,
+  documented in the planner: a human edit inside a managed block
+  persists until its source artifact changes. Prose can no longer forge
+  the block markers, and a removal that empties `Project.content` sends
+  `" "` (a `""` write is a Linear no-op).
+
 ## 0.7.1
 
 - The `after_plan`/`after_tasks` lifecycle hooks ship `optional: false`:
