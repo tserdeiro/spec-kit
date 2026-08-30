@@ -985,12 +985,15 @@ def _graphql_error(errors: object, request_id: str) -> AppError:
         code = extensions.get("code") if isinstance(extensions, dict) else None
         if isinstance(code, str) and code.isupper() and len(code) <= 64:
             codes.append(code)
-        message = item.get("message")
+        presentable = extensions.get("userPresentableMessage") if isinstance(extensions, dict) else None
+        # For INVALID_INPUT, `message` is typically the generic "Argument
+        # Validation Error"; the actionable text (e.g. "name must be shorter
+        # than or equal to 80 characters") lives in `userPresentableMessage`.
+        # Prefer it when present, since a bare code once cost a debugging
+        # session to recover the remediation. Redacted either way, because a
+        # server message can echo credentials or user content.
+        message = presentable if isinstance(presentable, str) and presentable.strip() else item.get("message")
         if isinstance(message, str) and message.strip():
-            # Linear's own error text (e.g. "name must be shorter than or
-            # equal to 80 characters") is the remediation; a bare code once
-            # cost a debugging session to recover it. Redacted, because a
-            # server message can echo credentials or user content.
             messages.append(redact_text(message.strip()[:200]))
     diagnostic = ",".join(sorted(set(codes))) if codes else "unspecified"
     diagnostics = [Diagnostic("linear_graphql", f"codes={diagnostic}"), Diagnostic("linear_request", request_id, severity="info")]

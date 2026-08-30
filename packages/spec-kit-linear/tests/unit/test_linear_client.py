@@ -63,6 +63,56 @@ class LinearClientTests(unittest.TestCase):
         self.assertNotIn("top-secret", str(raised.exception))
         self.assertNotIn("top-secret", " ".join(item.message for item in raised.exception.diagnostics))
 
+    def test_graphql_error_prefers_user_presentable_message_over_generic_message(self) -> None:
+        client, _, _ = self._client(
+            [
+                MemoryResponse(
+                    {
+                        "data": {"viewer": None},
+                        "errors": [
+                            {
+                                "message": "Argument Validation Error",
+                                "extensions": {
+                                    "code": "INVALID_INPUT",
+                                    "userPresentableMessage": "name must be shorter than or equal to 80 characters.",
+                                },
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        with self.assertRaises(AppError) as raised:
+            client.query(READ_QUERY)
+        graphql_messages = [item.message for item in raised.exception.diagnostics if item.code == "linear_graphql_message"]
+        self.assertTrue(any("shorter than or equal to 80 characters" in message for message in graphql_messages))
+
+    def test_graphql_error_redacts_secrets_in_user_presentable_message(self) -> None:
+        client, _, _ = self._client(
+            [
+                MemoryResponse(
+                    {
+                        "data": {"viewer": None},
+                        "errors": [
+                            {
+                                "message": "Argument Validation Error",
+                                "extensions": {
+                                    "code": "INVALID_INPUT",
+                                    "userPresentableMessage": "Bearer top-secret",
+                                },
+                            }
+                        ],
+                    }
+                )
+            ]
+        )
+
+        with self.assertRaises(AppError) as raised:
+            client.query(READ_QUERY)
+        self.assertNotIn("top-secret", str(raised.exception))
+        self.assertNotIn("top-secret", " ".join(item.message for item in raised.exception.diagnostics))
+
     def test_rate_limit_http_400_retries_safe_read_query(self) -> None:
         client, opener, delays = self._client(
             [
