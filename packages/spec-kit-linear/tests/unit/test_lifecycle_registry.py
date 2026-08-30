@@ -142,3 +142,14 @@ class ManifestDerivationTests(unittest.TestCase):
                 declared.append(match.group(1))
         self.assertEqual(tuple(declared), MANAGED_LIFECYCLE_EVENTS)
         self.assertEqual(MANAGED_LIFECYCLE_EVENTS, ("after_plan", "after_tasks"))
+
+    def test_the_lifecycle_hooks_ship_automatic(self) -> None:
+        # "Linear como espejo automatico": a consumer install must register
+        # after_plan/after_tasks as automatic, not as a question -- a manual
+        # registry edit is overwritten by every bundle update.
+        from pathlib import Path
+
+        manifest = Path(__file__).resolve().parents[2] / "extension.yml"
+        hooks_block = manifest.read_text(encoding="utf-8").split("\nhooks:\n", 1)[1].split("\ntags:", 1)[0]
+        self.assertEqual(hooks_block.count("optional: false"), 2)
+        self.assertNotIn("optional: true", hooks_block)

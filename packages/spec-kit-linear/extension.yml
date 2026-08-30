@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: linear
   name: Spec Kit Linear
-  version: "0.7.0"
+  version: "0.7.1"
   description: "Project Spec Kit feature state into Linear: Project at plan, Issues at tasks"
   author: tserdeiro
   repository: https://github.com/tserdeiro/spec-kit
@@ -38,13 +38,13 @@ provides:
 hooks:
   after_plan:
     command: speckit.linear.push
-    optional: true
+    optional: false
     priority: 20
     prompt: Sync Linear after planning?
     description: Project the Feature Project at plan
   after_tasks:
     command: speckit.linear.push
-    optional: true
+    optional: false
     priority: 20
     prompt: Sync Linear after task generation?
     description: Project the Txxx Issues
