@@ -111,6 +111,50 @@ class RemoteDiscoveryTests(unittest.TestCase):
         self.assertEqual(status_report(discovery)["remote_operations"]["writes"], 0)
         self.assertTrue(all(str(request["payload"]["query"]).lstrip().startswith("query ") for request in opener.requests))
 
+    def test_discovers_and_adopts_resources_already_in_the_new_head_marker_format(self) -> None:
+        # A previous push already migrated this feature to the TDS-12 head
+        # layout: no bounded open/close block, just the trailing marker line
+        # (with `hash:...` on a task's, none on the feature's).
+        project = {
+            "id": "project-001",
+            "name": "001: Local projection",
+            "description": "Source: `specs/001-local-projection/spec.md#L1`\nPlan: `specs/001-local-projection/plan.md#L1`\n<!-- speckit-linear:feature:001 -->",
+            "updatedAt": "2026-07-25T00:00:00.000Z",
+            "teams": {"nodes": [{"id": "22222222-2222-4222-8222-222222222222", "key": "WOR"}]},
+            "labels": {"nodes": [{"id": "44444444-4444-4444-8444-444444444444", "name": "sample-repository"}]},
+        }
+        issues = [
+            {
+                "id": f"issue-{number}",
+                "identifier": f"WOR-{number}",
+                "title": f"T00{number} Task",
+                "description": (
+                    f"Source: `specs/001-local-projection/tasks.md#L{number}`\n"
+                    f"<!-- speckit-linear:task:001:T00{number} hash:abcdef123456 -->"
+                ),
+                "updatedAt": "2026-07-25T00:00:00.000Z",
+                "project": {"id": "project-001"},
+                "parent": None,
+                "assignee": None,
+                "labels": {"nodes": []},
+            }
+            for number in range(1, 4)
+        ]
+        client, _ = self._client(
+            [
+                MemoryResponse(self._binding()),
+                MemoryResponse(self._connection("projects", [project])),
+                MemoryResponse(self._connection("issues", issues)),
+            ]
+        )
+
+        discovery = discover_and_adopt(client, self.config, (self.desired,))
+
+        feature = discovery.features[0]
+        self.assertIsNotNone(feature.project)
+        self.assertEqual(len(feature.tasks), 3)
+        self.assertEqual(feature.drift, ())
+
     def test_status_task_rows_carry_remote_identifier_state_and_assignee(self) -> None:
         # The human-mode task table (and its --json structural twin,
         # task_rows) reads the Issue's

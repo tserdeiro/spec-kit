@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 
 from .allowlist import assert_allowed, forbidden_operations
-from .bridge import merge_managed_block
+from .bridge import merge_managed_block, merge_managed_head
 from .domain import DesiredState, DesiredTask
 from .errors import AppError, Diagnostic
 from .linear_client import RemoteWorkItem
@@ -107,12 +107,16 @@ def build_push_plan(
     else:
         project_ref = resources[desired.feature.project_identity]
         name_changed = project.name != desired.feature.project_title
-        description_changed = _needs_block_update(project.description, desired.feature.project_marker, desired.feature.managed_description)
+        # The Project.description head carries only plain Source:/Plan:
+        # lines, which round-trip through Linear byte-identical -- so unlike
+        # a task's description (prose, hash-gated below) it is still judged
+        # byte-for-byte, self-healing on every push.
+        description_changed = _needs_head_update(project.description, desired.feature.project_marker, desired.feature.managed_description)
         new_content = _needed_content(project.content, desired.feature.project_marker, desired.feature.content_block, desired.feature.summary_hash)
         if name_changed or description_changed or new_content is not None:
             update_input: dict[str, object] = {
                 **({"name": desired.feature.project_title} if name_changed else {}),
-                "description": merge_managed_block(project.description, desired.feature.project_marker, desired.feature.managed_description),
+                "description": merge_managed_head(project.description, desired.feature.project_marker, desired.feature.managed_description),
             }
             if new_content is not None:
                 update_input["content"] = new_content
@@ -152,15 +156,18 @@ def build_push_plan(
         # Byte comparison cannot judge the description any more than it can
         # for Project.content (see _needed_content): a task body is prose,
         # so Linear normalizes it on write, and our composed bytes are never
-        # what comes back. Judge it by the block's own body-hash comment.
-        description_changed = _remote_body_hash(issue.description) != task.body_hash
+        # what comes back. Judge it by the hash on the marker's own line --
+        # a legacy separate body-hash comment (the pre-migration format)
+        # does not match there, so it reads as absent and the Issue migrates
+        # to the new head layout with one rewrite, same as a real mismatch.
+        description_changed = _remote_marker_hash(issue.description, task.marker) != task.body_hash
         if title_changed or description_changed:
             _append_operation(
                 operations, kind="issue.update", target=task.identity,
                 reason="bridge_owned_issue_fields_changed",
                 input_values={
                     **({"title": task.title} if title_changed else {}),
-                    **({"description": merge_managed_block(issue.description, task.marker, task.managed_description)} if description_changed else {}),
+                    **({"description": merge_managed_head(issue.description, task.marker, task.managed_description)} if description_changed else {}),
                 }, preconditions=ref,
             )
         desired_state = _desired_state_id(config, _task_state(work_states, task))
@@ -336,8 +343,8 @@ def _issue_for(adoption: FeatureAdoption, project: object, desired: DesiredTask)
     return matches[0]
 
 
-def _needs_block_update(existing: str, marker: str, desired_block: str) -> bool:
-    return merge_managed_block(existing, marker, desired_block) != existing
+def _needs_head_update(existing: str, marker: str, desired_head: str) -> bool:
+    return merge_managed_head(existing, marker, desired_head) != existing
 
 
 _BODY_HASH_RE = re.compile(r"<!-- speckit-linear:body-hash:([0-9a-f]{12}) -->")
@@ -345,6 +352,21 @@ _BODY_HASH_RE = re.compile(r"<!-- speckit-linear:body-hash:([0-9a-f]{12}) -->")
 
 def _remote_body_hash(content: str) -> str:
     match = _BODY_HASH_RE.search(content)
+    return match.group(1) if match else ""
+
+
+def _remote_marker_hash(content: str, marker: str) -> str:
+    """The 12-hex hash carried on ``marker``'s own head-marker line, or "".
+
+    Only that exact marker's own line counts: a legacy separate body-hash
+    comment (`_BODY_HASH_RE`, the pre-migration bounded-block format) is an
+    unrelated comment and never matches here, so it reads as an absent
+    hash -- see `build_push_plan`'s task-description branch for what that
+    triggers.
+    """
+
+    pattern = re.compile(rf"<!-- {re.escape(marker)} hash:([0-9a-f]{{12}}) -->")
+    match = pattern.search(content)
     return match.group(1) if match else ""
 
 
@@ -363,9 +385,9 @@ def _needed_content(remote_content: str, marker: str, desired_content_block: str
     to this hash (it cannot see prose drift once Linear has already rewritten
     our bytes) and persists until the source artifact (the spec summary, or
     the task's own body) next changes. The feature's Project.description
-    block has no such gap -- it carries only plain `Source:`/`Plan:` lines,
+    head has no such gap -- it carries only plain `Source:`/`Plan:` lines,
     which round-trip byte-identical, so it keeps self-healing byte-for-byte
-    on every push, compared by `_needs_block_update` as before.
+    on every push, compared by `_needs_head_update` as before.
     """
 
     if desired_hash:

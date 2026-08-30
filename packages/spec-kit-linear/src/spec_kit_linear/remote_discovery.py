@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from .bridge import marker_present
 from .domain import DesiredState
 from .errors import AppError, Diagnostic
 from .linear_client import LinearClient, RemoteBinding, RemoteIssue, RemoteProject
@@ -207,7 +208,10 @@ def _unmanaged_issues(project: RemoteProject | None) -> tuple[UnmanagedIssue, ..
 
 
 def _one_by_marker(resources: tuple[RemoteProject, ...] | tuple[RemoteIssue, ...], marker: str, kind: str):
-    matches = [resource for resource in resources if f"<!-- {marker} -->" in resource.description]
+    # `marker_present` matches a resource in either format: the legacy
+    # bounded block or the new single-line head marker, with or without its
+    # hash suffix -- adoption does not care which one a resource is in yet.
+    matches = [resource for resource in resources if marker_present(resource.description, marker)]
     if len(matches) > 1:
         raise _identity_error("remote_marker_duplicate", f"multiple {kind} resources carry the same bridge marker")
     return matches[0] if matches else None
