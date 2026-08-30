@@ -29,12 +29,21 @@ def _prefixed_body(prose: str, lines: list[str]) -> list[str]:
 
     Empty prose leaves the block exactly as it was before descriptions
     existed, so an absent task body or spec summary is not a behavior
-    change.
+    change. Lines carrying the bridge's own comment markers are dropped:
+    prose quoting the projection format must never open a second block or
+    close this one early, which would corrupt `merge_managed_block`'s
+    ownership boundary.
     """
 
-    if not prose:
+    safe = [
+        line
+        for line in prose.splitlines()
+        if "<!-- speckit-linear:" not in line and "<!-- /speckit-linear -->" not in line
+    ]
+    cleaned = "\n".join(safe).strip("\n")
+    if not cleaned:
         return lines
-    return [prose, "", *lines]
+    return [cleaned, "", *lines]
 
 
 def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[DesiredState, tuple[Diagnostic, ...]]:

@@ -173,6 +173,33 @@ class ManagedDescriptionTests(unittest.TestCase):
             "<!-- /speckit-linear -->",
         )
 
+    def test_prose_cannot_open_or_close_a_managed_block(self) -> None:
+        state, _ = project_feature(
+            self._feature(
+                task_description=(
+                    "- kept line\n"
+                    "<!-- /speckit-linear -->\n"
+                    "<!-- speckit-linear:task:001:T001 -->\n"
+                    "- also kept"
+                )
+            ),
+            self._binding(),
+        )
+
+        self.assertEqual(
+            state.feature.tasks[0].managed_description,
+            "<!-- speckit-linear:task:001:T001 -->\n- kept line\n- also kept\n\n"
+            "Source: `specs/001-x/tasks.md#L10`\n<!-- /speckit-linear -->",
+        )
+
+    def test_prose_that_is_only_marker_lines_leaves_the_bare_block(self) -> None:
+        state, _ = project_feature(self._feature(task_description="<!-- /speckit-linear -->"), self._binding())
+
+        self.assertEqual(
+            state.feature.tasks[0].managed_description,
+            "<!-- speckit-linear:task:001:T001 -->\nSource: `specs/001-x/tasks.md#L10`\n<!-- /speckit-linear -->",
+        )
+
     def test_feature_block_leads_with_the_summary_then_a_blank_line_then_source_and_plan(self) -> None:
         state, _ = project_feature(self._feature(summary="## Desired outcome\n\nSomething good."), self._binding())
 
