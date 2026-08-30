@@ -61,6 +61,12 @@ class DesiredTask:
     marker: str
     managed_description: str
     source: SourceRef
+    # Truncated sha256 of managed_description's body (everything between the
+    # outer markers except the hash comment itself). Always non-empty for a
+    # real projected task -- see projection._hashed_block. Defaulted so
+    # existing DesiredTask construction sites that predate the body-hash
+    # comment keep compiling unchanged.
+    body_hash: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -70,6 +76,7 @@ class DesiredTask:
             "project_identity": self.project_identity,
             "marker": self.marker,
             "managed_description": self.managed_description,
+            "body_hash": self.body_hash,
             "source": self.source.as_dict(),
         }
 

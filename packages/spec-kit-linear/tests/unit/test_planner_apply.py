@@ -345,6 +345,63 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertEqual(creates["task:001:T001"], REVIEW_STATE_ID)
         self.assertEqual(creates["task:001:T003"], STARTED_STATE_ID)
 
+    def _replace_issue_description(self, discovery: RemoteDiscovery, task_identity: str, description: str) -> RemoteDiscovery:
+        project = discovery.projects[0]
+        issues = tuple(
+            replace(issue, description=description) if issue.id == f"issue-{task_identity}" else issue for issue in project.issues
+        )
+        return replace(discovery, projects=(replace(project, issues=issues),))
+
+    def test_an_unchanged_issue_body_hash_plans_no_issue_update(self) -> None:
+        plan = self._push_plan(self._complete_discovery())
+
+        self.assertEqual([item for item in plan["operations"] if item["kind"] == "issue.update"], [])
+
+    def test_a_remote_issue_description_without_a_body_hash_plans_a_rewrite(self) -> None:
+        task = self.desired.feature.tasks[0]
+        legacy_description = f"<!-- {task.marker} -->\nSource: `{task.source.path}#L{task.source.line}`\n<!-- /speckit-linear -->"
+        discovery = self._replace_issue_description(self._complete_discovery(), task.identity, legacy_description)
+
+        plan = self._push_plan(discovery)
+
+        updates = [item for item in plan["operations"] if item["kind"] == "issue.update" and item["target"] == task.identity]
+        self.assertEqual(len(updates), 1)
+        self.assertNotIn("title", updates[0]["input"])
+        self.assertEqual(
+            updates[0]["input"]["description"],
+            merge_managed_block(legacy_description, task.marker, task.managed_description),
+        )
+
+    def test_a_changed_issue_body_hash_plans_a_description_merge(self) -> None:
+        task = self.desired.feature.tasks[0]
+        stale_description = f"<!-- {task.marker} -->\n<!-- speckit-linear:body-hash:000000000000 -->\nstale body\n<!-- /speckit-linear -->"
+        discovery = self._replace_issue_description(self._complete_discovery(), task.identity, stale_description)
+
+        plan = self._push_plan(discovery)
+
+        updates = [item for item in plan["operations"] if item["kind"] == "issue.update" and item["target"] == task.identity]
+        self.assertEqual(len(updates), 1)
+        self.assertNotIn("title", updates[0]["input"])
+        self.assertEqual(
+            updates[0]["input"]["description"],
+            merge_managed_block(stale_description, task.marker, task.managed_description),
+        )
+
+    def test_a_title_only_change_sends_the_title_without_the_description(self) -> None:
+        task = self.desired.feature.tasks[0]
+        complete = self._complete_discovery()
+        retitled_issues = tuple(
+            replace(issue, title="Manually renamed") if issue.id == f"issue-{task.identity}" else issue
+            for issue in complete.projects[0].issues
+        )
+        discovery = replace(complete, projects=(replace(complete.projects[0], issues=retitled_issues),))
+
+        plan = self._push_plan(discovery)
+
+        updates = [item for item in plan["operations"] if item["kind"] == "issue.update" and item["target"] == task.identity]
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["input"], {"title": task.title})
+
     def test_a_fresh_create_carries_the_content_block(self) -> None:
         plan = self._push_plan()
 

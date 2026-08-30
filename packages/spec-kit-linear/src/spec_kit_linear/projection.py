@@ -57,15 +57,33 @@ def _prefixed_body(prose: str, lines: list[str]) -> list[str]:
     return [cleaned, "", *lines]
 
 
-# Truncated sha256 identifying the exact summary prose written into the
-# content block's `summary-hash` comment; see planner._needed_content for why
-# a hash, and not the block's raw bytes, decides whether Project.content
-# needs a write.
-SUMMARY_HASH_LENGTH = 12
+# Truncated sha256 identifying a block's own body (everything between the
+# outer markers except the hash comment itself). See planner._needed_content
+# and the task-description branch of planner.build_push_plan for why a hash,
+# and not a block's raw bytes, decides whether a remote write is needed: once
+# a body has any markdown construct, Linear rewrites it on save (blank lines
+# inserted after HTML comments, `-` bullets rewritten to `*`), so composed
+# bytes are never the value actually stored.
+BODY_HASH_LENGTH = 12
+
+
+def _hashed_block(marker: str, body_lines: list[str]) -> tuple[str, str]:
+    """Build a managed block whose first body line is its own body-hash comment.
+
+    One regime for every block that can carry markdown prose (the feature
+    content block, every task description): the hash comment always leads,
+    whether or not there is any human-authored prose in ``body_lines`` at
+    all, so callers never special-case "no prose" as a different block shape.
+    """
+
+    body_text = "\n".join(body_lines)
+    digest = hashlib.sha256(body_text.encode("utf-8")).hexdigest()[:BODY_HASH_LENGTH]
+    block = _block(marker, [f"<!-- speckit-linear:body-hash:{digest} -->", *body_lines])
+    return block, digest
 
 
 def _content_block(marker: str, summary: str) -> tuple[str, str]:
-    """Build the feature's Project.content block and its summary hash.
+    """Build the feature's Project.content block and its body hash.
 
     Project.description caps at 255 characters -- too small for spec prose --
     so the summary instead targets Project.content (the project overview
@@ -76,9 +94,7 @@ def _content_block(marker: str, summary: str) -> tuple[str, str]:
     cleaned = _strip_forged_markers(summary)
     if not cleaned:
         return "", ""
-    digest = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:SUMMARY_HASH_LENGTH]
-    block = _block(marker, [f"<!-- speckit-linear:summary-hash:{digest} -->", cleaned])
-    return block, digest
+    return _hashed_block(marker, [cleaned])
 
 
 def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[DesiredState, tuple[Diagnostic, ...]]:
@@ -110,6 +126,8 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[Desir
     for phase in feature.phases:
         for task in phase.tasks:
             task_marker = f"speckit-linear:task:{feature.identifier}:{task.identifier}"
+            body_lines = _prefixed_body(task.description, [f"Source: `{task.source.path}#L{task.source.line}`"])
+            managed_description, body_hash = _hashed_block(task_marker, body_lines)
             tasks.append(
                 DesiredTask(
                     identity=f"task:{feature.identifier}:{task.identifier}",
@@ -117,10 +135,8 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[Desir
                     completed=task.completed,
                     project_identity=project_identity,
                     marker=task_marker,
-                    managed_description=_block(
-                        task_marker,
-                        _prefixed_body(task.description, [f"Source: `{task.source.path}#L{task.source.line}`"]),
-                    ),
+                    managed_description=managed_description,
+                    body_hash=body_hash,
                     source=task.source,
                 )
             )

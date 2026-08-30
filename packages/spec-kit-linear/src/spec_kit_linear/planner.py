@@ -148,13 +148,19 @@ def build_push_plan(
             )
             continue
         ref = resources[task.identity]
-        if issue.title != task.title or _needs_block_update(issue.description, task.marker, task.managed_description):
+        title_changed = issue.title != task.title
+        # Byte comparison cannot judge the description any more than it can
+        # for Project.content (see _needed_content): a task body is prose,
+        # so Linear normalizes it on write, and our composed bytes are never
+        # what comes back. Judge it by the block's own body-hash comment.
+        description_changed = _remote_body_hash(issue.description) != task.body_hash
+        if title_changed or description_changed:
             _append_operation(
                 operations, kind="issue.update", target=task.identity,
                 reason="bridge_owned_issue_fields_changed",
                 input_values={
-                    **({"title": task.title} if issue.title != task.title else {}),
-                    "description": merge_managed_block(issue.description, task.marker, task.managed_description),
+                    **({"title": task.title} if title_changed else {}),
+                    **({"description": merge_managed_block(issue.description, task.marker, task.managed_description)} if description_changed else {}),
                 }, preconditions=ref,
             )
         desired_state = _desired_state_id(config, _task_state(work_states, task))
@@ -334,31 +340,36 @@ def _needs_block_update(existing: str, marker: str, desired_block: str) -> bool:
     return merge_managed_block(existing, marker, desired_block) != existing
 
 
-_SUMMARY_HASH_RE = re.compile(r"<!-- speckit-linear:summary-hash:([0-9a-f]{12}) -->")
+_BODY_HASH_RE = re.compile(r"<!-- speckit-linear:body-hash:([0-9a-f]{12}) -->")
 
 
-def _remote_summary_hash(content: str) -> str:
-    match = _SUMMARY_HASH_RE.search(content)
+def _remote_body_hash(content: str) -> str:
+    match = _BODY_HASH_RE.search(content)
     return match.group(1) if match else ""
 
 
 def _needed_content(remote_content: str, marker: str, desired_content_block: str, desired_hash: str) -> str | None:
     """Return the new Project.content value, or ``None`` when no write is needed.
 
-    Idempotency here is judged by the `summary-hash` comment, never by
+    Idempotency here is judged by the `body-hash` comment, never by
     byte-comparing prose against `desired_content_block`: Linear normalizes
-    markdown on write (inserts blank lines between block elements, rewrites
-    `-` bullets to `*`), so our composed bytes are never the value Linear
-    actually stores -- a byte compare would replan the same rewrite on every
-    single push. Trade-off: a human edit made *inside* the content block is
-    invisible to this hash (it cannot see prose drift once Linear has already
-    rewritten our bytes) and persists until the spec summary itself changes.
-    The description block has no such gap -- untouched by this function, it
-    keeps self-healing byte-for-byte on every push, as before.
+    markdown on write once a body has any markdown construct (inserts blank
+    lines after HTML comments, rewrites `-` bullets to `*`), so our composed
+    bytes are never the value Linear actually stores -- a byte compare would
+    replan the same rewrite on every single push. This is not unique to
+    Project.content: `build_push_plan`'s task-description branch judges every
+    Issue's description the same way, for the identical reason. Trade-off,
+    shared by both: a human edit made *inside* a managed block is invisible
+    to this hash (it cannot see prose drift once Linear has already rewritten
+    our bytes) and persists until the source artifact (the spec summary, or
+    the task's own body) next changes. The feature's Project.description
+    block has no such gap -- it carries only plain `Source:`/`Plan:` lines,
+    which round-trip byte-identical, so it keeps self-healing byte-for-byte
+    on every push, compared by `_needs_block_update` as before.
     """
 
     if desired_hash:
-        if _remote_summary_hash(remote_content) == desired_hash:
+        if _remote_body_hash(remote_content) == desired_hash:
             return None
         return merge_managed_block(remote_content, marker, desired_content_block)
     if f"<!-- {marker} -->" in remote_content:

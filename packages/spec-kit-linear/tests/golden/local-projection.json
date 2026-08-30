@@ -33,7 +33,7 @@
       "marker": "speckit-linear:feature:001",
       "project_label_id": "44444444-4444-4444-8444-444444444444",
       "managed_description": "<!-- speckit-linear:feature:001 -->\nSource: `specs/001-local-projection/spec.md#L1`\nPlan: `specs/001-local-projection/plan.md#L1`\n<!-- /speckit-linear -->",
-      "content_block": "<!-- speckit-linear:feature:001 -->\n<!-- speckit-linear:summary-hash:7506b0615ae3 -->\n## Problem and affected users\n\nPMs reading Linear cannot tell what a feature does without opening the\nrepository: the Project card carries only a file link.\n\n## Desired outcome\n\nEvery projected Project and Issue carries enough prose that a PM\nunderstands the feature and each task without leaving Linear.\n<!-- /speckit-linear -->",
+      "content_block": "<!-- speckit-linear:feature:001 -->\n<!-- speckit-linear:body-hash:7506b0615ae3 -->\n## Problem and affected users\n\nPMs reading Linear cannot tell what a feature does without opening the\nrepository: the Project card carries only a file link.\n\n## Desired outcome\n\nEvery projected Project and Issue carries enough prose that a PM\nunderstands the feature and each task without leaving Linear.\n<!-- /speckit-linear -->",
       "summary_hash": "7506b0615ae3",
       "source": {
         "path": "specs/001-local-projection/spec.md",
@@ -47,7 +47,8 @@
         "completed": false,
         "project_identity": "feature:001",
         "marker": "speckit-linear:task:001:T001",
-        "managed_description": "<!-- speckit-linear:task:001:T001 -->\n- **Traces**: FR-001; outcome: spec, plan, and tasks parse without mutation\n- **Depends on**: none\n\nSource: `specs/001-local-projection/tasks.md#L5`\n<!-- /speckit-linear -->",
+        "managed_description": "<!-- speckit-linear:task:001:T001 -->\n<!-- speckit-linear:body-hash:b3c888ad39b1 -->\n- **Traces**: FR-001; outcome: spec, plan, and tasks parse without mutation\n- **Depends on**: none\n\nSource: `specs/001-local-projection/tasks.md#L5`\n<!-- /speckit-linear -->",
+        "body_hash": "b3c888ad39b1",
         "source": {
           "path": "specs/001-local-projection/tasks.md",
           "line": 5
@@ -59,7 +60,8 @@
         "completed": true,
         "project_identity": "feature:001",
         "marker": "speckit-linear:task:001:T002",
-        "managed_description": "<!-- speckit-linear:task:001:T002 -->\nSource: `specs/001-local-projection/tasks.md#L8`\n<!-- /speckit-linear -->",
+        "managed_description": "<!-- speckit-linear:task:001:T002 -->\n<!-- speckit-linear:body-hash:683fe5d1f710 -->\nSource: `specs/001-local-projection/tasks.md#L8`\n<!-- /speckit-linear -->",
+        "body_hash": "683fe5d1f710",
         "source": {
           "path": "specs/001-local-projection/tasks.md",
           "line": 8
@@ -71,7 +73,8 @@
         "completed": false,
         "project_identity": "feature:001",
         "marker": "speckit-linear:task:001:T003",
-        "managed_description": "<!-- speckit-linear:task:001:T003 -->\nSource: `specs/001-local-projection/tasks.md#L12`\n<!-- /speckit-linear -->",
+        "managed_description": "<!-- speckit-linear:task:001:T003 -->\n<!-- speckit-linear:body-hash:70576e5dc843 -->\nSource: `specs/001-local-projection/tasks.md#L12`\n<!-- /speckit-linear -->",
+        "body_hash": "70576e5dc843",
         "source": {
           "path": "specs/001-local-projection/tasks.md",
           "line": 12
