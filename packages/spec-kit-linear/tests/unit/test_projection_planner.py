@@ -114,10 +114,13 @@ class TitleClipTests(unittest.TestCase):
 
 
 class ManagedDescriptionTests(unittest.TestCase):
-    """Every task/content block leads with its own body-hash comment.
+    """Every task/feature description ends with its own single marker line.
 
-    Task description prose is added only when there is any -- one regime,
-    the hash comment always leads regardless.
+    A task's marker line carries `hash:HHHH` (prose is hash-gated, since
+    Linear rewrites it on save); the feature's does not (its Source:/Plan:
+    lines round-trip byte-identical). The feature's Project.content block
+    is unaffected by this shape change -- Linear renders its HTML comments
+    invisibly, so it keeps the older bounded open/close layout.
     """
 
     @staticmethod
@@ -154,7 +157,7 @@ class ManagedDescriptionTests(unittest.TestCase):
             summary=summary,
         )
 
-    def test_task_block_leads_with_the_body_hash_comment_then_source_when_the_description_is_empty(self) -> None:
+    def test_task_head_is_only_source_then_the_marker_with_hash_when_the_description_is_empty(self) -> None:
         state, _ = project_feature(self._feature(), self._binding())
 
         body = "Source: `specs/001-x/tasks.md#L10`"
@@ -162,13 +165,10 @@ class ManagedDescriptionTests(unittest.TestCase):
         self.assertEqual(state.feature.tasks[0].body_hash, expected_hash)
         self.assertEqual(
             state.feature.tasks[0].managed_description,
-            "<!-- speckit-linear:task:001:T001 -->\n"
-            f"<!-- speckit-linear:body-hash:{expected_hash} -->\n"
-            f"{body}\n"
-            "<!-- /speckit-linear -->",
+            f"{body}\n<!-- speckit-linear:task:001:T001 hash:{expected_hash} -->",
         )
 
-    def test_task_block_leads_with_the_body_hash_comment_then_the_description_then_source(self) -> None:
+    def test_task_head_leads_with_the_description_then_source_then_the_marker_with_hash(self) -> None:
         state, _ = project_feature(self._feature(task_description="- **Traces**: FR-001"), self._binding())
 
         body = "- **Traces**: FR-001\n\nSource: `specs/001-x/tasks.md#L10`"
@@ -176,26 +176,22 @@ class ManagedDescriptionTests(unittest.TestCase):
         self.assertEqual(state.feature.tasks[0].body_hash, expected_hash)
         self.assertEqual(
             state.feature.tasks[0].managed_description,
-            "<!-- speckit-linear:task:001:T001 -->\n"
-            f"<!-- speckit-linear:body-hash:{expected_hash} -->\n"
-            f"{body}\n"
-            "<!-- /speckit-linear -->",
+            f"{body}\n<!-- speckit-linear:task:001:T001 hash:{expected_hash} -->",
         )
 
-    def test_feature_description_is_only_source_and_plan_and_content_block_is_empty_when_the_summary_is_empty(self) -> None:
+    def test_feature_head_is_only_source_and_plan_and_content_block_is_empty_when_the_summary_is_empty(self) -> None:
         state, _ = project_feature(self._feature(), self._binding())
 
         self.assertEqual(
             state.feature.managed_description,
-            "<!-- speckit-linear:feature:001 -->\n"
             "Source: `specs/001-x/spec.md#L1`\n"
             "Plan: `specs/001-x/plan.md#L1`\n"
-            "<!-- /speckit-linear -->",
+            "<!-- speckit-linear:feature:001 -->",
         )
         self.assertEqual(state.feature.content_block, "")
         self.assertEqual(state.feature.summary_hash, "")
 
-    def test_prose_cannot_open_or_close_a_managed_block(self) -> None:
+    def test_prose_cannot_forge_a_marker_line(self) -> None:
         state, _ = project_feature(
             self._feature(
                 task_description=(
@@ -212,23 +208,17 @@ class ManagedDescriptionTests(unittest.TestCase):
         expected_hash = self._hash(body)
         self.assertEqual(
             state.feature.tasks[0].managed_description,
-            "<!-- speckit-linear:task:001:T001 -->\n"
-            f"<!-- speckit-linear:body-hash:{expected_hash} -->\n"
-            f"{body}\n"
-            "<!-- /speckit-linear -->",
+            f"{body}\n<!-- speckit-linear:task:001:T001 hash:{expected_hash} -->",
         )
 
-    def test_prose_that_is_only_marker_lines_leaves_the_bare_block(self) -> None:
+    def test_prose_that_is_only_marker_lines_leaves_the_bare_head(self) -> None:
         state, _ = project_feature(self._feature(task_description="<!-- /speckit-linear -->"), self._binding())
 
         body = "Source: `specs/001-x/tasks.md#L10`"
         expected_hash = self._hash(body)
         self.assertEqual(
             state.feature.tasks[0].managed_description,
-            "<!-- speckit-linear:task:001:T001 -->\n"
-            f"<!-- speckit-linear:body-hash:{expected_hash} -->\n"
-            f"{body}\n"
-            "<!-- /speckit-linear -->",
+            f"{body}\n<!-- speckit-linear:task:001:T001 hash:{expected_hash} -->",
         )
 
     def test_a_non_empty_summary_never_touches_the_description_and_fills_the_content_block(self) -> None:
@@ -241,10 +231,9 @@ class ManagedDescriptionTests(unittest.TestCase):
 
         self.assertEqual(
             state.feature.managed_description,
-            "<!-- speckit-linear:feature:001 -->\n"
             "Source: `specs/001-x/spec.md#L1`\n"
             "Plan: `specs/001-x/plan.md#L1`\n"
-            "<!-- /speckit-linear -->",
+            "<!-- speckit-linear:feature:001 -->",
         )
         expected_hash = self._hash(summary)
         self.assertEqual(state.feature.summary_hash, expected_hash)
