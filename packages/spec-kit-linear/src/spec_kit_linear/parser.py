@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 
 from .discovery import FEATURE_RE
@@ -14,6 +15,12 @@ TITLE_RE = re.compile(r"^#\s+(.+?)\s*$")
 PHASE_RE = re.compile(r"^#{1,6}\s+Phase\s+([0-9]+)(?:\s*:\s*(.+?))?\s*$", re.IGNORECASE)
 TASK_RE = re.compile(r"^\s*-\s+\[([ xX])\]\s+(T[0-9]{3})\b(?:\s*[-:]\s*)?(.*?)\s*$")
 LEADING_MARKERS_RE = re.compile(r"^(?:\[[^\]]+\]\s*)+")
+SECTION_HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
+
+# The canonical spec-template.md section names whose bodies summarize a
+# feature for a PM reading Linear. Matching sections join in document
+# order, not in this tuple's order.
+SPEC_SUMMARY_SECTIONS = ("Problem and affected users", "Desired outcome")
 
 
 def _relative(root: Path, path: Path) -> str:
@@ -40,6 +47,29 @@ def _read_lines(path: Path) -> list[str]:
             category="usage",
             diagnostics=[Diagnostic("artifact_encoding", "artifact must be UTF-8", str(path))],
         ) from error
+
+
+def _line_indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _spec_summary(path: Path) -> str:
+    lines = _read_lines(path)
+    headings = [
+        (number, match.group(1).strip())
+        for number, line in enumerate(lines)
+        if (match := SECTION_HEADING_RE.fullmatch(line))
+    ]
+    sections: list[str] = []
+    for position, (start, name) in enumerate(headings):
+        if name not in SPEC_SUMMARY_SECTIONS:
+            continue
+        end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
+        body = lines[start:end]
+        while body and not body[-1].strip():
+            body.pop()
+        sections.append("\n".join(body))
+    return "\n\n".join(sections)
 
 
 def _document_title(path: Path, root: Path) -> tuple[str, SourceRef]:
@@ -75,7 +105,11 @@ def _parse_tasks(path: Path, root: Path) -> tuple[Phase, ...]:
         current_source = None
         current_tasks = []
 
-    for number, line in enumerate(_read_lines(path), start=1):
+    lines = _read_lines(path)
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        number = index + 1
         phase_match = PHASE_RE.fullmatch(line)
         if phase_match:
             finish_phase()
@@ -99,9 +133,11 @@ def _parse_tasks(path: Path, root: Path) -> tuple[Phase, ...]:
             current_number = phase_number
             current_title = phase_title
             current_source = SourceRef(_relative(root, path), number)
+            index += 1
             continue
         task_match = TASK_RE.fullmatch(line)
         if not task_match:
+            index += 1
             continue
         if current_number is None:
             raise AppError(
@@ -135,14 +171,31 @@ def _parse_tasks(path: Path, root: Path) -> tuple[Phase, ...]:
                 category="usage",
                 diagnostics=[Diagnostic("task_title", "task title is required", str(path), number)],
             )
+        # The body is every contiguous non-blank line after the checkbox
+        # indented deeper than its own "-" bullet; it stops at the first
+        # blank line, the first line back at (or above) the bullet's depth,
+        # or the next checkbox task -- a nested Txxx stays a Task and must
+        # never be swallowed as prose.
+        task_indent = _line_indent(line)
+        body_lines: list[str] = []
+        cursor = index + 1
+        while cursor < len(lines):
+            candidate = lines[cursor]
+            if not candidate.strip() or _line_indent(candidate) <= task_indent or TASK_RE.fullmatch(candidate):
+                break
+            body_lines.append(candidate)
+            cursor += 1
+        description = textwrap.dedent("\n".join(body_lines)) if body_lines else ""
         current_tasks.append(
             Task(
                 identifier=identifier,
                 title=title,
                 completed=task_match.group(1).lower() == "x",
                 source=SourceRef(_relative(root, path), number),
+                description=description,
             )
         )
+        index = cursor
     finish_phase()
     if not phases:
         raise AppError(
@@ -174,6 +227,7 @@ def parse_feature(root: Path, feature_dir: Path) -> Feature:
         )
     identifier = match.group(1)
     title, spec_source = _document_title(feature_dir / "spec.md", root)
+    summary = _spec_summary(feature_dir / "spec.md")
     plan_title, plan_source = _document_title(feature_dir / "plan.md", root)
     phases = _parse_tasks(feature_dir / "tasks.md", root)
     return Feature(
@@ -183,5 +237,6 @@ def parse_feature(root: Path, feature_dir: Path) -> Feature:
         plan_title=plan_title,
         plan_source=plan_source,
         phases=phases,
+        summary=summary,
     )
 

@@ -69,6 +69,7 @@ def _matching_remote_project(desired: object) -> RemoteProject:
         team_ids=(_sample_binding().team_id,),
         label_ids=(_sample_binding().project_label_id,),
         issues=issues,
+        content=feature.content_block,
     )
 
 
@@ -116,6 +117,7 @@ class _ApplyingClient(_FakeClient):
                 team_ids=(_sample_binding().team_id,),
                 label_ids=(_sample_binding().project_label_id,),
                 issues=(),
+                content=str(input_values.get("content", "")),
             )
             return {"projectCreate": {"success": True, "project": {"id": remote_id}}}
         if operation_kind == "issue.create":

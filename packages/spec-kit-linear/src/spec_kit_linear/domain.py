@@ -20,6 +20,7 @@ class Task:
     title: str
     completed: bool
     source: SourceRef
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class Feature:
     plan_title: str
     plan_source: SourceRef
     phases: tuple[Phase, ...]
+    summary: str = ""
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,12 @@ class DesiredTask:
     marker: str
     managed_description: str
     source: SourceRef
+    # Truncated sha256 of managed_description's body (everything between the
+    # outer markers except the hash comment itself). Always non-empty for a
+    # real projected task -- see projection._hashed_block. Defaulted so
+    # existing DesiredTask construction sites that predate the body-hash
+    # comment keep compiling unchanged.
+    body_hash: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -68,6 +76,7 @@ class DesiredTask:
             "project_identity": self.project_identity,
             "marker": self.marker,
             "managed_description": self.managed_description,
+            "body_hash": self.body_hash,
             "source": self.source.as_dict(),
         }
 
@@ -83,6 +92,13 @@ class DesiredFeature:
     source: SourceRef
     plan_source: SourceRef
     tasks: tuple[DesiredTask, ...]
+    # Project.description caps at 255 characters, too small for spec prose,
+    # so the summary instead targets Project.content (the project overview
+    # document) through these two fields. Both are "" when the summary is
+    # empty. Defaulted so existing DesiredFeature construction sites that
+    # predate the content block keep compiling unchanged.
+    content_block: str = ""
+    summary_hash: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -93,6 +109,8 @@ class DesiredFeature:
                 "marker": self.project_marker,
                 "project_label_id": self.project_label_id,
                 "managed_description": self.managed_description,
+                "content_block": self.content_block,
+                "summary_hash": self.summary_hash,
                 "source": self.source.as_dict(),
             },
             "tasks": [task.as_dict() for task in self.tasks],

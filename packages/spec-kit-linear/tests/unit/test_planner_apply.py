@@ -112,7 +112,7 @@ class PlannerApplyTests(unittest.TestCase):
         project = RemoteProject(
             id="project-1", name=feature.project_title, description=feature.managed_description,
             updated_at="2099-01-01T00:00:00Z", team_ids=(self.binding.team_id,), label_ids=(self.binding.project_label_id,),
-            issues=issues, lead_id="manual-lead", member_ids=("manual-member",),
+            issues=issues, lead_id="manual-lead", member_ids=("manual-member",), content=feature.content_block,
         )
         adoption = FeatureAdoption(
             feature=feature.identifier,
@@ -344,6 +344,121 @@ class PlannerApplyTests(unittest.TestCase):
         creates = {item["target"]: item["input"]["stateId"] for item in plan["operations"] if item["kind"] == "issue.create"}
         self.assertEqual(creates["task:001:T001"], REVIEW_STATE_ID)
         self.assertEqual(creates["task:001:T003"], STARTED_STATE_ID)
+
+    def _replace_issue_description(self, discovery: RemoteDiscovery, task_identity: str, description: str) -> RemoteDiscovery:
+        project = discovery.projects[0]
+        issues = tuple(
+            replace(issue, description=description) if issue.id == f"issue-{task_identity}" else issue for issue in project.issues
+        )
+        return replace(discovery, projects=(replace(project, issues=issues),))
+
+    def test_an_unchanged_issue_body_hash_plans_no_issue_update(self) -> None:
+        plan = self._push_plan(self._complete_discovery())
+
+        self.assertEqual([item for item in plan["operations"] if item["kind"] == "issue.update"], [])
+
+    def test_a_remote_issue_description_without_a_body_hash_plans_a_rewrite(self) -> None:
+        task = self.desired.feature.tasks[0]
+        legacy_description = f"<!-- {task.marker} -->\nSource: `{task.source.path}#L{task.source.line}`\n<!-- /speckit-linear -->"
+        discovery = self._replace_issue_description(self._complete_discovery(), task.identity, legacy_description)
+
+        plan = self._push_plan(discovery)
+
+        updates = [item for item in plan["operations"] if item["kind"] == "issue.update" and item["target"] == task.identity]
+        self.assertEqual(len(updates), 1)
+        self.assertNotIn("title", updates[0]["input"])
+        self.assertEqual(
+            updates[0]["input"]["description"],
+            merge_managed_block(legacy_description, task.marker, task.managed_description),
+        )
+
+    def test_a_changed_issue_body_hash_plans_a_description_merge(self) -> None:
+        task = self.desired.feature.tasks[0]
+        stale_description = f"<!-- {task.marker} -->\n<!-- speckit-linear:body-hash:000000000000 -->\nstale body\n<!-- /speckit-linear -->"
+        discovery = self._replace_issue_description(self._complete_discovery(), task.identity, stale_description)
+
+        plan = self._push_plan(discovery)
+
+        updates = [item for item in plan["operations"] if item["kind"] == "issue.update" and item["target"] == task.identity]
+        self.assertEqual(len(updates), 1)
+        self.assertNotIn("title", updates[0]["input"])
+        self.assertEqual(
+            updates[0]["input"]["description"],
+            merge_managed_block(stale_description, task.marker, task.managed_description),
+        )
+
+    def test_a_title_only_change_sends_the_title_without_the_description(self) -> None:
+        task = self.desired.feature.tasks[0]
+        complete = self._complete_discovery()
+        retitled_issues = tuple(
+            replace(issue, title="Manually renamed") if issue.id == f"issue-{task.identity}" else issue
+            for issue in complete.projects[0].issues
+        )
+        discovery = replace(complete, projects=(replace(complete.projects[0], issues=retitled_issues),))
+
+        plan = self._push_plan(discovery)
+
+        updates = [item for item in plan["operations"] if item["kind"] == "issue.update" and item["target"] == task.identity]
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["input"], {"title": task.title})
+
+    def test_a_fresh_create_carries_the_content_block(self) -> None:
+        plan = self._push_plan()
+
+        create = next(item for item in plan["operations"] if item["kind"] == "project.create")
+        self.assertEqual(create["input"]["content"], self.desired.feature.content_block)
+
+    def test_an_unchanged_summary_hash_plans_no_content_write(self) -> None:
+        plan = self._push_plan(self._complete_discovery())
+
+        self.assertEqual([item for item in plan["operations"] if item["kind"] == "project.update"], [])
+
+    def test_a_changed_summary_hash_plans_a_content_merge(self) -> None:
+        complete = self._complete_discovery()
+        stale_content = (
+            "<!-- speckit-linear:feature:001 -->\n<!-- speckit-linear:summary-hash:000000000000 -->\n"
+            "stale prose\n<!-- /speckit-linear -->"
+        )
+        changed_project = replace(complete.projects[0], content=stale_content)
+        discovery = replace(complete, projects=(changed_project,))
+
+        plan = self._push_plan(discovery)
+
+        update = next(item for item in plan["operations"] if item["kind"] == "project.update")
+        self.assertEqual(
+            update["input"]["content"],
+            merge_managed_block(stale_content, self.desired.feature.project_marker, self.desired.feature.content_block),
+        )
+
+    def test_an_empty_summary_with_a_remote_block_plans_its_removal(self) -> None:
+        # The spec's Problem/Desired-outcome sections were removed locally --
+        # the desired content block is now empty -- but Linear still carries
+        # the block from a previous push. A removal that empties the whole
+        # document must send " ", not "": Linear treats a content write of
+        # "" as a no-op, which would leave the stale block replanning forever.
+        desired_without_summary = replace(self.desired, feature=replace(self.desired.feature, content_block="", summary_hash=""))
+        complete = self._complete_discovery()
+
+        plan = build_push_plan(desired_without_summary, complete, config=self.config)
+
+        update = next(item for item in plan["operations"] if item["kind"] == "project.update")
+        self.assertEqual(update["input"]["content"], " ")
+
+    def test_human_text_outside_the_content_block_survives_the_merge(self) -> None:
+        marker = self.desired.feature.project_marker
+        stale_block = f"<!-- {marker} -->\n<!-- speckit-linear:summary-hash:000000000000 -->\nstale\n<!-- /speckit-linear -->"
+        original = f"Manual introduction\n{stale_block}\nManual closing"
+        complete = self._complete_discovery()
+        changed_project = replace(complete.projects[0], content=original)
+        discovery = replace(complete, projects=(changed_project,))
+
+        plan = self._push_plan(discovery)
+
+        update = next(item for item in plan["operations"] if item["kind"] == "project.update")
+        merged = update["input"]["content"]
+        self.assertTrue(merged.startswith("Manual introduction\n"))
+        self.assertTrue(merged.endswith("\nManual closing"))
+        self.assertIn(self.desired.feature.content_block, merged)
 
     def test_bridge_block_update_preserves_manual_exterior_text(self) -> None:
         marker = self.desired.feature.project_marker
