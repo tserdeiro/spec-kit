@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0
+
+- The managed machinery in a description is now one line instead of
+  three: prose first, then a single trailing
+  `<!-- speckit-linear:...:Txxx hash:HHHH -->` marker carrying identity
+  and body hash together (Linear's issue view renders HTML comments as
+  literal text; no invisible comment syntax survives its save).
+  Ownership inverts to a head model: the bridge owns everything above
+  and including its marker line, and text below it is human space,
+  preserved on every rewrite — text inserted above the marker is
+  replaced when the source artifact changes. `Project.content` keeps
+  its bounded block (the document renderer hides those comments).
+  Legacy bounded blocks migrate in place, one rewrite per resource.
+
 ## 0.8.0
 
 - The managed blocks carry the prose a PM needs: each task Issue leads
