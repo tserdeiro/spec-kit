@@ -1,6 +1,11 @@
 # Local projection
 
-## Overview
+## Problem and affected users
 
-Render the approved Linear hierarchy from local Spec Kit artifacts.
+PMs reading Linear cannot tell what a feature does without opening the
+repository: the Project card carries only a file link.
 
+## Desired outcome
+
+Every projected Project and Issue carries enough prose that a PM
+understands the feature and each task without leaving Linear.

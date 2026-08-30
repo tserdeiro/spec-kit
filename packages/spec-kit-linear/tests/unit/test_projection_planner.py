@@ -110,3 +110,77 @@ class TitleClipTests(unittest.TestCase):
 
         self.assertEqual(first.feature.project_title, second.feature.project_title)
         self.assertEqual(len(first.feature.project_title), PROJECT_NAME_LIMIT)
+
+
+class ManagedDescriptionTests(unittest.TestCase):
+    """The task/feature blocks lead with prose only when there is any."""
+
+    def _binding(self) -> RepositoryBinding:
+        return RepositoryBinding(
+            slug="fixture",
+            project_label_group_id="group-1",
+            project_label_id="label-1",
+            project_label_name="fixture",
+            project_view_id="view-1",
+            issue_view_id="view-2",
+        )
+
+    def _feature(self, *, task_description: str = "", summary: str = "") -> Feature:
+        source = SourceRef(path="specs/001-x/spec.md", line=1)
+        task = Task(
+            identifier="T001",
+            title="short task",
+            completed=False,
+            source=SourceRef(path="specs/001-x/tasks.md", line=10),
+            description=task_description,
+        )
+        phase = Phase(number=1, title="Phase 1", source=source, tasks=(task,))
+        return Feature(
+            identifier="001",
+            title="Sample feature",
+            spec_source=source,
+            plan_title="plan",
+            plan_source=SourceRef(path="specs/001-x/plan.md", line=1),
+            phases=(phase,),
+            summary=summary,
+        )
+
+    def test_task_block_is_only_source_when_the_description_is_empty(self) -> None:
+        state, _ = project_feature(self._feature(), self._binding())
+
+        self.assertEqual(
+            state.feature.tasks[0].managed_description,
+            "<!-- speckit-linear:task:001:T001 -->\nSource: `specs/001-x/tasks.md#L10`\n<!-- /speckit-linear -->",
+        )
+
+    def test_task_block_leads_with_the_description_then_a_blank_line_then_source(self) -> None:
+        state, _ = project_feature(self._feature(task_description="- **Traces**: FR-001"), self._binding())
+
+        self.assertEqual(
+            state.feature.tasks[0].managed_description,
+            "<!-- speckit-linear:task:001:T001 -->\n- **Traces**: FR-001\n\n"
+            "Source: `specs/001-x/tasks.md#L10`\n<!-- /speckit-linear -->",
+        )
+
+    def test_feature_block_is_only_source_and_plan_when_the_summary_is_empty(self) -> None:
+        state, _ = project_feature(self._feature(), self._binding())
+
+        self.assertEqual(
+            state.feature.managed_description,
+            "<!-- speckit-linear:feature:001 -->\n"
+            "Source: `specs/001-x/spec.md#L1`\n"
+            "Plan: `specs/001-x/plan.md#L1`\n"
+            "<!-- /speckit-linear -->",
+        )
+
+    def test_feature_block_leads_with_the_summary_then_a_blank_line_then_source_and_plan(self) -> None:
+        state, _ = project_feature(self._feature(summary="## Desired outcome\n\nSomething good."), self._binding())
+
+        self.assertEqual(
+            state.feature.managed_description,
+            "<!-- speckit-linear:feature:001 -->\n"
+            "## Desired outcome\n\nSomething good.\n\n"
+            "Source: `specs/001-x/spec.md#L1`\n"
+            "Plan: `specs/001-x/plan.md#L1`\n"
+            "<!-- /speckit-linear -->",
+        )

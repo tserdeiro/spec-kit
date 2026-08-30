@@ -20,6 +20,7 @@ class Task:
     title: str
     completed: bool
     source: SourceRef
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class Feature:
     plan_title: str
     plan_source: SourceRef
     phases: tuple[Phase, ...]
+    summary: str = ""
 
 
 @dataclass(frozen=True)

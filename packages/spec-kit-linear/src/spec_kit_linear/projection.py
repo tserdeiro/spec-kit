@@ -24,6 +24,19 @@ def _block(marker: str, body: list[str]) -> str:
     return "\n".join([f"<!-- {marker} -->", *body, "<!-- /speckit-linear -->"])
 
 
+def _prefixed_body(prose: str, lines: list[str]) -> list[str]:
+    """Prepend human-readable prose to the block's `Source:`/`Plan:` lines.
+
+    Empty prose leaves the block exactly as it was before descriptions
+    existed, so an absent task body or spec summary is not a behavior
+    change.
+    """
+
+    if not prose:
+        return lines
+    return [prose, "", *lines]
+
+
 def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[DesiredState, tuple[Diagnostic, ...]]:
     """Project one feature onto the Feature Project -> Txxx Issue hierarchy.
 
@@ -62,10 +75,7 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[Desir
                     marker=task_marker,
                     managed_description=_block(
                         task_marker,
-                        [
-                            f"Source: `{task.source.path}#L{task.source.line}`",
-                            f"Status: {'complete' if task.completed else 'incomplete'}",
-                        ],
+                        _prefixed_body(task.description, [f"Source: `{task.source.path}#L{task.source.line}`"]),
                     ),
                     source=task.source,
                 )
@@ -85,10 +95,13 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[Desir
         project_label_id=binding.project_label_id,
         managed_description=_block(
             feature_marker,
-            [
-                f"Source: `{feature.spec_source.path}#L{feature.spec_source.line}`",
-                f"Plan: `{feature.plan_source.path}#L{feature.plan_source.line}`",
-            ],
+            _prefixed_body(
+                feature.summary,
+                [
+                    f"Source: `{feature.spec_source.path}#L{feature.spec_source.line}`",
+                    f"Plan: `{feature.plan_source.path}#L{feature.plan_source.line}`",
+                ],
+            ),
         ),
         source=feature.spec_source,
         plan_source=feature.plan_source,

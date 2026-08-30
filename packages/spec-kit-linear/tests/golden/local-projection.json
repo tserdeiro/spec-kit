@@ -32,7 +32,7 @@
       "title": "001: Local projection",
       "marker": "speckit-linear:feature:001",
       "project_label_id": "44444444-4444-4444-8444-444444444444",
-      "managed_description": "<!-- speckit-linear:feature:001 -->\nSource: `specs/001-local-projection/spec.md#L1`\nPlan: `specs/001-local-projection/plan.md#L1`\n<!-- /speckit-linear -->",
+      "managed_description": "<!-- speckit-linear:feature:001 -->\n## Problem and affected users\n\nPMs reading Linear cannot tell what a feature does without opening the\nrepository: the Project card carries only a file link.\n\n## Desired outcome\n\nEvery projected Project and Issue carries enough prose that a PM\nunderstands the feature and each task without leaving Linear.\n\nSource: `specs/001-local-projection/spec.md#L1`\nPlan: `specs/001-local-projection/plan.md#L1`\n<!-- /speckit-linear -->",
       "source": {
         "path": "specs/001-local-projection/spec.md",
         "line": 1
@@ -45,7 +45,7 @@
         "completed": false,
         "project_identity": "feature:001",
         "marker": "speckit-linear:task:001:T001",
-        "managed_description": "<!-- speckit-linear:task:001:T001 -->\nSource: `specs/001-local-projection/tasks.md#L5`\nStatus: incomplete\n<!-- /speckit-linear -->",
+        "managed_description": "<!-- speckit-linear:task:001:T001 -->\n- **Traces**: FR-001; outcome: spec, plan, and tasks parse without mutation\n- **Depends on**: none\n\nSource: `specs/001-local-projection/tasks.md#L5`\n<!-- /speckit-linear -->",
         "source": {
           "path": "specs/001-local-projection/tasks.md",
           "line": 5
@@ -57,10 +57,10 @@
         "completed": true,
         "project_identity": "feature:001",
         "marker": "speckit-linear:task:001:T002",
-        "managed_description": "<!-- speckit-linear:task:001:T002 -->\nSource: `specs/001-local-projection/tasks.md#L6`\nStatus: complete\n<!-- /speckit-linear -->",
+        "managed_description": "<!-- speckit-linear:task:001:T002 -->\nSource: `specs/001-local-projection/tasks.md#L8`\n<!-- /speckit-linear -->",
         "source": {
           "path": "specs/001-local-projection/tasks.md",
-          "line": 6
+          "line": 8
         }
       },
       {
@@ -69,10 +69,10 @@
         "completed": false,
         "project_identity": "feature:001",
         "marker": "speckit-linear:task:001:T003",
-        "managed_description": "<!-- speckit-linear:task:001:T003 -->\nSource: `specs/001-local-projection/tasks.md#L10`\nStatus: incomplete\n<!-- /speckit-linear -->",
+        "managed_description": "<!-- speckit-linear:task:001:T003 -->\nSource: `specs/001-local-projection/tasks.md#L12`\n<!-- /speckit-linear -->",
         "source": {
           "path": "specs/001-local-projection/tasks.md",
-          "line": 10
+          "line": 12
         }
       }
     ]
