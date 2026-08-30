@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1
+
+- The `after_plan`/`after_tasks` lifecycle hooks ship `optional: false`:
+  a consumer install registers the Linear projection as automatic, so
+  the mirror needs no per-repo registry edit (which every bundle update
+  overwrote). A test pins the intent.
+
 ## 0.7.0
 
 - Projected titles now respect Linear's limits: Project names clip at 80
