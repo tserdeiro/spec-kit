@@ -36,8 +36,8 @@ PUSH_MUTATIONS = frozenset(
 # in this table: assignment is native Linear (the UI or the official Linear
 # MCP acting as the human), never the harness.
 ALLOWED_INPUTS = {
-    "project.create": frozenset({"id", "name", "teamIds", "description", "labelIds"}),
-    "project.update": frozenset({"name", "description"}),
+    "project.create": frozenset({"id", "name", "teamIds", "description", "labelIds", "content"}),
+    "project.update": frozenset({"name", "description", "content"}),
     "project.label.attach": frozenset({"labelId"}),
     "issue.create": frozenset({"id", "title", "teamId", "projectId", "description", "stateId"}),
     "issue.update": frozenset({"title", "description"}),

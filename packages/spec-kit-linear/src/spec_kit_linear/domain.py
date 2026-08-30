@@ -85,6 +85,13 @@ class DesiredFeature:
     source: SourceRef
     plan_source: SourceRef
     tasks: tuple[DesiredTask, ...]
+    # Project.description caps at 255 characters, too small for spec prose,
+    # so the summary instead targets Project.content (the project overview
+    # document) through these two fields. Both are "" when the summary is
+    # empty. Defaulted so existing DesiredFeature construction sites that
+    # predate the content block keep compiling unchanged.
+    content_block: str = ""
+    summary_hash: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -95,6 +102,8 @@ class DesiredFeature:
                 "marker": self.project_marker,
                 "project_label_id": self.project_label_id,
                 "managed_description": self.managed_description,
+                "content_block": self.content_block,
+                "summary_hash": self.summary_hash,
                 "source": self.source.as_dict(),
             },
             "tasks": [task.as_dict() for task in self.tasks],

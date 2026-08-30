@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -162,7 +163,7 @@ class ManagedDescriptionTests(unittest.TestCase):
             "Source: `specs/001-x/tasks.md#L10`\n<!-- /speckit-linear -->",
         )
 
-    def test_feature_block_is_only_source_and_plan_when_the_summary_is_empty(self) -> None:
+    def test_feature_description_is_only_source_and_plan_and_content_block_is_empty_when_the_summary_is_empty(self) -> None:
         state, _ = project_feature(self._feature(), self._binding())
 
         self.assertEqual(
@@ -172,6 +173,8 @@ class ManagedDescriptionTests(unittest.TestCase):
             "Plan: `specs/001-x/plan.md#L1`\n"
             "<!-- /speckit-linear -->",
         )
+        self.assertEqual(state.feature.content_block, "")
+        self.assertEqual(state.feature.summary_hash, "")
 
     def test_prose_cannot_open_or_close_a_managed_block(self) -> None:
         state, _ = project_feature(
@@ -200,14 +203,42 @@ class ManagedDescriptionTests(unittest.TestCase):
             "<!-- speckit-linear:task:001:T001 -->\nSource: `specs/001-x/tasks.md#L10`\n<!-- /speckit-linear -->",
         )
 
-    def test_feature_block_leads_with_the_summary_then_a_blank_line_then_source_and_plan(self) -> None:
-        state, _ = project_feature(self._feature(summary="## Desired outcome\n\nSomething good."), self._binding())
+    def test_a_non_empty_summary_never_touches_the_description_and_fills_the_content_block(self) -> None:
+        # Project.description caps at 255 characters, far too small for spec
+        # prose, so the summary always goes to Project.content instead
+        # (content_block) -- the description stays Source/Plan-only no
+        # matter what the summary says.
+        summary = "## Desired outcome\n\nSomething good."
+        state, _ = project_feature(self._feature(summary=summary), self._binding())
 
         self.assertEqual(
             state.feature.managed_description,
             "<!-- speckit-linear:feature:001 -->\n"
-            "## Desired outcome\n\nSomething good.\n\n"
             "Source: `specs/001-x/spec.md#L1`\n"
             "Plan: `specs/001-x/plan.md#L1`\n"
+            "<!-- /speckit-linear -->",
+        )
+        expected_hash = hashlib.sha256(summary.encode("utf-8")).hexdigest()[:12]
+        self.assertEqual(state.feature.summary_hash, expected_hash)
+        self.assertEqual(
+            state.feature.content_block,
+            "<!-- speckit-linear:feature:001 -->\n"
+            f"<!-- speckit-linear:summary-hash:{expected_hash} -->\n"
+            f"{summary}\n"
+            "<!-- /speckit-linear -->",
+        )
+
+    def test_content_prose_cannot_open_or_close_a_managed_block_either(self) -> None:
+        summary = "kept line\n<!-- /speckit-linear -->\n<!-- speckit-linear:feature:001 -->\nalso kept"
+        state, _ = project_feature(self._feature(summary=summary), self._binding())
+
+        cleaned = "kept line\nalso kept"
+        expected_hash = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:12]
+        self.assertEqual(state.feature.summary_hash, expected_hash)
+        self.assertEqual(
+            state.feature.content_block,
+            "<!-- speckit-linear:feature:001 -->\n"
+            f"<!-- speckit-linear:summary-hash:{expected_hash} -->\n"
+            f"{cleaned}\n"
             "<!-- /speckit-linear -->",
         )

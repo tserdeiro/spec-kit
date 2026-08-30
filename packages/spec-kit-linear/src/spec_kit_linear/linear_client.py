@@ -198,6 +198,7 @@ query FeatureProjects($first: Int!, $after: String, $projectLabelId: ID!) {
       id
       name
       description
+      content
       updatedAt
       teams(first: 50) { nodes { id key } }
       labels(first: 50) { nodes { id name } }
@@ -397,6 +398,10 @@ class RemoteProject:
     issues: tuple[RemoteIssue, ...]
     lead_id: str | None = None
     member_ids: tuple[str, ...] = ()
+    # The project overview document. Defaulted for the same reason as
+    # lead_id/member_ids above: existing call sites that predate the
+    # summary-in-content-block feature keep constructing this unchanged.
+    content: str = ""
 
 
 class LinearClient:
@@ -785,6 +790,7 @@ class LinearClient:
                     issues=tuple(_remote_issue(item) for item in issue_nodes),
                     lead_id=_optional_id(node, "lead"),
                     member_ids=_optional_connection_ids(node, "members"),
+                    content=_optional_string(node, "content"),
                 )
             )
         return tuple(projects)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from .domain import DesiredFeature, DesiredState, DesiredTask, Feature, RepositoryBinding
 from .errors import Diagnostic
 
@@ -24,15 +26,14 @@ def _block(marker: str, body: list[str]) -> str:
     return "\n".join([f"<!-- {marker} -->", *body, "<!-- /speckit-linear -->"])
 
 
-def _prefixed_body(prose: str, lines: list[str]) -> list[str]:
-    """Prepend human-readable prose to the block's `Source:`/`Plan:` lines.
+def _strip_forged_markers(prose: str) -> str:
+    """Drop any line in ``prose`` carrying one of the bridge's own comment markers.
 
-    Empty prose leaves the block exactly as it was before descriptions
-    existed, so an absent task body or spec summary is not a behavior
-    change. Lines carrying the bridge's own comment markers are dropped:
-    prose quoting the projection format must never open a second block or
-    close this one early, which would corrupt `merge_managed_block`'s
-    ownership boundary.
+    Prose quoting the projection format must never open a second managed
+    block or close this one early, which would corrupt `merge_managed_block`'s
+    ownership boundary. Shared by everywhere free-form prose is embedded in a
+    managed block: the task/feature description prefix and the feature
+    content block.
     """
 
     safe = [
@@ -40,10 +41,44 @@ def _prefixed_body(prose: str, lines: list[str]) -> list[str]:
         for line in prose.splitlines()
         if "<!-- speckit-linear:" not in line and "<!-- /speckit-linear -->" not in line
     ]
-    cleaned = "\n".join(safe).strip("\n")
+    return "\n".join(safe).strip("\n")
+
+
+def _prefixed_body(prose: str, lines: list[str]) -> list[str]:
+    """Prepend human-readable prose to the block's `Source:`/`Plan:` lines.
+
+    Empty prose leaves the block exactly as it was before descriptions
+    existed, so an absent task body is not a behavior change.
+    """
+
+    cleaned = _strip_forged_markers(prose)
     if not cleaned:
         return lines
     return [cleaned, "", *lines]
+
+
+# Truncated sha256 identifying the exact summary prose written into the
+# content block's `summary-hash` comment; see planner._needed_content for why
+# a hash, and not the block's raw bytes, decides whether Project.content
+# needs a write.
+SUMMARY_HASH_LENGTH = 12
+
+
+def _content_block(marker: str, summary: str) -> tuple[str, str]:
+    """Build the feature's Project.content block and its summary hash.
+
+    Project.description caps at 255 characters -- too small for spec prose --
+    so the summary instead targets Project.content (the project overview
+    document). Returns ("", "") when the summary is empty, meaning no content
+    block is projected at all.
+    """
+
+    cleaned = _strip_forged_markers(summary)
+    if not cleaned:
+        return "", ""
+    digest = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:SUMMARY_HASH_LENGTH]
+    block = _block(marker, [f"<!-- speckit-linear:summary-hash:{digest} -->", cleaned])
+    return block, digest
 
 
 def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[DesiredState, tuple[Diagnostic, ...]]:
@@ -90,6 +125,7 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[Desir
                 )
             )
     feature_marker = f"speckit-linear:feature:{feature.identifier}"
+    content_block, summary_hash = _content_block(feature_marker, feature.summary)
     desired_feature = DesiredFeature(
         identifier=feature.identifier,
         project_identity=project_identity,
@@ -102,18 +138,20 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[Desir
         ),
         project_marker=feature_marker,
         project_label_id=binding.project_label_id,
+        # Source/Plan only, never the summary: Project.description caps at
+        # 255 characters, which spec prose blows past immediately. The
+        # summary is projected onto Project.content instead (content_block).
         managed_description=_block(
             feature_marker,
-            _prefixed_body(
-                feature.summary,
-                [
-                    f"Source: `{feature.spec_source.path}#L{feature.spec_source.line}`",
-                    f"Plan: `{feature.plan_source.path}#L{feature.plan_source.line}`",
-                ],
-            ),
+            [
+                f"Source: `{feature.spec_source.path}#L{feature.spec_source.line}`",
+                f"Plan: `{feature.plan_source.path}#L{feature.plan_source.line}`",
+            ],
         ),
         source=feature.spec_source,
         plan_source=feature.plan_source,
         tasks=tuple(tasks),
+        content_block=content_block,
+        summary_hash=summary_hash,
     )
     return DesiredState(binding=binding, feature=desired_feature), tuple(warnings)

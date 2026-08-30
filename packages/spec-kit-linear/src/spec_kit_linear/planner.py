@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 
@@ -87,29 +88,38 @@ def build_push_plan(
     project = _project_for(adoption, discovery)
     operations: list[dict[str, object]] = []
     if project is None:
+        create_input: dict[str, object] = {
+            "name": desired.feature.project_title,
+            "teamIds": [discovery.binding.team_id],
+            "description": desired.feature.managed_description,
+            "labelIds": [desired.binding.project_label_id],
+        }
+        if desired.feature.content_block:
+            create_input["content"] = desired.feature.content_block
         _append_operation(
             operations,
             kind="project.create",
             target=desired.feature.project_identity,
             reason="missing_feature_project",
-            input_values={
-                "name": desired.feature.project_title,
-                "teamIds": [discovery.binding.team_id],
-                "description": desired.feature.managed_description,
-                "labelIds": [desired.binding.project_label_id],
-            },
+            input_values=create_input,
             preconditions={"absent": True},
         )
     else:
         project_ref = resources[desired.feature.project_identity]
-        if project.name != desired.feature.project_title or _needs_block_update(project.description, desired.feature.project_marker, desired.feature.managed_description):
+        name_changed = project.name != desired.feature.project_title
+        description_changed = _needs_block_update(project.description, desired.feature.project_marker, desired.feature.managed_description)
+        new_content = _needed_content(project.content, desired.feature.project_marker, desired.feature.content_block, desired.feature.summary_hash)
+        if name_changed or description_changed or new_content is not None:
+            update_input: dict[str, object] = {
+                **({"name": desired.feature.project_title} if name_changed else {}),
+                "description": merge_managed_block(project.description, desired.feature.project_marker, desired.feature.managed_description),
+            }
+            if new_content is not None:
+                update_input["content"] = new_content
             _append_operation(
                 operations, kind="project.update", target=desired.feature.project_identity,
                 reason="bridge_owned_project_fields_changed",
-                input_values={
-                    **({"name": desired.feature.project_title} if project.name != desired.feature.project_title else {}),
-                    "description": merge_managed_block(project.description, desired.feature.project_marker, desired.feature.managed_description),
-                },
+                input_values=update_input,
                 preconditions=project_ref,
             )
         if desired.binding.project_label_id not in project.label_ids:
@@ -322,6 +332,42 @@ def _issue_for(adoption: FeatureAdoption, project: object, desired: DesiredTask)
 
 def _needs_block_update(existing: str, marker: str, desired_block: str) -> bool:
     return merge_managed_block(existing, marker, desired_block) != existing
+
+
+_SUMMARY_HASH_RE = re.compile(r"<!-- speckit-linear:summary-hash:([0-9a-f]{12}) -->")
+
+
+def _remote_summary_hash(content: str) -> str:
+    match = _SUMMARY_HASH_RE.search(content)
+    return match.group(1) if match else ""
+
+
+def _needed_content(remote_content: str, marker: str, desired_content_block: str, desired_hash: str) -> str | None:
+    """Return the new Project.content value, or ``None`` when no write is needed.
+
+    Idempotency here is judged by the `summary-hash` comment, never by
+    byte-comparing prose against `desired_content_block`: Linear normalizes
+    markdown on write (inserts blank lines between block elements, rewrites
+    `-` bullets to `*`), so our composed bytes are never the value Linear
+    actually stores -- a byte compare would replan the same rewrite on every
+    single push. Trade-off: a human edit made *inside* the content block is
+    invisible to this hash (it cannot see prose drift once Linear has already
+    rewritten our bytes) and persists until the spec summary itself changes.
+    The description block has no such gap -- untouched by this function, it
+    keeps self-healing byte-for-byte on every push, as before.
+    """
+
+    if desired_hash:
+        if _remote_summary_hash(remote_content) == desired_hash:
+            return None
+        return merge_managed_block(remote_content, marker, desired_content_block)
+    if f"<!-- {marker} -->" in remote_content:
+        # Linear treats a content write of "" as a no-op (verified live), so
+        # a removal that empties the document must send a lone space -- which
+        # Linear normalizes to an actually-empty document -- or the stale
+        # block would survive and this removal would replan on every push.
+        return merge_managed_block(remote_content, marker, "") or " "
+    return None
 
 
 # Which `lifecycle` id each derived state writes to, in fallback order. The
