@@ -29,11 +29,11 @@ def _block(marker: str, body: list[str]) -> str:
 def _strip_forged_markers(prose: str) -> str:
     """Drop any line in ``prose`` carrying one of the bridge's own comment markers.
 
-    Prose quoting the projection format must never fake a marker line or
-    open/close a bounded block, which would corrupt `merge_managed_head`'s or
-    `merge_managed_block`'s ownership boundary. Shared by everywhere
-    free-form prose is embedded in a managed block or head: task/feature
-    description prose and the feature content block.
+    Prose quoting the projection format must never open a second managed
+    block or close this one early, which would corrupt `merge_managed_block`'s
+    ownership boundary. Shared by everywhere free-form prose is embedded in a
+    managed block: task/feature description prose and the feature content
+    block.
     """
 
     safe = [
@@ -71,16 +71,16 @@ def _body_hash(body_text: str) -> str:
 
 
 def _hashed_block(marker: str, body_lines: list[str]) -> tuple[str, str]:
-    """Build a bounded managed block whose first body line is its own body-hash comment.
+    """Build a bounded managed block whose OPEN TAG carries its own body hash.
 
-    Used only for the feature's Project.content block: Linear renders that
-    surface's HTML comments invisibly, so a bounded open/close block costs
-    nothing extra there -- unlike an Issue description, which renders every
-    HTML comment as literal text (see projection._task_description).
+    Shared by the feature's Project.content block and every task's Issue
+    description: both are prose Linear can rewrite on save, so both are
+    judged by this hash rather than by raw bytes (see planner._needed_content
+    and the task-description branch of planner.build_push_plan).
     """
 
     digest = _body_hash("\n".join(body_lines))
-    block = _block(marker, [f"<!-- speckit-linear:body-hash:{digest} -->", *body_lines])
+    block = "\n".join([f"<!-- {marker} hash:{digest} -->", *body_lines, "<!-- /speckit-linear -->"])
     return block, digest
 
 
@@ -97,37 +97,6 @@ def _content_block(marker: str, summary: str) -> tuple[str, str]:
     if not cleaned:
         return "", ""
     return _hashed_block(marker, [cleaned])
-
-
-def _task_description(marker: str, description: str, source_line: str) -> tuple[str, str]:
-    """Compose a task's Issue-description head and its body hash.
-
-    Layout: prose (when present), a blank line, the Source line, then one
-    trailing `<!-- marker hash:HHHH -->` line -- the single visible line
-    Linear's issue view renders, since it shows every HTML comment as
-    literal text (a bounded open/close block, as Project.content still
-    uses, would show three). HHHH covers everything above it: the composed
-    prose and Source line, exactly as `merge_managed_head`'s callers judge
-    idempotency by (see planner._remote_marker_hash).
-    """
-
-    body_lines = _prefixed_body(description, [source_line])
-    digest = _body_hash("\n".join(body_lines))
-    head = "\n".join([*body_lines, f"<!-- {marker} hash:{digest} -->"])
-    return head, digest
-
-
-def _feature_description(marker: str, source_line: str, plan_line: str) -> str:
-    """Compose the feature Project's description head: no hash needed.
-
-    Layout: the Source/Plan lines, then a trailing bare `<!-- marker -->`
-    line. These are plain lines with no markdown construct, so they round
-    trip through Linear byte-identical -- the head is compared byte-for-byte
-    (planner._needs_head_update), the same as Project.content's summary is
-    judged by hash because its prose cannot make that same guarantee.
-    """
-
-    return "\n".join([source_line, plan_line, f"<!-- {marker} -->"])
 
 
 def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[DesiredState, tuple[Diagnostic, ...]]:
@@ -159,9 +128,8 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[Desir
     for phase in feature.phases:
         for task in phase.tasks:
             task_marker = f"speckit-linear:task:{feature.identifier}:{task.identifier}"
-            managed_description, body_hash = _task_description(
-                task_marker, task.description, f"Source: `{task.source.path}#L{task.source.line}`"
-            )
+            body_lines = _prefixed_body(task.description, [f"Source: `{task.source.path}#L{task.source.line}`"])
+            managed_description, body_hash = _hashed_block(task_marker, body_lines)
             tasks.append(
                 DesiredTask(
                     identity=f"task:{feature.identifier}:{task.identifier}",
@@ -191,10 +159,12 @@ def project_feature(feature: Feature, binding: RepositoryBinding) -> tuple[Desir
         # Source/Plan only, never the summary: Project.description caps at
         # 255 characters, which spec prose blows past immediately. The
         # summary is projected onto Project.content instead (content_block).
-        managed_description=_feature_description(
+        managed_description=_block(
             feature_marker,
-            f"Source: `{feature.spec_source.path}#L{feature.spec_source.line}`",
-            f"Plan: `{feature.plan_source.path}#L{feature.plan_source.line}`",
+            [
+                f"Source: `{feature.spec_source.path}#L{feature.spec_source.line}`",
+                f"Plan: `{feature.plan_source.path}#L{feature.plan_source.line}`",
+            ],
         ),
         source=feature.spec_source,
         plan_source=feature.plan_source,

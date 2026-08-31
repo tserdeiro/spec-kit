@@ -6,7 +6,7 @@ import uuid
 from dataclasses import replace
 
 from spec_kit_linear.allowlist import ALLOWED_INPUTS, PUSH_MUTATIONS
-from spec_kit_linear.bridge import merge_managed_block, merge_managed_head
+from spec_kit_linear.bridge import merge_managed_block
 from spec_kit_linear.config import load_config, repository_binding
 from spec_kit_linear.errors import AppError, Diagnostic
 from spec_kit_linear.linear_client import RemoteBinding, RemoteIssue, RemoteProject
@@ -357,11 +357,11 @@ class PlannerApplyTests(unittest.TestCase):
 
         self.assertEqual([item for item in plan["operations"] if item["kind"] == "issue.update"], [])
 
-    def test_a_legacy_bounded_issue_description_has_no_hash_and_migrates_with_one_rewrite(self) -> None:
-        # The pre-TDS-12 bounded-block format for this same task: open
-        # marker, plain Source line, close marker -- no `hash:` anywhere, so
+    def test_a_0_8_0_bounded_issue_description_has_no_hash_and_migrates_with_one_rewrite(self) -> None:
+        # The 0.8.0 format for this same task: open marker (no hash), plain
+        # Source line, close marker -- no `hash:` anywhere, so
         # `_remote_marker_hash` reads it as absent and this migrates, one
-        # time, to the new single-trailing-marker-line format.
+        # time, to the new hash-in-open-tag layout.
         task = self.desired.feature.tasks[0]
         legacy_description = f"<!-- {task.marker} -->\nSource: `{task.source.path}#L{task.source.line}`\n<!-- /speckit-linear -->"
         discovery = self._replace_issue_description(self._complete_discovery(), task.identity, legacy_description)
@@ -373,15 +373,18 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertNotIn("title", updates[0]["input"])
         self.assertEqual(
             updates[0]["input"]["description"],
-            merge_managed_head(legacy_description, task.marker, task.managed_description),
+            merge_managed_block(legacy_description, task.marker, task.managed_description),
         )
         # Nothing precedes or follows the legacy block in this fixture, so
-        # the migration leaves exactly the new head -- no leftover machinery.
+        # the migration leaves exactly the new block -- no leftover text.
         self.assertEqual(updates[0]["input"]["description"], task.managed_description)
 
-    def test_a_changed_marker_hash_plans_a_description_merge(self) -> None:
-        # Already in the new single-line format, but the hash no longer
-        # matches -- the task's own body changed since this was last pushed.
+    def test_a_0_9_0_format_remote_issue_migrates_with_one_rewrite(self) -> None:
+        # The 0.9.0 head format: description ends with the marker line
+        # (carrying a hash) and has no close tag anywhere. The hash no
+        # longer matches either -- the task's own body changed since this
+        # was last pushed -- but even an equal hash here would still not be
+        # a bounded block, so it still migrates.
         task = self.desired.feature.tasks[0]
         stale_description = f"stale body\n<!-- {task.marker} hash:000000000000 -->"
         discovery = self._replace_issue_description(self._complete_discovery(), task.identity, stale_description)
@@ -393,7 +396,22 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertNotIn("title", updates[0]["input"])
         self.assertEqual(updates[0]["input"]["description"], task.managed_description)
 
-    def test_human_text_below_an_issue_marker_survives_a_description_rewrite(self) -> None:
+    def test_a_0_9_0_format_remote_with_an_equal_hash_still_migrates(self) -> None:
+        # The regression the live TDS migration caught: between formats the
+        # body did not change, so the marker-line hash matches the desired
+        # one exactly -- the hash alone reads as settled and the format
+        # migration never fires. The bounded check is what forces it.
+        task = self.desired.feature.tasks[0]
+        stale_description = f"stale body\n<!-- {task.marker} hash:{task.body_hash} -->"
+        discovery = self._replace_issue_description(self._complete_discovery(), task.identity, stale_description)
+
+        plan = self._push_plan(discovery)
+
+        updates = [item for item in plan["operations"] if item["kind"] == "issue.update" and item["target"] == task.identity]
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["input"]["description"], task.managed_description)
+
+    def test_human_text_below_a_0_9_0_format_marker_survives_a_description_rewrite(self) -> None:
         task = self.desired.feature.tasks[0]
         stale_description = f"stale body\n<!-- {task.marker} hash:000000000000 -->\nHuman note added in Linear"
         discovery = self._replace_issue_description(self._complete_discovery(), task.identity, stale_description)
@@ -478,8 +496,6 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertIn(self.desired.feature.content_block, merged)
 
     def test_bridge_block_update_preserves_manual_exterior_text(self) -> None:
-        # Project.content is the one remaining bounded-block consumer (Linear
-        # renders its HTML comments invisibly, unlike an Issue description).
         marker = self.desired.feature.project_marker
         original = f"Manual introduction\n<!-- {marker} -->\nold bridge text\n<!-- /speckit-linear -->\nManual closing"
         replacement = self.desired.feature.content_block
@@ -487,8 +503,13 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertTrue(merged.startswith("Manual introduction\n"))
         self.assertTrue(merged.endswith("\nManual closing"))
         self.assertIn(replacement, merged)
-        with self.assertRaises(AppError):
-            merge_managed_block(f"Manual\n<!-- {marker} -->\nunsafe", marker, replacement)
+
+        # A marker line with no close tag anywhere is a migration, not an
+        # ambiguity error: everything from the start of the text through
+        # that line is replaced, and what follows survives as human text
+        # below the new bounded block (see tests/unit/test_bridge.py).
+        migrated = merge_managed_block(f"Manual\n<!-- {marker} -->\nunsafe", marker, replacement)
+        self.assertEqual(migrated, f"{replacement}\nunsafe")
 
 
 if __name__ == "__main__":
