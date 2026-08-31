@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.0
+
+- The bounded block returns, with the hash folded into its open tag:
+  `<!-- speckit-linear:...:Txxx hash:HHHH -->` opens, prose and
+  `Source:` follow, `<!-- /speckit-linear -->` closes — two machinery
+  lines, and human text is preserved above and below the block again.
+  The 0.9.0 head model is gone; `Project.content` folds its hash the
+  same way. Reconciliation gates on `hash mismatch OR block not
+  bounded`, so a format-only change still migrates (an equal body hash
+  on a stale layout previously read as settled). Remotes in the 0.8.0
+  and 0.9.0 formats migrate in place, one rewrite per resource.
+
 ## 0.9.0
 
 - The managed machinery in a description is now one line instead of
