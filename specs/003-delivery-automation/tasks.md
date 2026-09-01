@@ -104,7 +104,7 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Completion evidence**: PR #50 (ready 2026-09-01, stacked on #49); bundles conformance and `git diff --check` passed; both extension doctors completed; live read-only check reported `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`; fresh review no-blocking-findings (session 5d2de1fa, per-session findings)
 
 - [ ] T008 Document native Linear automation coverage (spec-kit-linear README + root README note)
-  - **Traces**: FR-007, US4.3; outcome: docs state PR automations are team-level, a target-branch rule (`^\d{3}-`) is required for task-PR merges into feature branches, linking rides the PR-body magic word (branches carry no issue key), and `push` reconciles regardless
+  - **Traces**: FR-007, US4.3; outcome: docs state PR automations are team-level, default rules cover every linked PR, target-branch rules are optional overrides, linking rides the PR-body magic word (branches carry no issue key), and `push` reconciles regardless
   - **Depends on**: T007
   - **Boundaries**: `packages/spec-kit-linear/README.md`, root `README.md` (Spanish consumer note); no code
   - **Evidence**: doc sections present; `git diff --check` clean

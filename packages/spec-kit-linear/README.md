@@ -74,21 +74,19 @@ dormant until an admin connects it.
 ## Native GitHub automation coverage
 
 Linear's PR automations are configured per Team, not per repository.
-`onboard` completes the Team's default mapping above, but it deliberately
-does not create or change target-branch rules. This delivery flow merges task
-PRs into feature branches such as `003-delivery-automation`, not directly
-into the repository's default branch. In Linear's GitHub workflow settings,
-configure the same status mapping for target branches matching `^\d{3}-` so
-those task PRs reach *In Progress*, *In Review*, and *Done* natively. Linear
-applies branch rules to the PR's target branch and supports regular
-expressions; see its
+`onboard` completes the Team's default mapping above; that mapping applies to
+every linked PR. It deliberately does not create or change target-branch
+rules because those are optional overrides. Use one for feature branches such
+as `003-delivery-automation` only when they need a different status mapping
+or no action. Linear applies overrides to the PR's target branch and supports
+regular expressions such as `^\d{3}-`; see its
 [GitHub integration documentation](https://linear.app/docs/github#branch-specific-rules).
 
 Feature-task branches use `NNN-Txxx-*`, so they do not contain the Linear
 Issue key and cannot link by branch name. The canonical task PR body supplies
 the link with the closing magic word `Fixes <TEAM-123>`. Once linked, native
-PR events can move the Issue when both the Team mapping and the target-branch
-rule cover that PR.
+PR events follow the Team's default mapping unless a matching target-branch
+rule overrides it.
 
 Native automation is an accelerator, not the source of truth. `push`
 re-derives state from checkboxes, branches, and PRs and reconciles the Issue
