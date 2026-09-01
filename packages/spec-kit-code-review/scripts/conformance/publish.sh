@@ -211,7 +211,8 @@ PRSTATE
 }
 write_gh_state "$head_commit"
 
-cat >"$temporary_root/findings.json" <<'FINDINGS'
+write_findings() {
+  cat >"$1/findings.json" <<'FINDINGS'
 {
   "findings": [
     {
@@ -227,6 +228,7 @@ cat >"$temporary_root/findings.json" <<'FINDINGS'
   ]
 }
 FINDINGS
+}
 
 open_review() {
   run review --root "$consumer_root" 128 --json | json "['session']['path']"
@@ -235,9 +237,10 @@ open_review() {
 # -- a review without --publish writes nothing ----------------------------------
 
 session=$(open_review)
+write_findings "$session"
 rm -f "$api_log"
 set +e
-run review --root "$consumer_root" --findings "$temporary_root/findings.json" --session "$session" --json >/dev/null
+run review --root "$consumer_root" --findings "$session/findings.json" --session "$session" --json >/dev/null
 preview_code=$?
 set -e
 test "$preview_code" -eq 1  # changes-requested
@@ -258,9 +261,10 @@ test -z "$(api_writes)"
 # -- the real publication -------------------------------------------------------
 
 session=$(open_review)
+write_findings "$session"
 rm -f "$api_log"
 set +e
-published=$(run review --root "$consumer_root" --findings "$temporary_root/findings.json" --session "$session" --publish --json)
+published=$(run review --root "$consumer_root" --findings "$session/findings.json" --session "$session" --publish --json)
 published_code=$?
 set -e
 test "$published_code" -eq 1  # the review completed; the candidate needs work
@@ -313,9 +317,10 @@ test "$(python3 -c "import json;print(json.load(open('$session/session.json'))['
 # -- a second publication of the same candidate is refused ----------------------
 
 session=$(open_review)
+write_findings "$session"
 rm -f "$api_log"
 set +e
-duplicate=$(run review --root "$consumer_root" --findings "$temporary_root/findings.json" --session "$session" --publish --json 2>/dev/null)
+duplicate=$(run review --root "$consumer_root" --findings "$session/findings.json" --session "$session" --publish --json 2>/dev/null)
 duplicate_code=$?
 set -e
 test "$duplicate_code" -eq 2
@@ -325,6 +330,7 @@ test -z "$(api_writes)"
 # -- drift publishes nothing ----------------------------------------------------
 
 session=$(open_review)
+write_findings "$session"
 git -C "$consumer_root" switch --quiet feature
 printf 'moved = 1\n' >>"$consumer_root/src/module.py"
 git -C "$consumer_root" add --all
@@ -334,7 +340,7 @@ git -C "$consumer_root" switch --quiet main
 write_gh_state "$moved_head"
 rm -f "$api_log"
 set +e
-drifted=$(run review --root "$consumer_root" --findings "$temporary_root/findings.json" --session "$session" --publish --json 2>/dev/null)
+drifted=$(run review --root "$consumer_root" --findings "$session/findings.json" --session "$session" --publish --json 2>/dev/null)
 drift_code=$?
 set -e
 test "$drift_code" -eq 8

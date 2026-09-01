@@ -62,7 +62,9 @@ class PublicationCase(RunCommandCase):
             },
         }
         self._install_gh()
+        self.session: str | None = None
         self.findings_path = self.workspace / "findings.json"
+        self.findings_entries: tuple[dict, ...] = ()
         self.write_findings(entry())
 
     def _install_gh(self) -> None:
@@ -72,7 +74,9 @@ class PublicationCase(RunCommandCase):
         self.gh_state_path = Path(environment["SPECKIT_CODE_REVIEW_FAKE_GH_STATE"])
 
     def write_findings(self, *entries) -> None:
-        self.findings_path.write_text(json.dumps({"findings": list(entries)}), encoding="utf-8")
+        self.findings_entries = entries
+        if self.session is not None:
+            self.findings_path.write_text(json.dumps({"findings": list(entries)}), encoding="utf-8")
 
     def calls(self) -> list[dict]:
         if not self.api_log.exists():
@@ -86,6 +90,8 @@ class PublicationCase(RunCommandCase):
         code, payload = self.invoke_json("review", "128", *extra)
         self.assertEqual(code, EXIT_SUCCESS, payload)
         self.session = payload["session"]["path"]
+        self.findings_path = Path(self.session) / "findings.json"
+        self.write_findings(*self.findings_entries)
         return payload
 
     def close(self, *extra: str) -> tuple[int, dict]:
