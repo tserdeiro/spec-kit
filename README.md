@@ -119,7 +119,7 @@ review) son el primer auxilio.
 
 | Bundle | Eres tú si... | Instala |
 | --- | --- | --- |
-| `product` | Conviertes necesidades de negocio en specs, planes y tareas | preset + `linear` |
+| `product` | Conviertes necesidades de negocio en specs, planes y tareas | preset + `git` + `linear` |
 | `developer` | Implementas tareas, abres PRs y corriges bugs | preset + `git` + `bug` + `linear` + `code-review` |
 | `reviewer` | Haces la revisión final antes de aprobar | preset + `code-review` |
 
@@ -170,12 +170,12 @@ Reglas de oro:
 - **El branch de feature (`NNN-slug`) es la integración**: los branches
   de tarea salen de él actualizado y sus PRs vuelven a él; la feature
   entra al branch de entrega **una sola vez**, con merge commit — nada a
-  medias llega antes. Bugs y chores también van directo a ese branch.
+  medias llega antes. Bugs y chores siguen yendo al default de GitHub.
   Por defecto los comandos usan el default de GitHub; si el trunk real es
   otro, configura `trunk: <branch>` en
   `.specify/extensions/git/git-config.yml`. Ese valor explícito tiene
-  prioridad tanto en `/speckit.pr` como en `/speckit.implement` (este repo
-  declara `trunk: main`).
+  prioridad para el PR de feature y `/speckit.implement` (este repo declara
+  `trunk: main`).
 - **Nunca actualices Linear a mano**: el Project y los Issues nacen solos
   en plan/tareas, los estados los mueve la integración nativa por eventos
   de PR, y `push --apply` es la reconciliación idempotente que repara lo

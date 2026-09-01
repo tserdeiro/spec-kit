@@ -14,7 +14,7 @@ branch_template: ""
 # Example: "features/{app}" expands to "features/{app}/{number}-{slug}"
 branch_prefix: ""
 
-# Delivery base for feature PRs, work items, and the first feature refresh.
+# Delivery base for the feature PR and the first feature refresh.
 # Leave empty to use the repository's GitHub default branch.
 trunk: main
 

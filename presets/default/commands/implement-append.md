@@ -34,8 +34,11 @@ their own branches are not this loop's concern.
 
    ```bash
    # delivery-base-resolution:start
-   delivery_base=$(awk '$1 == "trunk:" && $2 !~ /^#/ { value=$2; gsub(/^"|"$/, "", value); print value; exit }' \
+   delivery_base=$(awk '$1 == "trunk:" && $2 !~ /^#/ { print $2; exit }' \
      .specify/extensions/git/git-config.yml 2>/dev/null || true)
+   case "$delivery_base" in
+     \"*\"|\'*\') delivery_base=${delivery_base#?}; delivery_base=${delivery_base%?} ;;
+   esac
    if [ -z "$delivery_base" ]; then
      delivery_base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
    fi

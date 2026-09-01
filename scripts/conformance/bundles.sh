@@ -94,7 +94,7 @@ LINEAR_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions l
 REVIEW_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions code-review)
 PRESET_ZIP=$(catalog_zip "$repository_root/catalog/presets.json" presets default)
 PRESET_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/presets/default/preset.yml" | head -1)
-product_extensions="linear"
+product_extensions="git linear"
 developer_extensions="git linear code-review bug"
 reviewer_extensions="code-review"
 all_extensions="git linear code-review bug"
@@ -361,12 +361,9 @@ echo "ok: update"
 # --------------------------------------------------------------------------
 
 new_consumer "trunk"
-(cd "$consumer_root" && specify bundle install developer >/dev/null) ||
-  fail "trunk: developer bundle install failed"
+(cd "$consumer_root" && specify bundle install product >/dev/null) ||
+  fail "trunk: product bundle install failed"
 
-cat >> "$consumer_root/.specify/extensions/git/git-config.yml" <<'EOF'
-trunk: release
-EOF
 fake_bin="$consumer_root/.conformance/bin"
 mkdir -p "$fake_bin"
 cat > "$fake_bin/gh" <<'EOF'
@@ -394,13 +391,25 @@ printf '%s' \"\$delivery_base\"")
   fi
 }
 
-assert_delivery_base speckit-pr release local
-assert_delivery_base speckit-implement release local
+trunk_config="$consumer_root/.specify/extensions/git/git-config.yml"
+set_trunk_scalar() {
+  sed '/^[[:space:]]*trunk:/d' "$trunk_config" > "$trunk_config.tmp"
+  mv "$trunk_config.tmp" "$trunk_config"
+  [ "$#" -eq 0 ] || printf 'trunk: %s\n' "$1" >> "$trunk_config"
+}
 
-sed '/^[[:space:]]*trunk:/d' "$consumer_root/.specify/extensions/git/git-config.yml" > \
-  "$consumer_root/.specify/extensions/git/git-config.yml.tmp"
-mv "$consumer_root/.specify/extensions/git/git-config.yml.tmp" \
-  "$consumer_root/.specify/extensions/git/git-config.yml"
+assert_trunk_scalar() {
+  set_trunk_scalar "$1"
+  assert_delivery_base speckit-pr "$2" "$3"
+  assert_delivery_base speckit-implement "$2" "$3"
+}
+
+assert_trunk_scalar release release local
+assert_trunk_scalar "'release'" release local
+assert_trunk_scalar '"release"' release local
+assert_trunk_scalar "''" main github
+assert_trunk_scalar '""' main github
+set_trunk_scalar
 assert_delivery_base speckit-pr main github
 assert_delivery_base speckit-implement main github
 

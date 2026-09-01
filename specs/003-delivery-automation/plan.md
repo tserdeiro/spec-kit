@@ -107,16 +107,18 @@ causes stay recorded in `docs/dogfooding.md`.
 ### D4. Trunk key in the git extension's consumer config
 
 - **Decision**: `trunk: <branch>` in the consumer's
-  `.specify/extensions/git/git-config.yml`; `pr.md` and
-  `implement-append.md` resolve the delivery base as: explicit `trunk:`
-  key → else `gh repo view --json defaultBranchRef`. Documented in the
-  preset README and the root README.
+  `.specify/extensions/git/git-config.yml`; the feature-PR path in
+  `pr.md` and the `implement-append.md` loop resolve the delivery base
+  as: explicit `trunk:` key → else
+  `gh repo view --json defaultBranchRef`. Documented in the preset README
+  and the root README.
 - **Rationale**: the file is committed, consumer-owned configuration the
   team already edits; upstream ignores unknown keys; no per-machine
   state (rejected: `git config`), no upstream schema intrusion
   (rejected: `init-options.json`).
 - **Trade-off**: a preset command reads another extension's config file;
-  acceptable, both ship in every role bundle.
+  acceptable because product and developer — the roles that own these
+  paths — install both.
 
 ### D5. Parser ignores fenced blocks
 
