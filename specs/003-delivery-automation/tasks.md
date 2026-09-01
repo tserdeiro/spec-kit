@@ -40,13 +40,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
 **Goal**: product-phase commands end committed and silent.
 **Independent test**: run any product-phase command; no hook block, artifacts committed, clean `git status`.
 
-- [ ] T002 Phase-close append: silence optional hooks and commit feature artifacts in presets/default
+- [x] T002 Phase-close append: silence optional hooks and commit feature artifacts in presets/default
   - **Traces**: FR-001, FR-002, SC-001; outcome: new `commands/phase-close-append.md` registered (append) for `speckit.specify`, `speckit.plan`, `speckit.analyze`; same rule folded into `tasks-append.md`; optional hooks never announced (enabled→execute silently), each phase ends committing `specs/<feature>/` only, skipping when clean
-  - **Depends on**: none
+  - **Depends on**: T001 (loop tooling — recorded during delivery; upstream resolves one append layer per command per preset, so the tasks rule was folded, not double-registered)
   - **Boundaries**: `presets/default/commands/`, `presets/default/preset.yml`, `presets/default/README.md`; core templates untouched (C-001)
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; append text present in regenerated skills; this feature's later phases run silent and committed
   - **Delivery**: single PR into 003-delivery-automation (~80 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #45 (ready 2026-08-31, stacked on #44); bundles conformance ok; phase-close section verified at EOF of the four regenerated skills; self-review no-blocking-findings (session 94c69ba1)
 
 ## Phase 3: User Story 2 — Linear mirrors the unattended run (P2)
 
