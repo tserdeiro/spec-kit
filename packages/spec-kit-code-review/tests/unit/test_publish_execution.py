@@ -496,6 +496,37 @@ class BatchingTests(PublicationCase):
             [f"{call['method']} {call['endpoint']}" for call in self.calls()],
         )
 
+    def test_a_retry_with_different_findings_is_refused_before_any_write(self) -> None:
+        self.gh_state["api_failures"] = {
+            "POST repos/tserdeiro/consumer/pulls/128/reviews": {"after": 2, "message": "HTTP 502"}
+        }
+        self._install_gh()
+        code, _payload = self.publish()
+        self.assertEqual(code, 10)
+
+        state = json.loads(self.gh_state_path.read_text(encoding="utf-8"))
+        state.pop("api_failures", None)
+        state.pop("counts", None)
+        self.gh_state_path.write_text(json.dumps(state), encoding="utf-8")
+        self.write_findings(
+            *(
+                entry(
+                    start_line=line,
+                    end_line=line,
+                    title=f"finding {line}",
+                    content="replacement line 5" if line == 5 else f"line {line}",
+                )
+                for line in range(1, 6)
+            )
+        )
+        self.api_log.unlink(missing_ok=True)
+
+        code, payload = self.publish()
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn("publish_resume_plan_mismatch", {item["code"] for item in payload["diagnostics"]})
+        self.assertEqual(self.writes(), [])
+
     def test_a_resume_whose_reviews_are_absent_starts_over_and_says_so(self) -> None:
         self.open_review()
         (Path(self.session) / "publication-result.json").write_text(

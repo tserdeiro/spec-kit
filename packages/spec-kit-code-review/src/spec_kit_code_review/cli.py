@@ -1776,6 +1776,7 @@ def _plan_from_payload(plan_payload: Mapping[str, Any], *, event: str) -> Public
         verdict_blocking=int(plan_payload.get("verdict_blocking") or 0),
         summary_marker=str(plan_payload.get("summary_marker") or ""),
         summary_body=str(plan_payload.get("summary_body") or ""),
+        findings_sha256=str(plan_payload.get("findings_sha256") or ""),
         inline=tuple(
             InlineComment(
                 finding_id=str(comment.get("finding_id") or ""),
