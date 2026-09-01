@@ -353,4 +353,61 @@ for template in $TEMPLATES; do
 done
 
 echo "ok: update"
+
+# --------------------------------------------------------------------------
+# 4. Installed delivery commands honor an explicit trunk before GitHub's
+#    default. Execute the resolver embedded in each generated skill inside a
+#    temporary consumer whose configured trunk and fake GitHub default differ.
+# --------------------------------------------------------------------------
+
+new_consumer "trunk"
+(cd "$consumer_root" && specify bundle install developer >/dev/null) ||
+  fail "trunk: developer bundle install failed"
+
+cat >> "$consumer_root/.specify/extensions/git/git-config.yml" <<'EOF'
+trunk: release
+EOF
+fake_bin="$consumer_root/.conformance/bin"
+mkdir -p "$fake_bin"
+cat > "$fake_bin/gh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${GH_CALLS:?}"
+printf '%s\n' main
+EOF
+chmod +x "$fake_bin/gh"
+
+assert_delivery_base() {
+  skill="$consumer_root/.agents/skills/$1/SKILL.md"
+  [ -f "$skill" ] || fail "trunk: generated skill '$1' is missing"
+  resolver=$(sed -n '/delivery-base-resolution:start/,/delivery-base-resolution:end/p' "$skill")
+  [ -n "$resolver" ] || fail "trunk: generated skill '$1' has no delivery-base resolver"
+  calls="$consumer_root/.conformance/$1-gh-calls"
+  : > "$calls"
+  resolved=$(cd "$consumer_root" && GH_CALLS="$calls" PATH="$fake_bin:$PATH" sh -c "$resolver
+printf '%s' \"\$delivery_base\"")
+  [ "$resolved" = "$2" ] || fail "trunk: '$1' resolved '$resolved' instead of '$2'"
+  if [ "$3" = "local" ]; then
+    [ ! -s "$calls" ] || fail "trunk: '$1' queried GitHub despite an explicit trunk"
+  else
+    [ "$(cat "$calls")" = "repo view --json defaultBranchRef -q .defaultBranchRef.name" ] ||
+      fail "trunk: '$1' did not fall back to the GitHub default"
+  fi
+}
+
+assert_delivery_base speckit-pr release local
+assert_delivery_base speckit-implement release local
+
+sed '/^[[:space:]]*trunk:/d' "$consumer_root/.specify/extensions/git/git-config.yml" > \
+  "$consumer_root/.specify/extensions/git/git-config.yml.tmp"
+mv "$consumer_root/.specify/extensions/git/git-config.yml.tmp" \
+  "$consumer_root/.specify/extensions/git/git-config.yml"
+assert_delivery_base speckit-pr main github
+assert_delivery_base speckit-implement main github
+
+grep -Fq 'targets `<delivery-base>`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
+  fail "trunk: speckit-pr does not target the resolved delivery base"
+grep -Fq 'git merge origin/<delivery-base>' "$consumer_root/.agents/skills/speckit-implement/SKILL.md" ||
+  fail "trunk: speckit-implement does not refresh from the resolved delivery base"
+
+echo "ok: trunk"
 echo "conformance passed"

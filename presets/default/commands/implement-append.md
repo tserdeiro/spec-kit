@@ -29,14 +29,28 @@ their own branches are not this loop's concern.
    you run this feature's scripts. Upstream persists that choice to
    `.specify/feature.json` — per-checkout local state the CLI keeps
    gitignored — so later runs without an argument continue it. Without
-   an argument, the active feature applies as-is.
+   an argument, the active feature applies as-is. Then resolve the
+   repository's delivery base once:
+
+   ```bash
+   # delivery-base-resolution:start
+   delivery_base=$(awk '$1 == "trunk:" && $2 !~ /^#/ { value=$2; gsub(/^"|"$/, "", value); print value; exit }' \
+     .specify/extensions/git/git-config.yml 2>/dev/null || true)
+   if [ -z "$delivery_base" ]; then
+     delivery_base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+   fi
+   # delivery-base-resolution:end
+   ```
+
+   An explicit non-empty `trunk:` value wins; otherwise the GitHub
+   default applies. Use `<delivery-base>` everywhere this loop names the
+   repository trunk.
 1. **Starting a task** — before touching any code for `T###`:
    - On the **first task of the feature**, bring the repository's
-     up-to-date default branch into the feature branch (`NNN-slug`):
+     up-to-date delivery base into the feature branch (`NNN-slug`):
      `git fetch`, then on the feature branch
-     `git merge origin/<default>` — resolve the default branch with
-     `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` —
-     and push. Later refreshes from the default branch are the
+     `git merge origin/<delivery-base>`, and push. Later refreshes from
+     the delivery base are the
      developer's duty, not this loop's.
    - Create the task branch **from the up-to-date feature branch**:
      `git switch -c NNN-T###-short-slug`. One exception stacks: when the
@@ -76,7 +90,7 @@ their own branches are not this loop's concern.
    shows the whole
    feature, composed of task PRs a human already reviewed one by one.
    Approving and merging are never yours — a human merges it into the
-   default branch with a **merge commit** (no squash: the task history
+   delivery base with a **merge commit** (no squash: the task history
    must survive). After that merge, delete your local feature branch
    (GitHub deletes the remote when the repository auto-deletes merged
    branches) and reconcile with `/speckit.linear.push --apply`.

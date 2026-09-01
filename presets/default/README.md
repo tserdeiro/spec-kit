@@ -23,3 +23,10 @@ specify preset resolve tasks-template
 
 The three role bundles (`product`, `developer`, `reviewer`) install this preset
 for you; add it directly only when you want the templates without a role.
+
+## Delivery base
+
+Set `trunk: <branch>` in `.specify/extensions/git/git-config.yml` when
+delivery targets a branch other than GitHub's default. `speckit.pr` and
+`speckit.implement` use that explicit value first and fall back to the
+GitHub default when it is absent or empty.

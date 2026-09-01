@@ -27,11 +27,23 @@ GitHub.
 ## 2. Guarantee the branch invariant
 
 The branch is what projects the task to *In Progress*; it must exist and
-follow the convention before the PR opens. The PR's **base** follows from
-what is delivered: a feature task targets its **feature branch**
-(`NNN-slug`); a work item — and the feature PR itself — targets the
-**repository's default branch**
-(`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`).
+follow the convention before the PR opens. Resolve the repository's
+**delivery base** once:
+
+```bash
+# delivery-base-resolution:start
+delivery_base=$(awk '$1 == "trunk:" && $2 !~ /^#/ { value=$2; gsub(/^"|"$/, "", value); print value; exit }' \
+  .specify/extensions/git/git-config.yml 2>/dev/null || true)
+if [ -z "$delivery_base" ]; then
+  delivery_base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+fi
+# delivery-base-resolution:end
+```
+
+An explicit non-empty `trunk:` value wins; otherwise the GitHub default
+applies. The PR's **base** follows from what is delivered: a feature task
+targets its **feature branch** (`NNN-slug`); a work item — and the feature
+PR itself — targets `<delivery-base>`.
 
 - Correctly named branch checked out → continue.
 - On the base branch or a misnamed branch with the work committed →
@@ -64,7 +76,7 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` — every section, in its order:
 - **Outcome** — the task's outcome line, phrased as the delivered result.
 - **Changes** — summarize the real diff against the PR's base branch
   (`git diff <base>...HEAD --stat` — the feature branch for a feature
-  task, the repository's default branch for a work item), not the plan.
+  task, `<delivery-base>` for a work item), not the plan.
 - **Verification evidence** — the task's **Evidence** commands with their
   actual, truthful results; run them if you have not.
 - **Risk and delivery** — honest risks; `Stack: standalone`, or
@@ -91,7 +103,7 @@ gh pr create --draft --base <base> --title "<type(scope): subject>" --body "<the
 ```
 
 `<base>` is the feature branch for a feature task; the repository's
-default branch for a work item **and for the feature PR itself**.
+`<delivery-base>` for a work item **and for the feature PR itself**.
 The feature PR's title is `feat(<area>): <feature outcome>`.
 
 Title in English, `type(scope): subject`, matching the branch's commit.
