@@ -3,119 +3,121 @@
 
 from __future__ import annotations
 
-import os
-import shlex
-import shutil
+import json
+import re
 import subprocess
 import sys
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
 CONFIG_PATH = Path(".specify/extensions/git/git-config.yml")
-REEXEC_MARKER = "SPECKIT_DELIVERY_BASE_REEXEC"
+YAML_NULLS = {"null", "Null", "NULL", "~"}
+YAML_BOOLEANS = {
+    "true",
+    "false",
+    "yes",
+    "no",
+    "on",
+    "off",
+    "y",
+    "n",
+}
+YAML_NUMBER = re.compile(
+    r"[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?(?:e[-+]?[0-9]+)?|\.(?:inf|nan))",
+    re.IGNORECASE,
+)
+YAML_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 class ResolutionError(Exception):
     """A user-actionable delivery-base error."""
 
 
-def _load_yaml_module() -> Any:
+def _quoted_tail_is_valid(tail: str) -> bool:
+    return not tail or (tail[0].isspace() and tail.lstrip().startswith("#"))
+
+
+def _decode_double_quoted(raw: str) -> str:
     try:
-        import yaml
-
-        return yaml
-    except ModuleNotFoundError as error:
-        if os.environ.get(REEXEC_MARKER):
-            raise ResolutionError(
-                "the Specify runtime does not provide the required PyYAML dependency"
-            ) from error
-        specify = shutil.which("specify")
-        if specify is None:
-            raise ResolutionError(
-                "PyYAML is unavailable and the Specify executable was not found"
-            ) from error
-        try:
-            launcher = Path(specify).read_text(encoding="utf-8").splitlines()[0]
-            interpreter = shlex.split(launcher.removeprefix("#!"))
-        except (OSError, UnicodeError, IndexError, ValueError) as launcher_error:
-            raise ResolutionError(
-                f"cannot resolve the Specify Python runtime from {specify}: {launcher_error}"
-            ) from launcher_error
-        if not launcher.startswith("#!") or not interpreter:
-            raise ResolutionError(f"the Specify executable has no usable shebang: {specify}")
-        environment = os.environ.copy()
-        environment[REEXEC_MARKER] = "1"
-        try:
-            os.execvpe(
-                interpreter[0],
-                [*interpreter, str(Path(__file__).resolve())],
-                environment,
-            )
-        except OSError as exec_error:
-            raise ResolutionError(
-                f"cannot start the Specify Python runtime: {exec_error}"
-            ) from exec_error
-        raise AssertionError("os.execvpe returned unexpectedly")
+        value, end = json.JSONDecoder().raw_decode(raw)
+    except json.JSONDecodeError as error:
+        raise ResolutionError(f"invalid double-quoted trunk string: {error.msg}") from error
+    if not isinstance(value, str) or not _quoted_tail_is_valid(raw[end:]):
+        raise ResolutionError("trunk must contain one quoted string")
+    return value
 
 
-try:
-    yaml = _load_yaml_module()
-except ResolutionError as error:
-    print(f"error: {error}", file=sys.stderr)
-    raise SystemExit(2) from error
-BaseResolver = yaml.resolver.BaseResolver
+def _decode_single_quoted(raw: str) -> str:
+    value: list[str] = []
+    index = 1
+    while index < len(raw):
+        if raw[index] != "'":
+            value.append(raw[index])
+            index += 1
+            continue
+        if index + 1 < len(raw) and raw[index + 1] == "'":
+            value.append("'")
+            index += 2
+            continue
+        if not _quoted_tail_is_valid(raw[index + 1 :]):
+            raise ResolutionError("trunk must contain one quoted string")
+        return "".join(value)
+    raise ResolutionError("invalid single-quoted trunk string: closing quote is missing")
 
 
-class UniqueSafeLoader(yaml.SafeLoader):
-    """SafeLoader that rejects duplicate mapping keys."""
+def _decode_plain(raw: str) -> str | None:
+    for index, character in enumerate(raw):
+        if character == "#" and (index == 0 or raw[index - 1].isspace()):
+            raw = raw[:index]
+            break
+    value = raw.strip()
+    if not value or value in YAML_NULLS:
+        return None
+    if value.lower() in YAML_BOOLEANS or YAML_NUMBER.fullmatch(value) or YAML_DATE.fullmatch(value):
+        raise ResolutionError("numeric-, date-, and boolean-looking trunk values must be quoted")
+    if value[0] in "!&*|>{[" or value[0] in "\"'":
+        raise ResolutionError("trunk must be one plain or quoted string")
+    return value
 
 
-def _construct_unique_mapping(
-    loader: UniqueSafeLoader, node: yaml.MappingNode, deep: bool = False
-) -> dict[Any, Any]:
-    loader.flatten_mapping(node)
-    mapping: dict[Any, Any] = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        try:
-            duplicate = key in mapping
-        except TypeError as error:
-            raise ResolutionError("configuration mapping keys must be scalar") from error
-        if duplicate:
-            raise ResolutionError(f"duplicate configuration key: {key!r}")
-        mapping[key] = loader.construct_object(value_node, deep=deep)
-    return mapping
+def _decode_trunk(raw: str) -> str | None:
+    value = raw.lstrip()
+    if value.startswith('"'):
+        return _decode_double_quoted(value)
+    if value.startswith("'"):
+        return _decode_single_quoted(value)
+    return _decode_plain(value)
 
 
-UniqueSafeLoader.add_constructor(
-    BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
-)
-
-
-def _load_config() -> Mapping[Any, Any]:
+def _load_trunk() -> str | None:
     if not CONFIG_PATH.exists():
-        return {}
+        return None
     try:
-        payload = yaml.load(
-            CONFIG_PATH.read_text(encoding="utf-8"), Loader=UniqueSafeLoader
-        )
-    except (OSError, UnicodeError, yaml.YAMLError, ResolutionError) as error:
+        lines = CONFIG_PATH.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as error:
         raise ResolutionError(f"cannot read {CONFIG_PATH}: {error}") from error
-    if not isinstance(payload, Mapping):
-        raise ResolutionError(f"{CONFIG_PATH} must contain a YAML mapping at its root")
-    return payload
+    trunk: str | None = None
+    found = False
+    for number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or line[0].isspace():
+            continue
+        if stripped.startswith(("[", "{", "-")):
+            raise ResolutionError(f"{CONFIG_PATH}:{number} must be a top-level mapping entry")
+        key, separator, raw = line.partition(":")
+        if not separator:
+            raise ResolutionError(f"{CONFIG_PATH}:{number} must be a top-level mapping entry")
+        if key.strip() != "trunk":
+            continue
+        if found:
+            raise ResolutionError(f"duplicate configuration key: 'trunk' at line {number}")
+        found = True
+        trunk = _decode_trunk(raw)
+    return trunk
 
 
 def _run(argv: list[str], label: str) -> str:
     try:
-        result = subprocess.run(
-            argv,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
+        result = subprocess.run(argv, check=False, capture_output=True, text=True)
     except OSError as error:
         raise ResolutionError(f"cannot run {label}: {error}") from error
     if result.returncode != 0:
@@ -144,10 +146,7 @@ def _validate(base: str, source: str) -> str:
 
 
 def resolve() -> str:
-    config = _load_config()
-    trunk = config.get("trunk")
-    if trunk is not None and not isinstance(trunk, str):
-        raise ResolutionError(f"{CONFIG_PATH} key 'trunk' must be a string or null")
+    trunk = _load_trunk()
     if trunk:
         return _validate(trunk, f"{CONFIG_PATH} key 'trunk'")
     fallback = _run(

@@ -441,7 +441,7 @@ run_helper() {
     REAL_GIT="$real_git" PATH="$fake_bin:$PATH" python3 "$helper")
 }
 
-run_helper_without_yaml() {
+run_helper_without_site_packages() {
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="${GH_DEFAULT:-main}" FAIL_COMMAND="${FAIL_COMMAND:-}" \
     REAL_GIT="$real_git" PATH="$fake_bin:$PATH" python3 -S "$helper")
@@ -483,24 +483,24 @@ assert_helper_success 'trunk: "+"\n' + configured main
 assert_helper_success 'trunk: "@"\n' @ configured main
 assert_helper_success 'trunk: "café"\n' café configured main
 assert_helper_success 'trunk: "release;safe"\n' 'release;safe' configured main
-assert_helper_success 'trunk: |-\n  release/+@café\n' 'release/+@café' configured main
 assert_helper_success 'trunk: null\n' main fallback main
-assert_helper_success '{}\n' main fallback main
+assert_helper_success 'other: value\n' main fallback main
 assert_helper_success 'nested:\n  trunk: release\n' main fallback main
 assert_helper_success __missing_file__ main fallback main
 assert_helper_success 'trunk: null\n' 'fallback;safe' fallback 'fallback;safe'
 
 set_config 'trunk: release\n'
 reset_command_logs
-output=$(run_helper_without_yaml)
-[ "$output" = release ] || fail "trunk helper did not use Specify's PyYAML runtime"
+output=$(run_helper_without_site_packages)
+[ "$output" = release ] || fail "trunk helper required third-party Python packages"
 [ ! -s "$gh_calls" ] || fail "trunk helper queried GitHub during runtime fallback"
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch release)" ] ||
-  fail "trunk helper runtime fallback did not preserve Git validation"
+  fail "trunk helper without site packages did not preserve Git validation"
 
 assert_helper_failure 'trunk: 123\n'
 assert_helper_failure 'trunk: release\ntrunk: other\n'
 assert_helper_failure '- trunk: release\n'
+assert_helper_failure 'trunk: |-\n  release\n'
 assert_helper_failure 'trunk: bad..branch\n'
 
 set_config 'trunk: null\n'
