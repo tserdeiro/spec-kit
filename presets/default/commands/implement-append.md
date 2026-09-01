@@ -30,6 +30,14 @@ their own branches are not this loop's concern.
    `.specify/feature.json` — per-checkout local state the CLI keeps
    gitignored — so later runs without an argument continue it. Without
    an argument, the active feature applies as-is.
+   Then reconcile Linear once with `/speckit.linear.push --hook`
+   (when slash commands are unavailable, agents run
+   `bash .specify/extensions/linear/scripts/bash/run.sh push --current
+   --hook`): it catches state changes that happened while no session
+   ran — overnight merges — applies without asking under the
+   extension's lifecycle gates, and is a silent clean no-op when Linear
+   is not configured. A reconcile failure is reported once and never
+   blocks delivery — tracking waits for the next run.
 1. **Starting a task** — before touching any code for `T###`:
    - On the **first task of the feature**, bring the repository's
      up-to-date default branch into the feature branch (`NNN-slug`):
@@ -53,17 +61,20 @@ their own branches are not this loop's concern.
      human decisions to ask for. An API you are not certain of is
      verified against the linked or official documentation before use,
      never guessed.
-   The branch is what projects the task to *In Progress* in Linear.
+   The branch is what projects the task to *In Progress* in Linear —
+   once it exists, reconcile with `/speckit.linear.push --hook`.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review
    with `/speckit.code-review` and fix what it finds. Then, in the PR's
    **final commit**, check the task's box and fill its **Completion
    evidence** (the PR and the verification results; a task split into
    stacked PRs checks it in the stack's last PR), push, and mark the PR
-   `ready for review`. The checked box travels inside the task PR, so it
-   reaches the feature branch only through the human merge; reviewer
-   comments are fixed on this same PR, the box stays checked. Ready for
-   review is what frees you to start the next task (step 1).
+   `ready for review`, then reconcile with `/speckit.linear.push --hook`
+   so the issue shows its review state. The checked box travels inside
+   the task PR, so it reaches the feature branch only through the human
+   merge; reviewer comments are fixed on this same PR, the box stays
+   checked. Ready for review is what frees you to start the next task
+   (step 1).
 3. **Between tasks** — a task is finished when a human merged its PR:
    the merge is what lands its checked box and evidence on the feature
    branch, so there `[x]` means merged, by construction.
