@@ -491,6 +491,8 @@ assert_helper_success 'trunk: "@"\n' @ configured main
 assert_helper_success 'trunk: "café"\n' café configured main
 assert_helper_success 'trunk: "release;safe"\n' 'release;safe' configured main
 assert_helper_success 'trunk: null\n' main fallback main
+assert_helper_success 'trunk: ""\n' main fallback main
+assert_helper_success "trunk: ''\n" main fallback main
 assert_helper_success 'other: value\n' main fallback main
 assert_helper_success 'nested:\n  trunk: release\n' main fallback main
 assert_helper_success __missing_file__ main fallback main
@@ -505,6 +507,9 @@ output=$(run_helper_without_site_packages)
   fail "trunk helper without site packages did not preserve Git validation"
 
 assert_helper_failure 'trunk: 123\n'
+assert_helper_failure 'trunk: 0x10\n'
+assert_helper_failure 'trunk: +0b10\n'
+assert_helper_failure 'trunk: 0o10\n'
 assert_helper_failure 'trunk: release\ntrunk: other\n'
 assert_helper_failure '- trunk: release\n'
 assert_helper_failure 'trunk: |-\n  release\n'

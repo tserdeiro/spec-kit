@@ -167,8 +167,9 @@ run against the fixed flow and watch them pass.
 - Linear credentials expire mid-loop: the loop reports it once, keeps
   delivering, and leaves reconciliation to the next run — tracking never
   blocks delivery.
-- The trunk configuration is absent: the GitHub default branch applies,
-  as today.
+- The trunk configuration is absent, null, or an explicit empty string:
+  the GitHub default branch applies, as today. Unsupported or non-string
+  values fail before any delivery mutation.
 - A fenced block contains a line that looks like a real checked task: it
   is ignored regardless of content.
 
