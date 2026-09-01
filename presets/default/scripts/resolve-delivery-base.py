@@ -97,10 +97,18 @@ def _load_trunk() -> str | None:
         raise ResolutionError(f"cannot read {CONFIG_PATH}: {error}") from error
     trunk: str | None = None
     found = False
+    trunk_scope = False
     for number, line in enumerate(lines, start=1):
         stripped = line.strip()
-        if not stripped or stripped.startswith("#") or line[0].isspace():
+        if not stripped or stripped.startswith("#"):
             continue
+        if line[0].isspace():
+            if trunk_scope:
+                raise ResolutionError(
+                    f"{CONFIG_PATH}:{number} continues trunk; use one line"
+                )
+            continue
+        trunk_scope = False
         if stripped.startswith(("[", "{", "-")):
             raise ResolutionError(f"{CONFIG_PATH}:{number} must be a top-level mapping entry")
         key, separator, raw = line.partition(":")
@@ -111,6 +119,7 @@ def _load_trunk() -> str | None:
         if found:
             raise ResolutionError(f"duplicate configuration key: 'trunk' at line {number}")
         found = True
+        trunk_scope = True
         trunk = _decode_trunk(raw)
     return trunk
 
