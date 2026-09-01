@@ -1,0 +1,53 @@
+schema_version: "1.0"
+
+extension:
+  id: code-review
+  name: Spec Kit Code Review
+  version: "0.2.1"
+  description: >-
+    One agentic review command: the pending diff of the working tree, or a
+    pull-request candidate, against the repository's versioned review rules and
+    its Spec Kit artifacts -- never modifying either
+  author: tserdeiro
+  repository: https://github.com/tserdeiro/spec-kit
+  homepage: https://github.com/tserdeiro/spec-kit
+  license: MIT
+
+requires:
+  speckit_version: ">=1.0.1,<1.1.0"
+  tools:
+    - name: uv
+      required: true
+    - name: git
+      required: true
+    - name: ocr
+      required: true
+    - name: gh
+      required: false
+
+provides:
+  commands:
+    - name: speckit.code-review
+      file: commands/code-review.md
+      description: Review the pending diff, or a pull-request candidate; publish only with an explicit flag
+    - name: speckit.code-review.doctor
+      file: commands/doctor.md
+      description: Validate git, ocr, gh, configuration, and rules; --fix applies the local repairs
+    - name: speckit.code-review.completions
+      file: commands/completions.md
+      description: Print a bash or zsh completion script for the review CLI
+
+hooks:
+  after_implement:
+    command: speckit.code-review
+    optional: true
+    priority: 30
+    prompt: Review the pending diff before opening a pull request?
+    description: Advisory review of the working tree before a pull request exists
+
+tags:
+  - code-review
+  - pull-request
+  - review
+  - quality
+  - automation

@@ -27,12 +27,12 @@ description: "Dependency-ordered, traceable delivery units for feature implement
 **Purpose**: Make this repository its own consumer so the projection half
 of the flow is dogfooded here (plan D11, spec A-002).
 
-- [ ] T001 Install published spec-kit-linear 0.10.0 into this repository and onboard it to the TDS team
-  - **Traces**: A-002, FR-004 (evidence path), SC-002; outcome: `specify extension add` from the published catalog vendors `.specify/extensions/linear/`, `onboard` writes `speckit-linear.yml` bound to TDS, doctor green, `push --current` previews this feature's Project + Issues
+- [ ] T001 Install published spec-kit-linear 0.10.0 and spec-kit-code-review 0.2.1 into this repository and onboard Linear to the TDS team
+  - **Traces**: A-002, FR-004 (evidence path), SC-002; outcome: distribution catalogs added, `specify extension add` vendors both published extensions (the loop's self-review needs code-review installed — scope widened during delivery), `onboard --team-key TDS --repository spec-kit` binds Linear, doctor green, `push --current --apply` projects this feature's Project + Issues
   - **Depends on**: none
-  - **Boundaries**: `.specify/extensions/linear/**`, root `speckit-linear.yml`, `.specify/extensions.yml` (registry entries the installer writes); credentials stay in the gitignored `.speckit-linear.env`; no package/preset source changes
-  - **Evidence**: `bash .specify/extensions/linear/scripts/bash/run.sh doctor` → green; `... run.sh push --current` → renders 1 Project + 14 Issues, no error
-  - **Delivery**: single PR into 003-delivery-automation (~vendored payload + 2 config files; mechanical diff)
+  - **Boundaries**: `.specify/extensions/{linear,code-review}/**`, `.specify/extensions.yml` + `.registry`, catalog config files, generated `.agents/skills/`, `.gitignore` (extension cache; stale binding comment); root `speckit-linear.yml` and `.speckit-linear.env` stay gitignored by this repo's standing policy; no package/preset source changes
+  - **Evidence**: `bash .specify/extensions/linear/scripts/bash/run.sh doctor` → green; `... run.sh push --current --apply` → 15 operations applied (1 Project + 14 Issues in TDS)
+  - **Delivery**: single PR into 003-delivery-automation (vendored payloads + config; mechanical diff)
   - **Completion evidence**: Pending
 
 ## Phase 2: User Story 1 — The flow acts instead of reminding (P1)

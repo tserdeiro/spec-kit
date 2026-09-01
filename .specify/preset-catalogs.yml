@@ -1,0 +1,6 @@
+catalogs:
+- name: tserdeiro-spec-kit
+  url: https://raw.githubusercontent.com/tserdeiro/spec-kit/main/catalog/presets.json
+  priority: 1
+  install_allowed: true
+  description: ''

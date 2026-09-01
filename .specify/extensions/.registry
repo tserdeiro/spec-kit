@@ -18,6 +18,39 @@
       },
       "registered_skills": [],
       "installed_at": "2026-08-29T18:15:03.051790+00:00"
+    },
+    "linear": {
+      "version": "0.10.0",
+      "source": "local",
+      "manifest_hash": "sha256:d0b6634717948b738009e9b36a6ff6def8dbb751ca8a0cddd465d55b31929ae8",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "codex": [
+          "speckit.linear.onboard",
+          "speckit.linear.push",
+          "speckit.linear.status",
+          "speckit.linear.doctor"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-09-01T00:07:01.066442+00:00"
+    },
+    "code-review": {
+      "version": "0.2.1",
+      "source": "local",
+      "manifest_hash": "sha256:2202f149455930a6631d21726af3c326edcd173f71602737dee902c0427782a5",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "codex": [
+          "speckit.code-review.code-review",
+          "speckit.code-review.doctor",
+          "speckit.code-review.completions"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-09-01T00:07:02.311585+00:00"
     }
   }
 }

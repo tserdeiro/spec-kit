@@ -1,0 +1,16 @@
+# Local overrides for spec-kit-code-review. This file is gitignored: it holds
+# machine preferences only -- never delivery state, never an authoritative
+# source, never a credential, and never an executable path.
+#
+# evidence.root (optional): the evidence root for this machine. It must resolve
+# outside the consumer repository and outside every active worktree of it; a
+# path inside is rejected with exit code 2. Defaults to
+# ${XDG_STATE_HOME:-~/.local/state}/tserdeiro/spec-kit/code-review.
+#
+# evidence:
+#   root: "/absolute/path/outside/this/repository"
+#
+# log_level (optional): verbosity of this extension's own diagnostics.
+#
+# local:
+#   log_level: "info"
