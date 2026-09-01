@@ -260,6 +260,17 @@ their own branches are not this loop's concern.
    `.specify/feature.json` — per-checkout local state the CLI keeps
    gitignored — so later runs without an argument continue it. Without
    an argument, the active feature applies as-is.
+   Then verify the **feature gate** — the draft feature PR on the
+   feature branch (`NNN-slug`), the spec-review gate step 4 later
+   closes — with `gh pr view <feature-branch> --json url,isDraft
+   2>/dev/null`. When it is missing, execute the `/speckit.pr`
+   routine's **feature-PR variant** — from the feature branch, with
+   the feature's artifacts committed — before the first task: it
+   opens the canonical draft gate, and the loop continues. When it
+   exists there is nothing to do — never open another; at most
+   report its URL in passing. The gate is where a human approves
+   the spec and plan; the loop never delivers a task against a
+   feature with no gate open.
    Then reconcile Linear once with `/speckit.linear.push --hook`
    (when slash commands are unavailable, agents run
    `bash .specify/extensions/linear/scripts/bash/run.sh push --current
