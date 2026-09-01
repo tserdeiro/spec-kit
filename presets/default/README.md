@@ -29,8 +29,8 @@ for you; add it directly only when you want the templates without a role.
 Set `trunk: <branch>` in `.specify/extensions/git/git-config.yml` when a
 feature targets a branch other than GitHub's default. The feature-PR path
 in `speckit.pr` and the `speckit.implement` loop use that explicit value
-first and fall back to the GitHub default when it is absent or empty.
-The value must be a simple valid Git branch-name string, plain or enclosed
-in matching single or double quotes; numeric- or date-looking names must
-be quoted. YAML null values also fall back. Work-item PRs keep targeting
-the GitHub default.
+first and fall back to the GitHub default when it is absent, empty, or
+null. The value must load as a YAML string and pass Git branch validation;
+numeric- or date-looking names must be quoted. Resolution is owned by the
+preset's installed `scripts/resolve-delivery-base.py` helper. Work-item PRs
+keep targeting the GitHub default.

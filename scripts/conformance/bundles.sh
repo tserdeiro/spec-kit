@@ -355,193 +355,297 @@ done
 echo "ok: update"
 
 # --------------------------------------------------------------------------
-# 4. Installed delivery commands honor an explicit trunk before GitHub's
-#    default. Execute the resolver embedded in each generated skill inside a
-#    temporary consumer whose configured trunk and fake GitHub default differ.
+# 4. The installed preset owns delivery-base parsing, and its command blocks
+#    consume the helper's single validated result as inert argv data.
 # --------------------------------------------------------------------------
 
 new_consumer "trunk"
 (cd "$consumer_root" && specify bundle install product >/dev/null) ||
   fail "trunk: product bundle install failed"
 
+helper="$consumer_root/.specify/presets/default/scripts/resolve-delivery-base.py"
+[ -f "$helper" ] || fail "trunk: installed delivery-base helper is missing"
+trunk_config="$consumer_root/.specify/extensions/git/git-config.yml"
 fake_bin="$consumer_root/.conformance/bin"
+gh_calls="$consumer_root/.conformance/gh-calls.jsonl"
+git_calls="$consumer_root/.conformance/git-calls.jsonl"
 mkdir -p "$fake_bin"
-cat > "$fake_bin/gh" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${GH_CALLS:?}"
-printf '%s\n' main
-EOF
+real_git=$(command -v git)
+
+cat > "$fake_bin/gh" <<'PY'
+#!/usr/bin/env python3
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+with open(os.environ["GH_CALLS"], "a", encoding="utf-8") as stream:
+    stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
+if args[:2] == ["repo", "view"]:
+    if os.environ.get("FAIL_COMMAND") == "gh":
+        print("forced gh failure", file=sys.stderr)
+        raise SystemExit(9)
+    print(os.environ.get("GH_DEFAULT", "main"))
+elif args[:2] == ["pr", "create"]:
+    if os.environ.get("FAIL_COMMAND") == "gh-create":
+        print("forced PR-create failure", file=sys.stderr)
+        raise SystemExit(9)
+    print("https://example.invalid/pr/1")
+else:
+    print("unexpected gh argv", file=sys.stderr)
+    raise SystemExit(8)
+PY
 chmod +x "$fake_bin/gh"
 
-assert_delivery_base() {
-  skill="$consumer_root/.agents/skills/$1/SKILL.md"
-  [ -f "$skill" ] || fail "trunk: generated skill '$1' is missing"
-  resolver=$(sed -n '/delivery-base-resolution:start/,/delivery-base-resolution:end/p' "$skill")
-  [ -n "$resolver" ] || fail "trunk: generated skill '$1' has no delivery-base resolver"
-  calls="$consumer_root/.conformance/$1-gh-calls"
-  : > "$calls"
-  resolved=$(cd "$consumer_root" && GH_CALLS="$calls" PATH="$fake_bin:$PATH" sh -c "$resolver
-printf '%s' \"\$delivery_base\"")
-  [ "$resolved" = "$2" ] || fail "trunk: '$1' resolved '$resolved' instead of '$2'"
-  if [ "$3" = "local" ]; then
-    [ ! -s "$calls" ] || fail "trunk: '$1' queried GitHub despite an explicit trunk"
-  else
-    [ "$(cat "$calls")" = "repo view --json defaultBranchRef -q .defaultBranchRef.name" ] ||
-      fail "trunk: '$1' did not fall back to the GitHub default"
-  fi
-}
+cat > "$fake_bin/git" <<'PY'
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
 
-assert_invalid_delivery_base() {
-  skill="$consumer_root/.agents/skills/$1/SKILL.md"
-  resolver=$(sed -n '/delivery-base-resolution:start/,/delivery-base-resolution:end/p' "$skill")
-  calls="$consumer_root/.conformance/$1-gh-calls"
-  : > "$calls"
-  if failure=$(cd "$consumer_root" && GH_CALLS="$calls" PATH="$fake_bin:$PATH" sh -c "$resolver
-printf '%s' \"\$delivery_base\"" 2>&1); then
-    fail "trunk: '$1' accepted invalid scalar '$2'"
-  fi
-  [[ "$failure" == *"error: invalid trunk in .specify/extensions/git/git-config.yml:"* ]] ||
-    fail "trunk: '$1' did not explain invalid scalar '$2'"
-  [ ! -s "$calls" ] || fail "trunk: '$1' queried GitHub for invalid scalar '$2'"
-}
-
-trunk_config="$consumer_root/.specify/extensions/git/git-config.yml"
-set_trunk_scalar() {
-  sed '/^[[:space:]]*trunk:/d' "$trunk_config" > "$trunk_config.tmp"
-  mv "$trunk_config.tmp" "$trunk_config"
-  [ "$#" -eq 0 ] || printf 'trunk: %s\n' "$1" >> "$trunk_config"
-}
-
-assert_trunk_scalar() {
-  set_trunk_scalar "$1"
-  assert_delivery_base speckit-pr "$2" "$3"
-  assert_delivery_base speckit-implement "$2" "$3"
-}
-
-assert_invalid_trunk() {
-  set_trunk_scalar "$1"
-  assert_invalid_delivery_base speckit-pr "$1"
-  assert_invalid_delivery_base speckit-implement "$1"
-}
-
-assert_trunk_scalar release release local
-assert_trunk_scalar "'release'" release local
-assert_trunk_scalar '"release"' release local
-assert_trunk_scalar "release # maintainer's \\ note" release local
-assert_trunk_scalar '"release" # maintainer'"'"'s \\ note' release local
-assert_trunk_scalar "'release' # maintainer's \\ note" release local
-assert_trunk_scalar "'123'" 123 local
-assert_trunk_scalar '"1.2"' 1.2 local
-assert_trunk_scalar '"2026-09-01"' 2026-09-01 local
-assert_trunk_scalar "'null'" null local
-assert_trunk_scalar '"null"' null local
-assert_trunk_scalar "''" main github
-assert_trunk_scalar '""' main github
-assert_trunk_scalar '' main github
-assert_trunk_scalar '# unset' main github
-assert_trunk_scalar null main github
-assert_trunk_scalar Null main github
-assert_trunk_scalar NULL main github
-assert_trunk_scalar '~' main github
-set_trunk_scalar
-assert_delivery_base speckit-pr main github
-assert_delivery_base speckit-implement main github
-printf 'nested:\n  trunk: release\n' >> "$trunk_config"
-assert_delivery_base speckit-pr main github
-assert_delivery_base speckit-implement main github
-
-assert_invalid_trunk '!release'
-assert_invalid_trunk '&release'
-assert_invalid_trunk '*release'
-assert_invalid_trunk '|'
-assert_invalid_trunk '>'
-assert_invalid_trunk '[release]'
-assert_invalid_trunk '{release: main}'
-assert_invalid_trunk '"release\n"'
-assert_invalid_trunk '"release'
-assert_invalid_trunk true
-assert_invalid_trunk OFF
-assert_invalid_trunk 123
-assert_invalid_trunk 1.2
-assert_invalid_trunk 2026-09-01
-assert_invalid_trunk 'release$branch'
-assert_invalid_trunk '"release;branch"'
-assert_invalid_trunk bad..branch
-
-real_git=$(command -v git)
-cat > "$fake_bin/git" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "${GIT_CALLS:?}"
-if [ "$1" = check-ref-format ]; then
-  exec "${REAL_GIT:?}" "$@"
-fi
-EOF
+args = sys.argv[1:]
+with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
+    stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
+if args == ["branch", "--show-current"]:
+    print(os.environ.get("GIT_CURRENT_BRANCH", "003-feature"))
+elif args and args[0] == "check-ref-format":
+    result = subprocess.run([os.environ["REAL_GIT"], *args], check=False)
+    raise SystemExit(result.returncode)
+elif args and os.environ.get("FAIL_COMMAND") == args[0]:
+    print(f"forced {args[0]} failure", file=sys.stderr)
+    raise SystemExit(9)
+PY
 chmod +x "$fake_bin/git"
+
+json_argv() {
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1:], ensure_ascii=False, separators=(",", ":")))' "$@"
+}
+
+reset_command_logs() {
+  : > "$gh_calls"
+  : > "$git_calls"
+}
+
+set_config() {
+  printf '%b' "$1" > "$trunk_config"
+}
+
+set_missing_config() {
+  rm -f "$trunk_config"
+}
+
+run_helper() {
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_DEFAULT="${GH_DEFAULT:-main}" FAIL_COMMAND="${FAIL_COMMAND:-}" \
+    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" python3 "$helper")
+}
+
+run_helper_without_yaml() {
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_DEFAULT="${GH_DEFAULT:-main}" FAIL_COMMAND="${FAIL_COMMAND:-}" \
+    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" python3 -S "$helper")
+}
+
+assert_helper_success() {
+  if [ "$1" = __missing_file__ ]; then
+    set_missing_config
+  else
+    set_config "$1"
+  fi
+  reset_command_logs
+  GH_DEFAULT="$4"
+  output=$(run_helper)
+  unset GH_DEFAULT
+  [ "$output" = "$2" ] || fail "trunk helper emitted '$output' instead of '$2'"
+  [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch "$2")" ] ||
+    fail "trunk helper did not Git-validate '$2' as one argv element"
+  if [ "$3" = configured ]; then
+    [ ! -s "$gh_calls" ] || fail "trunk helper queried GitHub for configured '$2'"
+  else
+    [ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)" ] ||
+      fail "trunk helper did not query the GitHub default with exact argv"
+  fi
+}
+
+assert_helper_failure() {
+  set_config "$1"
+  reset_command_logs
+  if failure=$(run_helper 2>&1); then
+    fail "trunk helper accepted invalid YAML: $1"
+  fi
+  [[ "$failure" == error:* ]] || fail "trunk helper did not explain its failure"
+  [ ! -s "$gh_calls" ] || fail "trunk helper queried GitHub after invalid configuration"
+}
+
+assert_helper_success 'trunk: release\n' release configured main
+assert_helper_success 'trunk: "+"\n' + configured main
+assert_helper_success 'trunk: "@"\n' @ configured main
+assert_helper_success 'trunk: "café"\n' café configured main
+assert_helper_success 'trunk: "release;safe"\n' 'release;safe' configured main
+assert_helper_success 'trunk: |-\n  release/+@café\n' 'release/+@café' configured main
+assert_helper_success 'trunk: null\n' main fallback main
+assert_helper_success '{}\n' main fallback main
+assert_helper_success 'nested:\n  trunk: release\n' main fallback main
+assert_helper_success __missing_file__ main fallback main
+assert_helper_success 'trunk: null\n' 'fallback;safe' fallback 'fallback;safe'
+
+set_config 'trunk: release\n'
+reset_command_logs
+output=$(run_helper_without_yaml)
+[ "$output" = release ] || fail "trunk helper did not use Specify's PyYAML runtime"
+[ ! -s "$gh_calls" ] || fail "trunk helper queried GitHub during runtime fallback"
+[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch release)" ] ||
+  fail "trunk helper runtime fallback did not preserve Git validation"
+
+assert_helper_failure 'trunk: 123\n'
+assert_helper_failure 'trunk: release\ntrunk: other\n'
+assert_helper_failure '- trunk: release\n'
+assert_helper_failure 'trunk: bad..branch\n'
+
+set_config 'trunk: null\n'
+reset_command_logs
+FAIL_COMMAND=gh GH_DEFAULT=main
+if failure=$(run_helper 2>&1); then
+  fail "trunk helper ignored a GitHub lookup failure"
+fi
+[ ! -s "$git_calls" ] || fail "trunk helper validated after a failed GitHub lookup"
+[ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)" ] ||
+  fail "trunk helper ran a secondary gh command after failure"
+unset FAIL_COMMAND GH_DEFAULT
+
+set_config 'trunk: null\n'
+reset_command_logs
+GH_DEFAULT=bad..branch
+if failure=$(run_helper 2>&1); then
+  fail "trunk helper accepted an invalid GitHub fallback"
+fi
+[[ "$failure" == *"GitHub default branch is not a valid Git branch name"* ]] ||
+  fail "trunk helper did not explain invalid GitHub fallback"
+unset GH_DEFAULT
 
 pr_skill="$consumer_root/.agents/skills/speckit-pr/SKILL.md"
 implement_skill="$consumer_root/.agents/skills/speckit-implement/SKILL.md"
-pr_resolver=$(sed -n '/delivery-base-command:start/,/delivery-base-command:end/p' "$pr_skill")
 pr_create=$(sed -n '/pr-create:start/,/pr-create:end/p' "$pr_skill")
 implement_refresh=$(sed -n '/first-task-refresh:start/,/first-task-refresh:end/p' "$implement_skill")
+[ -n "$pr_create" ] || fail "trunk: installed PR-create block is missing"
+[ -n "$implement_refresh" ] || fail "trunk: installed first-task refresh is missing"
 
-assert_actual_delivery() {
-  if [ "$3" = local ]; then
-    set_trunk_scalar "$1"
-  else
-    set_trunk_scalar
-  fi
-  calls="$consumer_root/.conformance/actual-gh-calls"
-  git_calls="$consumer_root/.conformance/actual-git-calls"
-  : > "$calls"
-  : > "$git_calls"
-  resolved=$(cd "$consumer_root" && GH_CALLS="$calls" GIT_CALLS="$git_calls" \
-    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$pr_resolver")
-  [ "$resolved" = "$2" ] || fail "trunk: PR resolver emitted '$resolved' instead of '$2'"
-  create_command=$(printf '%s\n' "$pr_create" | sed "s|<resolved base for this delivery>|$resolved|")
-  (cd "$consumer_root" && GH_CALLS="$calls" GIT_CALLS="$git_calls" \
-    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$create_command" >/dev/null)
-  expected_create="pr create --draft --base $2 --title <type(scope): subject> --body <the body>"
-  if [ "$3" = local ]; then
-    [ "$(cat "$calls")" = "$expected_create" ] ||
-      fail "trunk: configured PR base did not reach the exact gh argv"
-    [ "$(cat "$git_calls")" = "check-ref-format --branch $2" ] ||
-      fail "trunk: configured PR resolver ran a secondary git command"
-  else
-    [ "$(cat "$calls")" = "repo view --json defaultBranchRef -q .defaultBranchRef.name
-$expected_create" ] || fail "trunk: fallback PR base did not reach the exact gh argv"
-    [ ! -s "$git_calls" ] || fail "trunk: fallback PR resolver ran a secondary git command"
-  fi
+render_pr_create() {
+  printf '%s\n' "$pr_create" |
+    sed "s@<feature|task|work-item>@$1@; s@<already-derived base; unused for feature>@$2@"
+}
 
-  : > "$calls"
-  : > "$git_calls"
-  (cd "$consumer_root" && GH_CALLS="$calls" GIT_CALLS="$git_calls" \
-    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$implement_refresh")
-  if [ "$3" = local ]; then
-    [ ! -s "$calls" ] || fail "trunk: configured implement refresh queried GitHub"
-    [ "$(cat "$git_calls")" = "check-ref-format --branch $2
-fetch
-merge origin/$2
-push" ] || fail "trunk: configured implement base did not reach the exact git argv"
+render_implement_refresh() {
+  printf '%s\n' "$implement_refresh" |
+    sed "s@<resolved NNN-slug feature branch>@003-feature@"
+}
+
+assert_pr_create() {
+  set_config "$3"
+  reset_command_logs
+  command=$(render_pr_create "$1" "$2")
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_DEFAULT="$5" FAIL_COMMAND="" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
+    sh -c "$command" >/dev/null)
+  create_call=$(json_argv pr create --draft --base "$4" --title '<type(scope): subject>' --body '<the body>')
+  if [ "$1" = feature ] && [ "$6" = fallback ]; then
+    [ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
+$create_call" ] || fail "trunk: fallback feature PR used incorrect gh argv"
   else
-    [ "$(cat "$calls")" = "repo view --json defaultBranchRef -q .defaultBranchRef.name" ] ||
-      fail "trunk: implement refresh did not use the GitHub fallback"
-    [ "$(cat "$git_calls")" = "fetch
-merge origin/$2
-push" ] || fail "trunk: fallback implement base did not reach the exact git argv"
+    [ "$(cat "$gh_calls")" = "$create_call" ] || fail "trunk: PR used incorrect gh argv for $1"
+  fi
+  if [ "$1" = feature ]; then
+    [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch "$4")" ] ||
+      fail "trunk: feature PR helper did not validate its exact base"
+  else
+    [ ! -s "$git_calls" ] || fail "trunk: $1 PR unexpectedly invoked the helper"
   fi
 }
 
-assert_actual_delivery release release local
-assert_actual_delivery "" main github
+assert_pr_create feature unused 'trunk: "release/+@café"\n' 'release/+@café' main configured
+assert_pr_create feature unused 'trunk: null\n' 'fallback;safe' 'fallback;safe' fallback
+assert_pr_create task 003-feature 'trunk: 123\n' 003-feature main derived
+assert_pr_create work-item main 'trunk: 123\n' main main derived
 
-grep -Fq 'targets `<delivery-base>`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
-  fail "trunk: speckit-pr does not target the resolved delivery base"
-grep -Fq 'base="<resolved base for this delivery>"' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
-  fail "trunk: speckit-pr does not retain its resolved base in a variable"
-grep -Fq 'gh pr create --draft --base "$base"' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
-  fail "trunk: speckit-pr does not quote its resolved base"
-grep -Fq 'git merge "origin/$delivery_base"' "$consumer_root/.agents/skills/speckit-implement/SKILL.md" ||
-  fail "trunk: speckit-implement does not refresh from the resolved delivery base"
+set_config 'trunk: null\n'
+reset_command_logs
+command=$(render_pr_create feature unused)
+if failure=$(cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+  GH_DEFAULT=main FAIL_COMMAND=gh REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
+  sh -c "$command" 2>&1); then
+  fail "trunk: feature PR continued after a failed GitHub lookup"
+fi
+[ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)" ] ||
+  fail "trunk: feature PR ran a secondary gh command after lookup failure"
+[ ! -s "$git_calls" ] || fail "trunk: feature PR validated after failed lookup"
+
+assert_implement_success() {
+  set_config "$1"
+  reset_command_logs
+  command=$(render_implement_refresh)
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_DEFAULT="$3" GIT_CURRENT_BRANCH=003-feature FAIL_COMMAND="" \
+    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$command")
+  expected_git="$(json_argv branch --show-current)
+$(json_argv check-ref-format --branch "$2")
+$(json_argv fetch origin)
+$(json_argv merge "origin/$2")
+$(json_argv push origin 003-feature)"
+  [ "$(cat "$git_calls")" = "$expected_git" ] ||
+    fail "trunk: implement refresh used incorrect git argv for '$2'"
+  if [ "$4" = configured ]; then
+    [ ! -s "$gh_calls" ] || fail "trunk: configured implement refresh queried GitHub"
+  else
+    [ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)" ] ||
+      fail "trunk: fallback implement refresh used incorrect gh argv"
+  fi
+}
+
+assert_implement_success 'trunk: "release/+@café"\n' 'release/+@café' main configured
+assert_implement_success 'trunk: null\n' 'fallback;safe' 'fallback;safe' fallback
+
+command=$(render_implement_refresh)
+set_config 'trunk: release\n'
+reset_command_logs
+if failure=$(cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+  GH_DEFAULT=main GIT_CURRENT_BRANCH=wrong FAIL_COMMAND="" REAL_GIT="$real_git" \
+  PATH="$fake_bin:$PATH" sh -c "$command" 2>&1); then
+  fail "trunk: implement refresh accepted the wrong current branch"
+fi
+[ "$(cat "$git_calls")" = "$(json_argv branch --show-current)" ] ||
+  fail "trunk: wrong-branch refresh mutated Git state"
+[ ! -s "$gh_calls" ] || fail "trunk: wrong-branch refresh queried GitHub"
+
+assert_implement_failure() {
+  set_config "$1"
+  reset_command_logs
+  command=$(render_implement_refresh)
+  if failure=$(cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_DEFAULT=main GIT_CURRENT_BRANCH=003-feature FAIL_COMMAND="$2" \
+    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$command" 2>&1); then
+    fail "trunk: implement refresh ignored forced $2 failure"
+  fi
+  [ "$(cat "$git_calls")" = "$3" ] || fail "trunk: implement did not stop after $2 failure"
+  [ "$(cat "$gh_calls")" = "$4" ] || fail "trunk: implement ran secondary gh work after $2 failure"
+}
+
+branch_call=$(json_argv branch --show-current)
+check_release=$(json_argv check-ref-format --branch release)
+repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
+assert_implement_failure 'trunk: null\n' gh "$branch_call" "$repo_view"
+assert_implement_failure 'trunk: release\n' fetch "$branch_call
+$check_release
+$(json_argv fetch origin)" ""
+assert_implement_failure 'trunk: release\n' merge "$branch_call
+$check_release
+$(json_argv fetch origin)
+$(json_argv merge origin/release)" ""
+
+grep -Fq 'python3 .specify/presets/default/scripts/resolve-delivery-base.py' "$pr_skill" ||
+  fail "trunk: PR command does not invoke the installed helper"
+grep -Fq 'git merge "$remote/$delivery_base"' "$implement_skill" ||
+  fail "trunk: implement command does not quote the helper result"
 
 echo "ok: trunk"
 echo "conformance passed"

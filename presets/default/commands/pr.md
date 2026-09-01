@@ -27,73 +27,10 @@ GitHub.
 ## 2. Guarantee the branch invariant
 
 The branch is what projects the task to *In Progress*; it must exist and
-follow the convention before the PR opens. When step 1 resolved the
-**feature PR**, run this resolver and capture its single stdout line as
-the literal `<delivery-base>` used below:
-
-```bash
-# delivery-base-command:start
-# delivery-base-resolution:start
-trunk_config=.specify/extensions/git/git-config.yml
-trunk_error() {
-  printf 'error: invalid trunk in %s: %s\n' "$trunk_config" "$1" >&2
-  exit 2
-}
-trunk_raw=$(awk '/^trunk:([[:space:]]|$)/ { sub(/^trunk:[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit }' \
-  "$trunk_config" 2>/dev/null || true)
-trunk_quoted=false
-case "$trunk_raw" in
-  \"*) trunk_quote='"'; trunk_quoted=true ;;
-  \'*) trunk_quote="'"; trunk_quoted=true ;;
-esac
-if [ "$trunk_quoted" = true ]; then
-  delivery_base=$(printf '%s\n' "$trunk_raw" | awk -v quote="$trunk_quote" '
-    {
-      line=substr($0, 2); closing=index(line, quote)
-      if (closing == 0) exit 1
-      value=substr(line, 1, closing - 1); tail=substr(line, closing + 1)
-      if (tail !~ /^[[:space:]]*$/ && tail !~ /^[[:space:]]+#/) exit 1
-      print value; valid=1
-    }
-    END { if (!valid) exit 1 }
-  ') || trunk_error 'quotes must match and enclose one simple string'
-else
-  delivery_base=$(printf '%s\n' "$trunk_raw" | sed 's/^#.*$//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')
-  case "$delivery_base" in
-    *\\*) trunk_error 'escapes are not supported' ;;
-    *\"*|*\'*) trunk_error 'quotes must match and enclose the whole value' ;;
-  esac
-  case "$delivery_base" in
-    "") ;;
-    null|Null|NULL|\~) delivery_base="" ;;
-    [Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Yy][Ee][Ss]|[Nn][Oo]|[Oo][Nn]|[Oo][Ff][Ff]|[Yy]|[Nn])
-      trunk_error 'plain YAML booleans are not branch-name strings' ;;
-    \!*|\&*|\**|\|*|\>*|\[*|\{*) trunk_error 'YAML tags, anchors, aliases, block, and flow values are not supported' ;;
-    *[[:space:]]*) trunk_error 'the value must be one simple branch-name string' ;;
-    [A-Za-z_]*) ;;
-    *) trunk_error 'unquoted branch names must start with an ASCII letter or underscore; quote numeric-looking names' ;;
-  esac
-fi
-case "$delivery_base" in
-  *[!A-Za-z0-9._/-]*) trunk_error 'branch names may contain only ASCII letters, digits, dot, underscore, slash, and hyphen' ;;
-esac
-if [ -n "$delivery_base" ] && ! git check-ref-format --branch "$delivery_base" >/dev/null 2>&1; then
-  trunk_error "'$delivery_base' is not a valid branch name"
-fi
-if [ -z "$delivery_base" ]; then
-  delivery_base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
-fi
-# delivery-base-resolution:end
-printf '%s\n' "$delivery_base"
-# delivery-base-command:end
-```
-
-An explicit non-empty `trunk:` value wins; otherwise the GitHub default
-applies. The PR's **base** follows from what is delivered: a feature task
-targets its **feature branch** (`NNN-slug`); a work item targets the
-**GitHub default**
-(`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`); the
-feature PR targets `<delivery-base>`.
+follow the convention before the PR opens. The PR's **base** follows from
+what is delivered: a feature task targets its already-derived **feature
+branch** (`NNN-slug`); a work item targets its already-derived **GitHub
+default**; the feature PR resolves its delivery base at creation time.
 
 - Correctly named branch checked out → continue.
 - On the base branch or a misnamed branch with the work committed →
@@ -150,15 +87,21 @@ cover the spec with nothing missing and nothing extra?
 
 ```bash
 # pr-create:start
-base="<resolved base for this delivery>"
+set -e
+delivery_kind="<feature|task|work-item>"
+derived_base="<already-derived base; unused for feature>"
+case "$delivery_kind" in
+  feature) base=$(python3 .specify/presets/default/scripts/resolve-delivery-base.py) ;;
+  task|work-item) base="$derived_base" ;;
+  *) printf 'error: unknown delivery kind: %s\n' "$delivery_kind" >&2; exit 2 ;;
+esac
 gh pr create --draft --base "$base" --title "<type(scope): subject>" --body "<the body>"
 # pr-create:end
 ```
 
-The literal assigned to `base` is the feature branch for a feature task;
-the repository's GitHub default for a work item; the captured
-`<delivery-base>` for the feature PR. Do not rely on a variable from the
-earlier resolver shell.
+Replace the two literals with the delivery kind and its already-derived
+base. The feature variant ignores `derived_base` and captures the helper's
+single validated stdout line directly into `base`.
 The feature PR's title is `feat(<area>): <feature outcome>`.
 
 Title in English, `type(scope): subject`, matching the branch's commit.

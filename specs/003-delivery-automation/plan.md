@@ -107,11 +107,11 @@ causes stay recorded in `docs/dogfooding.md`.
 ### D4. Trunk key in the git extension's consumer config
 
 - **Decision**: `trunk: <branch>` in the consumer's
-  `.specify/extensions/git/git-config.yml`; the feature-PR path in
-  `pr.md` and the `implement-append.md` loop resolve the delivery base
-  as: explicit `trunk:` key → else
-  `gh repo view --json defaultBranchRef`. Documented in the preset README
-  and the root README.
+  `.specify/extensions/git/git-config.yml`; one preset-owned Python helper
+  loads it with PyYAML SafeLoader, rejects duplicate keys and invalid root
+  or value types, and validates the explicit trunk or GitHub-default
+  fallback with Git. The feature-PR path and first-task implement refresh
+  invoke the installed helper. Documented in the preset and root READMEs.
 - **Rationale**: the file is committed, consumer-owned configuration the
   team already edits; upstream ignores unknown keys; no per-machine
   state (rejected: `git config`), no upstream schema intrusion
@@ -257,6 +257,7 @@ presets/default/commands/implement-append.md   # step 0 gate, reconcile calls, f
 presets/default/commands/pr.md                 # trunk resolution
 presets/default/commands/doctor.md             # platform checks
 presets/default/README.md                      # trunk key, phase-close behavior
+presets/default/scripts/resolve-delivery-base.py # safe YAML + Git validation
 packages/spec-kit-linear/src/spec_kit_linear/parser.py    # fence handling
 packages/spec-kit-linear/src/spec_kit_linear/{cli,config}.py  # unlinked guard
 packages/spec-kit-linear/tests/                # new cases
