@@ -36,6 +36,67 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(raised.exception.diagnostics[0].code, "task_duplicate")
 
 
+class FenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary, self.fixture_root = copy_consumer_fixture()
+        self.feature_dir = self.fixture_root / "specs/001-local-projection"
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_fences_are_ignored_for_titles_phases_and_tasks(self) -> None:
+        spec = self.feature_dir / "spec.md"
+        spec.write_text(
+            "```markdown\n# Fenced spec title\n```\n\n" + spec.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        plan = self.feature_dir / "plan.md"
+        plan.write_text(
+            "~~~markdown\n# Fenced plan title\n~~~\n\n" + plan.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        (self.feature_dir / "tasks.md").write_text(
+            "# Tasks\n\n"
+            "```markdown\n"
+            "## Phase 98: Backtick example\n"
+            "- [x] T001 Checked example\n"
+            "```\n\n"
+            "~~~markdown\n"
+            "## Phase 99: Tilde example\n"
+            "- [ ] T002 Unchecked example\n"
+            "~~~\n\n"
+            "## Phase 1: Real work\n\n"
+            "- [ ] T001 Real task\n",
+            encoding="utf-8",
+        )
+
+        feature = parse_feature(self.fixture_root, self.feature_dir)
+
+        self.assertEqual(feature.title, "Local projection")
+        self.assertEqual(feature.plan_title, "Local projection plan")
+        self.assertEqual([phase.number for phase in feature.phases], [1])
+        self.assertEqual([task.identifier for task in feature.phases[0].tasks], ["T001"])
+
+    def test_template_task_format_section_parses_without_deletion(self) -> None:
+        template = (
+            Path(__file__).parents[4] / "presets/default/templates/tasks-template.md"
+        ).read_text(encoding="utf-8")
+        format_start = template.index("## Task block format")
+        fence_start = template.index("```markdown", format_start)
+        fence_end = template.index("\n```", fence_start) + len("\n```")
+        (self.feature_dir / "tasks.md").write_text(
+            template[:fence_end]
+            + "\n\n## Phase 1: Real work\n\n"
+            + "- [ ] T101 Parse the generated artifact\n",
+            encoding="utf-8",
+        )
+
+        feature = parse_feature(self.fixture_root, self.feature_dir)
+
+        self.assertEqual([phase.number for phase in feature.phases], [1])
+        self.assertEqual([task.identifier for task in feature.phases[0].tasks], ["T101"])
+
+
 class TaskBodyTests(unittest.TestCase):
     """The task body is the indented run of lines right under its checkbox."""
 
