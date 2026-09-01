@@ -295,7 +295,17 @@ their own branches are not this loop's concern.
    once it exists, reconcile with `/speckit.linear.push --hook`.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review
-   with `/speckit.code-review` and fix what it finds. Then, in the PR's
+   with `/speckit.code-review`, orchestrated like the tasks: on hosts
+   with sub-agents, open the review session but neither read the packet
+   nor write the findings yourself — hand the packet path and the
+   candidate context to a **fresh sub-agent** with no implementation
+   residue, which reads the packet in full, reviews the candidate, and
+   writes `findings.json` **inside the review session directory**; close
+   the review with that file. Without sub-agents, run the review
+   yourself — findings still written inside the session directory, fresh
+   per review, never copied from an earlier one. That independence is
+   what makes the verdict worth anything: a reused findings file is not
+   a review. Fix what it finds on the task branch. Then, in the PR's
    **final commit**, check the task's box and fill its **Completion
    evidence** (the PR and the verification results; a task split into
    stacked PRs checks it in the stack's last PR), push, and mark the PR
