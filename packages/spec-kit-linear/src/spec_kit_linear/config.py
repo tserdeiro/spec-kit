@@ -24,6 +24,13 @@ UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
     re.IGNORECASE,
 )
+
+# The exact ID value `config/speckit-linear.template.yml` ships in every ID
+# field. Finding it in a loaded config means `onboard` never bound this
+# repository, and the diagnosis must land before any network call (plan D7):
+# validate_config rejects it ahead of the per-field UUID checks, whose bare
+# "must be a UUID" would not name the remediation.
+PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 SECRET_KEY_RE = re.compile(r"(?:api[_-]?key|token|secret|password|operator|identity)", re.IGNORECASE)
 
@@ -100,10 +107,10 @@ def load_yaml_subset(path: Path) -> dict[str, Any]:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError as error:
         raise AppError(
-            f"configuration file not found: {path}",
+            f"repository is not linked to Linear — run onboard to bind it (expected {path})",
             code=3,
             category="configuration",
-            diagnostics=[Diagnostic("config_missing", "configuration file is required", str(path))],
+            diagnostics=[Diagnostic("config_missing", "run onboard to create the configuration and bind this repository", str(path))],
         ) from error
     except UnicodeDecodeError as error:
         raise AppError(
@@ -464,6 +471,8 @@ def validate_config(config: dict[str, Any], source: Path, *, allow_unbound_repos
         )
     linear = _mapping(config, "linear", source)
     repository = _mapping(config, "repository", source)
+    if not allow_unbound_repository:
+        _reject_placeholder_ids((("linear", linear), ("repository", repository)), source)
     _required_uuid(linear, "workspace_id", source)
     _required_uuid(linear, "team_id", source)
     _required_string(linear, "team_key", source)
@@ -483,6 +492,32 @@ def validate_config(config: dict[str, Any], source: Path, *, allow_unbound_repos
         _required_uuid(repository, "issue_view_id", source)
     _validate_lifecycle_section(config, source)
     _validate_hooks_section(config, source)
+
+
+def _reject_placeholder_ids(sections: tuple[tuple[str, dict[str, Any]], ...], source: Path) -> None:
+    """Fail closed (code 3) while the config still carries the template's zeroed IDs.
+
+    Skipped under ``allow_unbound_repository`` so ``onboard`` can validate the
+    merged config it is in the middle of binding.
+    """
+
+    placeholders = [
+        f"{name}.{key}"
+        for name, section in sections
+        for key, value in section.items()
+        if value == PLACEHOLDER_ID
+    ]
+    if not placeholders:
+        return
+    raise AppError(
+        "configuration is still the template — run onboard to bind this repository",
+        code=3,
+        category="configuration",
+        diagnostics=[
+            Diagnostic("config_placeholder", f"'{key}' still carries the template placeholder; run onboard", str(source))
+            for key in placeholders
+        ],
+    )
 
 
 _HOOKS_KEYS = frozenset({"lifecycle_enabled", "auto_apply"})
