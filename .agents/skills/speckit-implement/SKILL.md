@@ -295,10 +295,11 @@ their own branches are not this loop's concern.
    once it exists, reconcile with `/speckit.linear.push --hook`.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review
-   with `/speckit.code-review`, orchestrated like the tasks: on hosts
+   that PR with `/speckit.code-review <PR number>` — only the PR form
+   opens a review session — orchestrated like the tasks: on hosts
    with sub-agents, open the review session but neither read the packet
-   nor write the findings yourself — hand the packet path and the
-   candidate context to a **fresh sub-agent** with no implementation
+   nor write the findings yourself — hand the packet path, and nothing
+   else, to a **fresh sub-agent** with no implementation
    residue, which reads the packet in full, reviews the candidate, and
    writes `findings.json` **inside the review session directory**; close
    the review with that file. Without sub-agents, run the review
