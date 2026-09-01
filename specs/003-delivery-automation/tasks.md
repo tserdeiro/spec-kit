@@ -116,13 +116,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
 **Goal**: generated artifacts parse; docs match validators; trunk configurable.
 **Independent test**: template-section fixture parses; documented findings close first try; `trunk:` respected.
 
-- [ ] T009 Tasks parser ignores fenced blocks in spec-kit-linear
+- [x] T009 Tasks parser ignores fenced blocks in spec-kit-linear
   - **Traces**: FR-008, SC-004; outcome: ``` and ~~~ fences skipped for title/phase/task matching; the tasks template's instructive section parses without manual deletion; existing files parse identically
   - **Depends on**: none
   - **Boundaries**: `packages/spec-kit-linear/src/spec_kit_linear/parser.py`, tests (template-section fixture)
   - **Evidence**: `uv run --project packages/spec-kit-linear pytest` green incl. fixture built from `presets/default/templates/tasks-template.md`
   - **Delivery**: single PR into 003-delivery-automation (~60 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #52 (ready 2026-09-01, stacked on #44 for loop tooling); 13 parser tests and full 402-test linear suite passed; template fixture preserves its fenced instructional section while parsing the real task; `git diff --check` passed; fresh review no-blocking-findings (session b12bd7ea, per-session findings)
 
 - [ ] T010 Findings format: correct the docs and bind the findings path to its session (spec-kit-code-review)
   - **Traces**: FR-009, FR-011, SC-004; outcome: `commands/code-review.md` + README show `{"findings": [...]}` exactly as validated; `--findings` outside the session directory it closes is a usage error with a message naming the expected location
