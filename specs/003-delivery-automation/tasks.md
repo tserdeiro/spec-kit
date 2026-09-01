@@ -136,7 +136,7 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Traces**: FR-010, SC-006; outcome: delivery base resolves `trunk:` in `.specify/extensions/git/git-config.yml` → else GitHub default; documented in preset README and root README; this repo's own instance sets `trunk: main`
   - **Depends on**: T010
   - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}`, `presets/default/README.md`, root `README.md`, this repo's `.specify/extensions/git/git-config.yml` (consumer instance; template untouched, C-001)
-  - **Evidence**: `bash scripts/conformance/bundles.sh` green; resolution order stated in both commands
+  - **Evidence**: `bash scripts/conformance/bundles.sh` green; resolution order stated in both commands; a temporary-repo fixture with `trunk:` ≠ GitHub default exercises the resolution (SC-006 — this repo's own trunk equals its default, so the key here is only the documented example)
   - **Delivery**: single PR into 003-delivery-automation (~50 authored lines)
   - **Completion evidence**: Pending
 
