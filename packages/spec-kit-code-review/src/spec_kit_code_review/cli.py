@@ -590,6 +590,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
         _reclaim_existing_session(context, directory, diagnostics)
+        _clear_previous_review_outputs(directory)
         with prepared_environment(
             context.git,
             head_commit=candidate.head_commit,
@@ -709,6 +710,13 @@ def _reclaim_existing_session(context: CommandContext, directory: Path, diagnost
             severity="info",
         )
     )
+
+
+def _clear_previous_review_outputs(directory: Path) -> None:
+    """Make reopening the same candidate require fresh findings."""
+
+    for filename in (FINDINGS_FILENAME, FINDINGS_MARKDOWN_FILENAME, PUBLICATION_PLAN_FILENAME):
+        (directory / filename).unlink(missing_ok=True)
 
 
 def _sdd_diagnostics(resolution, sdd) -> list[Diagnostic]:
