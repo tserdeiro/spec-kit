@@ -38,7 +38,9 @@ their own branches are not this loop's concern.
      ```bash
      # first-task-refresh:start
      set -e
-     feature_branch="<resolved NNN-slug feature branch>"
+     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only --json)
+     feature_branch=$(printf '%s\n' "$paths" | python3 -c \
+       'import json, os, sys; print(os.path.basename(json.load(sys.stdin)["FEATURE_DIR"].rstrip("/")))')
      current_branch=$(git branch --show-current)
      if [ "$current_branch" != "$feature_branch" ]; then
        printf 'error: expected feature branch %s, found %s\n' "$feature_branch" "$current_branch" >&2

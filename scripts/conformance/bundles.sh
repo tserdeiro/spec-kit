@@ -543,8 +543,7 @@ render_pr_create() {
 }
 
 render_implement_refresh() {
-  printf '%s\n' "$implement_refresh" |
-    sed "s@<resolved NNN-slug feature branch>@003-feature@"
+  printf '%s\n' "$implement_refresh"
 }
 
 assert_pr_create() {
@@ -598,13 +597,14 @@ assert_implement_success() {
   reset_command_logs
   command=$(render_implement_refresh)
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
-    GH_DEFAULT="$3" GIT_CURRENT_BRANCH=003-feature FAIL_COMMAND="" \
+    GH_DEFAULT="$3" GIT_CURRENT_BRANCH='003-feature$(safe)' FAIL_COMMAND="" \
+    SPECIFY_FEATURE_DIRECTORY='specs/003-feature$(safe)' \
     REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$command")
   expected_git="$(json_argv branch --show-current)
 $(json_argv check-ref-format --branch "$2")
 $(json_argv fetch origin)
 $(json_argv merge "origin/$2")
-$(json_argv push origin 003-feature)"
+$(json_argv push origin '003-feature$(safe)')"
   [ "$(cat "$git_calls")" = "$expected_git" ] ||
     fail "trunk: implement refresh used incorrect git argv for '$2'"
   if [ "$4" = configured ]; then
@@ -623,6 +623,7 @@ set_config 'trunk: release\n'
 reset_command_logs
 if failure=$(cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
   GH_DEFAULT=main GIT_CURRENT_BRANCH=wrong FAIL_COMMAND="" REAL_GIT="$real_git" \
+  SPECIFY_FEATURE_DIRECTORY='specs/003-feature$(safe)' \
   PATH="$fake_bin:$PATH" sh -c "$command" 2>&1); then
   fail "trunk: implement refresh accepted the wrong current branch"
 fi
@@ -635,7 +636,8 @@ assert_implement_failure() {
   reset_command_logs
   command=$(render_implement_refresh)
   if failure=$(cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
-    GH_DEFAULT=main GIT_CURRENT_BRANCH=003-feature FAIL_COMMAND="$2" \
+    GH_DEFAULT=main GIT_CURRENT_BRANCH='003-feature$(safe)' FAIL_COMMAND="$2" \
+    SPECIFY_FEATURE_DIRECTORY='specs/003-feature$(safe)' \
     REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$command" 2>&1); then
     fail "trunk: implement refresh ignored forced $2 failure"
   fi
