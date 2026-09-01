@@ -61,13 +61,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
   - **Completion evidence**: PR #46 (ready 2026-08-31, stacked on #45); +16 net lines at three insertion points; bundles conformance ok; vendored push.md corroborates the --hook contract; self-review no-blocking-findings (session b0165575)
 
-- [ ] T004 Fresh-context self-review in the loop (implement-append.md)
+- [x] T004 Fresh-context self-review in the loop (implement-append.md)
   - **Traces**: FR-011, US2.4; outcome: the loop delegates packet reading and findings to a fresh sub-agent (hosts without sub-agents run it themselves), findings written inside the review session directory, never reused
   - **Depends on**: T003
   - **Boundaries**: `presets/default/commands/implement-append.md`; enforcement half lands in T010
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; this loop's own reviews delegate and write per-session findings
   - **Delivery**: single PR into 003-delivery-automation (~30 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #47 (ready 2026-08-31, stacked on #46); the rule was dogfooded on itself — a fresh sub-agent reviewed this PR, found 2 minor findings (bare code-review invocation opens no session; "candidate context" could smuggle residue), both fixed in-branch before ready; verdict no-blocking-findings (session 3d6f1348, per-session findings)
 
 ## Phase 4: User Story 3 — One command to implement (P3)
 
