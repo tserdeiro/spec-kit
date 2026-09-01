@@ -427,6 +427,9 @@ assert_invalid_trunk() {
 assert_trunk_scalar release release local
 assert_trunk_scalar "'release'" release local
 assert_trunk_scalar '"release"' release local
+assert_trunk_scalar "release # maintainer's \\ note" release local
+assert_trunk_scalar '"release" # maintainer'"'"'s \\ note' release local
+assert_trunk_scalar "'release' # maintainer's \\ note" release local
 assert_trunk_scalar "'123'" 123 local
 assert_trunk_scalar '"1.2"' 1.2 local
 assert_trunk_scalar '"2026-09-01"' 2026-09-01 local
@@ -461,11 +464,17 @@ assert_invalid_trunk OFF
 assert_invalid_trunk 123
 assert_invalid_trunk 1.2
 assert_invalid_trunk 2026-09-01
+assert_invalid_trunk 'release$branch'
+assert_invalid_trunk '"release;branch"'
 assert_invalid_trunk bad..branch
 
 grep -Fq 'targets `<delivery-base>`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
   fail "trunk: speckit-pr does not target the resolved delivery base"
-grep -Fq 'git merge origin/<delivery-base>' "$consumer_root/.agents/skills/speckit-implement/SKILL.md" ||
+grep -Fq 'base="<base>"' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
+  fail "trunk: speckit-pr does not retain its resolved base in a variable"
+grep -Fq 'gh pr create --draft --base "$base"' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
+  fail "trunk: speckit-pr does not quote its resolved base"
+grep -Fq 'git merge "origin/$delivery_base"' "$consumer_root/.agents/skills/speckit-implement/SKILL.md" ||
   fail "trunk: speckit-implement does not refresh from the resolved delivery base"
 
 echo "ok: trunk"

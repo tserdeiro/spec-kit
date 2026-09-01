@@ -39,14 +39,10 @@ trunk_error() {
 }
 trunk_raw=$(awk '/^trunk:([[:space:]]|$)/ { sub(/^trunk:[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit }' \
   "$trunk_config" 2>/dev/null || true)
-case "$trunk_raw" in
-  *\\*) trunk_error 'escapes are not supported' ;;
-esac
 trunk_quoted=false
 case "$trunk_raw" in
   \"*) trunk_quote='"'; trunk_quoted=true ;;
   \'*) trunk_quote="'"; trunk_quoted=true ;;
-  *\"*|*\'*) trunk_error 'quotes must match and enclose the whole value' ;;
 esac
 if [ "$trunk_quoted" = true ]; then
   delivery_base=$(printf '%s\n' "$trunk_raw" | awk -v quote="$trunk_quote" '
@@ -62,6 +58,10 @@ if [ "$trunk_quoted" = true ]; then
 else
   delivery_base=$(printf '%s\n' "$trunk_raw" | sed 's/^#.*$//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')
   case "$delivery_base" in
+    *\\*) trunk_error 'escapes are not supported' ;;
+    *\"*|*\'*) trunk_error 'quotes must match and enclose the whole value' ;;
+  esac
+  case "$delivery_base" in
     "") ;;
     null|Null|NULL|\~) delivery_base="" ;;
     [Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Yy][Ee][Ss]|[Nn][Oo]|[Oo][Nn]|[Oo][Ff][Ff]|[Yy]|[Nn])
@@ -72,6 +72,9 @@ else
     *) trunk_error 'unquoted branch names must start with an ASCII letter or underscore; quote numeric-looking names' ;;
   esac
 fi
+case "$delivery_base" in
+  *[!A-Za-z0-9._/-]*) trunk_error 'branch names may contain only ASCII letters, digits, dot, underscore, slash, and hyphen' ;;
+esac
 if [ -n "$delivery_base" ] && ! git check-ref-format --branch "$delivery_base" >/dev/null 2>&1; then
   trunk_error "'$delivery_base' is not a valid branch name"
 fi
@@ -142,7 +145,8 @@ cover the spec with nothing missing and nothing extra?
 ## 5. Open the draft
 
 ```bash
-gh pr create --draft --base <base> --title "<type(scope): subject>" --body "<the body>"
+base="<base>"
+gh pr create --draft --base "$base" --title "<type(scope): subject>" --body "<the body>"
 ```
 
 `<base>` is the feature branch for a feature task; the repository's

@@ -41,14 +41,10 @@ their own branches are not this loop's concern.
    }
    trunk_raw=$(awk '/^trunk:([[:space:]]|$)/ { sub(/^trunk:[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit }' \
      "$trunk_config" 2>/dev/null || true)
-   case "$trunk_raw" in
-     *\\*) trunk_error 'escapes are not supported' ;;
-   esac
    trunk_quoted=false
    case "$trunk_raw" in
      \"*) trunk_quote='"'; trunk_quoted=true ;;
      \'*) trunk_quote="'"; trunk_quoted=true ;;
-     *\"*|*\'*) trunk_error 'quotes must match and enclose the whole value' ;;
    esac
    if [ "$trunk_quoted" = true ]; then
      delivery_base=$(printf '%s\n' "$trunk_raw" | awk -v quote="$trunk_quote" '
@@ -64,6 +60,10 @@ their own branches are not this loop's concern.
    else
      delivery_base=$(printf '%s\n' "$trunk_raw" | sed 's/^#.*$//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')
      case "$delivery_base" in
+       *\\*) trunk_error 'escapes are not supported' ;;
+       *\"*|*\'*) trunk_error 'quotes must match and enclose the whole value' ;;
+     esac
+     case "$delivery_base" in
        "") ;;
        null|Null|NULL|\~) delivery_base="" ;;
        [Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Yy][Ee][Ss]|[Nn][Oo]|[Oo][Nn]|[Oo][Ff][Ff]|[Yy]|[Nn])
@@ -74,6 +74,9 @@ their own branches are not this loop's concern.
        *) trunk_error 'unquoted branch names must start with an ASCII letter or underscore; quote numeric-looking names' ;;
      esac
    fi
+   case "$delivery_base" in
+     *[!A-Za-z0-9._/-]*) trunk_error 'branch names may contain only ASCII letters, digits, dot, underscore, slash, and hyphen' ;;
+   esac
    if [ -n "$delivery_base" ] && ! git check-ref-format --branch "$delivery_base" >/dev/null 2>&1; then
      trunk_error "'$delivery_base' is not a valid branch name"
    fi
@@ -90,7 +93,7 @@ their own branches are not this loop's concern.
    - On the **first task of the feature**, bring the repository's
      up-to-date delivery base into the feature branch (`NNN-slug`):
      `git fetch`, then on the feature branch
-     `git merge origin/<delivery-base>`, and push. Later refreshes from
+     `git merge "origin/$delivery_base"`, and push. Later refreshes from
      the delivery base are the
      developer's duty, not this loop's.
    - Create the task branch **from the up-to-date feature branch**:
