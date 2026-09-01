@@ -133,11 +133,11 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Completion evidence**: PR #53 (ready 2026-09-01, stacked on #52); documented envelope validated; outside and escaping-symlink paths rejected; reopening discards stale close artifacts; partial publication retries require the same normalized findings plan; 786 tests and 493 subtests passed; two fresh reviews found stale findings and stale partial-publication reuse, both corrected; final fresh review no-blocking-findings (session 0919ffd0)
 
 - [ ] T011 Trunk resolution: `trunk:` key read by pr.md and implement-append.md
-  - **Traces**: FR-010, SC-006; outcome: delivery base resolves `trunk:` in `.specify/extensions/git/git-config.yml` → else GitHub default; documented in preset README and root README; this repo's own instance sets `trunk: main`
+  - **Traces**: FR-010, SC-006; outcome: a deterministic preset helper resolves and Git-validates `trunk:` in `.specify/extensions/git/git-config.yml` → else GitHub default; delivery commands consume its inert output; documented in preset README and root README; this repo's own instance sets `trunk: main`
   - **Depends on**: T010
-  - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}`, `presets/default/README.md`, root `README.md`, this repo's `.specify/extensions/git/git-config.yml` (consumer instance; template untouched, C-001)
-  - **Evidence**: `bash scripts/conformance/bundles.sh` green; resolution order stated in both commands; a temporary-repo fixture with `trunk:` ≠ GitHub default exercises the resolution (SC-006 — this repo's own trunk equals its default, so the key here is only the documented example)
-  - **Delivery**: single PR into 003-delivery-automation (~50 authored lines)
+  - **Boundaries**: product bundle Git composition; `presets/default/scripts/resolve-delivery-base.py`; `presets/default/commands/{pr.md,implement-append.md}`; preset/root READMEs; this repo's consumer `git-config.yml`; `scripts/conformance/bundles.sh`; upstream Git template untouched (C-001)
+  - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers exercise helper configuration/fallback/failures and both command blocks with exact argv (SC-006)
+  - **Delivery**: two dependency-ordered PRs after the ~50-line forecast proved unsafe: helper + direct conformance (≤400 authored executable lines), then command wiring + end-to-end conformance (≤400); both target the feature chain
   - **Completion evidence**: Pending
 
 ## Phase 7: Polish and release
