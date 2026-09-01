@@ -39,7 +39,7 @@ their own branches are not this loop's concern.
      printf 'error: invalid trunk in %s: %s\n' "$trunk_config" "$1" >&2
      exit 2
    }
-   trunk_raw=$(awk '/^[[:space:]]*trunk:[[:space:]]*/ { sub(/^[[:space:]]*trunk:[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit }' \
+   trunk_raw=$(awk '/^trunk:([[:space:]]|$)/ { sub(/^trunk:[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit }' \
      "$trunk_config" 2>/dev/null || true)
    case "$trunk_raw" in
      *\\*) trunk_error 'escapes are not supported' ;;
@@ -64,11 +64,14 @@ their own branches are not this loop's concern.
    else
      delivery_base=$(printf '%s\n' "$trunk_raw" | sed 's/^#.*$//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')
      case "$delivery_base" in
+       "") ;;
        null|Null|NULL|\~) delivery_base="" ;;
        [Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Yy][Ee][Ss]|[Nn][Oo]|[Oo][Nn]|[Oo][Ff][Ff]|[Yy]|[Nn])
          trunk_error 'plain YAML booleans are not branch-name strings' ;;
        \!*|\&*|\**|\|*|\>*|\[*|\{*) trunk_error 'YAML tags, anchors, aliases, block, and flow values are not supported' ;;
        *[[:space:]]*) trunk_error 'the value must be one simple branch-name string' ;;
+       [A-Za-z_]*) ;;
+       *) trunk_error 'unquoted branch names must start with an ASCII letter or underscore; quote numeric-looking names' ;;
      esac
    fi
    if [ -n "$delivery_base" ] && ! git check-ref-format --branch "$delivery_base" >/dev/null 2>&1; then

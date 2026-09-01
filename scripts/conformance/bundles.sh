@@ -427,6 +427,9 @@ assert_invalid_trunk() {
 assert_trunk_scalar release release local
 assert_trunk_scalar "'release'" release local
 assert_trunk_scalar '"release"' release local
+assert_trunk_scalar "'123'" 123 local
+assert_trunk_scalar '"1.2"' 1.2 local
+assert_trunk_scalar '"2026-09-01"' 2026-09-01 local
 assert_trunk_scalar "'null'" null local
 assert_trunk_scalar '"null"' null local
 assert_trunk_scalar "''" main github
@@ -438,6 +441,9 @@ assert_trunk_scalar Null main github
 assert_trunk_scalar NULL main github
 assert_trunk_scalar '~' main github
 set_trunk_scalar
+assert_delivery_base speckit-pr main github
+assert_delivery_base speckit-implement main github
+printf 'nested:\n  trunk: release\n' >> "$trunk_config"
 assert_delivery_base speckit-pr main github
 assert_delivery_base speckit-implement main github
 
@@ -452,6 +458,9 @@ assert_invalid_trunk '"release\n"'
 assert_invalid_trunk '"release'
 assert_invalid_trunk true
 assert_invalid_trunk OFF
+assert_invalid_trunk 123
+assert_invalid_trunk 1.2
+assert_invalid_trunk 2026-09-01
 assert_invalid_trunk bad..branch
 
 grep -Fq 'targets `<delivery-base>`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||

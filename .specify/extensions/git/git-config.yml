@@ -14,7 +14,8 @@ branch_template: ""
 # Example: "features/{app}" expands to "features/{app}/{number}-{slug}"
 branch_prefix: ""
 
-# Simple Git branch-name string for the feature PR and first feature refresh.
+# Top-level Git branch-name string for the feature PR and first feature refresh.
+# Quote numeric- or date-looking branch names.
 # Leave empty or YAML null to use the repository's GitHub default branch.
 trunk: main
 
