@@ -124,13 +124,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Delivery**: single PR into 003-delivery-automation (~60 authored lines)
   - **Completion evidence**: PR #52 (ready 2026-09-01, stacked on #44 for loop tooling); 13 parser tests and full 402-test linear suite passed; template fixture preserves its fenced instructional section while parsing the real task; `git diff --check` passed; fresh review no-blocking-findings (session b12bd7ea, per-session findings)
 
-- [ ] T010 Findings format: correct the docs and bind the findings path to its session (spec-kit-code-review)
+- [x] T010 Findings format: correct the docs and bind the findings path to its session (spec-kit-code-review)
   - **Traces**: FR-009, FR-011, SC-004; outcome: `commands/code-review.md` + README show `{"findings": [...]}` exactly as validated; `--findings` outside the session directory it closes is a usage error with a message naming the expected location
   - **Depends on**: T009
   - **Boundaries**: `packages/spec-kit-code-review/{commands/code-review.md,README.md}`, `src/spec_kit_code_review/cli.py`, tests; validator schema unchanged
   - **Evidence**: `uv run --project packages/spec-kit-code-review pytest` green incl. path-bind cases; doc example passes the validator verbatim
   - **Delivery**: single PR into 003-delivery-automation (~70 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #53 (ready 2026-09-01, stacked on #52); documented envelope validated; outside and escaping-symlink paths rejected; reopening discards stale close artifacts; partial publication retries require the same normalized findings plan; 786 tests and 493 subtests passed; two fresh reviews found stale findings and stale partial-publication reuse, both corrected; final fresh review no-blocking-findings (session 0919ffd0)
 
 - [ ] T011 Trunk resolution: `trunk:` key read by pr.md and implement-append.md
   - **Traces**: FR-010, SC-006; outcome: delivery base resolves `trunk:` in `.specify/extensions/git/git-config.yml` → else GitHub default; documented in preset README and root README; this repo's own instance sets `trunk: main`
