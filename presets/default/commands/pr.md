@@ -28,8 +28,8 @@ GitHub.
 
 The branch is what projects the task to *In Progress*; it must exist and
 follow the convention before the PR opens. The PR's **base** follows from
-what is delivered: a feature task targets its already-derived **feature
-branch** (`NNN-slug`); a work item targets its already-derived **GitHub
+what is delivered: a feature task resolves its active feature directory
+to the **feature branch** (`NNN-slug`); a work item queries the **GitHub
 default**; the feature PR resolves its delivery base at creation time.
 
 - Correctly named branch checked out → continue.
@@ -89,19 +89,22 @@ cover the spec with nothing missing and nothing extra?
 # pr-create:start
 set -e
 delivery_kind="<feature|task|work-item>"
-derived_base="<already-derived base; unused for feature>"
 case "$delivery_kind" in
   feature) base=$(python3 .specify/presets/default/scripts/resolve-delivery-base.py) ;;
-  task|work-item) base="$derived_base" ;;
+  task)
+    paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only --json)
+    base=$(printf '%s\n' "$paths" | python3 -c \
+      'import json, os, sys; print(os.path.basename(json.load(sys.stdin)["FEATURE_DIR"].rstrip("/")))')
+    ;;
+  work-item) base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name) ;;
   *) printf 'error: unknown delivery kind: %s\n' "$delivery_kind" >&2; exit 2 ;;
 esac
 gh pr create --draft --base "$base" --title "<type(scope): subject>" --body "<the body>"
 # pr-create:end
 ```
 
-Replace the two literals with the delivery kind and its already-derived
-base. The feature variant ignores `derived_base` and captures the helper's
-single validated stdout line directly into `base`.
+Replace only the delivery-kind literal. Repository-derived branch names
+stay runtime data and reach `gh` only through the quoted `base` argument.
 The feature PR's title is `feat(<area>): <feature outcome>`.
 
 Title in English, `type(scope): subject`, matching the branch's commit.

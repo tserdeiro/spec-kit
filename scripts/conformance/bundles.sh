@@ -405,8 +405,12 @@ import subprocess
 import sys
 
 args = sys.argv[1:]
-with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
-    stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
+observed = args == ["branch", "--show-current"] or (
+    args and args[0] in {"check-ref-format", "fetch", "merge", "push"}
+)
+if observed:
+    with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
 if args == ["branch", "--show-current"]:
     print(os.environ.get("GIT_CURRENT_BRANCH", "003-feature"))
 elif args and args[0] == "check-ref-format":
@@ -415,6 +419,9 @@ elif args and args[0] == "check-ref-format":
 elif args and os.environ.get("FAIL_COMMAND") == args[0]:
     print(f"forced {args[0]} failure", file=sys.stderr)
     raise SystemExit(9)
+elif not observed:
+    result = subprocess.run([os.environ["REAL_GIT"], *args], check=False)
+    raise SystemExit(result.returncode)
 PY
 chmod +x "$fake_bin/git"
 
@@ -532,8 +539,7 @@ implement_refresh=$(sed -n '/first-task-refresh:start/,/first-task-refresh:end/p
 [ -n "$implement_refresh" ] || fail "trunk: installed first-task refresh is missing"
 
 render_pr_create() {
-  printf '%s\n' "$pr_create" |
-    sed "s@<feature|task|work-item>@$1@; s@<already-derived base; unused for feature>@$2@"
+  printf '%s\n' "$pr_create" | sed "s@<feature|task|work-item>@$1@"
 }
 
 render_implement_refresh() {
@@ -542,35 +548,42 @@ render_implement_refresh() {
 }
 
 assert_pr_create() {
-  set_config "$3"
+  set_config "$2"
   reset_command_logs
-  command=$(render_pr_create "$1" "$2")
+  command=$(render_pr_create "$1")
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
-    GH_DEFAULT="$5" FAIL_COMMAND="" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
-    sh -c "$command" >/dev/null)
-  create_call=$(json_argv pr create --draft --base "$4" --title '<type(scope): subject>' --body '<the body>')
-  if [ "$1" = feature ] && [ "$6" = fallback ]; then
-    [ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
+    GH_DEFAULT="$4" FAIL_COMMAND="" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
+    SPECIFY_FEATURE_DIRECTORY="${5:-}" sh -c "$command" >/dev/null)
+  create_call=$(json_argv pr create --draft --base "$3" --title '<type(scope): subject>' --body '<the body>')
+  if [ "$1" = task ]; then
+    [ "$(cat "$gh_calls")" = "$create_call" ] || fail "trunk: task PR used incorrect gh argv"
+  elif [ "$1" = feature ]; then
+    if [ "$6" = fallback ]; then
+      [ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
 $create_call" ] || fail "trunk: fallback feature PR used incorrect gh argv"
+    else
+      [ "$(cat "$gh_calls")" = "$create_call" ] || fail "trunk: configured feature PR used incorrect gh argv"
+    fi
   else
-    [ "$(cat "$gh_calls")" = "$create_call" ] || fail "trunk: PR used incorrect gh argv for $1"
+    [ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
+$create_call" ] || fail "trunk: work-item PR did not resolve the GitHub default"
   fi
   if [ "$1" = feature ]; then
-    [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch "$4")" ] ||
+    [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch "$3")" ] ||
       fail "trunk: feature PR helper did not validate its exact base"
   else
     [ ! -s "$git_calls" ] || fail "trunk: $1 PR unexpectedly invoked the helper"
   fi
 }
 
-assert_pr_create feature unused 'trunk: "release/+@café"\n' 'release/+@café' main configured
-assert_pr_create feature unused 'trunk: null\n' 'fallback;safe' 'fallback;safe' fallback
-assert_pr_create task 003-feature 'trunk: 123\n' 003-feature main derived
-assert_pr_create work-item main 'trunk: 123\n' main main derived
+assert_pr_create feature 'trunk: "release/+@café"\n' 'release/+@café' main '' configured
+assert_pr_create feature 'trunk: null\n' 'fallback;safe' 'fallback;safe' '' fallback
+assert_pr_create task 'trunk: 123\n' '003-feature$(safe)' main 'specs/003-feature$(safe)' derived
+assert_pr_create work-item 'trunk: 123\n' 'default$(safe)' 'default$(safe)' '' derived
 
 set_config 'trunk: null\n'
 reset_command_logs
-command=$(render_pr_create feature unused)
+command=$(render_pr_create feature)
 if failure=$(cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
   GH_DEFAULT=main FAIL_COMMAND=gh REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
   sh -c "$command" 2>&1); then
