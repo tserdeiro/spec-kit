@@ -305,9 +305,10 @@ class PushTests(CliTestCase):
     def test_push_on_the_template_placeholder_config_names_onboard_before_any_network_call(self) -> None:
         _write_template_config(self.fixture_root)
 
-        # No `_linear_client` patch and no credential in the environment: a
-        # guard running any later than load_config would surface the code-4
-        # credential error instead of this diagnosis.
+        # No `_linear_client` patch and no credential in the environment. The
+        # zeroed IDs already failed the UUID checks pre-network; what this
+        # asserts is the diagnosis itself — the "still the template" message
+        # naming onboard instead of a bare "must be a UUID".
         result, payload = self._invoke(["push", "--root", str(self.fixture_root), "--json"])
 
         self.assertEqual(result, 3)
