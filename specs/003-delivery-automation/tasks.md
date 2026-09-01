@@ -74,13 +74,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
 **Goal**: `implement` verifies/opens the feature gate itself.
 **Independent test**: run implement with no feature PR; the draft gate opens, then T-first starts.
 
-- [ ] T005 Loop step 0: verify or open the draft feature PR in implement-append.md
+- [x] T005 Loop step 0: verify or open the draft feature PR in implement-append.md
   - **Traces**: FR-003, SC-005; outcome: before the first task the loop checks the feature branch's PR and, when missing, executes the `speckit.pr` feature-variant routine (idempotent; existing PR reported, never duplicated)
   - **Depends on**: T004
   - **Boundaries**: `presets/default/commands/implement-append.md`; `pr.md` stays the routine's single owner
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; loop text names the gate as step 0 and delegates to `speckit.pr`
   - **Delivery**: single PR into 003-delivery-automation (~30 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #48 (ready 2026-08-31, stacked on #47); fresh review found 3 minor + 1 info (closed gate accepted, optional URL report, two stale cross-references) — the three minors fixed in-branch; verdict no-blocking-findings (session 6044f70f)
 
 ## Phase 5: User Story 4 — Setup diagnoses itself (P4)
 
