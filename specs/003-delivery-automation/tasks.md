@@ -53,13 +53,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
 **Goal**: the loop itself reconciles Linear and reviews with a fresh context.
 **Independent test**: drive one task; its issue moves with no human push; findings live in their session.
 
-- [ ] T003 Loop reconciliation: `push --hook` at loop start and after each transition in implement-append.md
+- [x] T003 Loop reconciliation: `push --hook` at loop start and after each transition in implement-append.md
   - **Traces**: FR-004, SC-002; outcome: loop step 0 and the transitions it causes (task branch created, PR ready) invoke `speckit.linear.push --hook`; unconfigured repos no-op silently; failures report once and never block delivery
   - **Depends on**: none
   - **Boundaries**: `presets/default/commands/implement-append.md` only; no lifecycle hook registrations (plan Alternatives)
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; during this feature's own loop, TDS issues read In Progress/In Review with no human push
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #46 (ready 2026-08-31, stacked on #45); +16 net lines at three insertion points; bundles conformance ok; vendored push.md corroborates the --hook contract; self-review no-blocking-findings (session b0165575)
 
 - [ ] T004 Fresh-context self-review in the loop (implement-append.md)
   - **Traces**: FR-011, US2.4; outcome: the loop delegates packet reading and findings to a fresh sub-agent (hosts without sub-agents run it themselves), findings written inside the review session directory, never reused
