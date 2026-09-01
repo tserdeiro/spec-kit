@@ -133,7 +133,7 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Completion evidence**: PR #53 (ready 2026-09-01, stacked on #52); documented envelope validated; outside and escaping-symlink paths rejected; reopening discards stale close artifacts; partial publication retries require the same normalized findings plan; 786 tests and 493 subtests passed; two fresh reviews found stale findings and stale partial-publication reuse, both corrected; final fresh review no-blocking-findings (session 0919ffd0)
 
 - [ ] T011 Trunk resolution: `trunk:` key read by pr.md and implement-append.md
-  - **Traces**: FR-010, SC-006; outcome: a deterministic preset helper resolves and Git-validates `trunk:` in `.specify/extensions/git/git-config.yml` → else GitHub default; delivery commands consume its inert output; documented in preset README and root README; this repo's own instance sets `trunk: main`
+  - **Traces**: FR-010, SC-006; outcome: a deterministic preset helper resolves and Git-validates a non-empty string `trunk:` in `.specify/extensions/git/git-config.yml`; absent/null/empty uses the GitHub default; delivery commands consume its inert output; documented in preset/root READMEs; this repo sets `trunk: main`
   - **Depends on**: T010
   - **Boundaries**: product bundle Git composition; `presets/default/scripts/resolve-delivery-base.py`; `presets/default/commands/{pr.md,implement-append.md}`; preset/root READMEs; this repo's consumer `git-config.yml`; `scripts/conformance/bundles.sh`; upstream Git template untouched (C-001)
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers exercise helper configuration/fallback/failures and both command blocks with exact argv (SC-006)

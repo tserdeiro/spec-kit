@@ -22,7 +22,8 @@ YAML_BOOLEANS = {
     "n",
 }
 YAML_NUMBER = re.compile(
-    r"[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?(?:e[-+]?[0-9]+)?|\.(?:inf|nan))",
+    r"[-+]?(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|"
+    r"[0-9][0-9_]*(?:\.[0-9_]*)?(?:e[-+]?[0-9]+)?|\.(?:inf|nan))",
     re.IGNORECASE,
 )
 YAML_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -156,6 +157,7 @@ def _validate(base: str, source: str) -> str:
 
 def resolve() -> str:
     trunk = _load_trunk()
+    # Empty and null are the documented opt-out forms; both use the fallback.
     if trunk:
         return _validate(trunk, f"{CONFIG_PATH} key 'trunk'")
     fallback = _run(
