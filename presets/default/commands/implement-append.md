@@ -31,16 +31,18 @@ their own branches are not this loop's concern.
    gitignored — so later runs without an argument continue it. Without
    an argument, the active feature applies as-is.
    Then verify the **feature gate** — the draft feature PR on the
-   feature branch (`NNN-slug`), the spec-review gate step 4 later
-   closes — with `gh pr view <feature-branch> --json url,isDraft
-   2>/dev/null`. When it is missing, execute the `/speckit.pr`
-   routine's **feature-PR variant** — from the feature branch, with
-   the feature's artifacts committed — before the first task: it
-   opens the canonical draft gate, and the loop continues. When it
-   exists there is nothing to do — never open another; at most
-   report its URL in passing. The gate is where a human approves
-   the spec and plan; the loop never delivers a task against a
-   feature with no gate open.
+   feature branch (`NNN-slug`), the spec-review gate a human merge
+   later closes — with `gh pr view <feature-branch> --json
+   url,isDraft,state 2>/dev/null`. Only an OPEN pull request counts.
+   When none exists, execute the `/speckit.pr` routine's
+   **feature-PR variant** — from the feature branch, with the
+   feature's artifacts committed — before the first task: it opens
+   the canonical draft gate, and the loop continues. When it is
+   open, report its URL and never open another. When it is CLOSED
+   or MERGED, stop and tell the human — a closed gate is a
+   decision, not a gap. The gate is where a human approves the spec
+   and plan; the loop never delivers a task against a feature with
+   no gate open.
    Then reconcile Linear once with `/speckit.linear.push --hook`
    (when slash commands are unavailable, agents run
    `bash .specify/extensions/linear/scripts/bash/run.sh push --current
@@ -105,8 +107,8 @@ their own branches are not this loop's concern.
    projection, so a task in review never reads as done).
 4. **Closing the feature** — when every box on the feature branch is
    checked — every task PR merged — mark the **feature PR** (the draft
-   opened when the product phase closed) `ready for review`: it now
-   shows the whole
+   gate, whether the product phase or step 0 opened it)
+   `ready for review`: it now shows the whole
    feature, composed of task PRs a human already reviewed one by one.
    Approving and merging are never yours — a human merges it into the
    default branch with a **merge commit** (no squash: the task history
