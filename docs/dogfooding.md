@@ -2,7 +2,8 @@
 
 Standing friction log: every non-automated chore, oddity, or improvement
 candidate met while delivering this repository's own work through the
-workflow. One dated entry per friction, appended as found. Items graduate
+workflow. One dated entry per friction, appended as found; each entry
+commits on its own, so phase-scoped commits stay clean. Items graduate
 into a spec (and are marked so) or stay here as candidates.
 
 ## Upstream-rooted candidates (out of distribution control)
