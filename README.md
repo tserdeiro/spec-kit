@@ -198,13 +198,20 @@ Reglas de oro:
 
 **Linear en tiempo real** (opcional, recomendado): un admin conecta GitHub
 en Linear (Settings → Integrations → GitHub), **una vez por workspace**;
-con acceso "All repositories" los repos nuevos no piden nada. El mapeo por
-equipo (draft → *In Progress*, ready → *In Review*, merged → *Done*) **lo
-deja `onboard`** al vincular el repo: crea los que faltan, jamás pisa uno
-elegido distinto. Los PRs de tarea llevan `Fixes WOR-###` y los branches
-de bugs/chores ya usan el formato que Linear vincula, así que las tarjetas
-se mueven solas; `push` sigue siendo la reconciliación que manda — sin la
-integración, todo funciona igual con `push`.
+con acceso "All repositories" los repos nuevos no piden nada. Las
+automatizaciones de PR son **por equipo**: `onboard` completa el mapeo default
+(draft → *In Progress*, ready → *In Review*, merged → *Done*), sin pisar
+una elección distinta ni tocar reglas por branch.
+
+Los PRs de tarea mergean a branches de feature, no a la default. Para que
+Linear cubra ese recorrido nativamente, configura en sus reglas de GitHub el
+branch **destino** `^\d{3}-` (regex) con el mismo mapeo. El branch
+`NNN-T###-slug` no lleva la key de Linear: `/speckit.pr` enlaza el Issue con
+`Fixes WOR-###` en el body canónico. Los branches de bugs/chores sí llevan la
+key y se enlazan por nombre. En todos los casos, `push` vuelve a derivar el
+estado observable y reconcilia aunque la automatización nativa no exista o no
+cubra el evento. Detalle: [integración GitHub de
+Linear](https://linear.app/docs/github#branch-specific-rules).
 
 **Asignación**: nativa de Linear — el harness nunca asigna a nadie, y la
 columna `ASSIGNEE` del `status` refleja la verdad. O la UI de Linear, o el

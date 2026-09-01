@@ -71,6 +71,29 @@ integration itself is a one-time human step per workspace (Linear Settings →
 Integrations → GitHub); without it, onboard warns and the mapping stays
 dormant until an admin connects it.
 
+## Native GitHub automation coverage
+
+Linear's PR automations are configured per Team, not per repository.
+`onboard` completes the Team's default mapping above, but it deliberately
+does not create or change target-branch rules. This delivery flow merges task
+PRs into feature branches such as `003-delivery-automation`, not directly
+into the repository's default branch. In Linear's GitHub workflow settings,
+configure the same status mapping for target branches matching `^\d{3}-` so
+those task PRs reach *In Progress*, *In Review*, and *Done* natively. Linear
+applies branch rules to the PR's target branch and supports regular
+expressions; see its
+[GitHub integration documentation](https://linear.app/docs/github#branch-specific-rules).
+
+Feature-task branches use `NNN-Txxx-*`, so they do not contain the Linear
+Issue key and cannot link by branch name. The canonical task PR body supplies
+the link with the closing magic word `Fixes <TEAM-123>`. Once linked, native
+PR events can move the Issue when both the Team mapping and the target-branch
+rule cover that PR.
+
+Native automation is an accelerator, not the source of truth. `push`
+re-derives state from checkboxes, branches, and PRs and reconciles the Issue
+regardless of whether the GitHub integration or its target-branch rule ran.
+
 ## Task states
 
 Every `push` and every `status` re-derives each task's state from what can be
