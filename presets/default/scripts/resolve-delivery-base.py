@@ -140,18 +140,22 @@ def _run(argv: list[str], label: str) -> str:
 
 
 def _validate(base: str, source: str) -> str:
+    if re.fullmatch(r"@\{-[1-9][0-9]*\}", base):
+        raise ResolutionError(f"{source} must not use Git reflog shorthand: {base!r}")
     try:
         result = subprocess.run(
             ["git", "check-ref-format", "--branch", base],
             check=False,
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-    except OSError as error:
+    except (OSError, ValueError) as error:
         raise ResolutionError(f"cannot validate {source}: {error}") from error
     if result.returncode != 0:
         raise ResolutionError(f"{source} is not a valid Git branch name: {base!r}")
+    if result.stdout.splitlines() != [base]:
+        raise ResolutionError(f"{source} is not a literal Git branch name: {base!r}")
     return base
 
 

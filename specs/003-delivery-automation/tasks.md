@@ -132,12 +132,20 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Delivery**: single PR into 003-delivery-automation (~70 authored lines)
   - **Completion evidence**: PR #53 (ready 2026-09-01, stacked on #52); documented envelope validated; outside and escaping-symlink paths rejected; reopening discards stale close artifacts; partial publication retries require the same normalized findings plan; 786 tests and 493 subtests passed; two fresh reviews found stale findings and stale partial-publication reuse, both corrected; final fresh review no-blocking-findings (session 0919ffd0)
 
-- [ ] T011 Trunk resolution: `trunk:` key read by pr.md and implement-append.md
-  - **Traces**: FR-010, SC-006; outcome: a deterministic preset helper resolves and Git-validates a non-empty string `trunk:` in `.specify/extensions/git/git-config.yml`; absent/null/empty uses the GitHub default; delivery commands consume its inert output; documented in preset/root READMEs; this repo sets `trunk: main`
+- [ ] T011 Deterministic trunk resolver and product Git composition
+  - **Traces**: FR-010, SC-006; outcome: the product bundle installs Git and a stdlib-only preset helper resolves and Git-validates a non-empty string `trunk:` in `.specify/extensions/git/git-config.yml`; absent/null/empty uses the GitHub default; invalid forms fail closed
   - **Depends on**: T010
-  - **Boundaries**: product bundle Git composition; `presets/default/scripts/resolve-delivery-base.py`; `presets/default/commands/{pr.md,implement-append.md}`; preset/root READMEs; this repo's consumer `git-config.yml`; `scripts/conformance/bundles.sh`; upstream Git template untouched (C-001)
-  - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers exercise helper configuration/fallback/failures and both command blocks with exact argv (SC-006)
-  - **Delivery**: two dependency-ordered PRs after the ~50-line forecast proved unsafe: helper + direct conformance (≤400 authored executable lines), then command wiring + end-to-end conformance (≤400); both target the feature chain
+  - **Boundaries**: product bundle Git composition; `presets/default/scripts/resolve-delivery-base.py`; helper conformance in `scripts/conformance/bundles.sh`; upstream Git template untouched (C-001)
+  - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers exercise configured/fallback/invalid values, inert argv, missing site packages, and command failures
+  - **Delivery**: single PR into 003-delivery-automation (≤400 authored executable lines; split from the unsafe ~50-line forecast)
+  - **Completion evidence**: Pending
+
+- [ ] T015 Wire runtime trunk resolution into feature delivery commands
+  - **Traces**: FR-010, SC-006; outcome: feature PR and first-task refresh invoke T011's helper; task/work-item PR bases derive at runtime; all repository-derived branch names remain inert argv; behavior is documented and this repo sets `trunk: main`
+  - **Depends on**: T011
+  - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}`; preset/root READMEs; this repo's consumer `git-config.yml`; command conformance in `scripts/conformance/bundles.sh`; `spec.md`/`plan.md` clarifications
+  - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers execute feature/task/work-item creation and first-task refresh with configured/fallback/metacharacter/failure cases
+  - **Delivery**: single PR into 003-delivery-automation (≤400 authored executable lines), stacked on T011
   - **Completion evidence**: Pending
 
 ## Phase 7: Polish and release
@@ -146,7 +154,7 @@ of the flow is dogfooded here (plan D11, spec A-002).
 
 - [ ] T012 Extend docs/plan.md with this round and groom docs/dogfooding.md
   - **Traces**: A-004, A-001; outcome: `docs/plan.md` gains the delivered-round entry for this feature; `docs/dogfooding.md` entries met during delivery are appended and the graduated ones marked
-  - **Depends on**: T011
+  - **Depends on**: T015
   - **Boundaries**: `docs/` only
   - **Evidence**: `git diff --check` clean; round entry cites the feature directory
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
@@ -175,12 +183,13 @@ T001 (setup, independent)
 T002 (US1, independent)
 T003 → T004 → T005 (implement-append chain)
 T006 → T007 → T008 (diagnosis chain)
-T009 → T010 → T011 (tools chain)
+T009 → T010 → T011 → T015 (tools chain)
 T012 → T013 → T014 (closing chain, after all above)
 ```
 
-One task in flight: the delivery order is T001…T014 as numbered; chains
-above only state which earlier task each one stacks on when unmerged.
+One task in flight: delivery follows file order (T001…T011, T015,
+T012…T014); chains above state which earlier task each one stacks on when
+unmerged.
 
 ## Implementation strategy
 

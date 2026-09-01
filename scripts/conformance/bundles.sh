@@ -508,6 +508,8 @@ assert_helper_failure '- trunk: release\n'
 assert_helper_failure 'trunk: |-\n  release\n'
 assert_helper_failure 'trunk: release\n  /candidate\n'
 assert_helper_failure 'trunk:\n  nested: release\n'
+assert_helper_failure 'trunk: "\\u0000"\n'
+assert_helper_failure "trunk: '@{-1}'\n"
 assert_helper_failure 'trunk: bad..branch\n'
 
 set_config 'trunk: null\n'
