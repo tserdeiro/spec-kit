@@ -391,6 +391,20 @@ printf '%s' \"\$delivery_base\"")
   fi
 }
 
+assert_invalid_delivery_base() {
+  skill="$consumer_root/.agents/skills/$1/SKILL.md"
+  resolver=$(sed -n '/delivery-base-resolution:start/,/delivery-base-resolution:end/p' "$skill")
+  calls="$consumer_root/.conformance/$1-gh-calls"
+  : > "$calls"
+  if failure=$(cd "$consumer_root" && GH_CALLS="$calls" PATH="$fake_bin:$PATH" sh -c "$resolver
+printf '%s' \"\$delivery_base\"" 2>&1); then
+    fail "trunk: '$1' accepted invalid scalar '$2'"
+  fi
+  [[ "$failure" == *"error: invalid trunk in .specify/extensions/git/git-config.yml:"* ]] ||
+    fail "trunk: '$1' did not explain invalid scalar '$2'"
+  [ ! -s "$calls" ] || fail "trunk: '$1' queried GitHub for invalid scalar '$2'"
+}
+
 trunk_config="$consumer_root/.specify/extensions/git/git-config.yml"
 set_trunk_scalar() {
   sed '/^[[:space:]]*trunk:/d' "$trunk_config" > "$trunk_config.tmp"
@@ -404,14 +418,41 @@ assert_trunk_scalar() {
   assert_delivery_base speckit-implement "$2" "$3"
 }
 
+assert_invalid_trunk() {
+  set_trunk_scalar "$1"
+  assert_invalid_delivery_base speckit-pr "$1"
+  assert_invalid_delivery_base speckit-implement "$1"
+}
+
 assert_trunk_scalar release release local
 assert_trunk_scalar "'release'" release local
 assert_trunk_scalar '"release"' release local
+assert_trunk_scalar "'null'" null local
+assert_trunk_scalar '"null"' null local
 assert_trunk_scalar "''" main github
 assert_trunk_scalar '""' main github
+assert_trunk_scalar '' main github
+assert_trunk_scalar '# unset' main github
+assert_trunk_scalar null main github
+assert_trunk_scalar Null main github
+assert_trunk_scalar NULL main github
+assert_trunk_scalar '~' main github
 set_trunk_scalar
 assert_delivery_base speckit-pr main github
 assert_delivery_base speckit-implement main github
+
+assert_invalid_trunk '!release'
+assert_invalid_trunk '&release'
+assert_invalid_trunk '*release'
+assert_invalid_trunk '|'
+assert_invalid_trunk '>'
+assert_invalid_trunk '[release]'
+assert_invalid_trunk '{release: main}'
+assert_invalid_trunk '"release\n"'
+assert_invalid_trunk '"release'
+assert_invalid_trunk true
+assert_invalid_trunk OFF
+assert_invalid_trunk bad..branch
 
 grep -Fq 'targets `<delivery-base>`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
   fail "trunk: speckit-pr does not target the resolved delivery base"

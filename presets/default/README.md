@@ -30,4 +30,6 @@ Set `trunk: <branch>` in `.specify/extensions/git/git-config.yml` when a
 feature targets a branch other than GitHub's default. The feature-PR path
 in `speckit.pr` and the `speckit.implement` loop use that explicit value
 first and fall back to the GitHub default when it is absent or empty.
+The value must be a simple valid Git branch-name string, plain or enclosed
+in matching single or double quotes; YAML null values also fall back.
 Work-item PRs keep targeting the GitHub default.

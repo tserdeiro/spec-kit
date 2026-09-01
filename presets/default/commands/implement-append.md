@@ -34,11 +34,46 @@ their own branches are not this loop's concern.
 
    ```bash
    # delivery-base-resolution:start
-   delivery_base=$(awk '$1 == "trunk:" && $2 !~ /^#/ { print $2; exit }' \
-     .specify/extensions/git/git-config.yml 2>/dev/null || true)
-   case "$delivery_base" in
-     \"*\"|\'*\') delivery_base=${delivery_base#?}; delivery_base=${delivery_base%?} ;;
+   trunk_config=.specify/extensions/git/git-config.yml
+   trunk_error() {
+     printf 'error: invalid trunk in %s: %s\n' "$trunk_config" "$1" >&2
+     exit 2
+   }
+   trunk_raw=$(awk '/^[[:space:]]*trunk:[[:space:]]*/ { sub(/^[[:space:]]*trunk:[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit }' \
+     "$trunk_config" 2>/dev/null || true)
+   case "$trunk_raw" in
+     *\\*) trunk_error 'escapes are not supported' ;;
    esac
+   trunk_quoted=false
+   case "$trunk_raw" in
+     \"*) trunk_quote='"'; trunk_quoted=true ;;
+     \'*) trunk_quote="'"; trunk_quoted=true ;;
+     *\"*|*\'*) trunk_error 'quotes must match and enclose the whole value' ;;
+   esac
+   if [ "$trunk_quoted" = true ]; then
+     delivery_base=$(printf '%s\n' "$trunk_raw" | awk -v quote="$trunk_quote" '
+       {
+         line=substr($0, 2); closing=index(line, quote)
+         if (closing == 0) exit 1
+         value=substr(line, 1, closing - 1); tail=substr(line, closing + 1)
+         if (tail !~ /^[[:space:]]*$/ && tail !~ /^[[:space:]]+#/) exit 1
+         print value; valid=1
+       }
+       END { if (!valid) exit 1 }
+     ') || trunk_error 'quotes must match and enclose one simple string'
+   else
+     delivery_base=$(printf '%s\n' "$trunk_raw" | sed 's/^#.*$//; s/[[:space:]][[:space:]]*#.*$//; s/[[:space:]]*$//')
+     case "$delivery_base" in
+       null|Null|NULL|\~) delivery_base="" ;;
+       [Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Yy][Ee][Ss]|[Nn][Oo]|[Oo][Nn]|[Oo][Ff][Ff]|[Yy]|[Nn])
+         trunk_error 'plain YAML booleans are not branch-name strings' ;;
+       \!*|\&*|\**|\|*|\>*|\[*|\{*) trunk_error 'YAML tags, anchors, aliases, block, and flow values are not supported' ;;
+       *[[:space:]]*) trunk_error 'the value must be one simple branch-name string' ;;
+     esac
+   fi
+   if [ -n "$delivery_base" ] && ! git check-ref-format --branch "$delivery_base" >/dev/null 2>&1; then
+     trunk_error "'$delivery_base' is not a valid branch name"
+   fi
    if [ -z "$delivery_base" ]; then
      delivery_base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
    fi
