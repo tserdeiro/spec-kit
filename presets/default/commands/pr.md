@@ -28,9 +28,11 @@ GitHub.
 
 The branch is what projects the task to *In Progress*; it must exist and
 follow the convention before the PR opens. When step 1 resolved the
-**feature PR**, resolve its **delivery base** once:
+**feature PR**, run this resolver and capture its single stdout line as
+the literal `<delivery-base>` used below:
 
 ```bash
+# delivery-base-command:start
 # delivery-base-resolution:start
 trunk_config=.specify/extensions/git/git-config.yml
 trunk_error() {
@@ -82,6 +84,8 @@ if [ -z "$delivery_base" ]; then
   delivery_base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
 fi
 # delivery-base-resolution:end
+printf '%s\n' "$delivery_base"
+# delivery-base-command:end
 ```
 
 An explicit non-empty `trunk:` value wins; otherwise the GitHub default
@@ -145,12 +149,16 @@ cover the spec with nothing missing and nothing extra?
 ## 5. Open the draft
 
 ```bash
-base="<base>"
+# pr-create:start
+base="<resolved base for this delivery>"
 gh pr create --draft --base "$base" --title "<type(scope): subject>" --body "<the body>"
+# pr-create:end
 ```
 
-`<base>` is the feature branch for a feature task; the repository's
-GitHub default for a work item; `<delivery-base>` for the feature PR.
+The literal assigned to `base` is the feature branch for a feature task;
+the repository's GitHub default for a work item; the captured
+`<delivery-base>` for the feature PR. Do not rely on a variable from the
+earlier resolver shell.
 The feature PR's title is `feat(<area>): <feature outcome>`.
 
 Title in English, `type(scope): subject`, matching the branch's commit.

@@ -468,9 +468,75 @@ assert_invalid_trunk 'release$branch'
 assert_invalid_trunk '"release;branch"'
 assert_invalid_trunk bad..branch
 
+real_git=$(command -v git)
+cat > "$fake_bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${GIT_CALLS:?}"
+if [ "$1" = check-ref-format ]; then
+  exec "${REAL_GIT:?}" "$@"
+fi
+EOF
+chmod +x "$fake_bin/git"
+
+pr_skill="$consumer_root/.agents/skills/speckit-pr/SKILL.md"
+implement_skill="$consumer_root/.agents/skills/speckit-implement/SKILL.md"
+pr_resolver=$(sed -n '/delivery-base-command:start/,/delivery-base-command:end/p' "$pr_skill")
+pr_create=$(sed -n '/pr-create:start/,/pr-create:end/p' "$pr_skill")
+implement_refresh=$(sed -n '/first-task-refresh:start/,/first-task-refresh:end/p' "$implement_skill")
+
+assert_actual_delivery() {
+  if [ "$3" = local ]; then
+    set_trunk_scalar "$1"
+  else
+    set_trunk_scalar
+  fi
+  calls="$consumer_root/.conformance/actual-gh-calls"
+  git_calls="$consumer_root/.conformance/actual-git-calls"
+  : > "$calls"
+  : > "$git_calls"
+  resolved=$(cd "$consumer_root" && GH_CALLS="$calls" GIT_CALLS="$git_calls" \
+    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$pr_resolver")
+  [ "$resolved" = "$2" ] || fail "trunk: PR resolver emitted '$resolved' instead of '$2'"
+  create_command=$(printf '%s\n' "$pr_create" | sed "s|<resolved base for this delivery>|$resolved|")
+  (cd "$consumer_root" && GH_CALLS="$calls" GIT_CALLS="$git_calls" \
+    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$create_command" >/dev/null)
+  expected_create="pr create --draft --base $2 --title <type(scope): subject> --body <the body>"
+  if [ "$3" = local ]; then
+    [ "$(cat "$calls")" = "$expected_create" ] ||
+      fail "trunk: configured PR base did not reach the exact gh argv"
+    [ "$(cat "$git_calls")" = "check-ref-format --branch $2" ] ||
+      fail "trunk: configured PR resolver ran a secondary git command"
+  else
+    [ "$(cat "$calls")" = "repo view --json defaultBranchRef -q .defaultBranchRef.name
+$expected_create" ] || fail "trunk: fallback PR base did not reach the exact gh argv"
+    [ ! -s "$git_calls" ] || fail "trunk: fallback PR resolver ran a secondary git command"
+  fi
+
+  : > "$calls"
+  : > "$git_calls"
+  (cd "$consumer_root" && GH_CALLS="$calls" GIT_CALLS="$git_calls" \
+    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" sh -c "$implement_refresh")
+  if [ "$3" = local ]; then
+    [ ! -s "$calls" ] || fail "trunk: configured implement refresh queried GitHub"
+    [ "$(cat "$git_calls")" = "check-ref-format --branch $2
+fetch
+merge origin/$2
+push" ] || fail "trunk: configured implement base did not reach the exact git argv"
+  else
+    [ "$(cat "$calls")" = "repo view --json defaultBranchRef -q .defaultBranchRef.name" ] ||
+      fail "trunk: implement refresh did not use the GitHub fallback"
+    [ "$(cat "$git_calls")" = "fetch
+merge origin/$2
+push" ] || fail "trunk: fallback implement base did not reach the exact git argv"
+  fi
+}
+
+assert_actual_delivery release release local
+assert_actual_delivery "" main github
+
 grep -Fq 'targets `<delivery-base>`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
   fail "trunk: speckit-pr does not target the resolved delivery base"
-grep -Fq 'base="<base>"' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
+grep -Fq 'base="<resolved base for this delivery>"' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
   fail "trunk: speckit-pr does not retain its resolved base in a variable"
 grep -Fq 'gh pr create --draft --base "$base"' "$consumer_root/.agents/skills/speckit-pr/SKILL.md" ||
   fail "trunk: speckit-pr does not quote its resolved base"
