@@ -140,25 +140,25 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Delivery**: single PR into 003-delivery-automation (≤400 authored executable lines; split from the unsafe ~50-line forecast)
   - **Completion evidence**: PR #55 (ready 2026-09-01, stacked on #53); product bundle installs the pinned Git extension; resolver reuses `pyyaml>=6.0` declared by `specify-cli` 1.0.1, rejects duplicate/invalid YAML and non-string trunks, falls back only for absent/null/empty, and validates literal Git branch argv; `python3 -S` bootstrap, configured/fallback/failure/Unicode cases, `bash scripts/conformance/bundles.sh`, syntax checks, and `git diff --check` passed; effective executable budget 368/400; fresh reviews exposed the unsafe hand parser and the final PyYAML candidate had no findings
 
-- [ ] T015 Wire runtime trunk resolution into feature delivery commands
+- [x] T015 Wire runtime trunk resolution into feature delivery commands
   - **Traces**: FR-010, SC-006; outcome: feature PR and first-task refresh invoke T011's helper; task/work-item PR bases derive at runtime; all repository-derived branch names remain inert argv; behavior is documented and this repo sets `trunk: main`
   - **Depends on**: T011
-  - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}`; preset/root READMEs; this repo's consumer `git-config.yml`; command conformance in `scripts/conformance/bundles.sh`; `spec.md`/`plan.md` clarifications
+  - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}` and `presets/default/templates/tasks-template.md`; preset/root READMEs; this repo's consumer `git-config.yml`; command conformance in `scripts/conformance/bundles.sh`; `spec.md`/`plan.md` clarifications
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers execute feature/task/work-item creation and first-task refresh with configured/fallback/metacharacter/failure cases
   - **Delivery**: single PR into 003-delivery-automation (≤400 authored executable lines), stacked on T011
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #56 (ready 2026-09-01, stacked on #55; replaces obsolete #54); feature PR and first-task refresh invoke T011's helper, task PRs and branch invariants use authoritative prerequisite JSON `BRANCH`, and work items query the GitHub default; installed command blocks passed configured/fallback/metacharacter/distinct-feature-state/wrong-branch/fetch-merge-push failure cases; generated tasks template and READMEs describe the delivery base; `bash scripts/conformance/bundles.sh`, syntax checks, and `git diff --check` passed; effective executable budget 195/400; fresh PR review no findings
 
 ## Phase 7: Polish and release
 
 **Purpose**: coherent versions, plan extended, transversal evidence.
 
-- [ ] T012 Extend docs/plan.md with this round and groom docs/dogfooding.md
+- [x] T012 Extend docs/plan.md with this round and groom docs/dogfooding.md
   - **Traces**: A-004, A-001; outcome: `docs/plan.md` gains the delivered-round entry for this feature; `docs/dogfooding.md` entries met during delivery are appended and the graduated ones marked
   - **Depends on**: T015
   - **Boundaries**: `docs/` only
   - **Evidence**: `git diff --check` clean; round entry cites the feature directory
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #57 (ready 2026-09-01, stacked on #56); `docs/plan.md` records the ready-but-unmerged round and separates T013 release preparation from human publication and consumer adoption; `docs/dogfooding.md` marks only PR-delivered work graduated and records open hook, tooling, split-stack, branch-identity, template, and worktree frictions; manual audit verified PR states/bases, Linear mappings, pins, and 368/195 budgets; `git diff --check` passed; fresh PR review no findings
 
 - [ ] T013 Release preparation: coherent version bump (preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundles)
   - **Traces**: plan Rollout; outcome: `scripts/release/publish.sh --bump` produces manifests, bundle pins, conformance pin, and changelog entries; publication itself stays human
