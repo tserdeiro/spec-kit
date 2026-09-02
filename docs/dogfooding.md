@@ -92,6 +92,11 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
    spent 20 minutes on checks the implementer had already run. A tighter
    brief ("verify claims, do not repeat experiments") halved the time on
    the next PR without losing findings.
+9. **A fix upstream in a stack does not reach the PRs already branched
+   above it.** T017's POSIX fix landed on its branch after T018 and T019
+   had branched; #62's CI stayed red until the fix was merged forward
+   (`merge(task): …` into each branch). The loop's stacking rule covers
+   creation, not later fixes on a predecessor.
 
 ## 2026-09-01 — task delivery (T002–T011, T015)
 
@@ -111,11 +116,12 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
 4. **Graduated — generated tasks required manual deletion.** T009/#52
    ignores fenced examples. Linear 0.11.0 is not released, so consumers
    still need the workaround.
-5. **Graduated — trunk parsing was reimplemented.** T011 began as a
-   hand-written YAML scalar parser and needed repeated reviews for runtime,
-   multiline, scalar, and literal-branch failures before #55 reused PyYAML
-   from Specify. The integrated resolver is 368/400 executable lines, not the
-   forecast ~50.
+5. **Superseded by T017/#60 — trunk parsing was reimplemented.** T011
+   began as a hand-written YAML scalar parser and needed repeated reviews
+   for runtime, multiline, scalar, and literal-branch failures before #55
+   reused PyYAML from Specify. The resolver reached 368/400 executable
+   lines against a ~50 forecast; the correction round replaced it with
+   three shell lines.
 6. **The T011/T015 split arrived late.** Runtime command wiring needed
    another 195 executable lines, so it became T015/#56 only after T011
    neared its budget. The task-sizing correction is recorded, not
@@ -142,7 +148,9 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
     pre/post blocks remain visible during T012; T002 covers the integrated
     product-phase path, not this surface. FR-002 remains broader than the
     delivered task scope.
-13. **Release preparation started from only one task stack.** T013 initially
+13. **Release preparation started from only one task stack** (T013 later
+    reverted by #59 and redone as T019/#62; entries 13–15 describe the
+    reverted attempt). T013 initially
     bumped versions on top of #57, but that branch did not contain the
     T002–T008 stack whose Linear changes its changelog announced. The release
     gate must integrate both reviewed stacks before version preparation; the
