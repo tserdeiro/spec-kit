@@ -15,8 +15,8 @@ causes stay recorded in `docs/dogfooding.md`.
 ## Technical context
 
 - **Language/runtime**: preset/commands are agent-executed Markdown +
-  bash launchers; packages are Python ≥3.11 (`uv`-managed, zero runtime
-  deps by policy).
+  bash launchers; packages are Python ≥3.11 (`uv`-managed); the trunk
+  helper reuses PyYAML from pinned Specify with no new consumer dependency.
 - **Primary dependencies**: pinned upstream `specify-cli` 1.0.1
   (`versions.lock.yml`); `gh` CLI for platform checks; Linear GraphQL API
   (already the linear package's only remote).
@@ -37,6 +37,7 @@ causes stay recorded in `docs/dogfooding.md`.
 | Library or API | Version in use | Documentation |
 | --- | --- | --- |
 | specify-cli (upstream) | 1.0.1 | https://github.com/github/spec-kit |
+| PyYAML (Specify runtime) | ≥6.0 | installed requirement of specify-cli 1.0.1 |
 | Linear GraphQL / GitHub integration | current | https://linear.app/developers/graphql · https://linear.app/docs/github |
 | gh CLI | consumer-installed | https://cli.github.com/manual/ |
 
@@ -109,8 +110,13 @@ causes stay recorded in `docs/dogfooding.md`.
 - **Decision**: `trunk: <branch>` in the consumer's
   `.specify/extensions/git/git-config.yml`; `pr.md` and
   `implement-append.md` resolve the delivery base as: explicit `trunk:`
-  key → else `gh repo view --json defaultBranchRef`. Documented in the
-  preset README and the root README.
+  key → else `gh repo view --json defaultBranchRef`. The feature-PR path
+  and first-task refresh invoke the helper; task PRs and first-task branch
+  invariants use the authoritative `BRANCH` from prerequisite JSON, while
+  work items query the GitHub default at creation time. Documented in the
+  preset README and the root README. The resolver uses a duplicate-rejecting
+  PyYAML `SafeLoader`; if `python3` cannot import it, it re-executes once with
+  the Python shebang of `specify` from `PATH`.
 - **Rationale**: the file is committed, consumer-owned configuration the
   team already edits; upstream ignores unknown keys; no per-machine
   state (rejected: `git config`), no upstream schema intrusion
@@ -253,6 +259,7 @@ presets/default/commands/phase-close-append.md # new: hook silence + artifact co
 presets/default/commands/tasks-append.md       # phase-close folded in
 presets/default/commands/implement-append.md   # step 0 gate, reconcile calls, fresh review, trunk
 presets/default/commands/pr.md                 # trunk resolution
+presets/default/scripts/resolve-delivery-base.py # deterministic config + Git validation
 presets/default/commands/doctor.md             # platform checks
 presets/default/README.md                      # trunk key, phase-close behavior
 packages/spec-kit-linear/src/spec_kit_linear/parser.py    # fence handling
