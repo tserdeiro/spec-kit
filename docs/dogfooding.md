@@ -76,6 +76,11 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
 5. **Conformance failed by design before release.** T013 made the default
    `bundles.sh` reject the bumped tree and left `main` red on merge until
    publication. T019 inverts the modes.
+6. **A plain `git revert` fails the repository's own naming check.** The
+   default subject (`Revert "Merge pull request …"`) is not
+   `type(scope): subject`; T016's fresh review caught it as blocking and
+   the commit was reworded. The loop has no revert path; when it needs
+   one, the subject must be authored (`revert(scope): …`).
 
 ## 2026-09-01 — task delivery (T002–T011, T015)
 
