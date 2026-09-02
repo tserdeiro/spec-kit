@@ -287,10 +287,11 @@ changed shipped content, released:
 ### Current delivery round — unattended delivery automation (2026-08-31 → 2026-09-01)
 
 [`003-delivery-automation`](../specs/003-delivery-automation/) is
-implemented in ready task PRs #44–#53 and #55–#56; obsolete #54 was closed
-and replaced by #56. It is not integrated or available to consumers: every
-task PR is unmerged, feature PR #43 remains draft, release preparation is
-T013, and integrated acceptance is T014.
+implemented and reviewed in task PRs #44–#53 and #55–#57; obsolete #54 was
+closed and replaced by #56. Merge commits are collapsing both task stacks
+into T001, but no task changes reach the feature branch until #44 lands.
+Feature PR #43 remains draft; release preparation is T013 and integrated
+acceptance is T014.
 
 - **Flow** — #44 dogfoods the released extensions in this repository;
   #45–#48 add scoped phase commits, loop reconciliation, fresh review, and

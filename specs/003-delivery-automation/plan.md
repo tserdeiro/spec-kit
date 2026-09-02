@@ -122,7 +122,8 @@ causes stay recorded in `docs/dogfooding.md`.
   state (rejected: `git config`), no upstream schema intrusion
   (rejected: `init-options.json`).
 - **Trade-off**: a preset command reads another extension's config file;
-  acceptable, both ship in every role bundle.
+  acceptable because the product and developer delivery bundles compose
+  both; the reviewer role does not execute this path.
 
 ### D5. Parser ignores fenced blocks
 
@@ -172,11 +173,10 @@ causes stay recorded in `docs/dogfooding.md`.
 ### D9. Native-automation coverage stated honestly
 
 - **Decision**: the linear package README (and a consumer note in the
-  root README) document: Linear PR automations are team-level; target-
-  branch rules are configurable and a rule for feature branches
-  (`^\d{3}-`) is required for task-PR merges to move issues natively;
-  branches carry no issue key, so linking rides the PR-body magic word;
-  `push` reconciles everything regardless.
+  root README) document: Linear PR automations are team-level and their
+  default rules cover every linked PR; target-branch rules are optional
+  overrides; task branches carry no issue key, so linking rides the
+  PR-body magic word; `push` reconciles everything regardless.
 - **Rationale**: FR-007 — Stage 7.4 promised "links natively" without
   stating the coverage conditions; the consumer run hit the gap.
 - **Trade-off**: documentation, not automation; the reconciler (D2) is

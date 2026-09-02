@@ -43,12 +43,15 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
    persistence is `.specify/feature.json`, which the specify command
    writes anyway. Two mechanisms; the hint names the one nobody needs.
 4. **Tooling installed by a task vanishes on sibling branches.** T001
-   added the loop's Linear and review commands, but a sibling from the
-   feature branch did not contain them. Both later stacks had to base on
-   T001; implicit tooling dependencies remain manual.
+   vendored the loop's Linear and review commands, but a sibling from the
+   feature branch did not contain them while T001 was unmerged. Both later
+   stacks had to base on T001. The dependency model sees code dependencies,
+   not operational tooling; the loop should treat missing loop tooling as an
+   implicit stacking dependency.
 5. **The extension installer leaves uncommittable noise.** `specify
-   extension add` writes `.specify/extensions/.cache/` and builds a
-   payload `.venv`; neither belongs in consumer commits.
+   extension add` writes `.specify/extensions/.cache/` without a shipped
+   gitignore entry and builds a payload `.venv` on first run; neither belongs
+   in consumer commits.
 
 ## 2026-09-01 — task delivery (T002–T011, T015)
 
