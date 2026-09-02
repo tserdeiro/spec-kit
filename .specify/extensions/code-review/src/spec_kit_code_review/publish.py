@@ -25,6 +25,7 @@ modes, not because of taste:
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
@@ -95,6 +96,7 @@ class PublicationPlan:
     # a count of how often a word appears in a finding's text.
     summary_marker: str
     summary_body: str
+    findings_sha256: str
     verdict_value: str = ""
     verdict_blocking: int = 0
     inline: tuple[InlineComment, ...] = ()
@@ -105,6 +107,36 @@ class PublicationPlan:
     @property
     def summary_sha256(self) -> str:
         return hashlib.sha256(self.summary_body.encode("utf-8")).hexdigest()
+
+    @property
+    def plan_sha256(self) -> str:
+        payload = {
+            "candidate_id": self.candidate_id,
+            "head_commit": self.head_commit,
+            "merge_base": self.merge_base,
+            "repository": self.repository,
+            "pr_number": self.pr_number,
+            "event": self.event,
+            "verdict": self.verdict,
+            "verdict_value": self.verdict_value,
+            "verdict_blocking": self.verdict_blocking,
+            "summary_marker": self.summary_marker,
+            "findings_sha256": self.findings_sha256,
+            "inline_comments": [
+                {
+                    "finding_id": comment.finding_id,
+                    "path": comment.path,
+                    "line": comment.line,
+                    "start_line": comment.start_line,
+                    "side": comment.side,
+                }
+                for comment in self.inline
+            ],
+            "degraded": list(self.degraded),
+            "batches": [list(batch) for batch in self.batches],
+        }
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -119,6 +151,8 @@ class PublicationPlan:
             "verdict_blocking": self.verdict_blocking,
             "summary_marker": self.summary_marker,
             "summary_sha256": self.summary_sha256,
+            "plan_sha256": self.plan_sha256,
+            "findings_sha256": self.findings_sha256,
             "summary_body": self.summary_body,
             "inline_comments": [comment.as_dict() for comment in self.inline],
             "inline_count": len(self.inline),
@@ -435,6 +469,13 @@ def build_plan(
         verdict=verdict.value,
         summary_marker=f"<!-- {SUMMARY_MARKER}:{candidate.candidate_id} -->",
         summary_body=body,
+        findings_sha256=hashlib.sha256(
+            json.dumps(
+                [finding.identity_sha256 for finding in findings],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest(),
         inline=inline,
         degraded=tuple(
             {
@@ -477,6 +518,7 @@ class PublicationResult:
     """What was actually created, and what was not."""
 
     candidate_id: str = ""
+    plan_sha256: str = ""
     executed: bool = False
     event: str = EVENT_COMMENT
     review_ids: tuple[int, ...] = ()
@@ -513,6 +555,7 @@ class PublicationResult:
             "batches_planned": self.batches_planned,
             "resumed_from": self.resumed_from,
             "candidate_id": self.candidate_id,
+            "plan_sha256": self.plan_sha256,
             "partial": self.partial,
             "failure": self.failure,
             "failure_code": self.failure_code,
@@ -636,17 +679,31 @@ def completed_batches(
     authority; the local one is what makes the question worth asking.
     """
 
-    recorded = 0
-    if (
+    resumable = bool(
         previous
         and str(previous.get("candidate_id") or "") == plan.candidate_id
         # Only a run that *failed* leaves work to resume; a completed one leaves
         # nothing.
         and previous.get("failure")
-    ):
+    )
+    recorded = 0
+    if resumable:
         recorded = int(previous.get("batches_completed") or 0)
     if not recorded:
         return 0
+    if str(previous.get("plan_sha256") or "") != plan.plan_sha256:
+        raise AppError(
+            "the partial publication belongs to a different review plan",
+            code=EXIT_USAGE,
+            diagnostics=[
+                Diagnostic(
+                    "publish_resume_plan_mismatch",
+                    "published review batches already exist for this candidate, but the current findings produce "
+                    "a different publication plan. The existing batches cannot be reused or overwritten; publish "
+                    "a new candidate instead.",
+                )
+            ],
+        )
 
     owner, _, name = (plan.repository or "").partition("/")
     reviews = github.api(
@@ -763,6 +820,7 @@ def execute(
 
     result = PublicationResult(
         candidate_id=plan.candidate_id,
+        plan_sha256=plan.plan_sha256,
         event=plan.event,
         planned_inline=len(plan.inline),
         batches_planned=max(len(plan.batches), 0),

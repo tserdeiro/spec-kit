@@ -53,6 +53,43 @@ def _line_indent(line: str) -> int:
     return len(line) - len(line.lstrip())
 
 
+def _fence_start(line: str) -> tuple[str, int] | None:
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3 or not stripped:
+        return None
+    marker = stripped[0]
+    if marker not in ("`", "~"):
+        return None
+    length = len(stripped) - len(stripped.lstrip(marker))
+    if length < 3:
+        return None
+    if marker == "`" and marker in stripped[length:]:
+        return None
+    return marker, length
+
+
+def _fence_end(line: str, marker: str, opening_length: int) -> bool:
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return False
+    candidate = stripped.rstrip(" \t")
+    return len(candidate) >= opening_length and candidate == marker * len(candidate)
+
+
+def _matchable_lines(lines: list[str]) -> list[bool]:
+    matchable: list[bool] = []
+    fence: tuple[str, int] | None = None
+    for line in lines:
+        if fence is None:
+            fence = _fence_start(line)
+            matchable.append(fence is None)
+            continue
+        matchable.append(False)
+        if _fence_end(line, *fence):
+            fence = None
+    return matchable
+
+
 def _spec_summary(path: Path) -> str:
     lines = _read_lines(path)
     headings = [
@@ -73,7 +110,10 @@ def _spec_summary(path: Path) -> str:
 
 
 def _document_title(path: Path, root: Path) -> tuple[str, SourceRef]:
-    for number, line in enumerate(_read_lines(path), start=1):
+    lines = _read_lines(path)
+    for number, (line, matchable) in enumerate(zip(lines, _matchable_lines(lines)), start=1):
+        if not matchable:
+            continue
         match = TITLE_RE.fullmatch(line)
         if match:
             title = " ".join(match.group(1).split())
@@ -106,10 +146,14 @@ def _parse_tasks(path: Path, root: Path) -> tuple[Phase, ...]:
         current_tasks = []
 
     lines = _read_lines(path)
+    matchable = _matchable_lines(lines)
     index = 0
     while index < len(lines):
         line = lines[index]
         number = index + 1
+        if not matchable[index]:
+            index += 1
+            continue
         phase_match = PHASE_RE.fullmatch(line)
         if phase_match:
             finish_phase()
@@ -181,7 +225,11 @@ def _parse_tasks(path: Path, root: Path) -> tuple[Phase, ...]:
         cursor = index + 1
         while cursor < len(lines):
             candidate = lines[cursor]
-            if not candidate.strip() or _line_indent(candidate) <= task_indent or TASK_RE.fullmatch(candidate):
+            if (
+                not candidate.strip()
+                or _line_indent(candidate) <= task_indent
+                or (matchable[cursor] and TASK_RE.fullmatch(candidate))
+            ):
                 break
             body_lines.append(candidate)
             cursor += 1
@@ -239,4 +287,3 @@ def parse_feature(root: Path, feature_dir: Path) -> Feature:
         phases=phases,
         summary=summary,
     )
-

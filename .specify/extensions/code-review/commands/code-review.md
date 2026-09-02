@@ -37,11 +37,13 @@ command.
 bash "$CR" review 128 --json
 
 # 2. close the review with the findings you produced
-bash "$CR" review --findings ./findings.json --session <session-path>
+bash "$CR" review --findings <session-path>/findings.json --session <session-path>
 ```
 
 Step 1 prints `session.path` and `packet` in its JSON. Read the packet at
-`<session-path>/review-packet.md`, produce `findings.json`, then run step 2.
+`<session-path>/review-packet.md`, write
+`<session-path>/findings.json`, then run step 2. Findings outside that session
+are refused because they cannot belong to this review.
 **Always run step 2**, including when you found nothing: it is what withdraws
 the temporary worktree and closes the session.
 
@@ -66,17 +68,19 @@ in the human render as well as in the JSON.
 ### findings.json
 
 ```json
-[
-  {
-    "path": "src/module.py",
-    "start_line": 42,
-    "end_line": 44,
-    "severity": "blocking",
-    "category": "correctness",
-    "title": "…",
-    "content": "…"
-  }
-]
+{
+  "findings": [
+    {
+      "path": "src/module.py",
+      "start_line": 42,
+      "end_line": 44,
+      "severity": "blocking",
+      "category": "correctness",
+      "title": "…",
+      "content": "…"
+    }
+  ]
+}
 ```
 
 Severities: `blocking`, `major`, `minor`, `nit`, `info`. Cite the exact lines
@@ -86,7 +90,7 @@ discarded.
 ## Publishing
 
 ```bash
-bash "$CR" review --findings ./findings.json --session <session-path> --publish
+bash "$CR" review --findings <session-path>/findings.json --session <session-path> --publish
 ```
 
 Publication is **always explicit** and only ever reaches GitHub through two

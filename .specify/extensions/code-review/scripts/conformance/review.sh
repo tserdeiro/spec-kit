@@ -238,7 +238,7 @@ test "$(git -C "$consumer_root" rev-parse --abbrev-ref HEAD)" = "$branch_before"
 grep -q -- "--rule $evidence_root" "$engine_log"
 
 # The findings the agent would produce, closed back into the session.
-cat >"$temporary_root/findings.json" <<'FINDINGS'
+cat >"$session/findings.json" <<'FINDINGS'
 {"findings": [{
   "path": "src/module.py",
   "start_line": 1,
@@ -252,14 +252,14 @@ cat >"$temporary_root/findings.json" <<'FINDINGS'
 FINDINGS
 
 set +e
-closed=$(run review --root "$consumer_root" --findings "$temporary_root/findings.json" --session "$session" --json)
+closed=$(run review --root "$consumer_root" --findings "$session/findings.json" --session "$session" --json)
 closed_code=$?
 set -e
 test "$closed_code" -eq 1  # changes-requested
 test "$(echo "$closed" | json '["verdict"]["value"]')" = "changes-requested"
 test "$(echo "$closed" | json '["verdict"]["is_approval"]')" = "False"
 test ! -d "$worktree"
-for artifact in findings.json findings.md publication-plan.json review-packet.md session.json; do
+for artifact in findings.json findings-normalized.json findings.md publication-plan.json review-packet.md session.json; do
   test -f "$session/$artifact"
 done
 test "$(git -C "$consumer_root" status --porcelain)" = "$status_before"
@@ -270,7 +270,7 @@ opened=$(run review --root "$consumer_root" --base main --head "$head_commit" --
 session=$(echo "$opened" | json '["session"]["path"]')
 printf '\nan extra line\n' >>"$session/review-packet.md"
 set +e
-run review --root "$consumer_root" --findings "$temporary_root/findings.json" --session "$session" --json >/dev/null 2>&1
+run review --root "$consumer_root" --findings "$session/findings.json" --session "$session" --json >/dev/null 2>&1
 drift_code=$?
 set -e
 test "$drift_code" -eq 8
