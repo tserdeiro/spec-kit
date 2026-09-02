@@ -190,13 +190,13 @@ preparation within budget. Nothing new in scope.
   - **Delivery**: single PR into 003-delivery-automation (mechanical revert)
   - **Completion evidence**: PR #59 (ready 2026-09-02); tree diff vs `1080a48` empty for every reverted path, only docs/specs kept at the feature-branch version; default `bundles.sh` conformance passed; linear 410 and code-review 786 tests green; fresh Sonnet review: 1 blocking (revert subject failed the `type(scope)` naming check) — commit reworded in-branch; session 1563f75b
 
-- [ ] T017 Replace the trunk resolver with shell resolution and remove C-006 from the spec
+- [x] T017 Replace the trunk resolver with shell resolution and remove C-006 from the spec
   - **Traces**: FR-010, SC-006, C-001, C-004; outcome: `presets/default/scripts/resolve-delivery-base.py` deleted; `pr.md` and `implement-append.md` resolve the delivery base in three shell lines (`sed` of `^trunk:` in `.specify/extensions/git/git-config.yml` with quotes stripped → else `gh repo view --json defaultBranchRef` → `git check-ref-format --branch`); spec C-006 removed and the trunk edge case back to its original wording; plan D4 rewritten to the shell decision; preset and root README updated; `tasks-template.md` wording kept
   - **Depends on**: T016
   - **Boundaries**: `presets/default/{commands/pr.md,commands/implement-append.md,README.md,preset.yml,scripts/}`, root `README.md`, `spec.md` (C-006 and the trunk edge case only), `plan.md` (D4 only), regenerated skills
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; a temporary repository with `trunk: dev` ≠ GitHub default resolves `dev`; no `.py` remains under `presets/default/`
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines, net negative)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #60 (ready 2026-09-02, stacked on #59); resolver deleted, net −245 lines; sed table verified on BSD and GNU sed (unquoted, double- and single-quoted, comment, empty, absent line, absent file); conformance `trunk` scenario rewritten and green; orchestrator finding (guard read an unset env var) and fresh review's 4 major + 1 nit (single quotes not stripped, pipeline masked prerequisite failures, dropped scenario case, variable names) all fixed in-branch; verdict no-blocking-findings (session 9cb19159)
 
 - [ ] T018 Fix the findings session bind in spec-kit-code-review: separate normalized output, exact-path bind, real doc-parity test
   - **Traces**: FR-009, FR-011; outcome: phase two writes its normalized document to its own filename, leaving `findings.json` as the agent's untouched input; `--findings` must equal `<session>/findings.json` (equality, not containment); the doc-parity test asserts every ```` ```json ```` fence of `commands/code-review.md` loads through `load_document`; `expanduser` failures are usage errors
