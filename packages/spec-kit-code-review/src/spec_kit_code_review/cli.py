@@ -54,6 +54,7 @@ from .github import open_github, require_github, validate_number, validate_repos
 from .session import (
     FINDINGS_FILENAME,
     FINDINGS_MARKDOWN_FILENAME,
+    FINDINGS_NORMALIZED_FILENAME,
     PUBLICATION_PLAN_FILENAME,
     PUBLICATION_RESULT_FILENAME,
     write_json,
@@ -715,7 +716,12 @@ def _reclaim_existing_session(context: CommandContext, directory: Path, diagnost
 def _clear_previous_review_outputs(directory: Path) -> None:
     """Make reopening the same candidate require fresh findings."""
 
-    for filename in (FINDINGS_FILENAME, FINDINGS_MARKDOWN_FILENAME, PUBLICATION_PLAN_FILENAME):
+    for filename in (
+        FINDINGS_FILENAME,
+        FINDINGS_NORMALIZED_FILENAME,
+        FINDINGS_MARKDOWN_FILENAME,
+        PUBLICATION_PLAN_FILENAME,
+    ):
         (directory / filename).unlink(missing_ok=True)
 
 
@@ -1300,25 +1306,35 @@ def _verify_frozen_configuration(session: ReviewSession, config, diagnostics: li
 
 
 def _findings_path_for_session(value: str, session: ReviewSession) -> Path:
-    """Resolve findings only from the session they close."""
+    """Resolve findings only from the exact file the session it closes expects.
 
-    supplied = Path(value).expanduser()
+    Equality, not containment: a sibling file living inside the session
+    directory (a stale ``findings.json`` from a prior attempt, the packet
+    itself) must be refused exactly like a path outside it, or it would
+    survive a reopen and let the next review close on reused findings.
+    """
+
     expected = session.path / FINDINGS_FILENAME
+    mismatch = AppError(
+        f"--findings must resolve inside the session it closes; expected {expected}",
+        code=EXIT_USAGE,
+        diagnostics=[
+            Diagnostic(
+                "findings_session_mismatch",
+                f"write this review's findings to {expected} and pass that path with --findings",
+                value,
+            )
+        ],
+    )
     try:
-        resolved = supplied.resolve()
-        resolved.relative_to(session.path)
+        # `expanduser` raises `RuntimeError` for a named user it cannot look up
+        # (``~nosuchuser``); inside the try, that is this usage error too,
+        # rather than an unhandled exit 9.
+        resolved = Path(value).expanduser().resolve()
     except (OSError, RuntimeError, ValueError) as error:
-        raise AppError(
-            f"--findings must resolve inside the session it closes; expected {expected}",
-            code=EXIT_USAGE,
-            diagnostics=[
-                Diagnostic(
-                    "findings_session_mismatch",
-                    f"write this review's findings to {expected} and pass that path with --findings",
-                    str(supplied),
-                )
-            ],
-        ) from error
+        raise mismatch from error
+    if resolved != expected:
+        raise mismatch
     return resolved
 
 
@@ -1428,7 +1444,13 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     )
     diagnostics.extend(plan.diagnostics)
 
-    write_json(session.path / FINDINGS_FILENAME, {**normalized.as_dict(), "verdict": review_verdict.as_dict()})
+    # `findings_path` (the agent's input, verified above to be exactly
+    # `FINDINGS_FILENAME`) is never rewritten: the normalized document is a
+    # derived artifact and gets its own name, or this write would destroy the
+    # very input `findings_sha256` below is the digest of.
+    write_json(
+        session.path / FINDINGS_NORMALIZED_FILENAME, {**normalized.as_dict(), "verdict": review_verdict.as_dict()}
+    )
     write_text(session.path / FINDINGS_MARKDOWN_FILENAME, render_findings_markdown(normalized.findings, suffix=suffix))
     write_json(session.path / PUBLICATION_PLAN_FILENAME, plan.as_dict())
 

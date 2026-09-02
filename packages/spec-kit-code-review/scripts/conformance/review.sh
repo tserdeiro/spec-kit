@@ -259,7 +259,7 @@ test "$closed_code" -eq 1  # changes-requested
 test "$(echo "$closed" | json '["verdict"]["value"]')" = "changes-requested"
 test "$(echo "$closed" | json '["verdict"]["is_approval"]')" = "False"
 test ! -d "$worktree"
-for artifact in findings.json findings.md publication-plan.json review-packet.md session.json; do
+for artifact in findings.json findings-normalized.json findings.md publication-plan.json review-packet.md session.json; do
   test -f "$session/$artifact"
 done
 test "$(git -C "$consumer_root" status --porcelain)" = "$status_before"
