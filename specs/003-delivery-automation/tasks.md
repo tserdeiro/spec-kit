@@ -166,14 +166,52 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Boundaries**: `scripts/release/publish.sh`, `scripts/release/build-release.sh`, `scripts/release/build-bundles.sh`, `scripts/conformance/bundles.sh`, manifests, changelogs, package lock, bundle pins, and conformance mode; public catalogs and `versions.lock.yml` stay on the published releases until publication can record real artifacts and digests; historical lock-hash verification is a future integrity check; no product behavior changes
   - **Evidence**: `publish.sh --bump` rolls back all touched paths when `uv lock` fails; retries always rebuild tagged extension artifacts and retain their digests even when releases already have assets; pre-remote publication preparation uses temporary artifacts, restores local commits, and removes only tags created by that invocation on failure; default conformance rejects manifest/catalog drift; tagged bundle builds read content from the tag and checksum only invocation outputs; `bash scripts/conformance/bundles.sh --local-manifests` and `scripts/release/test-publish-retry.sh` green on the bumped tree; `git diff --check` clean
   - **Delivery**: single PR into 003-delivery-automation (release preparation and publication hardening; 549 effective authored executable lines against a 700-line budget)
-  - **Completion evidence**: PR #58 (draft; ready pending); commits `59493e6` and `e13d1f7`; preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundle 0.14.0, and `uv.lock` updated; six `--local-manifests` conformance scenarios passed (product, developer, reviewer, coexist, update, and trunk); published mode rejected the expected catalog drift; Linear 410 tests and Code Review 786 tests passed; release fixtures passed; F001 was found and corrected; formal source review of candidate `e13d1f7` found no findings; GitHub 4/4 checks green. Formal review budget was 615/400, recorded as over budget; executable task budget remains 549/700.
+  - **Completion evidence**: PR #58 (draft; ready pending); commits `59493e6` and `e13d1f7`; preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundle 0.14.0, and `uv.lock` updated; six `--local-manifests` conformance scenarios passed (product, developer, reviewer, coexist, update, and trunk); published mode rejected the expected catalog drift; Linear 410 tests and Code Review 786 tests passed; release fixtures passed; F001 was found and corrected; formal source review of candidate `e13d1f7` found no findings; GitHub 4/4 checks green. Formal review budget was 615/400, recorded as over budget; executable task budget remains 549/700. **Reverted by T016** (2026-09-02 review: over the 400-line budget, `publish.sh` published on any unrecognized flag, `main` red on merge, no branch guard); redone minimally as T019.
 
 - [ ] T014 Transversal verification: SC-001…SC-006 evidence on the integrated feature branch
   - **Traces**: SC-001..SC-006; outcome: consolidated evidence — silent committed phases (this delivery's transcript/git log), TDS states with no human push, gate opened by implement, parser/findings first-try passes (0.11.0 suites), trunk resolution exercised; installed linear upgraded to 0.11.0 when its release is published
-  - **Depends on**: T013; needs the task chain merged by a human and, for the upgrade check, the published 0.11.0 release
+  - **Depends on**: T019; needs the task chain merged by a human and, for the upgrade check, the published 0.11.0 release
   - **Boundaries**: evidence recording in this file and `docs/dogfooding.md`; no source changes
   - **Evidence**: each SC's command or artifact recorded in Completion evidence
   - **Delivery**: single PR into 003-delivery-automation (evidence only)
+  - **Completion evidence**: Pending
+
+## Phase 8: Correction round (2026-09-02 review)
+
+**Purpose**: revert what the review rejected as units, replace the
+over-engineered trunk resolver, fix the findings bind, and redo release
+preparation within budget. Nothing new in scope.
+
+- [ ] T016 Revert release preparation #58 (merge `827788b`) to restore the pre-release tree
+  - **Traces**: plan Rollout, C-004; outcome: `git revert -m 1 827788b` on a task branch — manifests, pins, changelogs, `uv.lock`, release scripts, and CI back to the published 0.10.0 / 0.2.1 / 0.7.0 / 0.13.0 state; default `bundles.sh` green again
+  - **Depends on**: none
+  - **Boundaries**: the revert only, no new content
+  - **Evidence**: `bash scripts/conformance/bundles.sh` → conformance passed; both package suites green; `git diff 1080a48 -- scripts/ bundles/ packages/*/extension.yml` empty
+  - **Delivery**: single PR into 003-delivery-automation (mechanical revert)
+  - **Completion evidence**: Pending
+
+- [ ] T017 Replace the trunk resolver with shell resolution and remove C-006 from the spec
+  - **Traces**: FR-010, SC-006, C-001, C-004; outcome: `presets/default/scripts/resolve-delivery-base.py` deleted; `pr.md` and `implement-append.md` resolve the delivery base in three shell lines (`sed` of `^trunk:` in `.specify/extensions/git/git-config.yml` with quotes stripped → else `gh repo view --json defaultBranchRef` → `git check-ref-format --branch`); spec C-006 removed and the trunk edge case back to its original wording; plan D4 rewritten to the shell decision; preset and root README updated; `tasks-template.md` wording kept
+  - **Depends on**: T016
+  - **Boundaries**: `presets/default/{commands/pr.md,commands/implement-append.md,README.md,preset.yml,scripts/}`, root `README.md`, `spec.md` (C-006 and the trunk edge case only), `plan.md` (D4 only), regenerated skills
+  - **Evidence**: `bash scripts/conformance/bundles.sh` green; a temporary repository with `trunk: dev` ≠ GitHub default resolves `dev`; no `.py` remains under `presets/default/`
+  - **Delivery**: single PR into 003-delivery-automation (~40 authored lines, net negative)
+  - **Completion evidence**: Pending
+
+- [ ] T018 Fix the findings session bind in spec-kit-code-review: separate normalized output, exact-path bind, real doc-parity test
+  - **Traces**: FR-009, FR-011; outcome: phase two writes its normalized document to its own filename, leaving `findings.json` as the agent's untouched input; `--findings` must equal `<session>/findings.json` (equality, not containment); the doc-parity test asserts every ```` ```json ```` fence of `commands/code-review.md` loads through `load_document`; `expanduser` failures are usage errors
+  - **Depends on**: T017
+  - **Boundaries**: `packages/spec-kit-code-review/src/spec_kit_code_review/cli.py`, tests and golden fixtures, `commands/code-review.md` and README where the filename appears; publication semantics untouched
+  - **Evidence**: `uv run pytest packages/spec-kit-code-review/tests` green; negative tests: a sibling file inside the session is refused, the input bytes survive a close, `~nosuchuser` is a usage error
+  - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T019 Release preparation, minimal: coherent version bump and the publication guards (preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundles 0.14.0)
+  - **Traces**: plan Rollout; outcome: `publish.sh --bump` produces manifests, pins, changelogs, and `uv.lock` (rolling back when `uv lock` fails); `publish.sh` rejects unknown flags, requires `main` with `origin/main` as ancestor, and guards empty arrays for bash 3.2; `build-bundles.sh` builds from the tag; conformance validates local manifests by default with its cross-checks, and a `--published` mode (used by `publish.sh` after publication, and by CI on `main` only once catalogs match) asserts catalog parity; nothing else from #58
+  - **Depends on**: T018
+  - **Boundaries**: `scripts/release/publish.sh`, `scripts/release/build-bundles.sh`, `scripts/conformance/bundles.sh`, `.github/workflows/conformance.yml`, manifests, changelogs, pins, `uv.lock`; ≤ 400 authored lines — split, never extend the budget
+  - **Evidence**: `bundles.sh` green by default on the bumped tree; `publish.sh --dryrun` exits 2; `publish.sh --dry-run` in a temporary clone; both suites green
+  - **Delivery**: single PR into 003-delivery-automation (~100 authored lines + generated bump); human review before the first publication
   - **Completion evidence**: Pending
 
 ## Dependencies
@@ -184,12 +222,13 @@ T001 → T002 (phase-close chain)
 T003 → T004 → T005 (implement-append chain)
 T006 → T007 → T008 (diagnosis chain)
 T009 → T010 → T011 → T015 (tools chain)
-T012 → T013 → T014 (closing chain, after all above)
+T012 → T013 (closing chain, T013 reverted by T016)
+T016 → T017 → T018 → T019 → T014 (correction round, after all above)
 ```
 
 One task in flight: delivery follows file order (T001…T011, T015,
-T012…T014); chains above state which earlier task each one stacks on when
-unmerged.
+T012, T013, T016…T019, T014); chains above state which earlier task each
+one stacks on when unmerged.
 
 ## Implementation strategy
 
