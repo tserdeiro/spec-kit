@@ -459,13 +459,9 @@ for entry in "${extension_targets[@]}"; do
   package="${entry%%:*}"; version="${entry##*:}"; tag="$package/v$version"
   zip_name="$package-v$version.zip"
   sums_name="$package-v$version.SHA256SUMS.txt"
-  if release_has_assets "$tag" "$zip_name" "$sums_name"; then
-    continue
-  else
-    state=$?
-    [ "$state" -eq 1 ] || fail "release $tag exists but is incomplete or could not be checked"
-  fi
-  release_needs_create+=("$entry")
+  # Always rebuild from the immutable tag. A completed remote release can
+  # still be missing from the local lock, and skipping this would leave its
+  # digests absent from the rewritten lock on a retry.
   output_dir="$temporary_root/$package"
   out=$(./scripts/release/build-release.sh "$tag" "$output_dir")
   echo "$out" | grep -E 'sha256|commit:' | sed "s/^/  [$package] /"
@@ -474,6 +470,13 @@ import re, sys
 t = sys.stdin.read()
 print(','.join(re.search(rf'{k}:\\s+(\\S+)', t).group(1) for k in
       ('commit', 'subtree archive sha256', 'zip sha256', 'manifest sha256')))")")
+  if release_has_assets "$tag" "$zip_name" "$sums_name"; then
+    continue
+  else
+    state=$?
+    [ "$state" -eq 1 ] || fail "release $tag exists but is incomplete or could not be checked"
+  fi
+  release_needs_create+=("$entry")
 done
 
 # --- Extensions: tag, build, collect digests -------------------------------
