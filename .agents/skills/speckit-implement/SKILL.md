@@ -288,10 +288,10 @@ their own branches are not this loop's concern.
 
      ```bash
      # first-task-refresh:start
-     set -eo pipefail
+     set -e
      current_branch=$(git branch --show-current)
-     feature_branch=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only |
-       sed -n 's/^BRANCH: //p')
+     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
+     feature_branch=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
      [ "$current_branch" = "$feature_branch" ] ||
        { printf 'error: expected feature branch %s, found %s\n' \
          "$feature_branch" "$current_branch" >&2; exit 2; }
