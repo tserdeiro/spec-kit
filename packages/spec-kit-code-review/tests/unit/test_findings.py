@@ -189,6 +189,23 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(len(digest), 64)
 
+    def test_every_documented_findings_example_passes_the_validator_verbatim(self) -> None:
+        package_root = Path(__file__).resolve().parents[2]
+
+        for relative in ("commands/code-review.md", "README.md"):
+            with self.subTest(document=relative):
+                text = (package_root / relative).read_text(encoding="utf-8")
+                examples = [
+                    block
+                    for block in re.findall(r"```json\n(.*?)\n```", text, flags=re.DOTALL)
+                    if '"findings"' in block
+                ]
+                self.assertEqual(len(examples), 1)
+                self.path.write_text(examples[0], encoding="utf-8")
+                entries, _digest = load_document(self.path)
+                for index, finding in enumerate(entries, start=1):
+                    validate_entry(finding, index=index)
+
     def test_malformed_json_says_where_it_broke(self) -> None:
         error = self._rejects('{"findings": [', "findings_invalid_json")
 

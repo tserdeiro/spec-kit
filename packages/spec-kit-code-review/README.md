@@ -13,7 +13,7 @@ CR=".specify/extensions/code-review/scripts/bash/run.sh"
 bash "$CR" review                    # the pending diff of the working tree (advisory)
 bash "$CR" review 128                # an anchored pull-request candidate
 bash "$CR" review --base main --head feature
-bash "$CR" review --findings ./findings.json --session <session> [--publish]
+bash "$CR" review --findings <session>/findings.json --session <session> [--publish]
 
 bash "$CR" doctor [--fix]
 bash "$CR" completions bash|zsh
@@ -31,8 +31,27 @@ An anchored review runs in two internal invocations — a CLI cannot wait for th
 agent to read a packet, because the agent is what invokes it. The agent-facing
 command file (`commands/code-review.md`) drives both, so a person runs one
 command. The first writes the review packet and opens a session; the second
-takes the agent's `findings.json`, validates it against the candidate, derives
-the verdict, withdraws the environment, and closes the session.
+takes the agent's `<session>/findings.json`, validates it against the candidate,
+derives the verdict, withdraws the environment, and closes the session. A
+findings path outside that session is a usage error.
+
+### findings.json
+
+```json
+{
+  "findings": [
+    {
+      "path": "src/module.py",
+      "start_line": 42,
+      "end_line": 44,
+      "severity": "blocking",
+      "category": "correctness",
+      "title": "…",
+      "content": "…"
+    }
+  ]
+}
+```
 
 ## Invariants
 

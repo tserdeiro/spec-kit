@@ -124,33 +124,41 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Delivery**: single PR into 003-delivery-automation (~60 authored lines)
   - **Completion evidence**: PR #52 (ready 2026-09-01, stacked on #44 for loop tooling); 13 parser tests and full 402-test linear suite passed; template fixture preserves its fenced instructional section while parsing the real task; `git diff --check` passed; fresh review no-blocking-findings (session b12bd7ea, per-session findings)
 
-- [ ] T010 Findings format: correct the docs and bind the findings path to its session (spec-kit-code-review)
+- [x] T010 Findings format: correct the docs and bind the findings path to its session (spec-kit-code-review)
   - **Traces**: FR-009, FR-011, SC-004; outcome: `commands/code-review.md` + README show `{"findings": [...]}` exactly as validated; `--findings` outside the session directory it closes is a usage error with a message naming the expected location
   - **Depends on**: T009
   - **Boundaries**: `packages/spec-kit-code-review/{commands/code-review.md,README.md}`, `src/spec_kit_code_review/cli.py`, tests; validator schema unchanged
   - **Evidence**: `uv run --project packages/spec-kit-code-review pytest` green incl. path-bind cases; doc example passes the validator verbatim
   - **Delivery**: single PR into 003-delivery-automation (~70 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #53 (ready 2026-09-01, stacked on #52); documented envelope validated; outside and escaping-symlink paths rejected; reopening discards stale close artifacts; partial publication retries require the same normalized findings plan; 786 tests and 493 subtests passed; two fresh reviews found stale findings and stale partial-publication reuse, both corrected; final fresh review no-blocking-findings (session 0919ffd0)
 
-- [ ] T011 Trunk resolution: `trunk:` key read by pr.md and implement-append.md
-  - **Traces**: FR-010, SC-006; outcome: delivery base resolves `trunk:` in `.specify/extensions/git/git-config.yml` → else GitHub default; documented in preset README and root README; this repo's own instance sets `trunk: main`
+- [x] T011 Deterministic trunk resolver and product Git composition
+  - **Traces**: FR-010, SC-006; outcome: the product bundle installs Git and its preset helper reuses the pinned Specify PyYAML runtime (no new consumer dependency) to resolve and Git-validate a non-empty string `trunk:` in `.specify/extensions/git/git-config.yml`; absent/null/empty uses the GitHub default; invalid forms fail closed
   - **Depends on**: T010
-  - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}`, `presets/default/README.md`, root `README.md`, this repo's `.specify/extensions/git/git-config.yml` (consumer instance; template untouched, C-001)
-  - **Evidence**: `bash scripts/conformance/bundles.sh` green; resolution order stated in both commands; a temporary-repo fixture with `trunk:` ≠ GitHub default exercises the resolution (SC-006 — this repo's own trunk equals its default, so the key here is only the documented example)
-  - **Delivery**: single PR into 003-delivery-automation (~50 authored lines)
-  - **Completion evidence**: Pending
+  - **Boundaries**: product bundle Git composition; `presets/default/scripts/resolve-delivery-base.py`; helper conformance in `scripts/conformance/bundles.sh`; upstream Git template untouched (C-001)
+  - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers exercise real YAML, configured/fallback/invalid values, inert argv, `python3 -S` bootstrap into Specify's runtime, and command failures
+  - **Delivery**: single PR into 003-delivery-automation (≤400 authored executable lines; split from the unsafe ~50-line forecast)
+  - **Completion evidence**: PR #55 (ready 2026-09-01, stacked on #53); product bundle installs the pinned Git extension; resolver reuses `pyyaml>=6.0` declared by `specify-cli` 1.0.1, rejects duplicate/invalid YAML and non-string trunks, falls back only for absent/null/empty, and validates literal Git branch argv; `python3 -S` bootstrap, configured/fallback/failure/Unicode cases, `bash scripts/conformance/bundles.sh`, syntax checks, and `git diff --check` passed; effective executable budget 368/400; fresh reviews exposed the unsafe hand parser and the final PyYAML candidate had no findings
+
+- [x] T015 Wire runtime trunk resolution into feature delivery commands
+  - **Traces**: FR-010, SC-006; outcome: feature PR and first-task refresh invoke T011's helper; task/work-item PR bases derive at runtime; all repository-derived branch names remain inert argv; behavior is documented and this repo sets `trunk: main`
+  - **Depends on**: T011
+  - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}` and `presets/default/templates/tasks-template.md`; preset/root READMEs; this repo's consumer `git-config.yml`; command conformance in `scripts/conformance/bundles.sh`; `spec.md`/`plan.md` clarifications
+  - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers execute feature/task/work-item creation and first-task refresh with configured/fallback/metacharacter/failure cases
+  - **Delivery**: single PR into 003-delivery-automation (≤400 authored executable lines), stacked on T011
+  - **Completion evidence**: PR #56 (ready 2026-09-01, stacked on #55; replaces obsolete #54); feature PR and first-task refresh invoke T011's helper, task PRs and branch invariants use authoritative prerequisite JSON `BRANCH`, and work items query the GitHub default; installed command blocks passed configured/fallback/metacharacter/distinct-feature-state/wrong-branch/fetch-merge-push failure cases; generated tasks template and READMEs describe the delivery base; `bash scripts/conformance/bundles.sh`, syntax checks, and `git diff --check` passed; effective executable budget 195/400; fresh PR review no findings
 
 ## Phase 7: Polish and release
 
 **Purpose**: coherent versions, plan extended, transversal evidence.
 
-- [ ] T012 Extend docs/plan.md with this round and groom docs/dogfooding.md
+- [x] T012 Extend docs/plan.md with this round and groom docs/dogfooding.md
   - **Traces**: A-004, A-001; outcome: `docs/plan.md` gains the delivered-round entry for this feature; `docs/dogfooding.md` entries met during delivery are appended and the graduated ones marked
-  - **Depends on**: T011
+  - **Depends on**: T015
   - **Boundaries**: `docs/` only
   - **Evidence**: `git diff --check` clean; round entry cites the feature directory
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #57 (ready 2026-09-01, stacked on #56); `docs/plan.md` records the ready-but-unmerged round and separates T013 release preparation from human publication and consumer adoption; `docs/dogfooding.md` marks only PR-delivered work graduated and records open hook, tooling, split-stack, branch-identity, template, and worktree frictions; manual audit verified PR states/bases, Linear mappings, pins, and 368/195 budgets; `git diff --check` passed; fresh PR review no findings
 
 - [ ] T013 Release preparation: coherent version bump (preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundles)
   - **Traces**: plan Rollout; outcome: `scripts/release/publish.sh --bump` produces manifests, bundle pins, conformance pin, and changelog entries; publication itself stays human
@@ -175,12 +183,13 @@ T001 (setup, independent)
 T002 (US1, independent)
 T003 → T004 → T005 (implement-append chain)
 T006 → T007 → T008 (diagnosis chain)
-T009 → T010 → T011 (tools chain)
+T009 → T010 → T011 → T015 (tools chain)
 T012 → T013 → T014 (closing chain, after all above)
 ```
 
-One task in flight: the delivery order is T001…T014 as numbered; chains
-above only state which earlier task each one stacks on when unmerged.
+One task in flight: delivery follows file order (T001…T011, T015,
+T012…T014); chains above state which earlier task each one stacks on when
+unmerged.
 
 ## Implementation strategy
 
