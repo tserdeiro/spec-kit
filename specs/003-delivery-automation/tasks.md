@@ -103,13 +103,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Delivery**: single PR into 003-delivery-automation (~30 authored lines)
   - **Completion evidence**: PR #50 (ready 2026-09-01, stacked on #49); bundles conformance and `git diff --check` passed; both extension doctors completed; live read-only check reported `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`; fresh review no-blocking-findings (session 5d2de1fa, per-session findings)
 
-- [ ] T008 Document native Linear automation coverage (spec-kit-linear README + root README note)
-  - **Traces**: FR-007, US4.3; outcome: docs state PR automations are team-level, a target-branch rule (`^\d{3}-`) is required for task-PR merges into feature branches, linking rides the PR-body magic word (branches carry no issue key), and `push` reconciles regardless
+- [x] T008 Document native Linear automation coverage (spec-kit-linear README + root README note)
+  - **Traces**: FR-007, US4.3; outcome: docs state PR automations are team-level, default rules cover every linked PR, target-branch rules are optional overrides, linking rides the PR-body magic word (branches carry no issue key), and `push` reconciles regardless
   - **Depends on**: T007
   - **Boundaries**: `packages/spec-kit-linear/README.md`, root `README.md` (Spanish consumer note); no code
   - **Evidence**: doc sections present; `git diff --check` clean
   - **Delivery**: single PR into 003-delivery-automation (~50 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #51 (ready 2026-09-01, stacked on #50); official Linear docs confirmed default Team rules cover every linked PR and target-branch rules are optional overrides; `git diff --check` passed; fresh review found one major factual error in the original required-rule premise, corrected in docs, plan, task, and PR body; final review no-blocking-findings (session e99eeaba, per-session findings)
 
 ## Phase 6: User Story 5 — The flow never breaks its own tools (P5)
 
