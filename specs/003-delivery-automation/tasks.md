@@ -182,13 +182,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
 over-engineered trunk resolver, fix the findings bind, and redo release
 preparation within budget. Nothing new in scope.
 
-- [ ] T016 Revert release preparation #58 (merge `827788b`) to restore the pre-release tree
+- [x] T016 Revert release preparation #58 (merge `827788b`) to restore the pre-release tree
   - **Traces**: plan Rollout, C-004; outcome: `git revert -m 1 827788b` on a task branch — manifests, pins, changelogs, `uv.lock`, release scripts, and CI back to the published 0.10.0 / 0.2.1 / 0.7.0 / 0.13.0 state; default `bundles.sh` green again
   - **Depends on**: none
   - **Boundaries**: the revert only, no new content
   - **Evidence**: `bash scripts/conformance/bundles.sh` → conformance passed; both package suites green; `git diff 1080a48 -- scripts/ bundles/ packages/*/extension.yml` empty
   - **Delivery**: single PR into 003-delivery-automation (mechanical revert)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #59 (ready 2026-09-02); tree diff vs `1080a48` empty for every reverted path, only docs/specs kept at the feature-branch version; default `bundles.sh` conformance passed; linear 410 and code-review 786 tests green; fresh Sonnet review: 1 blocking (revert subject failed the `type(scope)` naming check) — commit reworded in-branch; session 1563f75b
 
 - [ ] T017 Replace the trunk resolver with shell resolution and remove C-006 from the spec
   - **Traces**: FR-010, SC-006, C-001, C-004; outcome: `presets/default/scripts/resolve-delivery-base.py` deleted; `pr.md` and `implement-append.md` resolve the delivery base in three shell lines (`sed` of `^trunk:` in `.specify/extensions/git/git-config.yml` with quotes stripped → else `gh repo view --json defaultBranchRef` → `git check-ref-format --branch`); spec C-006 removed and the trunk edge case back to its original wording; plan D4 rewritten to the shell decision; preset and root README updated; `tasks-template.md` wording kept
