@@ -87,29 +87,29 @@ of the flow is dogfooded here (plan D11, spec A-002).
 **Goal**: gaps name their remediation; native coverage stated honestly.
 **Independent test**: unlink/misconfigure a fixture repo; read the named fixes.
 
-- [ ] T006 Unlinked-repo guard in spec-kit-linear: name `onboard`, never a raw API error
+- [x] T006 Unlinked-repo guard in spec-kit-linear: name `onboard`, never a raw API error
   - **Traces**: FR-005, SC-003; outcome: `push` and `status` short-circuit before any network call when root `speckit-linear.yml` is missing or still placeholder, with a `configuration` diagnostic naming `onboard`; credential failures keep naming their source
   - **Depends on**: none
   - **Boundaries**: `packages/spec-kit-linear/src/spec_kit_linear/{cli,config}.py`, tests; no behavior change for linked repos
   - **Evidence**: `uv run --project packages/spec-kit-linear pytest` green incl. new guard cases; fixture run shows the onboard message
   - **Delivery**: single PR into 003-delivery-automation (~80 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #49 (ready 2026-08-31, stacked on #48); 408 tests green (+10), placeholder guard pre-network proven without client patch, hook no-op preserved, hermetic conformance passed; fresh review 1 info + 1 nit — nit's false test comment fixed in-branch, info recorded as accepted scope (guard scans section values, not only *_id keys; unreachable edge, simplicity kept); verdict no-blocking-findings (session 5b2166bf)
 
-- [ ] T007 Platform checks in the preset doctor (doctor.md)
+- [x] T007 Platform checks in the preset doctor (doctor.md)
   - **Traces**: FR-006, SC-003; outcome: doctor additionally reports `deleteBranchOnMerge` and `mergeCommitAllowed` via read-only `gh repo view`, each with the exact setting to change; degrades to "cannot verify" without `gh`
   - **Depends on**: T006
   - **Boundaries**: `presets/default/commands/doctor.md` only; never mutates settings
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; doctor run in this repo names both settings' states
   - **Delivery**: single PR into 003-delivery-automation (~30 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #50 (ready 2026-09-01, stacked on #49); bundles conformance and `git diff --check` passed; both extension doctors completed; live read-only check reported `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`; fresh review no-blocking-findings (session 5d2de1fa, per-session findings)
 
-- [ ] T008 Document native Linear automation coverage (spec-kit-linear README + root README note)
-  - **Traces**: FR-007, US4.3; outcome: docs state PR automations are team-level, a target-branch rule (`^\d{3}-`) is required for task-PR merges into feature branches, linking rides the PR-body magic word (branches carry no issue key), and `push` reconciles regardless
+- [x] T008 Document native Linear automation coverage (spec-kit-linear README + root README note)
+  - **Traces**: FR-007, US4.3; outcome: docs state PR automations are team-level, default rules cover every linked PR, target-branch rules are optional overrides, linking rides the PR-body magic word (branches carry no issue key), and `push` reconciles regardless
   - **Depends on**: T007
   - **Boundaries**: `packages/spec-kit-linear/README.md`, root `README.md` (Spanish consumer note); no code
   - **Evidence**: doc sections present; `git diff --check` clean
   - **Delivery**: single PR into 003-delivery-automation (~50 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #51 (ready 2026-09-01, stacked on #50); official Linear docs confirmed default Team rules cover every linked PR and target-branch rules are optional overrides; `git diff --check` passed; fresh review found one major factual error in the original required-rule premise, corrected in docs, plan, task, and PR body; final review no-blocking-findings (session e99eeaba, per-session findings)
 
 ## Phase 6: User Story 5 — The flow never breaks its own tools (P5)
 
