@@ -273,7 +273,7 @@ EOF
 # shipped while conformance was red: the operator's bump had omitted the
 # catalogs and nothing here checked.)
 if ! bash scripts/conformance/bundles.sh --published; then
-  git checkout -- versions.lock.yml catalog
+  git checkout -- versions.lock.yml catalog presets/default/README.md
   for entry in ${pending_ext[@]+"${pending_ext[@]}"}; do
     git tag -d "${entry%%:*}/v${entry##*:}" >/dev/null 2>&1 || true
   done
