@@ -18,6 +18,8 @@ requires:
 
 provides:
   extensions:
+    - id: "git"
+      version: "1.0.0"
     - id: "linear"
       version: "0.10.0"
   presets:

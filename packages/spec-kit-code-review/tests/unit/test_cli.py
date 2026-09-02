@@ -595,6 +595,23 @@ class AnchoredReviewTests(RunCommandCase):
         self.assertIn("session_reclaimed", {item["code"] for item in payload["diagnostics"]})
         self.assertEqual(self._session_payload()["phase"], "open")
 
+    def test_reopening_the_same_candidate_removes_the_previous_findings(self) -> None:
+        _, first = self._phase_one()
+        session = Path(first["session"]["path"])
+        findings = session / "findings.json"
+        findings.write_text('{"findings": []}', encoding="utf-8")
+        code, _ = self.invoke_json(
+            "review", "--findings", str(findings), "--session", str(session)
+        )
+        self.assertEqual(code, EXIT_SUCCESS)
+        self.assertTrue(findings.is_file())
+
+        code, payload = self._phase_one()
+
+        self.assertEqual(code, EXIT_SUCCESS, payload["diagnostics"])
+        self.assertFalse(findings.exists())
+        self.assertEqual(self._session_payload()["phase"], "open")
+
     def test_a_reclaim_that_would_destroy_work_stops_instead(self) -> None:
         _, first = self._phase_one()
         worktree = Path(first["environment"]["worktree_path"])

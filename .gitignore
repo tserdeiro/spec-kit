@@ -24,11 +24,14 @@ venv/
 .specify/linear-*-plan.json
 
 # spec-kit-linear: this monorepo is the extension's source repository, so its
-# own Wortise dogfooding binding must not live in this repository's Git history
+# own dogfooding binding must not live in this repository's Git history
 # -- unlike a consumer repository, where the equivalent speckit-linear.yml
 # is committed by default. Regenerate it locally with
-# `spec-kit-linear onboard --team-key WOR --repository spec-kit --apply`.
+# `spec-kit-linear onboard --team-key TDS --repository spec-kit --apply`.
 /speckit-linear.yml
+
+# Extension download cache the installer leaves behind
+.specify/extensions/.cache/
 
 # spec-kit-linear's dedicated env-override file (never the .env above,
 # which is this repository's own, unrelated file).

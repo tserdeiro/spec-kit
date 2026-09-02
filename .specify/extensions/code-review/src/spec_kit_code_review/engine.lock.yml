@@ -1,0 +1,19 @@
+# The engine pin this extension ships. A consumer repository has no
+# versions.lock.yml, so this file travels inside the installed extension and
+# is the default pin; a versions.lock.yml at the consumer root, when present,
+# wins. Covered by the release's subtree archive digest.
+external_tools:
+  open_code_review:
+    source: https://github.com/alibaba/open-code-review
+    license: Apache-2.0
+    release_tag: v1.8.3
+    version_string: "open-code-review v1.8.3 (80a579466)"
+    npm_package: "@alibaba-group/open-code-review"
+    binaries:
+      darwin-arm64: ed12e4599a7d2ddf5ac09324193d9781bd0a4215e867631432bc04cf5918f324
+      darwin-amd64: a5f884bb9a04abb2068e8f9f3b3c567cb65f0847f61876c7c44deb42b8c2d61a
+      linux-amd64: 445c2c3d7528d6a642b2eb83dc76978d7a5558b838d0c385b0c841b094104c17
+      linux-arm64: 4badb4b02fb9f7b4e91b5078fa78e88bfa8e3864f43bedd216b179494e9df4d7
+    requires:
+      git: ">=2.41"
+      node: ">=14"

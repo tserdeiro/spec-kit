@@ -139,6 +139,13 @@ class _ApplyingClient(_FakeClient):
         raise AssertionError(f"unexpected mutation kind: {operation_kind}")
 
 
+def _write_template_config(root: Path) -> None:
+    """Overwrite the fixture config with the shipped, still-placeholder template."""
+
+    template = Path(__file__).parents[2] / "config" / "speckit-linear.template.yml"
+    (root / ROOT_CONFIG_FILENAME).write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+
+
 @contextmanager
 def _fake_gh(*, installed: bool = True, returncode: int = 0, stdout: str = "[]"):
     """Answer for `gh` and nothing else.
@@ -292,6 +299,30 @@ class PushTests(CliTestCase):
 
         self.assertEqual(result, 3)
         self.assertEqual(payload["category"], "configuration")
+        self.assertIn("not linked", payload["message"])
+        self.assertIn("onboard", payload["message"])
+
+    def test_push_on_the_template_placeholder_config_names_onboard_before_any_network_call(self) -> None:
+        _write_template_config(self.fixture_root)
+
+        # No `_linear_client` patch and no credential in the environment. The
+        # zeroed IDs already failed the UUID checks pre-network; what this
+        # asserts is the diagnosis itself — the "still the template" message
+        # naming onboard instead of a bare "must be a UUID".
+        result, payload = self._invoke(["push", "--root", str(self.fixture_root), "--json"])
+
+        self.assertEqual(result, 3)
+        self.assertEqual(payload["category"], "configuration")
+        self.assertIn("still the template", payload["message"])
+        self.assertIn("onboard", payload["message"])
+
+    def test_hook_no_ops_cleanly_on_the_template_placeholder_config(self) -> None:
+        _write_template_config(self.fixture_root)
+
+        result, payload = self._invoke(["push", "--hook", "--root", str(self.fixture_root), "--json"])
+
+        self.assertEqual(result, 0)
+        self.assertTrue(payload["hook_noop"])
 
     def test_hook_applies_by_default(self) -> None:
         client = _ApplyingClient()
@@ -328,6 +359,28 @@ class PushTests(CliTestCase):
 
 
 class StatusTests(CliTestCase):
+    def test_status_on_a_missing_configuration_names_onboard(self) -> None:
+        (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
+
+        result, payload = self._invoke(["status", "--root", str(self.fixture_root), "--json"])
+
+        self.assertEqual(result, 3)
+        self.assertEqual(payload["category"], "configuration")
+        self.assertIn("not linked", payload["message"])
+        self.assertIn("onboard", payload["message"])
+
+    def test_status_on_the_template_placeholder_config_names_onboard_before_any_network_call(self) -> None:
+        _write_template_config(self.fixture_root)
+
+        # No `_linear_client` patch and no credential in the environment: the
+        # guard has to fire before status could even authenticate.
+        result, payload = self._invoke(["status", "--root", str(self.fixture_root), "--json"])
+
+        self.assertEqual(result, 3)
+        self.assertEqual(payload["category"], "configuration")
+        self.assertIn("still the template", payload["message"])
+        self.assertIn("onboard", payload["message"])
+
     def test_human_mode_renders_a_fixed_width_task_table(self) -> None:
         base_project = _matching_remote_project(self._desired())
         updated_issues = tuple(

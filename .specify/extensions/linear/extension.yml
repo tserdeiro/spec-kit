@@ -1,0 +1,56 @@
+schema_version: "1.0"
+
+extension:
+  id: linear
+  name: Spec Kit Linear
+  version: "0.10.0"
+  description: "Project Spec Kit feature state into Linear: Project at plan, Issues at tasks"
+  author: tserdeiro
+  repository: https://github.com/tserdeiro/spec-kit
+  homepage: https://github.com/tserdeiro/spec-kit
+  license: MIT
+
+requires:
+  speckit_version: ">=1.0.1,<1.1.0"
+  tools:
+    - name: uv
+      required: true
+    # Pull-request states only; without it push and status derive from the
+    # tasks.md checkbox and Git branches alone.
+    - name: gh
+      required: false
+
+provides:
+  commands:
+    - name: speckit.linear.onboard
+      file: commands/onboard.md
+      description: Bind this repository to a Linear team; resolves every ID read-only and never mutates Linear
+    - name: speckit.linear.push
+      file: commands/push.md
+      description: Project the current feature state into Linear
+    - name: speckit.linear.status
+      file: commands/status.md
+      description: Report the local feature state and its Linear projection; never writes
+    - name: speckit.linear.doctor
+      file: commands/doctor.md
+      description: Diagnose local and remote prerequisites, with --fix for the mechanical ones
+
+hooks:
+  after_plan:
+    command: speckit.linear.push
+    optional: false
+    priority: 20
+    prompt: Sync Linear after planning?
+    description: Project the Feature Project at plan
+  after_tasks:
+    command: speckit.linear.push
+    optional: false
+    priority: 20
+    prompt: Sync Linear after task generation?
+    description: Project the Txxx Issues
+
+tags:
+  - linear
+  - issue-tracking
+  - synchronization
+  - automation

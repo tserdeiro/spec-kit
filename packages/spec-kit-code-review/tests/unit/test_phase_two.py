@@ -38,7 +38,7 @@ class PhaseTwoCase(RunCommandCase):
         code, payload = self._phase_one()
         self.assertEqual(code, EXIT_SUCCESS)
         self.session = payload["session"]["path"]
-        self.findings_path = self.workspace / "findings.json"
+        self.findings_path = Path(self.session) / "findings.json"
         self.write_findings(entry())
 
     def write_findings(self, *entries, document=None) -> None:
@@ -142,13 +142,42 @@ class CorrespondenceTests(PhaseTwoCase):
 
     def _assert_session_untouched(self) -> None:
         self.assertEqual(self.session_payload()["phase"], "open")
-        self.assertFalse((Path(self.session) / "findings.json").exists())
+        self.assertFalse((Path(self.session) / "findings.md").exists())
+        self.assertFalse((Path(self.session) / "publication-plan.json").exists())
 
     def test_findings_without_a_session_are_refused(self) -> None:
         code, payload = self.invoke_json("review", "--findings", str(self.findings_path))
 
         self.assertEqual(code, EXIT_USAGE)
         self.assertEqual(payload["diagnostics"][0]["code"], "session_path_missing")
+
+    def test_findings_outside_the_session_are_a_usage_error_naming_the_expected_location(self) -> None:
+        outside = self.workspace / "findings-from-another-review.json"
+        outside.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
+
+        code, payload = self.invoke_json(
+            "review", "--findings", str(outside), "--session", self.session
+        )
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "findings_session_mismatch")
+        self.assertIn(str(Path(self.session) / "findings.json"), payload["message"])
+        self.assertIn(str(Path(self.session) / "findings.json"), payload["diagnostics"][0]["message"])
+        self._assert_session_untouched()
+
+    def test_a_findings_symlink_that_resolves_outside_the_session_is_refused(self) -> None:
+        outside = self.workspace / "reused-findings.json"
+        outside.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
+        linked = Path(self.session) / "linked-findings.json"
+        linked.symlink_to(outside)
+
+        code, payload = self.invoke_json(
+            "review", "--findings", str(linked), "--session", self.session
+        )
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "findings_session_mismatch")
+        self._assert_session_untouched()
 
     def test_a_head_that_moved_is_drift(self) -> None:
         self.repository.git("switch", "feature")
@@ -363,7 +392,8 @@ class RestoreFailureTests(PhaseTwoCase):
         self.assertIn("last_restore_attempt", recorded)
         self.assertFalse(recorded["last_restore_attempt"]["restored"])
         # Nothing was written as if the review had closed.
-        self.assertFalse((Path(self.session) / "findings.json").exists())
+        self.assertFalse((Path(self.session) / "findings.md").exists())
+        self.assertFalse((Path(self.session) / "publication-plan.json").exists())
 
     def test_the_same_command_works_once_the_obstacle_is_gone(self) -> None:
         from unittest import mock
