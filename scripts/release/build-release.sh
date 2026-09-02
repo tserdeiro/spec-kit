@@ -37,17 +37,10 @@ git cat-file -e "${tag}:${package_path}" || {
   exit 4
 }
 
-zip_name="${package}-v${version}.zip"
-final_zip="$output_dir/$zip_name"
-checksums_file="$output_dir/${package}-v${version}.SHA256SUMS.txt"
-[ ! -e "$final_zip" ] || { echo "ERROR: output already contains $zip_name" >&2; exit 5; }
-[ ! -e "$checksums_file" ] || {
-  echo "ERROR: output already contains ${package}-v${version}.SHA256SUMS.txt" >&2
-  exit 5
-}
-
 mkdir -p "$output_dir"
 commit_epoch=$(git log -1 --format=%ct "${tag}^{commit}")
+zip_name="${package}-v${version}.zip"
+final_zip="$output_dir/$zip_name"
 
 subtree_archive_sha256=$(git archive --mtime="@${commit_epoch}" --format=tar \
   "${tag}:${package_path}" | shasum -a 256 | awk '{print $1}')
@@ -57,6 +50,7 @@ zip_sha256=$(shasum -a 256 "$final_zip" | awk '{print $1}')
 manifest_sha256=$(git show "${tag}:${package_path}/extension.yml" \
   | shasum -a 256 | awk '{print $1}')
 
+checksums_file="$output_dir/${package}-v${version}.SHA256SUMS.txt"
 {
   echo "# ${package} v${version} release checksums"
   echo "# tag: ${tag}"

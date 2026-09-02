@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: code-review
   name: Spec Kit Code Review
-  version: "0.3.0"
+  version: "0.2.1"
   description: >-
     One agentic review command: the pending diff of the working tree, or a
     pull-request candidate, against the repository's versioned review rules and
