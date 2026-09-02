@@ -57,10 +57,10 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
 
 1. **Graduated — stale Linear and manual gates.** T003/#46 reconciles at
    loop transitions; T005/#48 verifies or opens the feature gate. Both are
-   ready, unmerged preset changes.
+   integrated, unreleased preset changes.
 2. **Graduated — review state crossed sessions.** T004/#47 delegates a
    fresh review; two further reviews of T010/#53 found stale findings and
-   reusable partial-publication state. The ready candidate binds both to
+   reusable partial-publication state. The integrated candidate binds both to
    their session and normalized plan; code-review 0.3.0 is unreleased.
 3. **Graduated — setup failed late and opaquely.** T006/#49 names
    `onboard` before any network call; T007/#50 diagnoses the two GitHub
@@ -74,7 +74,7 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
 5. **Graduated — trunk parsing was reimplemented.** T011 began as a
    hand-written YAML scalar parser and needed repeated reviews for runtime,
    multiline, scalar, and literal-branch failures before #55 reused PyYAML
-   from Specify. The ready resolver is 368/400 executable lines, not the
+   from Specify. The integrated resolver is 368/400 executable lines, not the
    forecast ~50.
 6. **The T011/T015 split arrived late.** Runtime command wiring needed
    another 195 executable lines, so it became T015/#56 only after T011
@@ -91,14 +91,44 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
 9. **Graduated — the tasks template still named the default branch.**
    T015/#56 changes it to the configured delivery base. Preset 0.8.0 is
    unreleased.
-10. **Task ledgers diverge across the two stacks.** #45–#51 checks T002–T008;
-    #52–#56 checks T009–T011/T015. Neither branch contains the full ledger
-    until humans merge both; T012 must not manufacture that integration.
+10. **Task ledgers diverged across the two stacks.** #45–#51 checked T002–T008;
+    #52–#56 checked T009–T011/T015. Neither branch contained the full ledger
+    before human integration; T012 correctly did not manufacture it.
 11. **Linear configuration vanishes in worktrees.** `speckit-linear.yml`
     and `.speckit-linear.env` are local and gitignored, so a new worktree
     is unlinked despite onboarding the primary checkout. Copying or
     re-establishing local configuration remains manual.
 12. **The installed implement skill still announces optional hooks.** Its
-    pre/post blocks remain visible during T012; T002 covers product-phase
-    commands on a sibling ready PR, not this surface. FR-002 remains broader
-    than the delivered task scope.
+    pre/post blocks remain visible during T012; T002 covers the integrated
+    product-phase path, not this surface. FR-002 remains broader than the
+    delivered task scope.
+13. **Release preparation started from only one task stack.** T013 initially
+    bumped versions on top of #57, but that branch did not contain the
+    T002–T008 stack whose Linear changes its changelog announced. The release
+    gate must integrate both reviewed stacks before version preparation; the
+    mismatch was caught before commit or publication.
+14. **Pre-release conformance could hide a bad public catalog.** Rewriting
+    every catalog version in the only conformance mode let `publish.sh` pass
+    even if its catalog rewrite drifted. T013 makes the substitution explicit
+    with `--local-manifests`; CI and publication keep catalog values
+    authoritative.
+15. **Bundle conformance does not validate historical lock hashes.** That is a
+    separate future integrity check; T013 also corrected release bump
+    atomicity, temporary-artifact isolation, and pre-remote rollback gaps.
+16. **Stack integration serially reruns the full CI suite.** Collapsing each
+    stack from its leaf changed the next PR's base and relaunched all package
+    and bundle checks at every step. Correctness held, but integration time
+    grows linearly with stack depth; the harness neither queues nor summarizes
+    this work.
+17. **A stale worktree blocked local branch cleanup after merge.** #55 merged
+    and its remote branch was deleted, but `gh pr merge --delete-branch`
+    returned failure because a clean `/private/tmp` worktree still held the
+    local branch. The operator had to inspect and remove that worktree before
+    cleanup could finish.
+18. **Root-scoped package tests collide.** `uv run --project <package> pytest`
+    from the repository root collected both package test trees and collided on
+    `tests.conftest`; the reliable invocation had to scope the path explicitly:
+    `pytest packages/<package>/tests`. T013 leaves pytest configuration alone.
+19. **Automated review budget expanded after release hardening.** The review
+    packet grew from 400 to 615 lines while T013 closed publication and
+    rollback gaps; the effective authored executable total remains 549/700.

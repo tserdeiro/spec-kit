@@ -13,16 +13,35 @@
 # the published GitHub release assets, this script builds the artifacts from
 # this checkout, serves them from a loopback HTTP server, and registers
 # `catalog/extensions.json` and `catalog/presets.json` -- the very files this
-# repository publishes -- with their download URLs rewritten to that server at
-# the top of the catalog stack. So the real distribution path (catalog lookup
-# -> pin check -> archive download -> primitive install) is what runs, and the
-# published catalog schemas are what is exercised. `git` is bundled with Spec
-# Kit and installs from the local Spec Kit assets.
+# repository publishes -- at the top of the catalog stack. By default their
+# versions stay authoritative; `--local-manifests` is the explicit release-
+# preparation mode that substitutes the bumped local versions before public
+# catalogs and digests exist. So publication validates its rewritten catalogs
+# instead of hiding drift. `git` is bundled with Spec Kit and installs from the
+# local Spec Kit assets.
 #
 # It is not network-isolated in general: `specify init` is a third-party CLI
 # invocation and this script makes no claim about what it does. The guarantee
 # is that no bundle component is fetched from a remote host.
 set -euo pipefail
+
+catalog_mode=published
+[ "$#" -le 1 ] || {
+  echo "Usage: bundles.sh [--local-manifests]" >&2
+  exit 2
+}
+case "${1:-}" in
+  "") ;;
+  --local-manifests) catalog_mode=local ;;
+  -h|--help)
+    echo "Usage: bundles.sh [--local-manifests]" >&2
+    exit 0
+    ;;
+  *)
+    echo "Usage: bundles.sh [--local-manifests]" >&2
+    exit 2
+    ;;
+esac
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/spec-kit-bundles-conformance.XXXXXX")
@@ -83,17 +102,84 @@ ROLES="product developer reviewer"
 BUNDLE_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/bundles/product/bundle.yml" | head -1)
 [ -n "$BUNDLE_VERSION" ] || { echo "conformance could not read the bundle version from bundles/product/bundle.yml" >&2; exit 4; }
 
-# Artifact names come from the catalogs — the installer downloads exactly
-# these basenames, so hardcoding them here is how the 0.3.0 publish failed
-# conformance. The preset version for resolve assertions comes from its
-# manifest, which is what the installed preset reports.
-catalog_zip() {
-  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]['download_url'].rsplit('/',1)[-1])" "$@"
+manifest_version() {
+  sed -n 's/^  version: "\(.*\)"/\1/p' "$1" | head -1
 }
-LINEAR_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions linear)
-REVIEW_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions code-review)
-PRESET_ZIP=$(catalog_zip "$repository_root/catalog/presets.json" presets default)
-PRESET_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/presets/default/preset.yml" | head -1)
+catalog_value() {
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]][sys.argv[4]])" "$@"
+}
+
+if [ "$catalog_mode" = local ]; then
+  # A bump cannot update public catalogs or lock digests before artifacts
+  # exist. This opt-in mode advertises the pending manifests locally.
+  LINEAR_VERSION=$(manifest_version "$repository_root/packages/spec-kit-linear/extension.yml")
+  REVIEW_VERSION=$(manifest_version "$repository_root/packages/spec-kit-code-review/extension.yml")
+  PRESET_VERSION=$(manifest_version "$repository_root/presets/default/preset.yml")
+  LINEAR_ZIP="spec-kit-linear-v$LINEAR_VERSION.zip"
+  REVIEW_ZIP="spec-kit-code-review-v$REVIEW_VERSION.zip"
+  PRESET_ZIP="default-$PRESET_VERSION.zip"
+else
+  # CI and publish.sh exercise the versions and filenames that would actually
+  # be published. A stale catalog therefore fails instead of being repaired by
+  # the test itself.
+  LINEAR_VERSION=$(catalog_value "$repository_root/catalog/extensions.json" extensions linear version)
+  REVIEW_VERSION=$(catalog_value "$repository_root/catalog/extensions.json" extensions code-review version)
+  PRESET_VERSION=$(catalog_value "$repository_root/catalog/presets.json" presets default version)
+  LINEAR_ZIP=$(catalog_value "$repository_root/catalog/extensions.json" extensions linear download_url | sed 's|.*/||')
+  REVIEW_ZIP=$(catalog_value "$repository_root/catalog/extensions.json" extensions code-review download_url | sed 's|.*/||')
+  PRESET_ZIP=$(catalog_value "$repository_root/catalog/presets.json" presets default download_url | sed 's|.*/||')
+  manifest_linear=$(manifest_version "$repository_root/packages/spec-kit-linear/extension.yml")
+  manifest_review=$(manifest_version "$repository_root/packages/spec-kit-code-review/extension.yml")
+  manifest_preset=$(manifest_version "$repository_root/presets/default/preset.yml")
+  [ "$LINEAR_VERSION" = "$manifest_linear" ] || {
+    echo "published linear catalog version $LINEAR_VERSION does not match manifest $manifest_linear" >&2
+    exit 4
+  }
+  [ "$REVIEW_VERSION" = "$manifest_review" ] || {
+    echo "published code-review catalog version $REVIEW_VERSION does not match manifest $manifest_review" >&2
+    exit 4
+  }
+  [ "$PRESET_VERSION" = "$manifest_preset" ] || {
+    echo "published preset catalog version $PRESET_VERSION does not match manifest $manifest_preset" >&2
+    exit 4
+  }
+  [ "$LINEAR_ZIP" = "spec-kit-linear-v$LINEAR_VERSION.zip" ] || {
+    echo "published linear download_url must end in spec-kit-linear-v$LINEAR_VERSION.zip" >&2
+    exit 4
+  }
+  [ "$REVIEW_ZIP" = "spec-kit-code-review-v$REVIEW_VERSION.zip" ] || {
+    echo "published code-review download_url must end in spec-kit-code-review-v$REVIEW_VERSION.zip" >&2
+    exit 4
+  }
+  [ "$PRESET_ZIP" = "default-$PRESET_VERSION.zip" ] || {
+    echo "published preset download_url must end in default-$PRESET_VERSION.zip" >&2
+    exit 4
+  }
+  python3 - "$repository_root" "$LINEAR_VERSION" "$REVIEW_VERSION" "$PRESET_VERSION" "$BUNDLE_VERSION" <<'PY' || {
+import json, pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+linear, review, preset, bundle = sys.argv[2:]
+catalog = json.loads((root / "catalog/bundles.json").read_text())["bundles"]
+for role in ("product", "developer", "reviewer"):
+    entry = catalog[role]
+    if entry["version"] != bundle or not entry["download_url"].endswith(f"/{role}-{bundle}.zip"):
+        raise SystemExit(f"published bundle catalog entry for {role} is inconsistent")
+    text = (root / f"bundles/{role}/bundle.yml").read_text()
+    match = re.search(r'^  version: "([^"]+)"', text, re.M)
+    if not match or match.group(1) != bundle:
+        raise SystemExit(f"bundle manifest for {role} does not match published bundle catalog")
+    for component, version in (("linear", linear), ("code-review", review), ("default", preset)):
+        if f'- id: "{component}"' in text and f'- id: "{component}"\n      version: "{version}"' not in text:
+            raise SystemExit(f"bundle manifest for {role} pins {component} inconsistently")
+PY
+    echo "published bundle manifests/catalog are inconsistent" >&2
+    exit 4
+  }
+fi
+[ -n "$LINEAR_VERSION" ] && [ -n "$REVIEW_VERSION" ] && [ -n "$PRESET_VERSION" ] || {
+  echo "conformance could not read every component version" >&2
+  exit 4
+}
 product_extensions="git linear"
 developer_extensions="git linear code-review bug"
 reviewer_extensions="code-review"
@@ -142,10 +228,13 @@ for role in $ROLES; do
 done
 
 # --------------------------------------------------------------------------
-# Serve the published catalogs, rewritten to point at those artifacts.
+# Serve the catalog schemas, rewritten to describe those local artifacts.
 # --------------------------------------------------------------------------
 
-python3 - "$repository_root" "$serve_root" "$temporary_root/port" <<'PY' &
+python3 - "$repository_root" "$serve_root" "$temporary_root/port" \
+  "$catalog_mode" \
+  "$LINEAR_VERSION" "$REVIEW_VERSION" "$PRESET_VERSION" "$BUNDLE_VERSION" \
+  "$LINEAR_ZIP" "$REVIEW_ZIP" "$PRESET_ZIP" <<'PY' &
 import functools
 import http.server
 import json
@@ -154,6 +243,20 @@ import socketserver
 import sys
 
 repository_root, serve_root, port_file = (pathlib.Path(a) for a in sys.argv[1:4])
+catalog_mode = sys.argv[4]
+linear_version, review_version, preset_version, bundle_version = sys.argv[5:9]
+linear_zip, review_zip, preset_zip = sys.argv[9:12]
+local_artifacts = {
+    "extensions": {
+        "linear": (linear_version, linear_zip),
+        "code-review": (review_version, review_zip),
+    },
+    "presets": {"default": (preset_version, preset_zip)},
+    "bundles": {
+        role: (bundle_version, f"{role}-{bundle_version}.zip")
+        for role in ("product", "developer", "reviewer")
+    },
+}
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args, **kwargs):  # noqa: D102 - silence access logs
@@ -167,8 +270,13 @@ with socketserver.TCPServer(("127.0.0.1", 0), handler) as httpd:
         source = repository_root / "catalog" / f"{name}.json"
         payload = json.loads(source.read_text(encoding="utf-8"))
         payload["catalog_url"] = f"{base}/{name}.json"
-        for entry in payload[key].values():
-            entry["download_url"] = f"{base}/" + entry["download_url"].rsplit("/", 1)[-1]
+        for entry_id, entry in payload[key].items():
+            if catalog_mode == "local" and entry_id in local_artifacts[name]:
+                version, filename = local_artifacts[name][entry_id]
+                entry["version"] = version
+                entry["download_url"] = f"{base}/{filename}"
+            else:
+                entry["download_url"] = f"{base}/" + entry["download_url"].rsplit("/", 1)[-1]
         (serve_root / f"{name}.json").write_text(
             json.dumps(payload, indent=2), encoding="utf-8"
         )

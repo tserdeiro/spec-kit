@@ -33,6 +33,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
@@ -47,4 +49,46 @@ jobs:
           git config --global user.email "ci@example.invalid"
           git config --global user.name "spec-kit CI"
           git config --global init.defaultBranch main
-      - run: bash scripts/conformance/bundles.sh
+      - name: Verify role-bundle composition
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            bash scripts/conformance/bundles.sh
+            exit 0
+          fi
+
+          manifest_version() {
+            sed -n 's/^  version: "\(.*\)"/\1/p' "$1" | head -1
+          }
+          catalog_version() {
+            python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]["version"])' "$@"
+          }
+          pending_versions_advance() {
+            python3 -c 'import sys; v=lambda s: tuple(map(int,s.split("."))); p=[(v(old),v(new)) for old,new in zip(sys.argv[1::2],sys.argv[2::2])]; components_changed=any(new > old for old,new in p[:-1]); valid=all(new >= old for old,new in p) and any(new > old for old,new in p) and (not components_changed or p[-1][1] > p[-1][0]); sys.exit(0 if valid else 1)' "$@"
+          }
+
+          if [ "$(manifest_version packages/spec-kit-linear/extension.yml)" = "$(catalog_version catalog/extensions.json extensions linear)" ] && \
+             [ "$(manifest_version packages/spec-kit-code-review/extension.yml)" = "$(catalog_version catalog/extensions.json extensions code-review)" ] && \
+             [ "$(manifest_version presets/default/preset.yml)" = "$(catalog_version catalog/presets.json presets default)" ] && \
+             [ "$(manifest_version bundles/product/bundle.yml)" = "$(catalog_version catalog/bundles.json bundles product)" ]; then
+            bash scripts/conformance/bundles.sh
+          elif ! git diff --quiet "$BASE_SHA" -- catalog versions.lock.yml; then
+            bash scripts/conformance/bundles.sh
+          else
+            pending_versions_advance \
+              "$(catalog_version catalog/extensions.json extensions linear)" "$(manifest_version packages/spec-kit-linear/extension.yml)" \
+              "$(catalog_version catalog/extensions.json extensions code-review)" "$(manifest_version packages/spec-kit-code-review/extension.yml)" \
+              "$(catalog_version catalog/presets.json presets default)" "$(manifest_version presets/default/preset.yml)" \
+              "$(catalog_version catalog/bundles.json bundles product)" "$(manifest_version bundles/product/bundle.yml)" || {
+                echo "pending manifest versions must move forward without changing public pins" >&2
+                exit 1
+              }
+            if bash scripts/conformance/bundles.sh; then
+              echo "published-catalog mode unexpectedly accepted pending manifest versions" >&2
+              exit 1
+            fi
+            bash scripts/conformance/bundles.sh --local-manifests
+          fi
