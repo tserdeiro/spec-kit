@@ -58,14 +58,14 @@ their own branches are not this loop's concern.
 
      ```bash
      # first-task-refresh:start
-     set -e
-     feature_branch=$(git branch --show-current)
-     expected_branch=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only |
+     set -eo pipefail
+     current_branch=$(git branch --show-current)
+     feature_branch=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only |
        sed -n 's/^BRANCH: //p')
-     [ "$feature_branch" = "$expected_branch" ] ||
+     [ "$current_branch" = "$feature_branch" ] ||
        { printf 'error: expected feature branch %s, found %s\n' \
-         "$expected_branch" "$feature_branch" >&2; exit 2; }
-     trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*"?([^"#[:space:]]*)"?.*$/\1/p;q;}' \
+         "$feature_branch" "$current_branch" >&2; exit 2; }
+     trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*["'"'"']?([^"'"'"'#[:space:]]*)["'"'"']?.*$/\1/p;q;}' \
        .specify/extensions/git/git-config.yml 2>/dev/null || true)
      delivery_base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
      git check-ref-format --branch "$delivery_base" >/dev/null

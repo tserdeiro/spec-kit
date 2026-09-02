@@ -475,7 +475,7 @@ repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.nam
 
 # Configured trunk wins; quotes and a trailing comment are stripped; no
 # GitHub lookup happens.
-for config in 'trunk: release\n' 'trunk: "release"\n' 'trunk: release  # ship branch\n'; do
+for config in 'trunk: release\n' 'trunk: "release"\n' 'trunk: '"'"'release'"'"'\n' 'trunk: release  # ship branch\n'; do
   set_config "$config"
   reset_command_logs
   run_pr_create feature main "" >/dev/null || fail "trunk: configured '$config' failed"

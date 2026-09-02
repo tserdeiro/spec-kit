@@ -88,11 +88,11 @@ cover the spec with nothing missing and nothing extra?
 
 ```bash
 # pr-create:start
-set -e
+set -eo pipefail
 delivery_kind="<feature|task|work-item>"
 case "$delivery_kind" in
   feature)
-    trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*"?([^"#[:space:]]*)"?.*$/\1/p;q;}' \
+    trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*["'"'"']?([^"'"'"'#[:space:]]*)["'"'"']?.*$/\1/p;q;}' \
       .specify/extensions/git/git-config.yml 2>/dev/null || true)
     base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
     git check-ref-format --branch "$base" >/dev/null
