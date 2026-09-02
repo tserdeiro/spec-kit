@@ -24,6 +24,17 @@
 # is that no bundle component is fetched from a remote host.
 set -euo pipefail
 
+# Default: derive every artifact name and version from this checkout's
+# manifests, so a bumped tree conforms before it is ever published.
+# --published: derive them from the public catalogs instead (the
+# installer's view) and additionally assert the two agree.
+mode="local"
+case "${1:-}" in
+  "") ;;
+  --published) mode="published" ;;
+  *) echo "Usage: bundles.sh [--published]" >&2; exit 2 ;;
+esac
+
 repository_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/spec-kit-bundles-conformance.XXXXXX")
 serve_root="$temporary_root/serve"
@@ -78,22 +89,47 @@ command -v git >/dev/null 2>&1 || {
 # asserted against them below, so a manifest edit that is not reflected here
 # fails loudly instead of silently weakening the test.
 ROLES="product developer reviewer"
+
+# Local mode (default) derives every artifact name and version from this
+# checkout's manifests. --published derives them from the catalogs instead,
+# the way the installer does, and asserts the two agree — a mismatch is
+# exactly what would ship a broken pin.
+manifest_version() { sed -n 's/^  version: "\(.*\)"/\1/p' "$1" | head -1; }
 # The bundles move together (publish.sh guards it), so the product manifest
 # is the single source for the version this run builds and asserts.
-BUNDLE_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/bundles/product/bundle.yml" | head -1)
+BUNDLE_VERSION=$(manifest_version "$repository_root/bundles/product/bundle.yml")
 [ -n "$BUNDLE_VERSION" ] || { echo "conformance could not read the bundle version from bundles/product/bundle.yml" >&2; exit 4; }
+LINEAR_VERSION=$(manifest_version "$repository_root/packages/spec-kit-linear/extension.yml")
+REVIEW_VERSION=$(manifest_version "$repository_root/packages/spec-kit-code-review/extension.yml")
+PRESET_VERSION=$(manifest_version "$repository_root/presets/default/preset.yml")
 
-# Artifact names come from the catalogs — the installer downloads exactly
-# these basenames, so hardcoding them here is how the 0.3.0 publish failed
-# conformance. The preset version for resolve assertions comes from its
-# manifest, which is what the installed preset reports.
 catalog_zip() {
   python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]['download_url'].rsplit('/',1)[-1])" "$@"
 }
-LINEAR_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions linear)
-REVIEW_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions code-review)
-PRESET_ZIP=$(catalog_zip "$repository_root/catalog/presets.json" presets default)
-PRESET_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/presets/default/preset.yml" | head -1)
+catalog_version() {
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]['version'])" "$@"
+}
+
+if [ "$mode" = "published" ]; then
+  LINEAR_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions linear)
+  REVIEW_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions code-review)
+  PRESET_ZIP=$(catalog_zip "$repository_root/catalog/presets.json" presets default)
+
+  mismatched=false
+  check_published() {
+    [ "$2" = "$3" ] || { echo "published catalog $1 $2 does not match manifest $3" >&2; mismatched=true; }
+  }
+  check_published linear "$(catalog_version "$repository_root/catalog/extensions.json" extensions linear)" "$LINEAR_VERSION"
+  check_published code-review "$(catalog_version "$repository_root/catalog/extensions.json" extensions code-review)" "$REVIEW_VERSION"
+  check_published preset "$(catalog_version "$repository_root/catalog/presets.json" presets default)" "$PRESET_VERSION"
+  check_published bundles "$(catalog_version "$repository_root/catalog/bundles.json" bundles product)" "$BUNDLE_VERSION"
+  ! $mismatched || exit 1
+else
+  LINEAR_ZIP="spec-kit-linear-v${LINEAR_VERSION}.zip"
+  REVIEW_ZIP="spec-kit-code-review-v${REVIEW_VERSION}.zip"
+  PRESET_ZIP="default-${PRESET_VERSION}.zip"
+fi
+
 product_extensions="git linear"
 developer_extensions="git linear code-review bug"
 reviewer_extensions="code-review"
@@ -142,10 +178,26 @@ for role in $ROLES; do
 done
 
 # --------------------------------------------------------------------------
-# Serve the published catalogs, rewritten to point at those artifacts.
+# Serve the catalogs, rewritten to point at those artifacts. Local mode also
+# rewrites each entry's version and basename to this run's manifest values —
+# what was actually just built above — instead of whatever the checked-in
+# catalog files (the last published state) still say.
 # --------------------------------------------------------------------------
 
-python3 - "$repository_root" "$serve_root" "$temporary_root/port" <<'PY' &
+local_overrides="{}"
+if [ "$mode" = "local" ]; then
+  local_overrides=$(python3 -c '
+import json, sys
+linear_v, linear_zip, review_v, review_zip, preset_v, preset_zip, bundle_v = sys.argv[1:8]
+print(json.dumps({
+    "extensions": {"linear": [linear_v, linear_zip], "code-review": [review_v, review_zip]},
+    "presets": {"default": [preset_v, preset_zip]},
+    "bundles": {r: [bundle_v, f"{r}-{bundle_v}.zip"] for r in ("product", "developer", "reviewer")},
+}))
+' "$LINEAR_VERSION" "$LINEAR_ZIP" "$REVIEW_VERSION" "$REVIEW_ZIP" "$PRESET_VERSION" "$PRESET_ZIP" "$BUNDLE_VERSION")
+fi
+
+python3 - "$repository_root" "$serve_root" "$temporary_root/port" "$local_overrides" <<'PY' &
 import functools
 import http.server
 import json
@@ -154,6 +206,7 @@ import socketserver
 import sys
 
 repository_root, serve_root, port_file = (pathlib.Path(a) for a in sys.argv[1:4])
+overrides = json.loads(sys.argv[4])
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args, **kwargs):  # noqa: D102 - silence access logs
@@ -167,8 +220,13 @@ with socketserver.TCPServer(("127.0.0.1", 0), handler) as httpd:
         source = repository_root / "catalog" / f"{name}.json"
         payload = json.loads(source.read_text(encoding="utf-8"))
         payload["catalog_url"] = f"{base}/{name}.json"
-        for entry in payload[key].values():
-            entry["download_url"] = f"{base}/" + entry["download_url"].rsplit("/", 1)[-1]
+        for entry_id, entry in payload[key].items():
+            if entry_id in overrides.get(key, {}):
+                version, zip_name = overrides[key][entry_id]
+                entry["version"] = version
+                entry["download_url"] = f"{base}/{zip_name}"
+            else:
+                entry["download_url"] = f"{base}/" + entry["download_url"].rsplit("/", 1)[-1]
         (serve_root / f"{name}.json").write_text(
             json.dumps(payload, indent=2), encoding="utf-8"
         )

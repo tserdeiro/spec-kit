@@ -206,13 +206,13 @@ preparation within budget. Nothing new in scope.
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
   - **Completion evidence**: PR #61 (ready 2026-09-02, stacked on #60); 789 tests green (+3); real-invocation proofs: sibling file and `~nosuchuser` → exit 2 `findings_session_mismatch`, input bytes unchanged after close, `findings-normalized.json` holds the normalized document, `session.json.findings_sha256 == sha256(findings.json)`; fresh review 1 minor (expected path not resolved) — accepted as-is: `session.path` is already canonical (`session.py:375` resolves it) and leaving `expected` unresolved is what rejects a symlink planted at the canonical path; verdict no-blocking-findings (session 441c32ed)
 
-- [ ] T019 Release preparation, minimal: coherent version bump and the publication guards (preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundles 0.14.0)
+- [x] T019 Release preparation, minimal: coherent version bump and the publication guards (preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundles 0.14.0)
   - **Traces**: plan Rollout; outcome: `publish.sh --bump` produces manifests, pins, changelogs, and `uv.lock` (rolling back when `uv lock` fails); `publish.sh` rejects unknown flags, requires `main` with `origin/main` as ancestor, and guards empty arrays for bash 3.2; `build-bundles.sh` builds from the tag; conformance validates local manifests by default with its cross-checks, and a `--published` mode (used by `publish.sh` after publication, and by CI on `main` only once catalogs match) asserts catalog parity; nothing else from #58
   - **Depends on**: T018
   - **Boundaries**: `scripts/release/publish.sh`, `scripts/release/build-bundles.sh`, `scripts/conformance/bundles.sh`, `.github/workflows/conformance.yml`, manifests, changelogs, pins, `uv.lock`; ≤ 400 authored lines — split, never extend the budget
   - **Evidence**: `bundles.sh` green by default on the bumped tree; `publish.sh --dryrun` exits 2; `publish.sh --dry-run` in a temporary clone; both suites green
   - **Delivery**: single PR into 003-delivery-automation (~100 authored lines + generated bump); human review before the first publication
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #62 (ready 2026-09-02, stacked on #61); ≈152 authored lines + generated bump; default conformance green on the bumped tree, `--published` fails with 4 parity lines here and passes on the pre-bump tree; `--dryrun`/`--help` exit 2, `--dry-run` in a temporary clone prints the plan with no remote calls; `build-bundles.sh` guard and `--bump` rollback proven in throwaway clones; 410 + 789 tests green; fresh review 1 minor (rollback omitted `presets/default/README.md`) fixed in-branch; verdict no-blocking-findings (session 40d69fb3). CI keeps default mode; catalog parity is verified by `publish.sh` itself. First publication: human, from `main`, after #43 merges
 
 ## Dependencies
 
