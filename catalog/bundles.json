@@ -6,12 +6,12 @@
     "product": {
       "id": "product",
       "name": "Product",
-      "version": "0.13.0",
+      "version": "0.14.0",
       "role": "product",
       "description": "Turns business needs into specs, plans, and tasks, projected into Linear.",
       "author": "tserdeiro",
       "license": "MIT",
-      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.13.0/product-0.13.0.zip",
+      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.14.0/product-0.14.0.zip",
       "repository": "https://github.com/tserdeiro/spec-kit",
       "requires": {
         "speckit_version": ">=1.0.1,<1.1.0"
@@ -33,12 +33,12 @@
     "developer": {
       "id": "developer",
       "name": "Developer",
-      "version": "0.13.0",
+      "version": "0.14.0",
       "role": "developer",
       "description": "Implements tasks one branch at a time, self-reviews, and opens draft PRs.",
       "author": "tserdeiro",
       "license": "MIT",
-      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.13.0/developer-0.13.0.zip",
+      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.14.0/developer-0.14.0.zip",
       "repository": "https://github.com/tserdeiro/spec-kit",
       "requires": {
         "speckit_version": ">=1.0.1,<1.1.0"
@@ -60,12 +60,12 @@
     "reviewer": {
       "id": "reviewer",
       "name": "Reviewer",
-      "version": "0.13.0",
+      "version": "0.14.0",
       "role": "reviewer",
       "description": "Runs the final agentic review on a pull request before human approval.",
       "author": "tserdeiro",
       "license": "MIT",
-      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.13.0/reviewer-0.13.0.zip",
+      "download_url": "https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.14.0/reviewer-0.14.0.zip",
       "repository": "https://github.com/tserdeiro/spec-kit",
       "requires": {
         "speckit_version": ">=1.0.1,<1.1.0"
