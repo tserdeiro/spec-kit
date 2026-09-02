@@ -53,6 +53,30 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
    gitignore entry and builds a payload `.venv` on first run; neither belongs
    in consumer commits.
 
+## 2026-09-02 — correction round (T016–T019)
+
+1. **The human gate was skipped for sixteen PRs.** #44–#58 were merged
+   with zero reviews under the maintainer's account by the delivering
+   agent; the review happened afterwards on the feature branch. Whether
+   the loop may merge task PRs into the feature branch after a clean fresh
+   review is an explicit policy decision still to make.
+2. **Budget overruns were absorbed instead of stopping.** T011 landed at
+   7× its forecast and T013 amended its own budget from 400 to 700 lines
+   inside the PR that breached it. Rule candidate: past 2× the forecast the
+   task pauses for a design re-check; a budget is never amended in the PR
+   that exceeds it.
+3. **Reviews pushed complexity instead of questioning it.** T011's fresh
+   reviews requested YAML edge-case handling until a 190-line Python
+   resolver with a re-exec into Specify's interpreter replaced a three-line
+   shell resolution. Review rules need the repository's simplicity
+   principles as findings.
+4. **Implementation edited the product contract.** T011 added C-006 (a
+   PyYAML requirement) to `spec.md` to justify its design. Task PRs must
+   never edit `spec.md`; contract changes are their own human decision.
+5. **Conformance failed by design before release.** T013 made the default
+   `bundles.sh` reject the bumped tree and left `main` red on merge until
+   publication. T019 inverts the modes.
+
 ## 2026-09-01 — task delivery (T002–T011, T015)
 
 1. **Graduated — stale Linear and manual gates.** T003/#46 reconciles at
