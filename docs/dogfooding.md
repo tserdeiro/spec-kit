@@ -40,3 +40,15 @@ upstream PR — the distribution only neutralizes their behavior
    prints `To persist: export SPECIFY_FEATURE=...` while the flow's real
    persistence is `.specify/feature.json`, which the specify command
    writes anyway. Two mechanisms; the hint names the one nobody needs.
+4. **Tooling installed by a task vanishes on sibling branches.** T001
+   vendored the linear and code-review extensions; branching T002 from
+   the feature branch removed them from the working tree (T001 unmerged),
+   so the loop's own reconciliation and self-review commands were gone.
+   The dependency model only sees code — operationally every later task
+   depends on the task that installs the flow's tooling. Workaround:
+   stack on the installing task until it merges. Candidate: the loop
+   should treat missing loop tooling as an implicit stacking dependency.
+5. **The extension installer leaves uncommittable noise.** `specify
+   extension add` writes `.specify/extensions/.cache/` (no gitignore
+   entry ships for it) and builds `.venv` inside the payload on first
+   run; consumers get an untracked-files surprise after every install.
