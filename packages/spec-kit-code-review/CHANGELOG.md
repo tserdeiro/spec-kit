@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- Normalized findings are written to `findings-normalized.json`; the
+  agent's `findings.json` input is preserved untouched.
+- `--findings` must equal the exact session path it closes.
+- A `~user` findings path that fails to expand is a usage error.
+- The docs show the accepted findings shape.
+
 ## 0.2.1
 
 - The doctor derives its supported Spec Kit range from `extension.yml`
