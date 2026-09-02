@@ -604,12 +604,18 @@ class AnchoredReviewTests(RunCommandCase):
             "review", "--findings", str(findings), "--session", str(session)
         )
         self.assertEqual(code, EXIT_SUCCESS)
-        self.assertTrue(findings.is_file())
+        cleared = [
+            session / "findings.json",
+            session / "findings-normalized.json",
+            session / "findings.md",
+            session / "publication-plan.json",
+        ]
+        self.assertTrue(all(path.is_file() for path in cleared), cleared)
 
         code, payload = self._phase_one()
 
         self.assertEqual(code, EXIT_SUCCESS, payload["diagnostics"])
-        self.assertFalse(findings.exists())
+        self.assertFalse(any(path.exists() for path in cleared), cleared)
         self.assertEqual(self._session_payload()["phase"], "open")
 
     def test_a_reclaim_that_would_destroy_work_stops_instead(self) -> None:
