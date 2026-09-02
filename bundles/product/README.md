@@ -7,6 +7,8 @@ projected into Linear, closed by the draft feature PR (the gate).
 
 - Preset `default` — spec, plan, tasks, checklist templates and the
   workflow commands.
+- Extension `git` — feature branching and delivery-base configuration
+  (ships with Spec Kit).
 - Extension `linear` — Project, Issue and state projection.
 
 The exact pinned versions live in [`bundle.yml`](bundle.yml) — this page

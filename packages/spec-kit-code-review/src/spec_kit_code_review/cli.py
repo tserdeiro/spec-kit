@@ -590,6 +590,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
         _reclaim_existing_session(context, directory, diagnostics)
+        _clear_previous_review_outputs(directory)
         with prepared_environment(
             context.git,
             head_commit=candidate.head_commit,
@@ -709,6 +710,13 @@ def _reclaim_existing_session(context: CommandContext, directory: Path, diagnost
             severity="info",
         )
     )
+
+
+def _clear_previous_review_outputs(directory: Path) -> None:
+    """Make reopening the same candidate require fresh findings."""
+
+    for filename in (FINDINGS_FILENAME, FINDINGS_MARKDOWN_FILENAME, PUBLICATION_PLAN_FILENAME):
+        (directory / filename).unlink(missing_ok=True)
 
 
 def _sdd_diagnostics(resolution, sdd) -> list[Diagnostic]:
@@ -1291,6 +1299,29 @@ def _verify_frozen_configuration(session: ReviewSession, config, diagnostics: li
     )
 
 
+def _findings_path_for_session(value: str, session: ReviewSession) -> Path:
+    """Resolve findings only from the session they close."""
+
+    supplied = Path(value).expanduser()
+    expected = session.path / FINDINGS_FILENAME
+    try:
+        resolved = supplied.resolve()
+        resolved.relative_to(session.path)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise AppError(
+            f"--findings must resolve inside the session it closes; expected {expected}",
+            code=EXIT_USAGE,
+            diagnostics=[
+                Diagnostic(
+                    "findings_session_mismatch",
+                    f"write this review's findings to {expected} and pass that path with --findings",
+                    str(supplied),
+                )
+            ],
+        ) from error
+    return resolved
+
+
 def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     """``--findings PATH --session PATH``: normalize, verdict, withdraw, close."""
 
@@ -1306,13 +1337,15 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
                 )
             ],
         )
+    session = require_open(load_session(Path(args.session)))
+    findings_path = _findings_path_for_session(args.findings, session)
+
     context = _open_context(args)
     diagnostics: list[Diagnostic] = list(context.environment.diagnostics)
     config = load_config(context.root, explicit=args.config, environment=context.environment)
     diagnostics.extend(config.diagnostics)
     timeout = _timeout(config)
 
-    session = require_open(load_session(Path(args.session)))
     _verify_frozen_configuration(session, config, diagnostics)
     recorded_root = session.repository_root
     if recorded_root is not None and recorded_root.resolve() != context.root:
@@ -1333,7 +1366,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     candidate, pull_request = _reresolve_candidate(context, session, timeout=timeout)
     _verify_session_correspondence(session, candidate, diagnostics)
 
-    findings_path = Path(args.findings).expanduser()
     entries, source_digest = load_document(findings_path)
     hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
     diagnostics.extend(hunks.diagnostics)
@@ -1744,6 +1776,7 @@ def _plan_from_payload(plan_payload: Mapping[str, Any], *, event: str) -> Public
         verdict_blocking=int(plan_payload.get("verdict_blocking") or 0),
         summary_marker=str(plan_payload.get("summary_marker") or ""),
         summary_body=str(plan_payload.get("summary_body") or ""),
+        findings_sha256=str(plan_payload.get("findings_sha256") or ""),
         inline=tuple(
             InlineComment(
                 finding_id=str(comment.get("finding_id") or ""),

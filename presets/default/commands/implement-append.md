@@ -53,12 +53,31 @@ their own branches are not this loop's concern.
    blocks delivery — tracking waits for the next run.
 1. **Starting a task** — before touching any code for `T###`:
    - On the **first task of the feature**, bring the repository's
-     up-to-date default branch into the feature branch (`NNN-slug`):
-     `git fetch`, then on the feature branch
-     `git merge origin/<default>` — resolve the default branch with
-     `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` —
-     and push. Later refreshes from the default branch are the
-     developer's duty, not this loop's.
+     up-to-date delivery base into the feature branch (`NNN-slug`) with
+     this single shell invocation:
+
+     ```bash
+     # first-task-refresh:start
+     set -e
+     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only --json)
+     feature_branch=$(printf '%s\n' "$paths" | python3 -c \
+       'import json, sys; print(json.load(sys.stdin)["BRANCH"])')
+     current_branch=$(git branch --show-current)
+     if [ "$current_branch" != "$feature_branch" ]; then
+       printf 'error: expected feature branch %s, found %s\n' "$feature_branch" "$current_branch" >&2
+       exit 2
+     fi
+     delivery_base=$(python3 .specify/presets/default/scripts/resolve-delivery-base.py)
+     remote=origin
+     git fetch "$remote"
+     git merge "$remote/$delivery_base"
+     git push "$remote" "$feature_branch"
+     # first-task-refresh:end
+     ```
+
+     An explicit non-empty `trunk:` wins; otherwise the GitHub default
+     applies. Do not run this refresh on later tasks; later delivery-base
+     refreshes are the developer's duty.
    - Create the task branch **from the up-to-date feature branch**:
      `git switch -c NNN-T###-short-slug`. One exception stacks: when the
      task's **Depends on** names a task whose PR is not merged yet,
@@ -111,7 +130,7 @@ their own branches are not this loop's concern.
    `ready for review`: it now shows the whole
    feature, composed of task PRs a human already reviewed one by one.
    Approving and merging are never yours — a human merges it into the
-   default branch with a **merge commit** (no squash: the task history
+   delivery base with a **merge commit** (no squash: the task history
    must survive). After that merge, delete your local feature branch
    (GitHub deletes the remote when the repository auto-deletes merged
    branches) and reconcile with `/speckit.linear.push --apply`.

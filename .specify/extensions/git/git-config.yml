@@ -14,6 +14,11 @@ branch_template: ""
 # Example: "features/{app}" expands to "features/{app}/{number}-{slug}"
 branch_prefix: ""
 
+# YAML string for the feature PR and first-task refresh; must be a valid Git
+# branch name. Quote numeric- or date-looking names. Leave empty or null to
+# use the repository's GitHub default branch.
+trunk: main
+
 # Commit message used by `git commit` during repository initialization
 init_commit_message: "[Spec Kit] Initial commit"
 

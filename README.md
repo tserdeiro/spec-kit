@@ -119,7 +119,7 @@ review) son el primer auxilio.
 
 | Bundle | Eres tú si... | Instala |
 | --- | --- | --- |
-| `product` | Conviertes necesidades de negocio en specs, planes y tareas | preset + `linear` |
+| `product` | Conviertes necesidades de negocio en specs, planes y tareas | preset + `git` + `linear` |
 | `developer` | Implementas tareas, abres PRs y corriges bugs | preset + `git` + `bug` + `linear` + `code-review` |
 | `reviewer` | Haces la revisión final antes de aprobar | preset + `code-review` |
 
@@ -142,12 +142,12 @@ con el estado que Linear refleja solo:
 | --- | --- | --- |
 | 1. Especificar | `/speckit.specify` — nace el **branch de feature** `NNN-slug` | — |
 | 2. Planificar | `/speckit.plan` | se crea el Project |
-| 3. Tareas | `/speckit.tasks`, y `/speckit.pr` sobre el branch de feature abre su **draft PR** (`NNN-slug` → default): el gate donde el equipo aprueba spec y plan | se crean los Issues (*Todo*) |
+| 3. Tareas | `/speckit.tasks`, y `/speckit.pr` sobre el branch de feature abre su **draft PR** (`NNN-slug` → branch de entrega): el gate donde el equipo aprueba spec y plan | se crean los Issues (*Todo*) |
 | 4. Implementar | `/speckit.implement` — toma la primera tarea sin marcar y crea su branch `NNN-T###-slug` (ej. `002-T004-parser-fix`) **desde el branch de feature** | *In Progress* |
 | 5. Pull request | `/speckit.pr` — abre el PR **draft** de la tarea, **hacia el branch de feature**, con el body canónico | *In Progress* |
 | 6. Auto-revisión | `/speckit.code-review`, corriges, `[x]` + evidencia en el último commit, y marcas `ready for review` | *In Review* |
 | 7. Revisión final | el revisor: `/speckit.code-review --publish` más su revisión humana; una persona mergea al branch de feature | *Done* |
-| 8. Cierre | todas `[x]` → marcas el PR de feature `ready` → revisión de la película completa → una persona mergea a la default con **merge commit** (el branch se borra); `/speckit.linear.push --apply` reconcilia | — |
+| 8. Cierre | todas `[x]` → marcas el PR de feature `ready` → revisión de la película completa → una persona mergea al branch de entrega con **merge commit** (el branch se borra); `/speckit.linear.push --apply` reconcilia | — |
 
 Los pasos 4–6 los orquesta `/speckit.implement` solo, tarea por tarea;
 cada comando también puede correrse suelto.
@@ -169,10 +169,16 @@ Reglas de oro:
   una tarea en review nunca aparece como *Done*.
 - **El branch de feature (`NNN-slug`) es la integración**: los branches
   de tarea salen de él actualizado y sus PRs vuelven a él; la feature
-  entra a la default branch **una sola vez**, con merge commit — nada a
-  medias llega a la default. Bugs y chores van directo a la default. Los
-  comandos resuelven la default branch real del repo en GitHub (aquí
-  `main`; en otros proyectos `dev`), sin configurar nada.
+  entra al branch de entrega **una sola vez**, con merge commit — nada a
+  medias llega antes. Bugs y chores siguen yendo al default de GitHub.
+  Por defecto los comandos usan el default de GitHub; si el trunk real es
+  otro, configura `trunk: <branch>` en
+  `.specify/extensions/git/git-config.yml`. Debe cargar como string YAML y
+  ser un nombre de branch válido para Git; nombres que parecen números o
+  fechas deben ir entre comillas. Ese valor explícito tiene prioridad para
+  el PR de feature y el primer refresh de `/speckit.implement` (este repo
+  declara `trunk: main`). Los PRs de tarea derivan su feature activa y los
+  de bug/chore consultan el default de GitHub en el momento de crearlos.
 - **Nunca actualices Linear a mano**: el Project y los Issues nacen solos
   en plan/tareas, los estados los mueve la integración nativa por eventos
   de PR, y `push --apply` es la reconciliación idempotente que repara lo

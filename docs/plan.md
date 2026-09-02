@@ -284,6 +284,29 @@ changed shipped content, released:
   naming the artifact line to shorten, and Linear's own error messages
   travel redacted in the diagnostics (`linear` 0.7.0).
 
+### Current delivery round — unattended delivery automation (2026-08-31 → 2026-09-01)
+
+[`003-delivery-automation`](../specs/003-delivery-automation/) is
+implemented and reviewed in task PRs #44–#53 and #55–#57; obsolete #54 was
+closed and replaced by #56. Merge commits are collapsing both task stacks
+into T001, but no task changes reach the feature branch until #44 lands.
+Feature PR #43 remains draft; release preparation is T013 and integrated
+acceptance is T014.
+
+- **Flow** — #44 dogfoods the released extensions in this repository;
+  #45–#48 add scoped phase commits, loop reconciliation, fresh review, and
+  the automatic feature gate; #49–#51 add named diagnoses and accurate
+  native-automation coverage.
+- **Tool integrity** — #52 ignores fenced task examples; #53 binds findings
+  and publication resumes to their review session and plan.
+- **Delivery base** — #55 reuses Specify's PyYAML runtime for one validated
+  resolver; #56 wires feature, task, and work-item delivery and updates the
+  generated tasks template. The late review-budget split is T011 → T015.
+- **Consumer boundary** — current pins remain preset 0.7.0, linear 0.10.0,
+  code-review 0.2.1, and bundles 0.13.0. Human merges, T013 release
+  preparation, separate human publication, consumer update, and T014
+  acceptance are still required.
+
 ## Releases
 
 `versions.lock.yml` pins upstream and each extension (tag, commit, digest).
