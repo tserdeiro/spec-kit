@@ -53,63 +53,63 @@ of the flow is dogfooded here (plan D11, spec A-002).
 **Goal**: the loop itself reconciles Linear and reviews with a fresh context.
 **Independent test**: drive one task; its issue moves with no human push; findings live in their session.
 
-- [ ] T003 Loop reconciliation: `push --hook` at loop start and after each transition in implement-append.md
+- [x] T003 Loop reconciliation: `push --hook` at loop start and after each transition in implement-append.md
   - **Traces**: FR-004, SC-002; outcome: loop step 0 and the transitions it causes (task branch created, PR ready) invoke `speckit.linear.push --hook`; unconfigured repos no-op silently; failures report once and never block delivery
   - **Depends on**: none
   - **Boundaries**: `presets/default/commands/implement-append.md` only; no lifecycle hook registrations (plan Alternatives)
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; during this feature's own loop, TDS issues read In Progress/In Review with no human push
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #46 (ready 2026-08-31, stacked on #45); +16 net lines at three insertion points; bundles conformance ok; vendored push.md corroborates the --hook contract; self-review no-blocking-findings (session b0165575)
 
-- [ ] T004 Fresh-context self-review in the loop (implement-append.md)
+- [x] T004 Fresh-context self-review in the loop (implement-append.md)
   - **Traces**: FR-011, US2.4; outcome: the loop delegates packet reading and findings to a fresh sub-agent (hosts without sub-agents run it themselves), findings written inside the review session directory, never reused
   - **Depends on**: T003
   - **Boundaries**: `presets/default/commands/implement-append.md`; enforcement half lands in T010
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; this loop's own reviews delegate and write per-session findings
   - **Delivery**: single PR into 003-delivery-automation (~30 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #47 (ready 2026-08-31, stacked on #46); the rule was dogfooded on itself — a fresh sub-agent reviewed this PR, found 2 minor findings (bare code-review invocation opens no session; "candidate context" could smuggle residue), both fixed in-branch before ready; verdict no-blocking-findings (session 3d6f1348, per-session findings)
 
 ## Phase 4: User Story 3 — One command to implement (P3)
 
 **Goal**: `implement` verifies/opens the feature gate itself.
 **Independent test**: run implement with no feature PR; the draft gate opens, then T-first starts.
 
-- [ ] T005 Loop step 0: verify or open the draft feature PR in implement-append.md
+- [x] T005 Loop step 0: verify or open the draft feature PR in implement-append.md
   - **Traces**: FR-003, SC-005; outcome: before the first task the loop checks the feature branch's PR and, when missing, executes the `speckit.pr` feature-variant routine (idempotent; existing PR reported, never duplicated)
   - **Depends on**: T004
   - **Boundaries**: `presets/default/commands/implement-append.md`; `pr.md` stays the routine's single owner
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; loop text names the gate as step 0 and delegates to `speckit.pr`
   - **Delivery**: single PR into 003-delivery-automation (~30 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #48 (ready 2026-08-31, stacked on #47); fresh review found 3 minor + 1 info (closed gate accepted, optional URL report, two stale cross-references) — the three minors fixed in-branch; verdict no-blocking-findings (session 6044f70f)
 
 ## Phase 5: User Story 4 — Setup diagnoses itself (P4)
 
 **Goal**: gaps name their remediation; native coverage stated honestly.
 **Independent test**: unlink/misconfigure a fixture repo; read the named fixes.
 
-- [ ] T006 Unlinked-repo guard in spec-kit-linear: name `onboard`, never a raw API error
+- [x] T006 Unlinked-repo guard in spec-kit-linear: name `onboard`, never a raw API error
   - **Traces**: FR-005, SC-003; outcome: `push` and `status` short-circuit before any network call when root `speckit-linear.yml` is missing or still placeholder, with a `configuration` diagnostic naming `onboard`; credential failures keep naming their source
   - **Depends on**: none
   - **Boundaries**: `packages/spec-kit-linear/src/spec_kit_linear/{cli,config}.py`, tests; no behavior change for linked repos
   - **Evidence**: `uv run --project packages/spec-kit-linear pytest` green incl. new guard cases; fixture run shows the onboard message
   - **Delivery**: single PR into 003-delivery-automation (~80 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #49 (ready 2026-08-31, stacked on #48); 408 tests green (+10), placeholder guard pre-network proven without client patch, hook no-op preserved, hermetic conformance passed; fresh review 1 info + 1 nit — nit's false test comment fixed in-branch, info recorded as accepted scope (guard scans section values, not only *_id keys; unreachable edge, simplicity kept); verdict no-blocking-findings (session 5b2166bf)
 
-- [ ] T007 Platform checks in the preset doctor (doctor.md)
+- [x] T007 Platform checks in the preset doctor (doctor.md)
   - **Traces**: FR-006, SC-003; outcome: doctor additionally reports `deleteBranchOnMerge` and `mergeCommitAllowed` via read-only `gh repo view`, each with the exact setting to change; degrades to "cannot verify" without `gh`
   - **Depends on**: T006
   - **Boundaries**: `presets/default/commands/doctor.md` only; never mutates settings
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; doctor run in this repo names both settings' states
   - **Delivery**: single PR into 003-delivery-automation (~30 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #50 (ready 2026-09-01, stacked on #49); bundles conformance and `git diff --check` passed; both extension doctors completed; live read-only check reported `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`; fresh review no-blocking-findings (session 5d2de1fa, per-session findings)
 
-- [ ] T008 Document native Linear automation coverage (spec-kit-linear README + root README note)
-  - **Traces**: FR-007, US4.3; outcome: docs state PR automations are team-level, a target-branch rule (`^\d{3}-`) is required for task-PR merges into feature branches, linking rides the PR-body magic word (branches carry no issue key), and `push` reconciles regardless
+- [x] T008 Document native Linear automation coverage (spec-kit-linear README + root README note)
+  - **Traces**: FR-007, US4.3; outcome: docs state PR automations are team-level, default rules cover every linked PR, target-branch rules are optional overrides, linking rides the PR-body magic word (branches carry no issue key), and `push` reconciles regardless
   - **Depends on**: T007
   - **Boundaries**: `packages/spec-kit-linear/README.md`, root `README.md` (Spanish consumer note); no code
   - **Evidence**: doc sections present; `git diff --check` clean
   - **Delivery**: single PR into 003-delivery-automation (~50 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #51 (ready 2026-09-01, stacked on #50); official Linear docs confirmed default Team rules cover every linked PR and target-branch rules are optional overrides; `git diff --check` passed; fresh review found one major factual error in the original required-rule premise, corrected in docs, plan, task, and PR body; final review no-blocking-findings (session e99eeaba, per-session findings)
 
 ## Phase 6: User Story 5 — The flow never breaks its own tools (P5)
 
