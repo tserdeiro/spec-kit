@@ -143,7 +143,7 @@ of the flow is dogfooded here (plan D11, spec A-002).
 - [ ] T015 Wire runtime trunk resolution into feature delivery commands
   - **Traces**: FR-010, SC-006; outcome: feature PR and first-task refresh invoke T011's helper; task/work-item PR bases derive at runtime; all repository-derived branch names remain inert argv; behavior is documented and this repo sets `trunk: main`
   - **Depends on**: T011
-  - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}`; preset/root READMEs; this repo's consumer `git-config.yml`; command conformance in `scripts/conformance/bundles.sh`; `spec.md`/`plan.md` clarifications
+  - **Boundaries**: `presets/default/commands/{pr.md,implement-append.md}` and `presets/default/templates/tasks-template.md`; preset/root READMEs; this repo's consumer `git-config.yml`; command conformance in `scripts/conformance/bundles.sh`; `spec.md`/`plan.md` clarifications
   - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers execute feature/task/work-item creation and first-task refresh with configured/fallback/metacharacter/failure cases
   - **Delivery**: single PR into 003-delivery-automation (≤400 authored executable lines), stacked on T011
   - **Completion evidence**: Pending
