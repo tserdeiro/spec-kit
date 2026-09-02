@@ -47,6 +47,50 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 3)
         self.assertEqual(raised.exception.diagnostics[0].code, "config_secret")
 
+    def test_missing_config_says_the_repository_is_not_linked_and_names_onboard(self) -> None:
+        self.config_path.unlink()
+
+        with self.assertRaises(AppError) as raised:
+            load_config(self.fixture_root)
+
+        self.assertEqual(raised.exception.code, 3)
+        self.assertEqual(raised.exception.category, "configuration")
+        self.assertIn("not linked", str(raised.exception))
+        self.assertIn("onboard", str(raised.exception))
+        self.assertIn("onboard", raised.exception.diagnostics[0].message)
+
+    def test_the_shipped_template_is_rejected_as_still_the_template(self) -> None:
+        template = Path(__file__).parents[2] / "config" / "speckit-linear.template.yml"
+        self.config_path.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+
+        with self.assertRaises(AppError) as raised:
+            load_config(self.fixture_root)
+
+        self.assertEqual(raised.exception.code, 3)
+        self.assertEqual(raised.exception.category, "configuration")
+        self.assertIn("still the template", str(raised.exception))
+        self.assertIn("onboard", str(raised.exception))
+        self.assertEqual(raised.exception.diagnostics[0].code, "config_placeholder")
+
+    def test_one_leftover_placeholder_id_is_enough_to_be_rejected(self) -> None:
+        text = self.config_path.read_text(encoding="utf-8")
+        self.config_path.write_text(
+            text.replace("66666666-6666-4666-8666-666666666666", "00000000-0000-0000-0000-000000000000"),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(AppError) as raised:
+            load_config(self.fixture_root)
+
+        self.assertEqual(raised.exception.diagnostics[0].code, "config_placeholder")
+        self.assertIn("repository.issue_view_id", raised.exception.diagnostics[0].message)
+
+    def test_the_valid_fixture_config_still_loads(self) -> None:
+        config, path = load_config(self.fixture_root)
+
+        self.assertEqual(path, self.config_path.resolve())
+        self.assertEqual(config["repository"]["slug"], "sample-repository")
+
     def test_lifecycle_section_is_optional_and_absent_by_default(self) -> None:
         config, _ = load_config(self.fixture_root)
 
