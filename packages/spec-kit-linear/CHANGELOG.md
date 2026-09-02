@@ -1,18 +1,5 @@
 # Changelog
 
-## 0.11.0
-
-- `push` and `status` now diagnose a missing or still-placeholder repository
-  binding before any network call and name `onboard` as the remediation;
-  lifecycle-hook mode remains a clean no-op while the repository is unbound.
-- The feature parser ignores fenced code blocks when matching document titles,
-  phases, and tasks, so the generated tasks template's instructive example is
-  valid input without manual deletion.
-- The GitHub automation guide now distinguishes Team-wide PR mappings from
-  optional target-branch overrides, explains task linking through the
-  canonical PR body's `Fixes` reference, and keeps `push` as the authoritative
-  reconciliation path.
-
 ## 0.10.0
 
 - The bounded block returns, with the hash folded into its open tag:

@@ -1,15 +1,5 @@
 # Changelog
 
-## 0.3.0
-
-- The documented findings object is now validator-valid, and findings must
-  resolve inside the session they close. Reopening a candidate clears prior
-  findings, rendered output, and publication plans so every review starts
-  fresh.
-- Partial publication resumes are bound to the exact findings-derived plan;
-  changed findings fail before another write instead of reusing batches from
-  a different review, and completed publications are never resumed.
-
 ## 0.2.1
 
 - The doctor derives its supported Spec Kit range from `extension.yml`
