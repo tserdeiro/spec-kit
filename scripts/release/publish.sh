@@ -19,10 +19,14 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
 cd "$repo_root"
 
+usage="Usage: publish.sh [--dry-run | --bump <linear|code-review|preset|bundles>=<x.y.z> ... | -h | --help]"
 dry_run=false
-[ "${1:-}" = "--dry-run" ] && dry_run=true
-[ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] && {
-  echo "Usage: publish.sh [--dry-run | --bump <linear|code-review|preset|bundles>=<x.y.z> ...]" >&2; exit 2; }
+case "${1:-}" in
+  "" | --bump) ;;
+  --dry-run) dry_run=true ;;
+  -h | --help) echo "$usage" >&2; exit 2 ;;
+  *) echo "$usage" >&2; exit 2 ;;
+esac
 
 fail() { echo "ERROR: $1" >&2; exit 1; }
 
@@ -31,6 +35,21 @@ if [ "${1:-}" = "--bump" ]; then
   shift
   [ $# -ge 1 ] || fail "usage: publish.sh --bump <linear|code-review|preset|bundles>=<x.y.z> ..."
   [ -z "$(git status --porcelain)" ] || fail "the tree is dirty; commit or stash first"
+
+  # The exact paths this invocation is about to touch, so a failed `uv lock`
+  # below can restore precisely them and nothing else.
+  touched=()
+  for arg in "$@"; do
+    case "${arg%%=*}" in
+      linear) touched+=(packages/spec-kit-linear/extension.yml packages/spec-kit-linear/pyproject.toml \
+                         packages/spec-kit-linear/src/spec_kit_linear/__init__.py packages/spec-kit-linear/CHANGELOG.md) ;;
+      code-review) touched+=(packages/spec-kit-code-review/extension.yml packages/spec-kit-code-review/pyproject.toml \
+                              packages/spec-kit-code-review/src/spec_kit_code_review/__init__.py packages/spec-kit-code-review/CHANGELOG.md) ;;
+      preset) touched+=(presets/default/preset.yml) ;;
+      bundles) touched+=(bundles/product/bundle.yml bundles/developer/bundle.yml bundles/reviewer/bundle.yml) ;;
+    esac
+  done
+
   python3 - "$@" <<'EOF' || exit 1
 import re, sys
 from pathlib import Path
@@ -108,6 +127,15 @@ for path, text, note in writes:
     path.write_text(text)
     print(f"  {path}: {note}")
 EOF
+
+  # The package lock must reflect the bumped versions before anything is
+  # committed. A failure here leaves the manifests pointing at a version the
+  # lock does not know, so restore exactly what this invocation wrote.
+  if ! uv lock; then
+    git checkout -- ${touched[@]+"${touched[@]}"}
+    fail "uv lock failed after the bump; restored ${touched[*]}"
+  fi
+
   echo "bump applied; write the changelog entries (replace TODO), review the diff, commit, then run publish.sh"
   exit 0
 fi
@@ -115,6 +143,13 @@ fi
 # --- Preconditions ---------------------------------------------------------
 [ -z "$(git status --porcelain)" ] || fail "the tree is dirty; commit or stash first"
 gh auth status >/dev/null 2>&1 || fail "gh is not authenticated (gh auth login)"
+
+# Publication only ever runs from main, caught up with the remote — there is
+# no automated way back once tags and releases are pushed.
+current_branch=$(git branch --show-current)
+[ "$current_branch" = "main" ] || fail "publish.sh must run from main (current: $current_branch)"
+git fetch origin main || fail "could not fetch origin main"
+git merge-base --is-ancestor origin/main HEAD || fail "origin/main is not an ancestor of HEAD; pull or rebase first"
 
 manifest_version() { sed -n 's/^  version: "\(.*\)"/\1/p' "$1" | head -1; }
 
@@ -232,11 +267,12 @@ EOF
 
 # --- Conformance at the consistent point --------------------------------
 # Lock and catalogs now match the manifests; prove the whole composition
-# still installs before anything is committed, tagged, or published. On
-# failure, revert the rewrite and abort with nothing to undo. (Added after
-# the 0.2.1 release shipped while conformance was red: the operator's bump
-# had omitted the catalogs and nothing here checked.)
-if ! bash scripts/conformance/bundles.sh; then
+# still installs, from the catalogs a consumer will actually see, before
+# anything is committed, tagged, or published. On failure, revert the
+# rewrite and abort with nothing to undo. (Added after the 0.2.1 release
+# shipped while conformance was red: the operator's bump had omitted the
+# catalogs and nothing here checked.)
+if ! bash scripts/conformance/bundles.sh --published; then
   git checkout -- versions.lock.yml catalog
   for entry in ${pending_ext[@]+"${pending_ext[@]}"}; do
     git tag -d "${entry%%:*}/v${entry##*:}" >/dev/null 2>&1 || true

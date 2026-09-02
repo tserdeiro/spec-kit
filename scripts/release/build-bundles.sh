@@ -22,11 +22,14 @@ commit=$(git rev-parse --verify "${tag}^{commit}") || {
 commit_epoch=$(git log -1 --format=%ct "${tag}^{commit}")
 mkdir -p "$output_dir"
 
-preset_version=$(sed -n 's/^  version: "\(.*\)"/\1/p' presets/default/preset.yml | head -1)
+preset_version=$(git show "${tag}:presets/default/preset.yml" | sed -n 's/^  version: "\(.*\)"/\1/p' | head -1)
 preset_zip="$output_dir/default-${preset_version}.zip"
 git archive --mtime="@${commit_epoch}" --format=zip \
   "${tag}:presets/default" -o "$preset_zip"
 
+# `specify bundle build` reads the working tree, not the tag.
+[ "$(git rev-parse HEAD)" = "$commit" ] ||
+  { echo "ERROR: HEAD is not at $tag ($commit); checkout the tag before building" >&2; exit 4; }
 for role in product developer reviewer; do
   specify bundle build --path "bundles/$role" --output "$output_dir" >/dev/null
 done
