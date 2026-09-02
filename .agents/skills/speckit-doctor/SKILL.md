@@ -37,19 +37,45 @@ re-run each failing doctor with `--fix` and report what it repaired —
 `--fix` is each doctor's own, bounded repair; you never fix anything
 yourself.
 
-## 3. Summarize one result
+## 3. Verify the GitHub repository settings
 
-- **Everything passed** → one line: the setup is healthy, both extensions
-  checked (name them).
+The delivery flow depends on GitHub deleting merged branches and allowing
+merge commits. These checks are always read-only, including with `--fix`.
+
+- If `gh` is unavailable, report: `GitHub: cannot verify
+  deleteBranchOnMerge or mergeCommitAllowed because gh is unavailable.`
+- Otherwise run exactly one query:
+
+  ```bash
+  gh repo view --json deleteBranchOnMerge,mergeCommitAllowed
+  ```
+
+  Report both returned states in one line. A `false` value is a blocking
+  problem with its exact manual remediation:
+  - `deleteBranchOnMerge=false` → in GitHub, enable **Settings → General →
+    Pull Requests → Automatically delete head branches**.
+  - `mergeCommitAllowed=false` → in GitHub, enable **Settings → General →
+    Pull Requests → Allow merge commits**.
+
+If the query itself fails, report both settings as `cannot verify` and include
+the failure as a warning. Never change repository settings.
+
+## 4. Summarize one result
+
+- **Everything passed and both settings were verified** → one line: the
+  setup is healthy, the installed extensions were checked (name them), with
+  `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`.
 - **Anything failed** → one short list, one bullet per blocking problem,
-  each carrying the doctor's own remediation **verbatim** (the messages
-  already say exactly what to run — do not paraphrase commands). End with
-  the single next action: usually re-running this command with `--fix`,
-  or the one manual step the remediation names.
+  carrying an extension doctor's own remediation **verbatim** or the exact
+  GitHub remediation from step 3. End with the single next action: usually
+  re-running this command with `--fix`, or the one manual step the
+  remediation names.
+- **Nothing failed but GitHub could not be verified** → say the checks that
+  ran passed, but do not call the setup healthy.
 
 Warnings that block nothing go in one final line, not in the list.
 
-## 4. Mirror the skills across installed agents
+## 5. Mirror the skills across installed agents
 
 Upstream registers extension and preset commands only for the **default**
 integration ("active-only registration"); this distribution's portability
@@ -74,5 +100,5 @@ principle says no agent is second-class. Close that gap here:
   only the default agent's copies.
 
 Never mutate anything outside step 2's explicit `--fix` pass-through and
-step 4's `speckit-*` skill mirror; never install, download, or configure
+step 5's `speckit-*` skill mirror; never install, download, or configure
 on your own.
