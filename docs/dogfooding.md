@@ -130,5 +130,5 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
     `tests.conftest`; the reliable invocation had to scope the path explicitly:
     `pytest packages/<package>/tests`. T013 leaves pytest configuration alone.
 19. **Automated review budget expanded after release hardening.** The review
-    packet grew from 400 to 600 lines while T013 closed publication and
+    packet grew from 400 to 615 lines while T013 closed publication and
     rollback gaps; the effective authored executable total remains 549/700.
