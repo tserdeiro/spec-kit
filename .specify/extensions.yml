@@ -1,5 +1,7 @@
 installed:
+- code-review
 - git
+- linear
 settings:
   auto_execute_hooks: true
 hooks:
@@ -120,6 +122,14 @@ hooks:
     prompt: Commit plan changes?
     description: Auto-commit after implementation planning
     condition: null
+  - extension: linear
+    command: speckit.linear.push
+    enabled: true
+    optional: false
+    priority: 20
+    prompt: Sync Linear after planning?
+    description: Project the Feature Project at plan
+    condition: null
   after_tasks:
   - extension: git
     command: speckit.git.commit
@@ -129,6 +139,14 @@ hooks:
     prompt: Commit task changes?
     description: Auto-commit after task generation
     condition: null
+  - extension: linear
+    command: speckit.linear.push
+    enabled: true
+    optional: false
+    priority: 20
+    prompt: Sync Linear after task generation?
+    description: Project the Txxx Issues
+    condition: null
   after_implement:
   - extension: git
     command: speckit.git.commit
@@ -137,6 +155,14 @@ hooks:
     priority: 10
     prompt: Commit implementation changes?
     description: Auto-commit after implementation
+    condition: null
+  - extension: code-review
+    command: speckit.code-review.code-review
+    enabled: true
+    optional: true
+    priority: 30
+    prompt: Review the pending diff before opening a pull request?
+    description: Advisory review of the working tree before a pull request exists
     condition: null
   after_checklist:
   - extension: git

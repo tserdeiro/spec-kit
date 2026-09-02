@@ -1,0 +1,33 @@
+schema_version: "1.0"
+
+repository:
+  slug: "spec-kit"
+  github: "tserdeiro/spec-kit"
+  remote: "origin"
+
+engine:
+  ocr_version: "v1.8.3"
+  rule_batch_size: 100
+  timeout_seconds: 300
+
+packet:
+  max_bytes_per_artifact: 60000
+  max_total_bytes: 400000
+  include_checklists: true
+  include_pr_body: true
+
+budget:
+  # Authored executable lines added. Over this, the review warns and suggests
+  # stacked pull requests; it never fails.
+  limit: 400
+
+publish:
+  event: "request-changes"
+  batch_size: 25
+  max_inline_comments: 100
+  max_listed_files: 3000
+  max_scanned_comments: 300
+  summary_marker: "speckit-code-review:summary"
+
+evidence:
+  keep_sessions: 20

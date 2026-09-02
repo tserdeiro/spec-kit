@@ -260,14 +260,55 @@ their own branches are not this loop's concern.
    `.specify/feature.json` — per-checkout local state the CLI keeps
    gitignored — so later runs without an argument continue it. Without
    an argument, the active feature applies as-is.
+   Then verify the **feature gate** — the draft feature PR on the
+   feature branch (`NNN-slug`), the spec-review gate a human merge
+   later closes — with `gh pr view <feature-branch> --json
+   url,isDraft,state 2>/dev/null`. Only an OPEN pull request counts.
+   When none exists, execute the `/speckit.pr` routine's
+   **feature-PR variant** — from the feature branch, with the
+   feature's artifacts committed — before the first task: it opens
+   the canonical draft gate, and the loop continues. When it is
+   open, report its URL and never open another. When it is CLOSED
+   or MERGED, stop and tell the human — a closed gate is a
+   decision, not a gap. The gate is where a human approves the spec
+   and plan; the loop never delivers a task against a feature with
+   no gate open.
+   Then reconcile Linear once with `/speckit.linear.push --hook`
+   (when slash commands are unavailable, agents run
+   `bash .specify/extensions/linear/scripts/bash/run.sh push --current
+   --hook`): it catches state changes that happened while no session
+   ran — overnight merges — applies without asking under the
+   extension's lifecycle gates, and is a silent clean no-op when Linear
+   is not configured. A reconcile failure is reported once and never
+   blocks delivery — tracking waits for the next run.
 1. **Starting a task** — before touching any code for `T###`:
    - On the **first task of the feature**, bring the repository's
-     up-to-date default branch into the feature branch (`NNN-slug`):
-     `git fetch`, then on the feature branch
-     `git merge origin/<default>` — resolve the default branch with
-     `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` —
-     and push. Later refreshes from the default branch are the
-     developer's duty, not this loop's.
+     up-to-date delivery base into the feature branch (`NNN-slug`) with
+     this single shell invocation:
+
+     ```bash
+     # first-task-refresh:start
+     set -e
+     current_branch=$(git branch --show-current)
+     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
+     feature_branch=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
+     [ "$current_branch" = "$feature_branch" ] ||
+       { printf 'error: expected feature branch %s, found %s\n' \
+         "$feature_branch" "$current_branch" >&2; exit 2; }
+     trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*["'"'"']?([^"'"'"'#[:space:]]*)["'"'"']?.*$/\1/p;q;}' \
+       .specify/extensions/git/git-config.yml 2>/dev/null || true)
+     delivery_base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
+     git check-ref-format --branch "$delivery_base" >/dev/null
+     remote=origin
+     git fetch "$remote"
+     git merge "$remote/$delivery_base"
+     git push "$remote" "$feature_branch"
+     # first-task-refresh:end
+     ```
+
+     The delivery base resolves the same way `speckit.pr`'s feature PR
+     does (see there for the exact rule). Do not run this refresh on
+     later tasks; later delivery-base refreshes are the developer's duty.
    - Create the task branch **from the up-to-date feature branch**:
      `git switch -c NNN-T###-short-slug`. One exception stacks: when the
      task's **Depends on** names a task whose PR is not merged yet,
@@ -283,17 +324,31 @@ their own branches are not this loop's concern.
      human decisions to ask for. An API you are not certain of is
      verified against the linked or official documentation before use,
      never guessed.
-   The branch is what projects the task to *In Progress* in Linear.
+   The branch is what projects the task to *In Progress* in Linear —
+   once it exists, reconcile with `/speckit.linear.push --hook`.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review
-   with `/speckit.code-review` and fix what it finds. Then, in the PR's
+   that PR with `/speckit.code-review <PR number>` — only the PR form
+   opens a review session — orchestrated like the tasks: on hosts
+   with sub-agents, open the review session but neither read the packet
+   nor write the findings yourself — hand the packet path, and nothing
+   else, to a **fresh sub-agent** with no implementation
+   residue, which reads the packet in full, reviews the candidate, and
+   writes `findings.json` **inside the review session directory**; close
+   the review with that file. Without sub-agents, run the review
+   yourself — findings still written inside the session directory, fresh
+   per review, never copied from an earlier one. That independence is
+   what makes the verdict worth anything: a reused findings file is not
+   a review. Fix what it finds on the task branch. Then, in the PR's
    **final commit**, check the task's box and fill its **Completion
    evidence** (the PR and the verification results; a task split into
    stacked PRs checks it in the stack's last PR), push, and mark the PR
-   `ready for review`. The checked box travels inside the task PR, so it
-   reaches the feature branch only through the human merge; reviewer
-   comments are fixed on this same PR, the box stays checked. Ready for
-   review is what frees you to start the next task (step 1).
+   `ready for review`, then reconcile with `/speckit.linear.push --hook`
+   so the issue shows its review state. The checked box travels inside
+   the task PR, so it reaches the feature branch only through the human
+   merge; reviewer comments are fixed on this same PR, the box stays
+   checked. Ready for review is what frees you to start the next task
+   (step 1).
 3. **Between tasks** — a task is finished when a human merged its PR:
    the merge is what lands its checked box and evidence on the feature
    branch, so there `[x]` means merged, by construction.
@@ -302,11 +357,11 @@ their own branches are not this loop's concern.
    projection, so a task in review never reads as done).
 4. **Closing the feature** — when every box on the feature branch is
    checked — every task PR merged — mark the **feature PR** (the draft
-   opened when the product phase closed) `ready for review`: it now
-   shows the whole
+   gate, whether the product phase or step 0 opened it)
+   `ready for review`: it now shows the whole
    feature, composed of task PRs a human already reviewed one by one.
    Approving and merging are never yours — a human merges it into the
-   default branch with a **merge commit** (no squash: the task history
+   delivery base with a **merge commit** (no squash: the task history
    must survive). After that merge, delete your local feature branch
    (GitHub deletes the remote when the repository auto-deletes merged
    branches) and reconcile with `/speckit.linear.push --apply`.

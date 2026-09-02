@@ -8,6 +8,7 @@ written.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import unittest
 from pathlib import Path
@@ -38,7 +39,7 @@ class PhaseTwoCase(RunCommandCase):
         code, payload = self._phase_one()
         self.assertEqual(code, EXIT_SUCCESS)
         self.session = payload["session"]["path"]
-        self.findings_path = self.workspace / "findings.json"
+        self.findings_path = Path(self.session) / "findings.json"
         self.write_findings(entry())
 
     def write_findings(self, *entries, document=None) -> None:
@@ -69,12 +70,31 @@ class HappyPathTests(PhaseTwoCase):
         self.close()
 
         directory = Path(self.session)
-        for name in ("findings.json", "findings.md", "publication-plan.json", "review-packet.md", "session.json"):
+        for name in (
+            "findings.json",
+            "findings-normalized.json",
+            "findings.md",
+            "publication-plan.json",
+            "review-packet.md",
+            "session.json",
+        ):
             with self.subTest(artifact=name):
                 self.assertTrue((directory / name).is_file(), name)
-        recorded = json.loads((directory / "findings.json").read_text(encoding="utf-8"))
+        recorded = json.loads((directory / "findings-normalized.json").read_text(encoding="utf-8"))
         self.assertEqual(recorded["findings"][0]["id"], "F001")
         self.assertEqual(recorded["verdict"]["value"], "changes-requested")
+
+    def test_the_findings_input_is_never_overwritten_by_its_own_normalization(self) -> None:
+        # The bind forces the agent's input to `findings.json`; the normalized
+        # document -- what F001, the verdict, and the digest below are about --
+        # must land elsewhere, or this write destroys the very input its own
+        # `findings_sha256` claims to describe.
+        before = self.findings_path.read_bytes()
+
+        self.close()
+
+        self.assertEqual(self.findings_path.read_bytes(), before)
+        self.assertEqual(self.session_payload()["findings_sha256"], hashlib.sha256(before).hexdigest())
 
     def test_the_json_document_carries_every_documented_key(self) -> None:
         _code, payload = self.close()
@@ -140,9 +160,15 @@ class HappyPathTests(PhaseTwoCase):
 class CorrespondenceTests(PhaseTwoCase):
     """Everything that means "this is not the review phase 1 opened"."""
 
-    def _assert_session_untouched(self) -> None:
+    def _assert_session_untouched(self, findings_before: bytes) -> None:
         self.assertEqual(self.session_payload()["phase"], "open")
-        self.assertFalse((Path(self.session) / "findings.json").exists())
+        self.assertFalse((Path(self.session) / "findings.md").exists())
+        self.assertFalse((Path(self.session) / "publication-plan.json").exists())
+        # A refused or aborted close must never touch the agent's input, even
+        # when that input is itself the reason the close was refused.
+        self.assertEqual(
+            self.findings_path.read_bytes(), findings_before, "the findings input must survive an aborted close"
+        )
 
     def test_findings_without_a_session_are_refused(self) -> None:
         code, payload = self.invoke_json("review", "--findings", str(self.findings_path))
@@ -150,16 +176,77 @@ class CorrespondenceTests(PhaseTwoCase):
         self.assertEqual(code, EXIT_USAGE)
         self.assertEqual(payload["diagnostics"][0]["code"], "session_path_missing")
 
+    def test_findings_outside_the_session_are_a_usage_error_naming_the_expected_location(self) -> None:
+        outside = self.workspace / "findings-from-another-review.json"
+        outside.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
+        before = self.findings_path.read_bytes()
+
+        code, payload = self.invoke_json(
+            "review", "--findings", str(outside), "--session", self.session
+        )
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "findings_session_mismatch")
+        self.assertIn(str(Path(self.session) / "findings.json"), payload["message"])
+        self.assertIn(str(Path(self.session) / "findings.json"), payload["diagnostics"][0]["message"])
+        self._assert_session_untouched(before)
+
+    def test_a_sibling_file_inside_the_session_is_refused(self) -> None:
+        # Containment would accept this -- it resolves inside the session --
+        # but the bind is equality: only the exact expected file may close the
+        # review, or a stale sibling would survive a reopen and close the next
+        # one on reused findings.
+        sibling = Path(self.session) / "stale-findings.json"
+        sibling.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
+        before = self.findings_path.read_bytes()
+
+        code, payload = self.invoke_json(
+            "review", "--findings", str(sibling), "--session", self.session
+        )
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "findings_session_mismatch")
+        self._assert_session_untouched(before)
+
+    def test_a_findings_symlink_that_resolves_outside_the_session_is_refused(self) -> None:
+        outside = self.workspace / "reused-findings.json"
+        outside.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
+        linked = Path(self.session) / "linked-findings.json"
+        linked.symlink_to(outside)
+        before = self.findings_path.read_bytes()
+
+        code, payload = self.invoke_json(
+            "review", "--findings", str(linked), "--session", self.session
+        )
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "findings_session_mismatch")
+        self._assert_session_untouched(before)
+
+    def test_an_unresolvable_home_directory_is_a_usage_error_not_a_crash(self) -> None:
+        # `expanduser` raises `RuntimeError` for a user it cannot look up; that
+        # must land as this usage error, not escape as an internal failure.
+        before = self.findings_path.read_bytes()
+
+        code, payload = self.invoke_json(
+            "review", "--findings", "~nosuchuser/findings.json", "--session", self.session
+        )
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "findings_session_mismatch")
+        self._assert_session_untouched(before)
+
     def test_a_head_that_moved_is_drift(self) -> None:
         self.repository.git("switch", "feature")
         self.repository.commit("src/feature.py", "value = 2\n", "the head moved")
         self.repository.checkout("main")
+        before = self.findings_path.read_bytes()
 
         code, payload = self.close()
 
         self.assertEqual(code, 8)
         self.assertEqual(payload["diagnostics"][0]["code"], "drift_head")
-        self._assert_session_untouched()
+        self._assert_session_untouched(before)
 
     def test_a_merge_base_that_moved_is_drift_with_its_own_message(self) -> None:
         # The base branch is rewritten -- an amend, a rebase, a force-push --
@@ -170,34 +257,37 @@ class CorrespondenceTests(PhaseTwoCase):
         )
         # `main` is checked out, so the branch is moved by moving the checkout.
         self.repository.git("reset", "--hard", rewritten.strip())
+        before = self.findings_path.read_bytes()
 
         code, payload = self.close()
 
         self.assertEqual(code, 8)
         self.assertEqual(payload["diagnostics"][0]["code"], "drift_merge_base")
         self.assertIn("merge_base", payload["message"])
-        self._assert_session_untouched()
+        self._assert_session_untouched(before)
 
     def test_a_session_of_another_candidate_is_refused(self) -> None:
         payload = self.session_payload()
         payload["candidate"]["candidate_id"] = "f" * 64
         (Path(self.session) / "session.json").write_text(json.dumps(payload), encoding="utf-8")
+        before = self.findings_path.read_bytes()
 
         code, response = self.close()
 
         self.assertEqual(code, 8)
         self.assertEqual(response["diagnostics"][0]["code"], "session_candidate_mismatch")
-        self._assert_session_untouched()
+        self._assert_session_untouched(before)
 
     def test_a_packet_edited_after_phase_one_is_refused(self) -> None:
         packet = Path(self.session) / "review-packet.md"
         packet.write_text(packet.read_text(encoding="utf-8") + "\nAn extra line.\n", encoding="utf-8")
+        before = self.findings_path.read_bytes()
 
         code, payload = self.close()
 
         self.assertEqual(code, 8)
         self.assertEqual(payload["diagnostics"][0]["code"], "packet_sha256_mismatch")
-        self._assert_session_untouched()
+        self._assert_session_untouched(before)
 
     def test_a_missing_packet_is_refused(self) -> None:
         (Path(self.session) / "review-packet.md").unlink()
@@ -220,21 +310,23 @@ class CorrespondenceTests(PhaseTwoCase):
         configuration.write_text(
             configuration.read_text(encoding="utf-8").replace("limit: 400", "limit: 40"), encoding="utf-8"
         )
+        before = self.findings_path.read_bytes()
 
         code, payload = self.close()
 
         self.assertEqual(code, 3)
         self.assertEqual(payload["diagnostics"][0]["code"], "config_sha256_mismatch")
-        self._assert_session_untouched()
+        self._assert_session_untouched(before)
 
     def test_invalid_findings_leave_the_session_open(self) -> None:
         self.findings_path.write_text("{not json", encoding="utf-8")
+        before = self.findings_path.read_bytes()
 
         code, payload = self.close()
 
         self.assertEqual(code, EXIT_USAGE)
         self.assertEqual(payload["diagnostics"][0]["code"], "findings_invalid_json")
-        self._assert_session_untouched()
+        self._assert_session_untouched(before)
 
     def test_publishing_without_a_pull_request_is_refused_after_the_close(self) -> None:
         # This session was resolved with --base/--head, so there is no pull
@@ -363,7 +455,8 @@ class RestoreFailureTests(PhaseTwoCase):
         self.assertIn("last_restore_attempt", recorded)
         self.assertFalse(recorded["last_restore_attempt"]["restored"])
         # Nothing was written as if the review had closed.
-        self.assertFalse((Path(self.session) / "findings.json").exists())
+        self.assertFalse((Path(self.session) / "findings.md").exists())
+        self.assertFalse((Path(self.session) / "publication-plan.json").exists())
 
     def test_the_same_command_works_once_the_obstacle_is_gone(self) -> None:
         from unittest import mock

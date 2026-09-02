@@ -284,6 +284,34 @@ changed shipped content, released:
   naming the artifact line to shorten, and Linear's own error messages
   travel redacted in the diagnostics (`linear` 0.7.0).
 
+### Unattended delivery automation (2026-08-31 → 2026-09-02)
+
+[`003-delivery-automation`](../specs/003-delivery-automation/): the
+workflow acts instead of reminding. Delivered through its own loop in task
+PRs #44–#62 (#54 closed as misnamed; #58 reverted by #59 and redone within
+budget as #62), feature PR #43. Released as linear 0.11.0, code-review
+0.3.0, preset 0.8.0, bundles 0.14.0; T014 records the consumer upgrade.
+
+- **Flow** — silent hooks and scoped phase commits (#45); the loop
+  reconciles Linear at start and at every transition it causes (#46),
+  reviews in a fresh context (#47), and verifies or opens the feature gate
+  itself (#48). This repository is its own consumer (#44).
+- **Diagnosis** — unlinked repositories name `onboard` before any network
+  call (#49); the doctor checks the GitHub delivery settings (#50); native
+  Linear automation coverage is stated honestly — the workspace GitHub
+  connection is the piece consumers had missing (#51).
+- **Tool integrity** — the tasks parser ignores fenced examples (#52);
+  findings bind to their exact session file and never overwrite the agent's
+  input (#53, #61); `trunk:` resolves the delivery base in three shell
+  lines (#55/#56, replaced by #60 after a 190-line resolver was rejected).
+- **Release** — `publish.sh` rejects unknown flags, runs only from `main`,
+  restores the bump when `uv lock` fails; conformance validates local
+  manifests by default and catalog parity in `--published` mode (#62).
+- **Process record** — `docs/dogfooding.md` keeps the frictions this round
+  found in the workflow itself: sixteen PRs merged without the human gate,
+  budgets amended in the PR that breached them, reviews pushing complexity,
+  a task editing the product contract. Their rules are the next round.
+
 ## Releases
 
 `versions.lock.yml` pins upstream and each extension (tag, commit, digest).

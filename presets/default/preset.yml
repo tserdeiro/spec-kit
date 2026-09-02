@@ -3,7 +3,7 @@ schema_version: "1.0"
 preset:
   id: "default"
   name: "Default Workflow Templates"
-  version: "0.7.0"
+  version: "0.8.0"
   description: "Spec, plan, tasks, and checklist templates with the integration-branch delivery workflow and its commands"
   author: "tserdeiro"
   repository: "https://github.com/tserdeiro/spec-kit"
@@ -44,9 +44,27 @@ provides:
       description: "Guarantee the task branch and open the canonical draft PR from the feature artifacts"
 
     - type: "command"
+      name: "speckit.specify"
+      file: "commands/phase-close-append.md"
+      description: "Appends the phase-close rules (silent hooks, scoped artifact commit) to the core specify command"
+      strategy: "append"
+
+    - type: "command"
+      name: "speckit.plan"
+      file: "commands/phase-close-append.md"
+      description: "Appends the phase-close rules (silent hooks, scoped artifact commit) to the core plan command"
+      strategy: "append"
+
+    - type: "command"
+      name: "speckit.analyze"
+      file: "commands/phase-close-append.md"
+      description: "Appends the phase-close rules (silent hooks, scoped artifact commit) to the core analyze command"
+      strategy: "append"
+
+    - type: "command"
       name: "speckit.tasks"
       file: "commands/tasks-append.md"
-      description: "Appends the one-task-at-a-time rule to the core tasks command"
+      description: "Appends the one-task-at-a-time rule and the phase-close rules to the core tasks command"
       strategy: "append"
 
     - type: "command"

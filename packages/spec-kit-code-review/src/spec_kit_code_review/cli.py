@@ -54,6 +54,7 @@ from .github import open_github, require_github, validate_number, validate_repos
 from .session import (
     FINDINGS_FILENAME,
     FINDINGS_MARKDOWN_FILENAME,
+    FINDINGS_NORMALIZED_FILENAME,
     PUBLICATION_PLAN_FILENAME,
     PUBLICATION_RESULT_FILENAME,
     write_json,
@@ -590,6 +591,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
         _reclaim_existing_session(context, directory, diagnostics)
+        _clear_previous_review_outputs(directory)
         with prepared_environment(
             context.git,
             head_commit=candidate.head_commit,
@@ -709,6 +711,18 @@ def _reclaim_existing_session(context: CommandContext, directory: Path, diagnost
             severity="info",
         )
     )
+
+
+def _clear_previous_review_outputs(directory: Path) -> None:
+    """Make reopening the same candidate require fresh findings."""
+
+    for filename in (
+        FINDINGS_FILENAME,
+        FINDINGS_NORMALIZED_FILENAME,
+        FINDINGS_MARKDOWN_FILENAME,
+        PUBLICATION_PLAN_FILENAME,
+    ):
+        (directory / filename).unlink(missing_ok=True)
 
 
 def _sdd_diagnostics(resolution, sdd) -> list[Diagnostic]:
@@ -1291,6 +1305,39 @@ def _verify_frozen_configuration(session: ReviewSession, config, diagnostics: li
     )
 
 
+def _findings_path_for_session(value: str, session: ReviewSession) -> Path:
+    """Resolve findings only from the exact file the session it closes expects.
+
+    Equality, not containment: a sibling file living inside the session
+    directory (a stale ``findings.json`` from a prior attempt, the packet
+    itself) must be refused exactly like a path outside it, or it would
+    survive a reopen and let the next review close on reused findings.
+    """
+
+    expected = session.path / FINDINGS_FILENAME
+    mismatch = AppError(
+        f"--findings must resolve inside the session it closes; expected {expected}",
+        code=EXIT_USAGE,
+        diagnostics=[
+            Diagnostic(
+                "findings_session_mismatch",
+                f"write this review's findings to {expected} and pass that path with --findings",
+                value,
+            )
+        ],
+    )
+    try:
+        # `expanduser` raises `RuntimeError` for a named user it cannot look up
+        # (``~nosuchuser``); inside the try, that is this usage error too,
+        # rather than an unhandled exit 9.
+        resolved = Path(value).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError) as error:
+        raise mismatch from error
+    if resolved != expected:
+        raise mismatch
+    return resolved
+
+
 def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     """``--findings PATH --session PATH``: normalize, verdict, withdraw, close."""
 
@@ -1306,13 +1353,15 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
                 )
             ],
         )
+    session = require_open(load_session(Path(args.session)))
+    findings_path = _findings_path_for_session(args.findings, session)
+
     context = _open_context(args)
     diagnostics: list[Diagnostic] = list(context.environment.diagnostics)
     config = load_config(context.root, explicit=args.config, environment=context.environment)
     diagnostics.extend(config.diagnostics)
     timeout = _timeout(config)
 
-    session = require_open(load_session(Path(args.session)))
     _verify_frozen_configuration(session, config, diagnostics)
     recorded_root = session.repository_root
     if recorded_root is not None and recorded_root.resolve() != context.root:
@@ -1333,7 +1382,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     candidate, pull_request = _reresolve_candidate(context, session, timeout=timeout)
     _verify_session_correspondence(session, candidate, diagnostics)
 
-    findings_path = Path(args.findings).expanduser()
     entries, source_digest = load_document(findings_path)
     hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
     diagnostics.extend(hunks.diagnostics)
@@ -1396,7 +1444,13 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     )
     diagnostics.extend(plan.diagnostics)
 
-    write_json(session.path / FINDINGS_FILENAME, {**normalized.as_dict(), "verdict": review_verdict.as_dict()})
+    # `findings_path` (the agent's input, verified above to be exactly
+    # `FINDINGS_FILENAME`) is never rewritten: the normalized document is a
+    # derived artifact and gets its own name, or this write would destroy the
+    # very input `findings_sha256` below is the digest of.
+    write_json(
+        session.path / FINDINGS_NORMALIZED_FILENAME, {**normalized.as_dict(), "verdict": review_verdict.as_dict()}
+    )
     write_text(session.path / FINDINGS_MARKDOWN_FILENAME, render_findings_markdown(normalized.findings, suffix=suffix))
     write_json(session.path / PUBLICATION_PLAN_FILENAME, plan.as_dict())
 
@@ -1744,6 +1798,7 @@ def _plan_from_payload(plan_payload: Mapping[str, Any], *, event: str) -> Public
         verdict_blocking=int(plan_payload.get("verdict_blocking") or 0),
         summary_marker=str(plan_payload.get("summary_marker") or ""),
         summary_body=str(plan_payload.get("summary_body") or ""),
+        findings_sha256=str(plan_payload.get("findings_sha256") or ""),
         inline=tuple(
             InlineComment(
                 finding_id=str(comment.get("finding_id") or ""),

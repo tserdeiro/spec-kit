@@ -10,11 +10,13 @@ description: "Dependency-ordered, traceable delivery units for feature implement
 ## Delivery strategy
 
 - **The feature branch (`NNN-slug`) is the integration branch**: every
-  task merges into it, and the feature enters the repository's default
-  branch only once, through the feature PR, as a merge commit.
+  task merges into it, and the feature enters the **delivery base** only
+  once, through the feature PR, as a merge commit. The delivery base is
+  the explicit non-empty `trunk:` value, or the GitHub default branch when
+  `trunk:` is absent or empty.
 - **Closing the product phase opens the gate**: with this file complete,
   commit the feature artifacts on the feature branch and open the
-  **draft feature PR** (`NNN-slug` → default branch) — `/speckit.pr` on
+  **draft feature PR** (`NNN-slug` → delivery base) — `/speckit.pr` on
   the feature branch does it with the canonical body. Reviewing it is how
   the team approves the spec and plan before implementation; the same PR,
   ready once every task is checked, later closes the feature.
@@ -103,4 +105,3 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
 
 - **Critical path**: [T### -> T### -> T###]
 - **Stack order**: [PR 1 -> PR 2, or `Not applicable`]
-

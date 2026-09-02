@@ -24,6 +24,17 @@
 # is that no bundle component is fetched from a remote host.
 set -euo pipefail
 
+# Default: derive every artifact name and version from this checkout's
+# manifests, so a bumped tree conforms before it is ever published.
+# --published: derive them from the public catalogs instead (the
+# installer's view) and additionally assert the two agree.
+mode="local"
+case "${1:-}" in
+  "") ;;
+  --published) mode="published" ;;
+  *) echo "Usage: bundles.sh [--published]" >&2; exit 2 ;;
+esac
+
 repository_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/spec-kit-bundles-conformance.XXXXXX")
 serve_root="$temporary_root/serve"
@@ -78,23 +89,48 @@ command -v git >/dev/null 2>&1 || {
 # asserted against them below, so a manifest edit that is not reflected here
 # fails loudly instead of silently weakening the test.
 ROLES="product developer reviewer"
+
+# Local mode (default) derives every artifact name and version from this
+# checkout's manifests. --published derives them from the catalogs instead,
+# the way the installer does, and asserts the two agree — a mismatch is
+# exactly what would ship a broken pin.
+manifest_version() { sed -n 's/^  version: "\(.*\)"/\1/p' "$1" | head -1; }
 # The bundles move together (publish.sh guards it), so the product manifest
 # is the single source for the version this run builds and asserts.
-BUNDLE_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/bundles/product/bundle.yml" | head -1)
+BUNDLE_VERSION=$(manifest_version "$repository_root/bundles/product/bundle.yml")
 [ -n "$BUNDLE_VERSION" ] || { echo "conformance could not read the bundle version from bundles/product/bundle.yml" >&2; exit 4; }
+LINEAR_VERSION=$(manifest_version "$repository_root/packages/spec-kit-linear/extension.yml")
+REVIEW_VERSION=$(manifest_version "$repository_root/packages/spec-kit-code-review/extension.yml")
+PRESET_VERSION=$(manifest_version "$repository_root/presets/default/preset.yml")
 
-# Artifact names come from the catalogs — the installer downloads exactly
-# these basenames, so hardcoding them here is how the 0.3.0 publish failed
-# conformance. The preset version for resolve assertions comes from its
-# manifest, which is what the installed preset reports.
 catalog_zip() {
   python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]['download_url'].rsplit('/',1)[-1])" "$@"
 }
-LINEAR_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions linear)
-REVIEW_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions code-review)
-PRESET_ZIP=$(catalog_zip "$repository_root/catalog/presets.json" presets default)
-PRESET_VERSION=$(sed -n 's/^  version: "\(.*\)"/\1/p' "$repository_root/presets/default/preset.yml" | head -1)
-product_extensions="linear"
+catalog_version() {
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]['version'])" "$@"
+}
+
+if [ "$mode" = "published" ]; then
+  LINEAR_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions linear)
+  REVIEW_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions code-review)
+  PRESET_ZIP=$(catalog_zip "$repository_root/catalog/presets.json" presets default)
+
+  mismatched=false
+  check_published() {
+    [ "$2" = "$3" ] || { echo "published catalog $1 $2 does not match manifest $3" >&2; mismatched=true; }
+  }
+  check_published linear "$(catalog_version "$repository_root/catalog/extensions.json" extensions linear)" "$LINEAR_VERSION"
+  check_published code-review "$(catalog_version "$repository_root/catalog/extensions.json" extensions code-review)" "$REVIEW_VERSION"
+  check_published preset "$(catalog_version "$repository_root/catalog/presets.json" presets default)" "$PRESET_VERSION"
+  check_published bundles "$(catalog_version "$repository_root/catalog/bundles.json" bundles product)" "$BUNDLE_VERSION"
+  ! $mismatched || exit 1
+else
+  LINEAR_ZIP="spec-kit-linear-v${LINEAR_VERSION}.zip"
+  REVIEW_ZIP="spec-kit-code-review-v${REVIEW_VERSION}.zip"
+  PRESET_ZIP="default-${PRESET_VERSION}.zip"
+fi
+
+product_extensions="git linear"
 developer_extensions="git linear code-review bug"
 reviewer_extensions="code-review"
 all_extensions="git linear code-review bug"
@@ -142,10 +178,26 @@ for role in $ROLES; do
 done
 
 # --------------------------------------------------------------------------
-# Serve the published catalogs, rewritten to point at those artifacts.
+# Serve the catalogs, rewritten to point at those artifacts. Local mode also
+# rewrites each entry's version and basename to this run's manifest values —
+# what was actually just built above — instead of whatever the checked-in
+# catalog files (the last published state) still say.
 # --------------------------------------------------------------------------
 
-python3 - "$repository_root" "$serve_root" "$temporary_root/port" <<'PY' &
+local_overrides="{}"
+if [ "$mode" = "local" ]; then
+  local_overrides=$(python3 -c '
+import json, sys
+linear_v, linear_zip, review_v, review_zip, preset_v, preset_zip, bundle_v = sys.argv[1:8]
+print(json.dumps({
+    "extensions": {"linear": [linear_v, linear_zip], "code-review": [review_v, review_zip]},
+    "presets": {"default": [preset_v, preset_zip]},
+    "bundles": {r: [bundle_v, f"{r}-{bundle_v}.zip"] for r in ("product", "developer", "reviewer")},
+}))
+' "$LINEAR_VERSION" "$LINEAR_ZIP" "$REVIEW_VERSION" "$REVIEW_ZIP" "$PRESET_VERSION" "$PRESET_ZIP" "$BUNDLE_VERSION")
+fi
+
+python3 - "$repository_root" "$serve_root" "$temporary_root/port" "$local_overrides" <<'PY' &
 import functools
 import http.server
 import json
@@ -154,6 +206,7 @@ import socketserver
 import sys
 
 repository_root, serve_root, port_file = (pathlib.Path(a) for a in sys.argv[1:4])
+overrides = json.loads(sys.argv[4])
 
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args, **kwargs):  # noqa: D102 - silence access logs
@@ -167,8 +220,13 @@ with socketserver.TCPServer(("127.0.0.1", 0), handler) as httpd:
         source = repository_root / "catalog" / f"{name}.json"
         payload = json.loads(source.read_text(encoding="utf-8"))
         payload["catalog_url"] = f"{base}/{name}.json"
-        for entry in payload[key].values():
-            entry["download_url"] = f"{base}/" + entry["download_url"].rsplit("/", 1)[-1]
+        for entry_id, entry in payload[key].items():
+            if entry_id in overrides.get(key, {}):
+                version, zip_name = overrides[key][entry_id]
+                entry["version"] = version
+                entry["download_url"] = f"{base}/{zip_name}"
+            else:
+                entry["download_url"] = f"{base}/" + entry["download_url"].rsplit("/", 1)[-1]
         (serve_root / f"{name}.json").write_text(
             json.dumps(payload, indent=2), encoding="utf-8"
         )
@@ -353,4 +411,222 @@ for template in $TEMPLATES; do
 done
 
 echo "ok: update"
+
+# --------------------------------------------------------------------------
+# 4. The product bundle wires trunk resolution as a three-line shell
+#    snippet (no Python, no runtime dependency, no scripts/ directory);
+#    generated delivery commands keep every resolved branch as inert argv.
+# --------------------------------------------------------------------------
+
+new_consumer "trunk"
+(cd "$consumer_root" && specify bundle install product >/dev/null) ||
+  fail "trunk: product bundle install failed"
+
+tasks_template="$consumer_root/.specify/presets/default/templates/tasks-template.md"
+trunk_config="$consumer_root/.specify/extensions/git/git-config.yml"
+fake_bin="$consumer_root/.conformance/bin"
+gh_calls="$consumer_root/.conformance/gh-calls.jsonl"
+git_calls="$consumer_root/.conformance/git-calls.jsonl"
+[ -e "$consumer_root/.specify/presets/default/scripts" ] &&
+  fail "trunk: the retired scripts/ directory is still installed"
+grep -Fq 'feature enters the **delivery base** only' "$tasks_template" &&
+  grep -Fq 'the explicit non-empty `trunk:` value' "$tasks_template" &&
+  grep -Fq '**draft feature PR** (`NNN-slug` → delivery base)' "$tasks_template" ||
+  fail "trunk: installed tasks template does not document the delivery base"
+mkdir -p "$fake_bin"
+real_git=$(command -v git)
+
+cat > "$fake_bin/gh" <<'PY'
+#!/usr/bin/env python3
+import json, os, sys
+
+args = sys.argv[1:]
+with open(os.environ["GH_CALLS"], "a", encoding="utf-8") as stream:
+    stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
+if args == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
+    if os.environ.get("FAIL_COMMAND") == "gh":
+        print("forced gh failure", file=sys.stderr)
+        raise SystemExit(9)
+    sys.stdout.write(os.environ.get("GH_DEFAULT", "main\n"))
+elif args[:2] == ["pr", "create"]:
+    print("https://example.invalid/pr/1")
+else:
+    print("unexpected gh argv", file=sys.stderr)
+    raise SystemExit(8)
+PY
+chmod +x "$fake_bin/gh"
+
+cat > "$fake_bin/git" <<'PY'
+#!/usr/bin/env python3
+import json, os, subprocess, sys
+
+args = sys.argv[1:]
+observed = args == ["branch", "--show-current"] or (
+    args and args[0] in {"check-ref-format", "fetch", "merge", "push"}
+)
+if observed:
+    with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
+if args == ["branch", "--show-current"]:
+    print(os.environ.get("GIT_CURRENT_BRANCH", "003-feature"))
+elif args and args[0] == "check-ref-format":
+    if os.environ.get("FAIL_COMMAND") == "git":
+        print("forced git failure", file=sys.stderr)
+        raise SystemExit(9)
+    raise SystemExit(subprocess.run([os.environ["REAL_GIT"], *args], check=False).returncode)
+elif args and os.environ.get("FAIL_COMMAND") == args[0]:
+    print(f"forced {args[0]} failure", file=sys.stderr)
+    raise SystemExit(9)
+elif not observed:
+    raise SystemExit(subprocess.run([os.environ["REAL_GIT"], *args], check=False).returncode)
+PY
+chmod +x "$fake_bin/git"
+
+json_argv() {
+  python3 -c 'import json,sys; print(json.dumps(sys.argv[1:], ensure_ascii=False, separators=(",", ":")))' "$@"
+}
+
+reset_command_logs() {
+  : > "$gh_calls"
+  : > "$git_calls"
+}
+
+set_config() {
+  if [ "$1" = __missing_file__ ]; then
+    rm -f "$trunk_config"
+  else
+    printf '%b' "$1" > "$trunk_config"
+  fi
+}
+
+pr_skill="$consumer_root/.agents/skills/speckit-pr/SKILL.md"
+implement_skill="$consumer_root/.agents/skills/speckit-implement/SKILL.md"
+pr_create=$(sed -n '/pr-create:start/,/pr-create:end/p' "$pr_skill")
+implement_refresh=$(sed -n '/first-task-refresh:start/,/first-task-refresh:end/p' "$implement_skill")
+[ -n "$pr_create" ] || fail "trunk: installed PR-create block is missing"
+[ -n "$implement_refresh" ] || fail "trunk: installed first-task refresh is missing"
+for skill in "$pr_skill" "$implement_skill"; do
+  grep -Eq 'python3|resolve-delivery-base' "$skill" &&
+    fail "trunk: $skill still references the retired Python resolver"
+  grep -Fq "sed -nE '/^trunk:/" "$skill" ||
+    fail "trunk: $skill does not use the shell trunk resolution"
+done
+
+render_pr_create() {
+  printf '%s\n' "$pr_create" | sed "s@<feature|task|work-item>@$1@"
+}
+
+run_pr_create() {
+  local kind="$1" github_default="$2" fail_command="$3"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_DEFAULT="$github_default" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" \
+    SPECIFY_FEATURE='team/web/003-feature$(safe)' \
+    SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
+    sh -c "$(render_pr_create "$kind")")
+}
+
+create_call() {
+  json_argv pr create --draft --base "$1" --title '<type(scope): subject>' --body '<the body>'
+}
+repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
+
+# Configured trunk wins; quotes and a trailing comment are stripped; no
+# GitHub lookup happens.
+for config in 'trunk: release\n' 'trunk: "release"\n' 'trunk: '"'"'release'"'"'\n' 'trunk: release  # ship branch\n'; do
+  set_config "$config"
+  reset_command_logs
+  run_pr_create feature main "" >/dev/null || fail "trunk: configured '$config' failed"
+  [ "$(cat "$gh_calls")" = "$(create_call release)" ] ||
+    fail "trunk: configured '$config' used incorrect gh argv"
+  [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch release)" ] ||
+    fail "trunk: configured '$config' did not validate its base"
+done
+
+# Absent, empty, or unrelated config falls back to the GitHub default.
+for config in __missing_file__ 'trunk: ""\n' 'other: value\n'; do
+  set_config "$config"
+  reset_command_logs
+  run_pr_create feature main "" >/dev/null || fail "trunk: fallback '$config' failed"
+  [ "$(cat "$gh_calls")" = "$repo_view
+$(create_call main)" ] || fail "trunk: fallback '$config' used incorrect gh argv"
+done
+
+# An invalid branch name stops before a PR ever opens.
+set_config 'trunk: bad..branch\n'
+reset_command_logs
+run_pr_create feature main "" >/dev/null 2>&1 && fail "trunk: invalid branch name was accepted"
+[ ! -s "$gh_calls" ] || fail "trunk: invalid branch name still opened a PR"
+
+# A forced GitHub failure stops before Git validates anything.
+set_config __missing_file__
+reset_command_logs
+run_pr_create feature main gh >/dev/null 2>&1 && fail "trunk: a failed GitHub lookup was ignored"
+[ "$(cat "$gh_calls")" = "$repo_view" ] || fail "trunk: failed GitHub lookup used incorrect argv"
+[ ! -s "$git_calls" ] || fail "trunk: validated a branch after a failed GitHub lookup"
+
+# Task and work-item bases ignore trunk config entirely; metacharacters in
+# repository-derived names stay inert argv.
+set_config 'trunk: unused\n'
+reset_command_logs
+run_pr_create task main "" >/dev/null || fail "trunk: task PR create failed"
+[ "$(cat "$gh_calls")" = "$(create_call 'team/web/003-feature$(safe)')" ] ||
+  fail "trunk: task PR used incorrect gh argv"
+[ ! -s "$git_calls" ] || fail "trunk: task PR unexpectedly validated a branch"
+
+reset_command_logs
+run_pr_create work-item 'default$(safe)' "" >/dev/null || fail "trunk: work-item PR create failed"
+[ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
+$(create_call 'default$(safe)')" ] ||
+  fail "trunk: work-item PR did not resolve the GitHub default at runtime"
+[ ! -s "$git_calls" ] || fail "trunk: work-item PR unexpectedly validated a branch"
+
+# The first-task refresh resolves the delivery base the same way and
+# guards that the checkout is the expected feature branch.
+run_refresh() {
+  local github_default="$1" current_branch="$2" fail_command="$3"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_DEFAULT="$github_default" GIT_CURRENT_BRANCH="$current_branch" \
+    FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
+    SPECIFY_FEATURE_DIRECTORY='specs/003-feature' sh -c "$implement_refresh")
+}
+branch_call=$(json_argv branch --show-current)
+
+set_config 'trunk: release\n'
+reset_command_logs
+run_refresh main 003-feature "" >/dev/null || fail "trunk: configured refresh failed"
+[ "$(cat "$git_calls")" = "$branch_call
+$(json_argv check-ref-format --branch release)
+$(json_argv fetch origin)
+$(json_argv merge origin/release)
+$(json_argv push origin 003-feature)" ] || fail "trunk: configured refresh used incorrect Git argv"
+[ ! -s "$gh_calls" ] || fail "trunk: configured refresh queried GitHub"
+
+set_config __missing_file__
+reset_command_logs
+run_refresh main 003-feature "" >/dev/null || fail "trunk: fallback refresh failed"
+[ "$(cat "$gh_calls")" = "$repo_view" ] || fail "trunk: fallback refresh did not query GitHub"
+[ "$(cat "$git_calls")" = "$branch_call
+$(json_argv check-ref-format --branch main)
+$(json_argv fetch origin)
+$(json_argv merge origin/main)
+$(json_argv push origin 003-feature)" ] || fail "trunk: fallback refresh used incorrect Git argv"
+
+reset_command_logs
+run_refresh main wrong-branch "" >/dev/null 2>&1 && fail "trunk: refresh accepted the wrong current branch"
+[ "$(cat "$git_calls")" = "$branch_call" ] || fail "trunk: wrong-branch refresh mutated Git state"
+[ ! -s "$gh_calls" ] || fail "trunk: wrong-branch refresh queried GitHub"
+
+set_config 'trunk: release\n'
+reset_command_logs
+run_refresh main 003-feature fetch >/dev/null 2>&1 && fail "trunk: refresh ignored a forced fetch failure"
+[ "$(cat "$git_calls")" = "$branch_call
+$(json_argv check-ref-format --branch release)
+$(json_argv fetch origin)" ] || fail "trunk: refresh did not stop after a forced fetch failure"
+[ ! -s "$gh_calls" ] || fail "trunk: refresh queried GitHub after a forced fetch failure"
+
+grep -Fq 'git merge "$remote/$delivery_base"' "$implement_skill" ||
+  fail "trunk: implement command does not quote the resolved base"
+
+echo "ok: trunk"
 echo "conformance passed"

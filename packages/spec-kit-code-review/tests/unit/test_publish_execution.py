@@ -62,7 +62,9 @@ class PublicationCase(RunCommandCase):
             },
         }
         self._install_gh()
+        self.session: str | None = None
         self.findings_path = self.workspace / "findings.json"
+        self.findings_entries: tuple[dict, ...] = ()
         self.write_findings(entry())
 
     def _install_gh(self) -> None:
@@ -72,7 +74,9 @@ class PublicationCase(RunCommandCase):
         self.gh_state_path = Path(environment["SPECKIT_CODE_REVIEW_FAKE_GH_STATE"])
 
     def write_findings(self, *entries) -> None:
-        self.findings_path.write_text(json.dumps({"findings": list(entries)}), encoding="utf-8")
+        self.findings_entries = entries
+        if self.session is not None:
+            self.findings_path.write_text(json.dumps({"findings": list(entries)}), encoding="utf-8")
 
     def calls(self) -> list[dict]:
         if not self.api_log.exists():
@@ -86,6 +90,8 @@ class PublicationCase(RunCommandCase):
         code, payload = self.invoke_json("review", "128", *extra)
         self.assertEqual(code, EXIT_SUCCESS, payload)
         self.session = payload["session"]["path"]
+        self.findings_path = Path(self.session) / "findings.json"
+        self.write_findings(*self.findings_entries)
         return payload
 
     def close(self, *extra: str) -> tuple[int, dict]:
@@ -489,6 +495,37 @@ class BatchingTests(PublicationCase):
             "GET repos/tserdeiro/consumer/pulls/128/reviews",
             [f"{call['method']} {call['endpoint']}" for call in self.calls()],
         )
+
+    def test_a_retry_with_different_findings_is_refused_before_any_write(self) -> None:
+        self.gh_state["api_failures"] = {
+            "POST repos/tserdeiro/consumer/pulls/128/reviews": {"after": 2, "message": "HTTP 502"}
+        }
+        self._install_gh()
+        code, _payload = self.publish()
+        self.assertEqual(code, 10)
+
+        state = json.loads(self.gh_state_path.read_text(encoding="utf-8"))
+        state.pop("api_failures", None)
+        state.pop("counts", None)
+        self.gh_state_path.write_text(json.dumps(state), encoding="utf-8")
+        self.write_findings(
+            *(
+                entry(
+                    start_line=line,
+                    end_line=line,
+                    title=f"finding {line}",
+                    content="replacement line 5" if line == 5 else f"line {line}",
+                )
+                for line in range(1, 6)
+            )
+        )
+        self.api_log.unlink(missing_ok=True)
+
+        code, payload = self.publish()
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn("publish_resume_plan_mismatch", {item["code"] for item in payload["diagnostics"]})
+        self.assertEqual(self.writes(), [])
 
     def test_a_resume_whose_reviews_are_absent_starts_over_and_says_so(self) -> None:
         self.open_review()
