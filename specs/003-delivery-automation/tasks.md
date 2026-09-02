@@ -160,12 +160,12 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
   - **Completion evidence**: PR #57 (ready 2026-09-01, stacked on #56); `docs/plan.md` records the ready-but-unmerged round and separates T013 release preparation from human publication and consumer adoption; `docs/dogfooding.md` marks only PR-delivered work graduated and records open hook, tooling, split-stack, branch-identity, template, and worktree frictions; manual audit verified PR states/bases, Linear mappings, pins, and 368/195 budgets; `git diff --check` passed; fresh PR review no findings
 
-- [ ] T013 Release preparation: coherent version bump (preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundles)
-  - **Traces**: plan Rollout; outcome: `scripts/release/publish.sh --bump` produces manifests, bundle pins, conformance pin, and changelog entries; publication itself stays human
+- [ ] T013 Release preparation: coherent version bump and publication hardening (preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundles)
+  - **Traces**: plan Rollout; outcome: `scripts/release/publish.sh --bump` produces manifests, bundle pins, package lock, and changelog entries; `--local-manifests` validates the pending composition while publication itself stays human
   - **Depends on**: T012
-  - **Boundaries**: manifests, changelogs, `versions.lock.yml` pins; no behavior changes
-  - **Evidence**: `bash scripts/conformance/bundles.sh` green on the bumped tree; `git diff --check` clean
-  - **Delivery**: single PR into 003-delivery-automation (generated bump; mechanical)
+  - **Boundaries**: `scripts/release/publish.sh`, `scripts/release/build-release.sh`, `scripts/release/build-bundles.sh`, `scripts/conformance/bundles.sh`, manifests, changelogs, package lock, bundle pins, and conformance mode; public catalogs and `versions.lock.yml` stay on the published releases until publication can record real artifacts and digests; historical lock-hash verification is a future integrity check; no product behavior changes
+  - **Evidence**: `publish.sh --bump` rolls back all touched paths when `uv lock` fails; pre-remote publication preparation uses temporary artifacts, restores local commits, and removes only tags created by that invocation on failure; default conformance rejects manifest/catalog drift; tagged bundle builds read content from the tag and checksum only invocation outputs; `bash scripts/conformance/bundles.sh --local-manifests` green on the bumped tree; `git diff --check` clean
+  - **Delivery**: single PR into 003-delivery-automation (release preparation and publication hardening)
   - **Completion evidence**: Pending
 
 - [ ] T014 Transversal verification: SC-001…SC-006 evidence on the integrated feature branch
