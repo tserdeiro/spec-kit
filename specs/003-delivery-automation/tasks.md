@@ -152,13 +152,13 @@ of the flow is dogfooded here (plan D11, spec A-002).
 
 **Purpose**: coherent versions, plan extended, transversal evidence.
 
-- [ ] T012 Extend docs/plan.md with this round and groom docs/dogfooding.md
+- [x] T012 Extend docs/plan.md with this round and groom docs/dogfooding.md
   - **Traces**: A-004, A-001; outcome: `docs/plan.md` gains the delivered-round entry for this feature; `docs/dogfooding.md` entries met during delivery are appended and the graduated ones marked
   - **Depends on**: T015
   - **Boundaries**: `docs/` only
   - **Evidence**: `git diff --check` clean; round entry cites the feature directory
   - **Delivery**: single PR into 003-delivery-automation (~40 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #57 (ready 2026-09-01, stacked on #56); `docs/plan.md` records the ready-but-unmerged round and separates T013 release preparation from human publication and consumer adoption; `docs/dogfooding.md` marks only PR-delivered work graduated and records open hook, tooling, split-stack, branch-identity, template, and worktree frictions; manual audit verified PR states/bases, Linear mappings, pins, and 368/195 budgets; `git diff --check` passed; fresh PR review no findings
 
 - [ ] T013 Release preparation: coherent version bump (preset 0.8.0, linear 0.11.0, code-review 0.3.0, bundles)
   - **Traces**: plan Rollout; outcome: `scripts/release/publish.sh --bump` produces manifests, bundle pins, conformance pin, and changelog entries; publication itself stays human
