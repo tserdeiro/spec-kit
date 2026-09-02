@@ -355,8 +355,7 @@ done
 echo "ok: update"
 
 # --------------------------------------------------------------------------
-# 4. The installed preset owns delivery-base parsing, and its command blocks
-#    consume the helper's single validated result as inert argv data.
+# 4. The product bundle installs Git and a PyYAML-backed delivery-base helper.
 # --------------------------------------------------------------------------
 
 new_consumer "trunk"
@@ -364,57 +363,45 @@ new_consumer "trunk"
   fail "trunk: product bundle install failed"
 
 helper="$consumer_root/.specify/presets/default/scripts/resolve-delivery-base.py"
-[ -f "$helper" ] || fail "trunk: installed delivery-base helper is missing"
 trunk_config="$consumer_root/.specify/extensions/git/git-config.yml"
 fake_bin="$consumer_root/.conformance/bin"
 gh_calls="$consumer_root/.conformance/gh-calls.jsonl"
 git_calls="$consumer_root/.conformance/git-calls.jsonl"
+[ -f "$helper" ] || fail "trunk: installed delivery-base helper is missing"
 mkdir -p "$fake_bin"
 real_git=$(command -v git)
 
 cat > "$fake_bin/gh" <<'PY'
 #!/usr/bin/env python3
-import json
-import os
-import sys
+import json, os, sys
 
 args = sys.argv[1:]
 with open(os.environ["GH_CALLS"], "a", encoding="utf-8") as stream:
     stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
-if args[:2] == ["repo", "view"]:
-    if os.environ.get("FAIL_COMMAND") == "gh":
-        print("forced gh failure", file=sys.stderr)
-        raise SystemExit(9)
-    print(os.environ.get("GH_DEFAULT", "main"))
-elif args[:2] == ["pr", "create"]:
-    if os.environ.get("FAIL_COMMAND") == "gh-create":
-        print("forced PR-create failure", file=sys.stderr)
-        raise SystemExit(9)
-    print("https://example.invalid/pr/1")
-else:
+if args != ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
     print("unexpected gh argv", file=sys.stderr)
     raise SystemExit(8)
+if os.environ.get("FAIL_COMMAND") == "gh":
+    print("forced gh failure", file=sys.stderr)
+    raise SystemExit(9)
+sys.stdout.write(os.environ.get("GH_DEFAULT", "main\n"))
 PY
 chmod +x "$fake_bin/gh"
 
 cat > "$fake_bin/git" <<'PY'
 #!/usr/bin/env python3
-import json
-import os
-import subprocess
-import sys
+import json, os, subprocess, sys
 
 args = sys.argv[1:]
 with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
     stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
-if args == ["branch", "--show-current"]:
-    print(os.environ.get("GIT_CURRENT_BRANCH", "003-feature"))
-elif args and args[0] == "check-ref-format":
-    result = subprocess.run([os.environ["REAL_GIT"], *args], check=False)
-    raise SystemExit(result.returncode)
-elif args and os.environ.get("FAIL_COMMAND") == args[0]:
-    print(f"forced {args[0]} failure", file=sys.stderr)
+if len(args) != 3 or args[:2] != ["check-ref-format", "--branch"]:
+    print("unexpected git argv", file=sys.stderr)
+    raise SystemExit(8)
+if os.environ.get("FAIL_COMMAND") == "git":
+    print("forced git failure", file=sys.stderr)
     raise SystemExit(9)
+raise SystemExit(subprocess.run([os.environ["REAL_GIT"], *args], check=False).returncode)
 PY
 chmod +x "$fake_bin/git"
 
@@ -428,35 +415,25 @@ reset_command_logs() {
 }
 
 set_config() {
-  printf '%b' "$1" > "$trunk_config"
-}
-
-set_missing_config() {
-  rm -f "$trunk_config"
+  if [ "$1" = __missing_file__ ]; then
+    rm -f "$trunk_config"
+  else
+    printf '%b' "$1" > "$trunk_config"
+  fi
 }
 
 run_helper() {
+  local gh_default="$1" fail_command="$2"
+  shift 2
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
-    GH_DEFAULT="${GH_DEFAULT:-main}" FAIL_COMMAND="${FAIL_COMMAND:-}" \
-    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" python3 "$helper")
-}
-
-run_helper_without_site_packages() {
-  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
-    GH_DEFAULT="${GH_DEFAULT:-main}" FAIL_COMMAND="${FAIL_COMMAND:-}" \
-    REAL_GIT="$real_git" PATH="$fake_bin:$PATH" python3 -S "$helper")
+    GH_DEFAULT="$gh_default" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" python3 "$@" "$helper")
 }
 
 assert_helper_success() {
-  if [ "$1" = __missing_file__ ]; then
-    set_missing_config
-  else
-    set_config "$1"
-  fi
+  set_config "$1"
   reset_command_logs
-  GH_DEFAULT="$4"
-  output=$(run_helper)
-  unset GH_DEFAULT
+  output=$(run_helper "$4" "")
   [ "$output" = "$2" ] || fail "trunk helper emitted '$output' instead of '$2'"
   [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch "$2")" ] ||
     fail "trunk helper did not Git-validate '$2' as one argv element"
@@ -464,74 +441,91 @@ assert_helper_success() {
     [ ! -s "$gh_calls" ] || fail "trunk helper queried GitHub for configured '$2'"
   else
     [ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)" ] ||
-      fail "trunk helper did not query the GitHub default with exact argv"
+      fail "trunk helper did not query GitHub with exact argv"
   fi
 }
 
 assert_helper_failure() {
   set_config "$1"
   reset_command_logs
-  if failure=$(run_helper 2>&1); then
-    fail "trunk helper accepted invalid YAML: $1"
+  if failure=$(run_helper $'main\n' "${3:-}" 2>&1); then
+    fail "trunk helper accepted invalid input: $1"
   fi
-  [[ "$failure" == error:* ]] || fail "trunk helper did not explain its failure"
-  [ ! -s "$gh_calls" ] || fail "trunk helper queried GitHub after invalid configuration"
+  [[ "$failure" == error:*"$2"* ]] || fail "trunk helper failure was not actionable: $failure"
+  [ ! -s "$gh_calls" ] || fail "trunk helper queried GitHub after configured input"
 }
 
-assert_helper_success 'trunk: release\n' release configured main
-assert_helper_success 'trunk: "+"\n' + configured main
-assert_helper_success 'trunk: "@"\n' @ configured main
-assert_helper_success 'trunk: "café"\n' café configured main
-assert_helper_success 'trunk: "release;safe"\n' 'release;safe' configured main
-assert_helper_success 'trunk: null\n' main fallback main
-assert_helper_success 'trunk: ""\n' main fallback main
-assert_helper_success "trunk: ''\n" main fallback main
-assert_helper_success 'other: value\n' main fallback main
-assert_helper_success 'nested:\n  trunk: release\n' main fallback main
-assert_helper_success __missing_file__ main fallback main
-assert_helper_success 'trunk: null\n' 'fallback;safe' fallback 'fallback;safe'
+assert_config_failure() {
+  assert_helper_failure "$1" "$2"
+  [ ! -s "$git_calls" ] || fail "trunk helper Git-validated invalid YAML/configuration"
+}
+
+assert_github_output_failure() {
+  set_config '{}\n'
+  reset_command_logs
+  if failure=$(run_helper "$1" "" 2>&1); then
+    fail "trunk helper accepted multiple GitHub output records"
+  fi
+  [[ "$failure" == *"exactly one non-empty branch name"* ]] || fail "bad GitHub output was unexplained"
+  [ ! -s "$git_calls" ] || fail "trunk helper Git-validated invalid GitHub output"
+}
+
+nel=$(printf '\302\205')
+assert_helper_success 'trunk: release\n' release configured $'main\n'
+assert_helper_success "trunk: 'release'\n" release configured $'main\n'
+assert_helper_success 'trunk: "rel\\x65ase"\n' release configured $'main\n'
+assert_helper_success 'trunk: "release\\Ncandidate"\n' "release${nel}candidate" configured $'main\n'
+assert_helper_success 'trunk: "caf\\U000000E9"\n' café configured $'main\n'
+assert_helper_success '\357\273\277"trunk": release\n' release configured $'main\n'
+assert_helper_success 'base: &base release\ntrunk: *base\n' release configured $'main\n'
+assert_helper_success 'trunk: "release;$(touch)-café"\n' 'release;$(touch)-café' configured $'main\n'
+assert_helper_success 'nested:\n  trunk: release\n' main fallback $'main\r\n'
+assert_helper_success 'trunk: null\n' main fallback $'main\n'
+assert_helper_success 'trunk:\n' main fallback main
+assert_helper_success 'trunk: ""\n' main fallback $'main\n'
+assert_helper_success 'other: value\n' main fallback $'main\n'
+assert_helper_success __missing_file__ main fallback $'main\n'
+
+for scalar in 12 3.5 2026-09-01 true; do
+  assert_config_failure "trunk: ${scalar}\n" "must be a string"
+done
+assert_config_failure 'other: [broken\n' "invalid YAML"
+assert_config_failure 'trunk: release\ntrunk: other\n' "duplicate key"
+assert_config_failure 'nested:\n  key: one\n  key: two\n' "duplicate key"
+assert_config_failure '- trunk: release\n' "root must be a mapping"
+assert_config_failure '' "root must be a mapping"
+assert_config_failure 'other: !!python/name:os.system\n' "invalid YAML"
+assert_config_failure 'trunk: "\\0"\n' "cannot validate"
+assert_config_failure "trunk: '@{-1}'\n" "reflog shorthand"
+assert_helper_failure 'trunk: bad..branch\n' "not a valid Git branch name"
+
+assert_github_output_failure $'main\nother\n'
+assert_github_output_failure $'main\rother'
+
+set_config '{}\n'
+reset_command_logs
+if failure=$(run_helper $'main\n' gh 2>&1); then
+  fail "trunk helper ignored a GitHub failure"
+fi
+[[ "$failure" == *"forced gh failure"* ]] || fail "GitHub failure was not actionable"
+[ ! -s "$git_calls" ] || fail "trunk helper validated after GitHub failed"
+
+assert_helper_failure 'trunk: release\n' "forced git failure" git
 
 set_config 'trunk: release\n'
 reset_command_logs
-output=$(run_helper_without_site_packages)
-[ "$output" = release ] || fail "trunk helper required third-party Python packages"
-[ ! -s "$gh_calls" ] || fail "trunk helper queried GitHub during runtime fallback"
+output=$(run_helper $'main\n' "" -S)
+[ "$output" = release ] || fail "python3 -S did not bootstrap to Specify's PyYAML runtime"
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch release)" ] ||
-  fail "trunk helper without site packages did not preserve Git validation"
+  fail "bootstrapped helper did not preserve literal Git validation"
 
-assert_helper_failure 'trunk: 123\n'
-assert_helper_failure 'trunk: 0x10\n'
-assert_helper_failure 'trunk: +0b10\n'
-assert_helper_failure 'trunk: 0o10\n'
-assert_helper_failure 'trunk: release\ntrunk: other\n'
-assert_helper_failure '- trunk: release\n'
-assert_helper_failure 'trunk: |-\n  release\n'
-assert_helper_failure 'trunk: release\n  /candidate\n'
-assert_helper_failure 'trunk:\n  nested: release\n'
-assert_helper_failure 'trunk: "\\u0000"\n'
-assert_helper_failure "trunk: '@{-1}'\n"
-assert_helper_failure 'trunk: bad..branch\n'
-
-set_config 'trunk: null\n'
-reset_command_logs
-FAIL_COMMAND=gh GH_DEFAULT=main
-if failure=$(run_helper 2>&1); then
-  fail "trunk helper ignored a GitHub lookup failure"
+printf '#!/bin/sh\nexit 0\n' > "$fake_bin/specify"
+chmod +x "$fake_bin/specify"
+if failure=$(run_helper $'main\n' "" -S 2>&1); then
+  fail "trunk helper accepted a non-Python Specify shebang"
 fi
-[ ! -s "$git_calls" ] || fail "trunk helper validated after a failed GitHub lookup"
-[ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)" ] ||
-  fail "trunk helper ran a secondary gh command after failure"
-unset FAIL_COMMAND GH_DEFAULT
-
-set_config 'trunk: null\n'
-reset_command_logs
-GH_DEFAULT=bad..branch
-if failure=$(run_helper 2>&1); then
-  fail "trunk helper accepted an invalid GitHub fallback"
-fi
-[[ "$failure" == *"GitHub default branch is not a valid Git branch name"* ]] ||
-  fail "trunk helper did not explain invalid GitHub fallback"
-unset GH_DEFAULT
+[[ "$failure" == error:*"safe Python shebang"* ]] || fail "bootstrap failure was not actionable"
+rm -f "$fake_bin/specify"
 
 echo "ok: trunk"
 echo "conformance passed"

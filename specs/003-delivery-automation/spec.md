@@ -229,6 +229,8 @@ run against the fixed flow and watch them pass.
 - **C-004**: No new commands and no new flags beyond what a step needs;
   the command surface stays exactly as `docs/plan.md` lists it.
 - **C-005**: Native `specify` and `speckit` command names are unchanged.
+- **C-006**: Trunk YAML parsing MUST reuse PyYAML from the pinned Specify
+  runtime and MUST NOT add a consumer dependency.
 
 ## Success criteria *(mandatory)*
 

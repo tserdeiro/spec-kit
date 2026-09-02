@@ -133,10 +133,10 @@ of the flow is dogfooded here (plan D11, spec A-002).
   - **Completion evidence**: PR #53 (ready 2026-09-01, stacked on #52); documented envelope validated; outside and escaping-symlink paths rejected; reopening discards stale close artifacts; partial publication retries require the same normalized findings plan; 786 tests and 493 subtests passed; two fresh reviews found stale findings and stale partial-publication reuse, both corrected; final fresh review no-blocking-findings (session 0919ffd0)
 
 - [ ] T011 Deterministic trunk resolver and product Git composition
-  - **Traces**: FR-010, SC-006; outcome: the product bundle installs Git and a stdlib-only preset helper resolves and Git-validates a non-empty string `trunk:` in `.specify/extensions/git/git-config.yml`; absent/null/empty uses the GitHub default; invalid forms fail closed
+  - **Traces**: FR-010, SC-006; outcome: the product bundle installs Git and its preset helper reuses the pinned Specify PyYAML runtime (no new consumer dependency) to resolve and Git-validate a non-empty string `trunk:` in `.specify/extensions/git/git-config.yml`; absent/null/empty uses the GitHub default; invalid forms fail closed
   - **Depends on**: T010
   - **Boundaries**: product bundle Git composition; `presets/default/scripts/resolve-delivery-base.py`; helper conformance in `scripts/conformance/bundles.sh`; upstream Git template untouched (C-001)
-  - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers exercise configured/fallback/invalid values, inert argv, missing site packages, and command failures
+  - **Evidence**: `bash scripts/conformance/bundles.sh` green; temporary consumers exercise real YAML, configured/fallback/invalid values, inert argv, `python3 -S` bootstrap into Specify's runtime, and command failures
   - **Delivery**: single PR into 003-delivery-automation (≤400 authored executable lines; split from the unsafe ~50-line forecast)
   - **Completion evidence**: Pending
 

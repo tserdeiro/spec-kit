@@ -3,126 +3,132 @@
 
 from __future__ import annotations
 
-import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+
+try:
+    import yaml
+except ImportError as error:
+    yaml = None
+    YAML_IMPORT_ERROR = error
+else:
+    YAML_IMPORT_ERROR = None
 
 CONFIG_PATH = Path(".specify/extensions/git/git-config.yml")
-YAML_NULLS = {"null", "Null", "NULL", "~"}
-YAML_BOOLEANS = {
-    "true",
-    "false",
-    "yes",
-    "no",
-    "on",
-    "off",
-    "y",
-    "n",
-}
-YAML_NUMBER = re.compile(
-    r"[-+]?(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|"
-    r"[0-9][0-9_]*(?:\.[0-9_]*)?(?:e[-+]?[0-9]+)?|\.(?:inf|nan))",
-    re.IGNORECASE,
-)
-YAML_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+BOOTSTRAP_MARKER = "SPECKIT_DELIVERY_BASE_BOOTSTRAPPED"
 
 
 class ResolutionError(Exception):
     """A user-actionable delivery-base error."""
 
 
-def _quoted_tail_is_valid(tail: str) -> bool:
-    return not tail or (tail[0].isspace() and tail.lstrip().startswith("#"))
-
-
-def _decode_double_quoted(raw: str) -> str:
+def _specify_python() -> Path:
+    specify = shutil.which("specify")
+    if specify is None:
+        raise ResolutionError(
+            "PyYAML is unavailable and specify is not on PATH; install the pinned Specify CLI"
+        )
     try:
-        value, end = json.JSONDecoder().raw_decode(raw)
-    except json.JSONDecodeError as error:
-        raise ResolutionError(f"invalid double-quoted trunk string: {error.msg}") from error
-    if not isinstance(value, str) or not _quoted_tail_is_valid(raw[end:]):
-        raise ResolutionError("trunk must contain one quoted string")
-    return value
+        launcher = Path(specify).resolve(strict=True)
+        with launcher.open("rb") as stream:
+            first_line = stream.readline(4097)
+    except OSError as error:
+        raise ResolutionError(f"cannot inspect Specify launcher {specify}: {error}") from error
+    if len(first_line) > 4096 or not first_line.startswith(b"#!"):
+        raise ResolutionError(f"Specify launcher {launcher} has no safe Python shebang")
+    try:
+        shebang = first_line[2:].strip().decode("utf-8")
+    except UnicodeError as error:
+        raise ResolutionError(f"Specify launcher {launcher} has an invalid shebang") from error
+    interpreter = Path(shebang)
+    if (
+        not interpreter.is_absolute()
+        or re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", interpreter.name) is None
+        or not interpreter.is_file()
+        or not os.access(interpreter, os.X_OK)
+    ):
+        raise ResolutionError(f"Specify launcher {launcher} has no safe Python shebang")
+    return interpreter
 
 
-def _decode_single_quoted(raw: str) -> str:
-    value: list[str] = []
-    index = 1
-    while index < len(raw):
-        if raw[index] != "'":
-            value.append(raw[index])
-            index += 1
-            continue
-        if index + 1 < len(raw) and raw[index + 1] == "'":
-            value.append("'")
-            index += 2
-            continue
-        if not _quoted_tail_is_valid(raw[index + 1 :]):
-            raise ResolutionError("trunk must contain one quoted string")
-        return "".join(value)
-    raise ResolutionError("invalid single-quoted trunk string: closing quote is missing")
-
-
-def _decode_plain(raw: str) -> str | None:
-    for index, character in enumerate(raw):
-        if character == "#" and (index == 0 or raw[index - 1].isspace()):
-            raw = raw[:index]
-            break
-    value = raw.strip()
-    if not value or value in YAML_NULLS:
-        return None
-    if value.lower() in YAML_BOOLEANS or YAML_NUMBER.fullmatch(value) or YAML_DATE.fullmatch(value):
-        raise ResolutionError("numeric-, date-, and boolean-looking trunk values must be quoted")
-    if value[0] in "!&*|>{[" or value[0] in "\"'":
-        raise ResolutionError("trunk must be one plain or quoted string")
-    return value
-
-
-def _decode_trunk(raw: str) -> str | None:
-    value = raw.lstrip()
-    if value.startswith('"'):
-        return _decode_double_quoted(value)
-    if value.startswith("'"):
-        return _decode_single_quoted(value)
-    return _decode_plain(value)
+def _require_yaml() -> Any:
+    if yaml is not None:
+        return yaml
+    if os.environ.get(BOOTSTRAP_MARKER) == "1":
+        raise ResolutionError(
+            f"the pinned Specify Python cannot import PyYAML: {YAML_IMPORT_ERROR}"
+        )
+    interpreter = _specify_python()
+    environment = os.environ.copy()
+    environment[BOOTSTRAP_MARKER] = "1"
+    try:
+        os.execve(
+            str(interpreter),
+            [str(interpreter), str(Path(__file__).resolve()), *sys.argv[1:]],
+            environment,
+        )
+    except OSError as error:
+        raise ResolutionError(f"cannot start the pinned Specify Python: {error}") from error
+    raise AssertionError("os.execve returned unexpectedly")
 
 
 def _load_trunk() -> str | None:
     if not CONFIG_PATH.exists():
         return None
     try:
-        lines = CONFIG_PATH.read_text(encoding="utf-8").splitlines()
+        source = CONFIG_PATH.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeError) as error:
         raise ResolutionError(f"cannot read {CONFIG_PATH}: {error}") from error
-    trunk: str | None = None
-    found = False
-    trunk_scope = False
-    for number, line in enumerate(lines, start=1):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if line[0].isspace():
-            if trunk_scope:
-                raise ResolutionError(
-                    f"{CONFIG_PATH}:{number} continues trunk; use one line"
-                )
-            continue
-        trunk_scope = False
-        if stripped.startswith(("[", "{", "-")):
-            raise ResolutionError(f"{CONFIG_PATH}:{number} must be a top-level mapping entry")
-        key, separator, raw = line.partition(":")
-        if not separator:
-            raise ResolutionError(f"{CONFIG_PATH}:{number} must be a top-level mapping entry")
-        if key.strip() != "trunk":
-            continue
-        if found:
-            raise ResolutionError(f"duplicate configuration key: 'trunk' at line {number}")
-        found = True
-        trunk_scope = True
-        trunk = _decode_trunk(raw)
+
+    yaml_module = _require_yaml()
+
+    class UniqueKeySafeLoader(yaml_module.SafeLoader):
+        def construct_mapping(self, node: Any, deep: bool = False) -> dict[Any, Any]:
+            self.flatten_mapping(node)
+            result: dict[Any, Any] = {}
+            for key_node, value_node in node.value:
+                key = self.construct_object(key_node, deep=deep)
+                try:
+                    duplicate = key in result
+                except TypeError as error:
+                    raise yaml_module.constructor.ConstructorError(
+                        "while constructing a mapping",
+                        node.start_mark,
+                        "found an unhashable key",
+                        key_node.start_mark,
+                    ) from error
+                if duplicate:
+                    raise yaml_module.constructor.ConstructorError(
+                        "while constructing a mapping",
+                        node.start_mark,
+                        f"found duplicate key {key!r}",
+                        key_node.start_mark,
+                    )
+                result[key] = self.construct_object(value_node, deep=deep)
+            return result
+
+    try:
+        document = yaml_module.load(source, Loader=UniqueKeySafeLoader)
+    except yaml_module.YAMLError as error:
+        raise ResolutionError(f"invalid YAML in {CONFIG_PATH}: {error}") from error
+    if not isinstance(document, dict):
+        raise ResolutionError(f"{CONFIG_PATH} root must be a mapping")
+    trunk = document.get("trunk")
+    if trunk is None or trunk == "":
+        return None
+    if not isinstance(trunk, str):
+        raise ResolutionError(f"{CONFIG_PATH} key 'trunk' must be a string, null, or empty")
     return trunk
+
+
+def _single_output_record(value: str) -> str | None:
+    match = re.fullmatch(r"([^\r\n]+)(?:\r\n|\r|\n)?", value)
+    return match.group(1) if match else None
 
 
 def _run(argv: list[str], label: str) -> str:
@@ -133,10 +139,10 @@ def _run(argv: list[str], label: str) -> str:
     if result.returncode != 0:
         detail = result.stderr.strip() or f"exit {result.returncode}"
         raise ResolutionError(f"{label} failed: {detail}")
-    lines = result.stdout.splitlines()
-    if len(lines) != 1 or not lines[0]:
+    output = _single_output_record(result.stdout)
+    if output is None:
         raise ResolutionError(f"{label} must return exactly one non-empty branch name")
-    return lines[0]
+    return output
 
 
 def _validate(base: str, source: str) -> str:
@@ -146,22 +152,21 @@ def _validate(base: str, source: str) -> str:
         result = subprocess.run(
             ["git", "check-ref-format", "--branch", base],
             check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
         )
     except (OSError, ValueError) as error:
         raise ResolutionError(f"cannot validate {source}: {error}") from error
     if result.returncode != 0:
-        raise ResolutionError(f"{source} is not a valid Git branch name: {base!r}")
-    if result.stdout.splitlines() != [base]:
+        detail = f": {result.stderr.strip()}" if result.stderr.strip() else ""
+        raise ResolutionError(f"{source} is not a valid Git branch name: {base!r}{detail}")
+    if _single_output_record(result.stdout) != base:
         raise ResolutionError(f"{source} is not a literal Git branch name: {base!r}")
     return base
 
 
 def resolve() -> str:
     trunk = _load_trunk()
-    # Empty and null are the documented opt-out forms; both use the fallback.
     if trunk:
         return _validate(trunk, f"{CONFIG_PATH} key 'trunk'")
     fallback = _run(
@@ -173,11 +178,11 @@ def resolve() -> str:
 
 def main() -> int:
     try:
-        base = resolve()
+        _require_yaml()
+        print(resolve())
     except ResolutionError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
-    print(base)
     return 0
 
 

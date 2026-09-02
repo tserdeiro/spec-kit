@@ -15,8 +15,8 @@ causes stay recorded in `docs/dogfooding.md`.
 ## Technical context
 
 - **Language/runtime**: preset/commands are agent-executed Markdown +
-  bash launchers; packages are Python ≥3.11 (`uv`-managed, zero runtime
-  deps by policy).
+  bash launchers; packages are Python ≥3.11 (`uv`-managed); the trunk
+  helper reuses PyYAML from pinned Specify with no new consumer dependency.
 - **Primary dependencies**: pinned upstream `specify-cli` 1.0.1
   (`versions.lock.yml`); `gh` CLI for platform checks; Linear GraphQL API
   (already the linear package's only remote).
@@ -37,6 +37,7 @@ causes stay recorded in `docs/dogfooding.md`.
 | Library or API | Version in use | Documentation |
 | --- | --- | --- |
 | specify-cli (upstream) | 1.0.1 | https://github.com/github/spec-kit |
+| PyYAML (Specify runtime) | ≥6.0 | installed requirement of specify-cli 1.0.1 |
 | Linear GraphQL / GitHub integration | current | https://linear.app/developers/graphql · https://linear.app/docs/github |
 | gh CLI | consumer-installed | https://cli.github.com/manual/ |
 
@@ -110,7 +111,9 @@ causes stay recorded in `docs/dogfooding.md`.
   `.specify/extensions/git/git-config.yml`; `pr.md` and
   `implement-append.md` resolve the delivery base as: explicit `trunk:`
   key → else `gh repo view --json defaultBranchRef`. Documented in the
-  preset README and the root README.
+  preset README and the root README. The resolver uses a duplicate-rejecting
+  PyYAML `SafeLoader`; if `python3` cannot import it, it re-executes once with
+  the Python shebang of `specify` from `PATH`.
 - **Rationale**: the file is committed, consumer-owned configuration the
   team already edits; upstream ignores unknown keys; no per-machine
   state (rejected: `git config`), no upstream schema intrusion
