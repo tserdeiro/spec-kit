@@ -28,9 +28,10 @@ GitHub.
 
 The branch is what projects the task to *In Progress*; it must exist and
 follow the convention before the PR opens. The PR's **base** follows from
-what is delivered: a feature task uses the authoritative `BRANCH` from
-prerequisite JSON; a work item queries the **GitHub default**; the feature
-PR resolves its delivery base at creation time.
+what is delivered: a feature task targets its **feature branch**
+(`NNN-slug`, resolved from the active feature); a work item queries the
+**GitHub default**; the feature PR resolves its **delivery base** at
+creation time (step 5).
 
 - Correctly named branch checked out → continue.
 - On the base branch or a misnamed branch with the work committed →
@@ -90,11 +91,15 @@ cover the spec with nothing missing and nothing extra?
 set -e
 delivery_kind="<feature|task|work-item>"
 case "$delivery_kind" in
-  feature) base=$(python3 .specify/presets/default/scripts/resolve-delivery-base.py) ;;
+  feature)
+    trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*"?([^"#[:space:]]*)"?.*$/\1/p;q;}' \
+      .specify/extensions/git/git-config.yml 2>/dev/null || true)
+    base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
+    git check-ref-format --branch "$base" >/dev/null
+    ;;
   task)
-    paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only --json)
-    base=$(printf '%s\n' "$paths" | python3 -c \
-      'import json, sys; print(json.load(sys.stdin)["BRANCH"])')
+    base=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only |
+      sed -n 's/^BRANCH: //p')
     ;;
   work-item) base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name) ;;
   *) printf 'error: unknown delivery kind: %s\n' "$delivery_kind" >&2; exit 2 ;;
@@ -105,7 +110,15 @@ gh pr create --draft --base "$base" --title "<type(scope): subject>" --body "<th
 
 Replace only the delivery-kind literal. Repository-derived branch names
 stay runtime data and reach `gh` only through the quoted `base` argument.
-The feature PR's title is `feat(<area>): <feature outcome>`.
+No Python, no JSON parsing.
+
+The feature PR's **delivery base**: an explicit non-empty `trunk:` key in
+the consumer's `.specify/extensions/git/git-config.yml` wins (quotes
+optional); absent or empty falls back to the GitHub default branch;
+either way the name must pass `git check-ref-format --branch`, or the
+command stops. `implement-append.md`'s first-task refresh resolves the
+delivery base the same way. The feature PR's title is
+`feat(<area>): <feature outcome>`.
 
 Title in English, `type(scope): subject`, matching the branch's commit.
 Report the PR URL, then remind the flow: the next steps are the

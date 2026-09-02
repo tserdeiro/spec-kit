@@ -283,12 +283,32 @@ their own branches are not this loop's concern.
    blocks delivery — tracking waits for the next run.
 1. **Starting a task** — before touching any code for `T###`:
    - On the **first task of the feature**, bring the repository's
-     up-to-date default branch into the feature branch (`NNN-slug`):
-     `git fetch`, then on the feature branch
-     `git merge origin/<default>` — resolve the default branch with
-     `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` —
-     and push. Later refreshes from the default branch are the
-     developer's duty, not this loop's.
+     up-to-date delivery base into the feature branch (`NNN-slug`) with
+     this single shell invocation:
+
+     ```bash
+     # first-task-refresh:start
+     set -e
+     feature_branch=$(git branch --show-current)
+     expected_branch=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only |
+       sed -n 's/^BRANCH: //p')
+     [ "$feature_branch" = "$expected_branch" ] ||
+       { printf 'error: expected feature branch %s, found %s\n' \
+         "$expected_branch" "$feature_branch" >&2; exit 2; }
+     trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*"?([^"#[:space:]]*)"?.*$/\1/p;q;}' \
+       .specify/extensions/git/git-config.yml 2>/dev/null || true)
+     delivery_base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
+     git check-ref-format --branch "$delivery_base" >/dev/null
+     remote=origin
+     git fetch "$remote"
+     git merge "$remote/$delivery_base"
+     git push "$remote" "$feature_branch"
+     # first-task-refresh:end
+     ```
+
+     The delivery base resolves the same way `speckit.pr`'s feature PR
+     does (see there for the exact rule). Do not run this refresh on
+     later tasks; later delivery-base refreshes are the developer's duty.
    - Create the task branch **from the up-to-date feature branch**:
      `git switch -c NNN-T###-short-slug`. One exception stacks: when the
      task's **Depends on** names a task whose PR is not merged yet,
@@ -341,7 +361,7 @@ their own branches are not this loop's concern.
    `ready for review`: it now shows the whole
    feature, composed of task PRs a human already reviewed one by one.
    Approving and merging are never yours — a human merges it into the
-   default branch with a **merge commit** (no squash: the task history
+   delivery base with a **merge commit** (no squash: the task history
    must survive). After that merge, delete your local feature branch
    (GitHub deletes the remote when the repository auto-deletes merged
    branches) and reconcile with `/speckit.linear.push --apply`.

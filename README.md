@@ -173,12 +173,10 @@ Reglas de oro:
   medias llega antes. Bugs y chores siguen yendo al default de GitHub.
   Por defecto los comandos usan el default de GitHub; si el trunk real es
   otro, configura `trunk: <branch>` en
-  `.specify/extensions/git/git-config.yml`. Debe cargar como string YAML y
-  ser un nombre de branch válido para Git; nombres que parecen números o
-  fechas deben ir entre comillas. Ese valor explícito tiene prioridad para
-  el PR de feature y el primer refresh de `/speckit.implement` (este repo
-  declara `trunk: main`). Los PRs de tarea derivan su feature activa y los
-  de bug/chore consultan el default de GitHub en el momento de crearlos.
+  `.specify/extensions/git/git-config.yml` (este repo declara
+  `trunk: main`) — ese valor explícito tiene prioridad para el PR de
+  feature y el primer refresh de `/speckit.implement`. Los PRs de tarea
+  van a la feature activa y los de bug/chore al default de GitHub.
 - **Nunca actualices Linear a mano**: el Project y los Issues nacen solos
   en plan/tareas, los estados los mueve la integración nativa por eventos
   de PR, y `push --apply` es la reconciliación idempotente que repara lo

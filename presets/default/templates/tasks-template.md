@@ -13,7 +13,7 @@ description: "Dependency-ordered, traceable delivery units for feature implement
   task merges into it, and the feature enters the **delivery base** only
   once, through the feature PR, as a merge commit. The delivery base is
   the explicit non-empty `trunk:` value, or the GitHub default branch when
-  `trunk:` is absent, null, or empty.
+  `trunk:` is absent or empty.
 - **Closing the product phase opens the gate**: with this file complete,
   commit the feature artifacts on the feature branch and open the
   **draft feature PR** (`NNN-slug` → delivery base) — `/speckit.pr` on

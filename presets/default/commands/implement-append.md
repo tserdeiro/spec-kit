@@ -59,15 +59,16 @@ their own branches are not this loop's concern.
      ```bash
      # first-task-refresh:start
      set -e
-     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only --json)
-     feature_branch=$(printf '%s\n' "$paths" | python3 -c \
-       'import json, sys; print(json.load(sys.stdin)["BRANCH"])')
-     current_branch=$(git branch --show-current)
-     if [ "$current_branch" != "$feature_branch" ]; then
-       printf 'error: expected feature branch %s, found %s\n' "$feature_branch" "$current_branch" >&2
-       exit 2
-     fi
-     delivery_base=$(python3 .specify/presets/default/scripts/resolve-delivery-base.py)
+     feature_branch=$(git branch --show-current)
+     expected_branch=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only |
+       sed -n 's/^BRANCH: //p')
+     [ "$feature_branch" = "$expected_branch" ] ||
+       { printf 'error: expected feature branch %s, found %s\n' \
+         "$expected_branch" "$feature_branch" >&2; exit 2; }
+     trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*"?([^"#[:space:]]*)"?.*$/\1/p;q;}' \
+       .specify/extensions/git/git-config.yml 2>/dev/null || true)
+     delivery_base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
+     git check-ref-format --branch "$delivery_base" >/dev/null
      remote=origin
      git fetch "$remote"
      git merge "$remote/$delivery_base"
@@ -75,9 +76,9 @@ their own branches are not this loop's concern.
      # first-task-refresh:end
      ```
 
-     An explicit non-empty `trunk:` wins; otherwise the GitHub default
-     applies. Do not run this refresh on later tasks; later delivery-base
-     refreshes are the developer's duty.
+     The delivery base resolves the same way `speckit.pr`'s feature PR
+     does (see there for the exact rule). Do not run this refresh on
+     later tasks; later delivery-base refreshes are the developer's duty.
    - Create the task branch **from the up-to-date feature branch**:
      `git switch -c NNN-T###-short-slug`. One exception stacks: when the
      task's **Depends on** names a task whose PR is not merged yet,
