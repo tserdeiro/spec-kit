@@ -88,7 +88,7 @@ cover the spec with nothing missing and nothing extra?
 
 ```bash
 # pr-create:start
-set -eo pipefail
+set -e
 delivery_kind="<feature|task|work-item>"
 case "$delivery_kind" in
   feature)
@@ -98,8 +98,8 @@ case "$delivery_kind" in
     git check-ref-format --branch "$base" >/dev/null
     ;;
   task)
-    base=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only |
-      sed -n 's/^BRANCH: //p')
+    paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
+    base=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
     ;;
   work-item) base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name) ;;
   *) printf 'error: unknown delivery kind: %s\n' "$delivery_kind" >&2; exit 2 ;;

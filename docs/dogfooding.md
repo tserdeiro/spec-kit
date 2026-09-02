@@ -81,6 +81,17 @@ the scoped behavior named below (`003-delivery-automation`, C-001):
    `type(scope): subject`; T016's fresh review caught it as blocking and
    the commit was reworded. The loop has no revert path; when it needs
    one, the subject must be authored (`revert(scope): …`).
+7. **Conformance runs the documented bash blocks under `sh`.** T017's
+   `set -eo pipefail` passed on macOS, whose `sh` is bash in POSIX mode,
+   and failed on Ubuntu, whose `sh` is dash (`Illegal option -o
+   pipefail`) — caught only by CI on PR #60. Blocks an agent may run in
+   any shell must stay POSIX: `set -e`, no pipelines that need
+   `pipefail`.
+8. **Reviewers stall and wander on large packets.** One Sonnet review of a
+   ~120 KB packet stalled for 10 minutes and had to be resumed; another
+   spent 20 minutes on checks the implementer had already run. A tighter
+   brief ("verify claims, do not repeat experiments") halved the time on
+   the next PR without losing findings.
 
 ## 2026-09-01 — task delivery (T002–T011, T015)
 
