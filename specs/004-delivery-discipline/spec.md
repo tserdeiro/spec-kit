@@ -383,8 +383,10 @@ layers.
 - **A-002**: Release lag: the Linear and review package changes are
   consumed here only after publication, so their requirements are proven
   by tests and fixtures during the round and by this repository once
-  published. The review package's tasks come first in the stack so the
-  maintainer can publish it mid-round if wanted.
+  published. Delivery follows story priority, so the loop rules land
+  first and the rest of the round runs under them; the review package's
+  tasks are self-contained, so the maintainer can carve them out as a
+  trunk chore for an earlier publication.
 - **A-003**: "No parallel stacks" (entry 3) is read as one linear stack
   per feature: the next task branches from the head of the latest ready,
   unmerged task PR, whether or not the ledger declares a dependency on

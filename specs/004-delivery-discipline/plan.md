@@ -337,11 +337,12 @@ No new commands, no upstream patches, no runtime dependencies.
   statuses graduate (entry 20 included). Release: `publish.sh --bump
   preset=0.9.0 linear=0.12.0 code-review=0.4.0 bundles=0.15.0` in the last
   delivery task; publication is human, from `main`, after the feature
-  merges. Task order puts the review package first; a mid-round
-  publication of code-review alone would need its PRs on `main`, which
-  the integration-branch model only provides through the feature PR —
-  the maintainer's option is a trunk chore for those two tasks, decided
-  at the gate.
+  merges. Task order follows story priority so the loop rules (US1)
+  land first and govern the rest of the round; a mid-round publication
+  of code-review alone would need its PRs on `main`, which the
+  integration-branch model only provides through the feature PR — the
+  maintainer's option is a trunk chore for those self-contained tasks,
+  decided at the gate.
 - **Rationale**: FR-008, FR-015, FR-017, A-005, A-007, C-005.
 - **Trade-off**: this round's own loop runs on the installed releases; the
   deterministic contract check protects the next round, this one relies
