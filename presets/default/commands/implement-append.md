@@ -116,7 +116,7 @@ their own branches are not this loop's concern.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review
    it next: the fresh reviewer's brief is fixed text, the packet path (or
-   the diff, below) prepended:
+   the diff and PR body, below) prepended:
 
    > Verify the implementer's claims in the packet's evidence instead of
    > repeating its experiments. Before asking for an edge case, ask
@@ -140,10 +140,11 @@ their own branches are not this loop's concern.
      yourself — findings still written inside the session directory,
      fresh per review, never copied from an earlier one.
    - **Without `code-review`**, hand a fresh sub-agent (or, without one,
-     a fresh context) the PR's diff — `gh pr diff <n>` — and the brief,
-     nothing else carried over. It returns its findings; post them as one
-     PR comment (`gh pr comment <n>`) — no session, no verdict, the
-     degraded mode — and name that comment in the Completion evidence.
+     a fresh context) the PR's diff and body — `gh pr diff <n>` and
+     `gh pr view <n>` — and the brief, nothing else carried over. It
+     returns its findings; post them as one PR comment
+     (`gh pr comment <n>`) — no session, no verdict, the degraded
+     mode — and name that comment in the Completion evidence.
    That independence is what makes the verdict worth anything: a reused
    findings file is not a review. Fix what it finds on the task branch,
    whichever path produced it. Then, in the PR's **final commit**, check
