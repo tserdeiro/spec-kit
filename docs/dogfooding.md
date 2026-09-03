@@ -160,6 +160,16 @@ de corrección (2026-09-01 → 09-02).
     *Solución (ronda 004, preset):* el mismo append de silencio en
     `implement-append.md`.
 
+26. **El hook `after_plan` de Linear no puede crear el Project.** `push
+    --current --hook` exige `tasks.md` (`artifact_missing`) y en `plan`
+    todavía no existe: el hook registrado "Project at plan" falla en toda
+    feature nueva y el Project nace recién en `after_tasks` (visto al
+    planificar la 004, 2026-09-03).
+    *Solución (candidata, paquete linear):* `push` proyecta el Project con
+    `plan.md` solo y los Issues cuando aparece `tasks.md`, o el hook se
+    registra únicamente en `after_tasks`. Fuera del alcance de la 004 salvo
+    decisión humana en el gate.
+
 ## E. Upstream (fuera del control de la distribución)
 
 Viven en assets gestionados por upstream (C-001); la distribución solo
