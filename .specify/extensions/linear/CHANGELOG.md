@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0
+
+- The tasks parser skips fenced ``` and ~~~ blocks, so the tasks
+  template's instructional example no longer parses as a real task.
+- `push` and `status` name `onboard` before any network call when the
+  repository is unlinked — missing or still placeholder config.
+- The README documents native GitHub automation coverage: PR rules are
+  team-level and apply to every linked pull request by default.
+
 ## 0.10.0
 
 - The bounded block returns, with the hash folded into its open tag:
