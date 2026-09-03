@@ -236,6 +236,13 @@ This distribution delivers **one branch and one draft PR per task**, and
 this loop is its delivery contract: **where the core rules above differ,
 this loop wins.** Wrap every task in it as you implement:
 
+**Hooks are acted on, never announced.** Wherever the core text above
+says to print an "Optional Hook" / "Optional Pre-Hook" block, print
+nothing. An optional hook whose own extension configuration enables its
+event (check under `.specify/extensions/<extension>/`) runs silently;
+every other optional hook is skipped silently. Mandatory hooks behave
+exactly as the core text says.
+
 **Orchestrate when your host can.** If your host supports delegating to
 sub-agents (Claude Code's Task tool, OpenCode agents, or equivalent), run
 this loop as an orchestrator: implement each task in a **fresh sub-agent**,
@@ -274,7 +281,16 @@ their own branches are not this loop's concern.
    decision, not a gap. The gate is where a human approves the spec
    and plan; the loop never delivers a task against a feature with
    no gate open.
-   Then reconcile Linear once with `/speckit.linear.push --hook`
+   Then fix this run's **tooling set** once, from the feature branch —
+   `[ -d .specify/extensions/linear ]` and `[ -d
+   .specify/extensions/code-review ]` — and report it in one line, for
+   example `Tooling: linear, code-review` or `Tooling: none —
+   reconciliation omitted, reviews by diff`. Every `/speckit.linear.push`
+   call in this loop, `--hook` or `--apply`, runs only when `linear` is
+   in the set and is silently omitted otherwise. A task never installs or
+   removes an extension — that is a trunk chore, never a feature task.
+   When `linear` is in the set, reconcile once with
+   `/speckit.linear.push --hook`
    (when slash commands are unavailable, agents run
    `bash .specify/extensions/linear/scripts/bash/run.sh push --current
    --hook`): it catches state changes that happened while no session
@@ -326,25 +342,46 @@ their own branches are not this loop's concern.
      verified against the linked or official documentation before use,
      never guessed.
    The branch is what projects the task to *In Progress* in Linear —
-   once it exists, reconcile with `/speckit.linear.push --hook`.
+   once it exists and `linear` is in the set, reconcile with
+   `/speckit.linear.push --hook`.
 2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
    invariant and opens the draft PR with the canonical body. Self-review
-   that PR with `/speckit.code-review <PR number>` — only the PR form
-   opens a review session — orchestrated like the tasks: on hosts
-   with sub-agents, open the review session but neither read the packet
-   nor write the findings yourself — hand the packet path, and nothing
-   else, to a **fresh sub-agent** with no implementation
-   residue, which reads the packet in full, reviews the candidate, and
-   writes `findings.json` **inside the review session directory**; close
-   the review with that file. Without sub-agents, run the review
-   yourself — findings still written inside the session directory, fresh
-   per review, never copied from an earlier one. That independence is
-   what makes the verdict worth anything: a reused findings file is not
-   a review. Fix what it finds on the task branch. Then, in the PR's
-   **final commit**, check the task's box and fill its **Completion
-   evidence** (the PR and the verification results; a task split into
-   stacked PRs checks it in the stack's last PR), push, and mark the PR
-   `ready for review`, then reconcile with `/speckit.linear.push --hook`
+   it next: the fresh reviewer's brief is fixed text, the packet path (or
+   the diff, below) prepended:
+
+   > Verify the implementer's claims in the packet's evidence instead of
+   > repeating its experiments. Before asking for an edge case, ask
+   > whether the mechanism is needed at all — a simpler design that meets
+   > the requirement is a `major` finding, a new runtime dependency is
+   > `blocking`, per the repository's review rules. A packet over 100 KB
+   > (`wc -c`) is reviewed one file at a time, findings consolidated at
+   > the end. Write `findings.json` inside the review session directory
+   > when there is one; otherwise, return the findings directly to the
+   > orchestrator.
+
+   - **With `code-review` in the set**, review it with
+     `/speckit.code-review <PR number>` — only the PR form opens a
+     review session — orchestrated like the tasks: on hosts with
+     sub-agents, open the review session but neither read the packet nor
+     write the findings yourself — hand the packet path and the brief,
+     nothing else, to a **fresh sub-agent** with no implementation
+     residue, which reads the packet in full, reviews the candidate, and
+     writes `findings.json` **inside the review session directory**;
+     close the review with that file. Without sub-agents, run the review
+     yourself — findings still written inside the session directory,
+     fresh per review, never copied from an earlier one.
+   - **Without `code-review`**, hand a fresh sub-agent (or, without one,
+     a fresh context) the PR's diff — `gh pr diff <n>` — and the brief,
+     nothing else carried over. It returns its findings; post them as one
+     PR comment (`gh pr comment <n>`) — no session, no verdict, the
+     degraded mode — and name that comment in the Completion evidence.
+   That independence is what makes the verdict worth anything: a reused
+   findings file is not a review. Fix what it finds on the task branch,
+   whichever path produced it. Then, in the PR's **final commit**, check
+   the task's box and fill its **Completion evidence** (the PR and the
+   verification results; a task split into stacked PRs checks it in the
+   stack's last PR), push, and mark the PR `ready for review`, then, when
+   `linear` is in the set, reconcile with `/speckit.linear.push --hook`
    so the issue shows its review state. The checked box travels inside
    the task PR, so it reaches the feature branch only through the human
    merge; reviewer comments are fixed on this same PR, the box stays
@@ -365,4 +402,5 @@ their own branches are not this loop's concern.
    delivery base with a **merge commit** (no squash: the task history
    must survive). After that merge, delete your local feature branch
    (GitHub deletes the remote when the repository auto-deletes merged
-   branches) and reconcile with `/speckit.linear.push --apply`.
+   branches) and, when `linear` is in the set, reconcile with
+   `/speckit.linear.push --apply`.
