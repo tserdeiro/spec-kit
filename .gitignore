@@ -42,4 +42,5 @@ venv/
 
 
 # Session-local agent state
-/.claude/
+/.claude/*
+!/.claude/skills/

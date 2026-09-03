@@ -1,0 +1,57 @@
+---
+name: speckit-bugfix
+description: Start a bug fix from its Linear issue key — issue-key branch, then the
+  triage trio.
+compatibility: Requires spec-kit project structure with .specify/ directory
+metadata:
+  author: github-spec-kit
+  source: preset:default
+---
+
+# Speckit Bugfix Skill
+
+# Spec Kit Bugfix
+
+One command from the Linear issue to triaging the bug on its branch. For
+minimal maintenance without triage, use `/speckit.chore` instead. Work
+items are born in Linear by a human; this command never creates or edits
+issue content — it only starts the repository side. You (the agent)
+execute these steps in order and report each outcome.
+
+## 1. Resolve the issue
+
+- The user must name the issue key (`WOR-123`-style), alone or inside a
+  pasted Linear URL or title. Without one, stop and ask for it — the
+  issue is created by a human in Linear first, never by you.
+- Normalize the key to lowercase for the branch (`wor-123`).
+
+## 2. Create the branch
+
+- From the repository's **up-to-date default branch** (resolve it with
+  `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`;
+  `git fetch` first): `git switch -c wor-123-short-slug`.
+- The slug is 2–4 words from the issue's title. If the user gave only the
+  key and the title is not in the conversation, ask for the title — do
+  not invent a slug.
+- If a branch for this key already exists (`git branch --all --list
+  '*wor-123-*'`), switch to it instead and say so. Re-running this
+  command must never create a duplicate.
+- The branch is what projects the issue to *In Progress*: run
+  `/speckit.linear.push --apply` — a branch alone is not a PR event, so
+  Linear's native integration has nothing to move yet — and report the
+  state.
+
+## 3. Triage, then deliver
+
+- Run the triage trio in order: `/speckit.bug.assess` (paste the user's
+  report or reproduction) → `/speckit.bug.fix` → `/speckit.bug.test`.
+  The three reports under `.specify/bugs/<slug>/` travel in the PR as
+  evidence.
+- **The stack is derived, never invented**: the issue author describes
+  the symptom, not the technology — read the real manifests and the
+  neighboring code, reuse what is installed, never add a dependency or
+  reimplement what an installed library covers (human decisions), and
+  verify any unfamiliar API against official documentation before use.
+- Then the flow ends as always: `/speckit.pr` opens the canonical draft
+  PR, self-review with `/speckit.code-review`, fix, mark
+  `ready for review`, human review and merge.
