@@ -187,9 +187,9 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
   - **Completion evidence**: Pending
 
 - [ ] T014 Transversal verification: SC-001…SC-009 evidence on the integrated feature branch in specs/004-delivery-discipline/tasks.md
-  - **Traces**: SC-001..SC-009; outcome: consolidated evidence — one stack and complete ledger (SC-001), zero agent merges (SC-002), protected-path tests (SC-003), no task past its stop line and no in-PR forecast change (SC-004), published digests verified (SC-005), doctor mirror in this two-agent repository (SC-006), worktree tests (SC-007), silent implement transcripts (SC-008), ignore entries idempotent (SC-009); once published, the installed extensions here upgrade to 0.12.0 / 0.4.0 (consumer path)
-  - **Depends on**: T013; needs the task chain merged by a human and, for the upgrade, the published releases
-  - **Boundaries**: evidence recording in this file and `docs/dogfooding.md`; `.specify/extensions/{linear,code-review}/**` and `.specify/extensions.yml` for the upgrade; no source changes
+  - **Traces**: SC-001..SC-009; outcome: consolidated evidence — one stack and complete ledger (SC-001), zero agent merges (SC-002), protected-path tests (SC-003), no task past its stop line and no in-PR forecast change (SC-004), published digests verified (SC-005), doctor mirror in this two-agent repository (SC-006), worktree tests (SC-007), silent implement transcripts (SC-008), ignore entries idempotent (SC-009); the consumer upgrade of this repository's installed extensions to 0.12.0 / 0.4.0 is a trunk chore after publication (FR-001), recorded here as evidence only
+  - **Depends on**: T013; needs the task chain merged by a human and the published releases
+  - **Boundaries**: evidence recording in this file and `docs/dogfooding.md`; no source changes; `.specify/extensions/**` untouched (the upgrade is a trunk chore)
   - **Evidence**: each SC's command or artifact recorded in Completion evidence
   - **Delivery**: single PR (evidence only)
   - **Completion evidence**: Pending

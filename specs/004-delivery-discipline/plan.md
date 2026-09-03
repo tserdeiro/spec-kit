@@ -437,7 +437,7 @@ docs/plan.md · docs/dogfooding.md              # round entry, statuses
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
-| Clean Spec Kit analysis | — | pending |
+| Clean Spec Kit analysis | 2026-09-03: 19/19 FR and 9/9 SC covered, 0 critical, 2 medium remediated in-phase (digest scope, T014 upgrade as trunk chore) | complete |
 | Technical approval of plan and tasks | — | pending |
 | Reviewed Linear dry-run and synchronization | — | pending |
 | Every executable task individually assignable and assigned | — | pending |

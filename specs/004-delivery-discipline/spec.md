@@ -179,8 +179,8 @@ conformance against an altered digest.
    **Then** the revert travels in a task branch and PR whose commit
    subject follows `revert(scope): subject`, never the tool's default.
 4. **Given** published-mode conformance, **When** it runs, **Then** it
-   recomputes the digest of every published asset the lock references and
-   fails when any differs.
+   recomputes every digest the lock pins for the assets this distribution
+   publishes and fails when any differs.
 5. **Given** the preset documentation, **When** a contributor reads it,
    **Then** it states that every executable block in the preset's commands
    is POSIX shell and that conformance executes them with `sh`.
@@ -304,9 +304,10 @@ layers.
 - **FR-013**: The loop MUST provide a revert path: a delivered change is
   undone through a task branch and PR whose commit subject follows
   `revert(scope): subject`, so it passes the repository's naming check.
-- **FR-014**: Published-mode conformance MUST recompute the digest of
-  every published asset the lock file references and fail on any
-  mismatch.
+- **FR-014**: Published-mode conformance MUST recompute every digest the
+  lock file pins for the assets this distribution publishes — the release
+  archives and tag archives of its extensions — and fail on any mismatch;
+  the upstream pin keeps its documented manual reproduction.
 - **FR-015**: The preset documentation MUST state that every executable
   block in its commands is POSIX shell — `set -e`, no pipeline that
   needs `pipefail` — and that conformance executes those blocks with
@@ -362,8 +363,9 @@ layers.
   change in a PR based on the trunk receives none.
 - **SC-004**: No task in this round passes twice its forecast without
   stopping, and no forecast changes inside the PR that breached it.
-- **SC-005**: Published-mode conformance verifies the digest of every
-  published asset the lock references and fails when one is altered.
+- **SC-005**: Published-mode conformance verifies every digest the lock
+  pins for the distribution's published assets and fails when one is
+  altered.
 - **SC-006**: With two agents installed, one doctor fix run leaves each
   core skill equal to that agent's own render plus the preset layers, and
   each extension and preset skill identical across agents.
