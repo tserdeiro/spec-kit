@@ -165,10 +165,10 @@ de corrección (2026-09-01 → 09-02).
     todavía no existe: el hook registrado "Project at plan" falla en toda
     feature nueva y el Project nace recién en `after_tasks` (visto al
     planificar la 004, 2026-09-03).
-    *Solución (candidata, paquete linear):* `push` proyecta el Project con
-    `plan.md` solo y los Issues cuando aparece `tasks.md`, o el hook se
-    registra únicamente en `after_tasks`. Fuera del alcance de la 004 salvo
-    decisión humana en el gate.
+    *Solución (ronda 004, paquete linear):* `push` trata `tasks.md` como
+    opcional: con `spec.md` y `plan.md` proyecta el Project sin Issues y
+    avisa que el ledger es el próximo artefacto; los Issues llegan con
+    `after_tasks`. Sumada al alcance en el gate (2026-09-03).
 
 ## E. Upstream (fuera del control de la distribución)
 
