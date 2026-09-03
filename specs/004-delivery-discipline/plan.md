@@ -8,7 +8,8 @@
 Make the loop disciplined by construction on the four surfaces this
 repository owns: the `spec-kit-code-review` package (a deterministic
 protected-path finding and the engineering principles in the base rules),
-the `spec-kit-linear` package (worktree-aware configuration), the `default`
+the `spec-kit-linear` package (worktree-aware configuration, Project at
+plan), the `default`
 preset (one linear stack, fix propagation, branch identity, tooling
 detection, budget stop, reviewer brief, never-merge closure, revert path,
 doctor mirror and ignore entries, hook silence), and the conformance
@@ -64,7 +65,7 @@ No new commands, no upstream patches, no runtime dependencies.
 | Boundary or interface | Owner | Change | Explicit non-goals |
 | --- | --- | --- | --- |
 | `packages/spec-kit-code-review` | this repo | `protected_paths` finding at phase two; principles in the base rule template | new verdict values; publishing changes; budget changes |
-| `packages/spec-kit-linear` | this repo | config and env resolution fall back to the main checkout | writing into the main checkout; onboard changes |
+| `packages/spec-kit-linear` | this repo | config and env resolution fall back to the main checkout; the task ledger becomes optional so the Project is projected at plan | writing into the main checkout; onboard changes; hook registrations |
 | `presets/default` commands and README | this repo | loop steps 0–4, `pr.md` base and identity check, doctor steps 5–6 | patching core templates; new commands |
 | `scripts/conformance/bundles.sh` | this repo | `--published` recomputes the lock digests | CI running published mode (stays in `publish.sh`) |
 | `README.md`, `AGENTS.md`, `CLAUDE.md`, `docs/plan.md`, `docs/dogfooding.md` | this repo | rules 4, 10, 14; second agent; single source; round entry; statuses | translating documents; new sections beyond the rules |
@@ -348,6 +349,22 @@ No new commands, no upstream patches, no runtime dependencies.
   deterministic contract check protects the next round, this one relies
   on C-004 by discipline.
 
+### D15. The Project is projected at plan (linear)
+
+- **Decision**: `parse_feature` (`parser.py:265`) reads `tasks.md` as
+  optional: absent → `phases=()` plus an info diagnostic `tasks_pending`
+  naming the ledger as the next artifact; `spec.md` and `plan.md` stay
+  required through `_read_lines` (`parser.py:33-41`). `project_feature`
+  (`projection.py:102`) already yields a Project with zero tasks and
+  `status` already renders an empty task table (`reporting.py:184`), so
+  the registered `after_plan` hook creates the Project at plan and
+  `after_tasks` adds the Issues, as the extension's own description says.
+- **Rationale**: FR-020, entry 26 — found while planning this feature:
+  the hook failed with `artifact_missing` on every fresh feature, so the
+  Project was born at tasks.
+- **Trade-off**: a feature directory holding only a spec still fails at
+  plan (`plan.md` required), which is the hook's own precondition.
+
 ## Data and migration behavior
 
 No durable state changes. `protected_paths` is additive with defaults;
@@ -389,6 +406,7 @@ digests; it installs nothing.
 | FR-010 / SC-003 (protected paths) | phase-two tests: modified, added, deleted protected path on a numeric base → blocking + changes-requested; trunk base and working tree → none; config validation | `uv run pytest packages/spec-kit-code-review/tests` |
 | FR-007 (base rules) | doctor `--fix` writes the principles; parity between the template and this repo's committed file | same suite; `diff` in the task's evidence |
 | FR-011 / SC-007 (worktree) | config and env resolved from the main checkout in a `git worktree add` fixture; worktree-local files win | `uv run pytest packages/spec-kit-linear/tests` |
+| FR-020 / SC-010 (Project at plan) | feature with spec and plan only projects one Project and no Issues with the `tasks_pending` diagnostic; a missing `plan.md` still fails | `uv run pytest packages/spec-kit-linear/tests` |
 | FR-001, 002, 003, 005, 006, 009, 012, 013, 019 (loop text) | the installed `implement` skill carries each rule; this round's transcripts and PR bases | `bash scripts/conformance/bundles.sh`; `gh pr list` during this delivery |
 | FR-004 (identity) | `pr-create` mismatch scenario exits 2 | `bash scripts/conformance/bundles.sh` |
 | FR-002 (propagation) | `stack-propagate` block executed against fake `git`/`gh` | `bash scripts/conformance/bundles.sh` |
@@ -406,6 +424,7 @@ packages/spec-kit-code-review/config/speckit-code-review.template.yml  # protect
 packages/spec-kit-code-review/{commands/code-review.md,README.md,CHANGELOG.md,extension.yml,pyproject.toml}
 packages/spec-kit-code-review/tests/                                    # new cases
 packages/spec-kit-linear/src/spec_kit_linear/{git_refs,config,env_files,cli}.py  # main-checkout fallback
+packages/spec-kit-linear/src/spec_kit_linear/parser.py                         # tasks.md optional (D15)
 packages/spec-kit-linear/{README.md,CHANGELOG.md,extension.yml,pyproject.toml}
 packages/spec-kit-linear/tests/                                         # worktree cases
 presets/default/commands/implement-append.md   # steps 0–4: tooling, stack, propagation, budget, brief, closure, revert, silence

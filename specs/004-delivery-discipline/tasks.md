@@ -147,9 +147,17 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
   - **Delivery**: single PR (~90 authored lines)
   - **Completion evidence**: Pending
 
+- [ ] T015 [US4] Project at plan: `tasks.md` optional in the packages/spec-kit-linear parser and projection
+  - **Traces**: FR-020, SC-010; outcome: `parse_feature` treats a missing `tasks.md` as an empty ledger with an info diagnostic `tasks_pending`; `push --hook` after plan creates the feature's Project with zero Issues and exits 0; `status` reports the Project and names the ledger as the next artifact; `spec.md` and `plan.md` stay required (plan D15)
+  - **Depends on**: T009
+  - **Boundaries**: `src/spec_kit_linear/{parser,cli}.py` (`reporting.py` only if the empty table needs the diagnostic), `tests/unit/{test_parser,test_cli}.py`, `packages/spec-kit-linear/{README.md,CHANGELOG.md}` (unreleased entry); hook registrations untouched; no version bump (T013)
+  - **Evidence**: `uv run pytest packages/spec-kit-linear/tests` -> green including: a feature with spec and plan only projects one Project and no Issues; the hook path exits 0; a missing `plan.md` still fails with `artifact_missing`
+  - **Delivery**: single PR (~70 authored lines)
+  - **Completion evidence**: Pending
+
 - [ ] T010 [US4] Published-asset digests in scripts/conformance/bundles.sh `--published`
   - **Traces**: FR-014, SC-005; outcome: for `linear` and `code-review` in `versions.lock.yml`, published mode downloads the catalog's release zip and compares it with `release_zip_sha256`, recomputes `subtree_archive_sha256` with `git archive --mtime="@<commit epoch>" --format=tar "<tag>:<path>"` and `manifest_sha256` with `git show <tag>:<path>/extension.yml`, failing with the asset and both digests on a mismatch and naming the fetch command when a tag is missing; default mode unchanged (plan D13)
-  - **Depends on**: T009
+  - **Depends on**: T015
   - **Boundaries**: `scripts/conformance/bundles.sh`; `README.md` "Integridad" line naming the re-verification; `scripts/release/*` untouched
   - **Evidence**: `bash scripts/conformance/bundles.sh --published` -> passed on the published tree (tags `spec-kit-linear/v0.11.0`, `spec-kit-code-review/v0.3.0`); the same run against a temporary copy of the lock with one altered digest -> fails naming the asset; `bash scripts/conformance/bundles.sh` -> passed
   - **Delivery**: single PR (~90 authored lines)
@@ -186,8 +194,8 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
   - **Delivery**: single PR (generated bump, ~20 authored lines)
   - **Completion evidence**: Pending
 
-- [ ] T014 Transversal verification: SC-001…SC-009 evidence on the integrated feature branch in specs/004-delivery-discipline/tasks.md
-  - **Traces**: SC-001..SC-009; outcome: consolidated evidence — one stack and complete ledger (SC-001), zero agent merges (SC-002), protected-path tests (SC-003), no task past its stop line and no in-PR forecast change (SC-004), published digests verified (SC-005), doctor mirror in this two-agent repository (SC-006), worktree tests (SC-007), silent implement transcripts (SC-008), ignore entries idempotent (SC-009); the consumer upgrade of this repository's installed extensions to 0.12.0 / 0.4.0 is a trunk chore after publication (FR-001), recorded here as evidence only
+- [ ] T014 Transversal verification: SC-001…SC-010 evidence on the integrated feature branch in specs/004-delivery-discipline/tasks.md
+  - **Traces**: SC-001..SC-010; outcome: consolidated evidence — one stack and complete ledger (SC-001), zero agent merges (SC-002), protected-path tests (SC-003), no task past its stop line and no in-PR forecast change (SC-004), published digests verified (SC-005), doctor mirror in this two-agent repository (SC-006), worktree tests (SC-007), silent implement transcripts (SC-008), ignore entries idempotent (SC-009), the Project born at plan on the next feature (SC-010); the consumer upgrade of this repository's installed extensions to 0.12.0 / 0.4.0 is a trunk chore after publication (FR-001), recorded here as evidence only
   - **Depends on**: T013; needs the task chain merged by a human and the published releases
   - **Boundaries**: evidence recording in this file and `docs/dogfooding.md`; no source changes; `.specify/extensions/**` untouched (the upgrade is a trunk chore)
   - **Evidence**: each SC's command or artifact recorded in Completion evidence
@@ -196,8 +204,8 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
 
 ## Dependencies and stack order
 
-- **Critical path**: T001 -> T002 -> T003 -> T004 -> T005 -> T006 -> T007 -> T008 -> T009 -> T010 -> T011 -> T012 -> T013 -> T014
-- **Stack order**: PR 1 -> PR 2 -> … -> PR 14, each stacked on the previous one until a human merges root-first; the loop rules of US1 land first so every later task of this round runs under them
+- **Critical path**: T001 -> T002 -> T003 -> T004 -> T005 -> T006 -> T007 -> T008 -> T009 -> T015 -> T010 -> T011 -> T012 -> T013 -> T014 (file order; T015 was added at the gate and keeps the Linear identifiers stable)
+- **Stack order**: PR 1 -> PR 2 -> … -> PR 15, each stacked on the previous one until a human merges root-first; the loop rules of US1 land first so every later task of this round runs under them
 
 ## Implementation strategy
 

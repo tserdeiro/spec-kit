@@ -184,6 +184,10 @@ conformance against an altered digest.
 5. **Given** the preset documentation, **When** a contributor reads it,
    **Then** it states that every executable block in the preset's commands
    is POSIX shell and that conformance executes them with `sh`.
+6. **Given** a fresh feature with `plan.md` and no `tasks.md` yet, **When**
+   the plan-time Linear projection runs, **Then** the feature's Project
+   exists in Linear with its summary and no Issues, and the hook succeeds;
+   the Issues appear on the first projection after `tasks.md` exists.
 
 ### User Story 5 - A second agent installs cleanly (Priority: P5)
 
@@ -235,6 +239,9 @@ layers.
 - The feature PR touches a protected path: allowed, since its base is
   the delivery trunk.
 - A worktree has its own Linear files: they win over the main checkout's.
+- A feature has `plan.md` but no `tasks.md`: push and status project and
+  report the Project with zero tasks and name the ledger as the next
+  artifact; a missing `plan.md` is still an error.
 - A revert targets a merge commit: it reverts against the base branch's
   parent, with the same conventional subject rule.
 - An ignore entry is already covered by a broader existing pattern: it is
@@ -327,6 +334,11 @@ layers.
 - **FR-019**: The `implement` command MUST NOT announce optional hooks; a
   hook its configuration enables runs silently, as the product phases
   already do.
+- **FR-020**: The Linear projection MUST treat the task ledger as
+  optional: with `spec.md` and `plan.md` present and no `tasks.md`, push
+  and status project and report the feature's Project with zero Issues
+  and name the ledger as the next artifact, so the plan-time hook never
+  fails for a missing ledger.
 
 ### Constraints and boundaries
 
@@ -375,6 +387,8 @@ layers.
   announcements.
 - **SC-009**: A consumer missing the ignore entries receives them in one
   doctor fix run; a second run changes nothing.
+- **SC-010**: In a fresh feature, the Project exists in Linear right after
+  the plan phase, before any task ledger, with no human action.
 
 ## Assumptions and dependencies
 
@@ -409,8 +423,10 @@ layers.
 ## Source references
 
 - **SRC-001**: `docs/dogfooding.md` — entries 1–3, 5–9, 11, 13, 15, 17,
-  19, 21 (*ronda 004*) and rules 4, 10, 14; the record of the 003
-  delivery and its correction round (2026-08-31 → 09-03).
+  19, 21 (*ronda 004*), rules 4, 10, 14, and entry 26 (found while
+  planning this feature, added to the scope at the gate on 2026-09-03);
+  the record of the 003 delivery and its correction round
+  (2026-08-31 → 09-03).
 - **SRC-002**: `specs/003-delivery-automation/` — the precedent round;
   its correction phase (T016–T019) is the evidence behind entries 7, 8,
   12, 13 and 16.
