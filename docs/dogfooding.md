@@ -131,9 +131,15 @@ de corrección (2026-09-01 → 09-02).
 17. **Los skills existen solo para la integración elegida en `init`.** Este
     repo se inicializó con `ai: codex`; una sesión de Claude no tiene
     `/speckit.*` y el flujo se siguió leyendo los `SKILL.md` a mano.
-    *Solución (docs):* el README documenta cómo instalar un segundo agente
-    (`specify init --integration <otro>`); `speckit.doctor --fix` ya espeja
-    los skills entre los agentes instalados.
+    *Solución (docs + preset, ronda 004):* el README documenta cómo instalar
+    un segundo agente (`specify integration install <otro>`). Al hacerlo
+    aquí con Claude (2026-09-03) apareció el límite del espejo del doctor:
+    upstream renderiza los comandos core por integración y aplica los
+    appends del preset solo a la default, así que copiar carpetas enteras
+    sobreescribiría el render propio de Claude (`/speckit-…`,
+    `argument-hint`) con el de codex (`$speckit-…`). El paso 5 del doctor
+    debe copiar enteros solo los skills de extensiones/preset y, en los
+    core, concatenar los appends del preset al render de cada integración.
 18. **El hook de rama sugiere la persistencia equivocada.** `before_specify`
     imprime `To persist: export SPECIFY_FEATURE=…` cuando lo real es
     `.specify/feature.json`, que el comando escribe igual.
