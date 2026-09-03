@@ -160,16 +160,6 @@ de corrección (2026-09-01 → 09-02).
     *Solución (ronda 004, preset):* el mismo append de silencio en
     `implement-append.md`.
 
-26. **El hook `after_plan` de Linear no puede crear el Project.** `push
-    --current --hook` exige `tasks.md` (`artifact_missing`) y en `plan`
-    todavía no existe: el hook registrado "Project at plan" falla en toda
-    feature nueva y el Project nace recién en `after_tasks` (visto al
-    planificar la 004, 2026-09-03).
-    *Solución (ronda 004, paquete linear):* `push` trata `tasks.md` como
-    opcional: con `spec.md` y `plan.md` proyecta el Project sin Issues y
-    avisa que el ledger es el próximo artefacto; los Issues llegan con
-    `after_tasks`. Sumada al alcance en el gate (2026-09-03).
-
 ## E. Upstream (fuera del control de la distribución)
 
 Viven en assets gestionados por upstream (C-001); la distribución solo
@@ -205,3 +195,25 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
   reemplazado por T017).
 - Proyección ausente en el repo fuente → este repo es su propio consumidor
   (T001), actualizado a lo que publica (T014).
+
+## G. Hallazgos de la ronda 004
+
+26. **El hook `after_plan` de Linear no puede crear el Project.** `push
+    --current --hook` exige `tasks.md` (`artifact_missing`) y en `plan`
+    todavía no existe: el hook registrado "Project at plan" falla en toda
+    feature nueva y el Project nace recién en `after_tasks` (visto al
+    planificar la 004, 2026-09-03).
+    *Solución (ronda 004, paquete linear):* `push` trata `tasks.md` como
+    opcional: con `spec.md` y `plan.md` proyecta el Project sin Issues y
+    avisa que el ledger es el próximo artefacto; los Issues llegan con
+    `after_tasks`. Sumada al alcance en el gate (2026-09-03).
+27. **`gh stack` nativo (preview) frente al apilado del loop.** Al
+    planificar la 004 se evaluó la extensión oficial `github/gh-stack`
+    (gh ≥ 2.90, preview pública): automatiza `init/add/push/submit/view`,
+    pero no propaga fixes sin rebase, no llena el body canónico ni abre
+    drafts, y guarda el tracking en el checkout local. La topología del
+    loop ya es la de los Stacked PRs de GitHub (base = rama del PR
+    anterior; GitHub reapunta al mergear la base).
+    *Decisión (aceptada, 2026-09-03):* el loop deriva la base de los PRs
+    abiertos y propaga con merges (puntos 2 y 3); `gh stack` se revisa
+    cuando salga de preview, con `speckit.pr` como punto de adopción.
