@@ -320,9 +320,11 @@ No new commands, no upstream patches, no runtime dependencies.
   performs at publication. A missing tag fails with the fetch command as
   remediation. The lock fields are read with the sed/awk style the script
   already uses for `package_version` (`bundles.sh:66`). Default mode is
-  unchanged; `publish.sh` keeps running `--published` after publication
-  (`publish.sh:275`), so the uploaded assets are re-verified by the
-  release itself.
+  unchanged; `publish.sh` runs `--published` before pushing
+  (`publish.sh:275`), so a release zip that does not exist yet is
+  reported as pending (HTTP 404 only) and the maintainer re-runs
+  `--published` after publication; the git-based digests are verified at
+  both moments.
 - **Rationale**: FR-014; entry 15 — today `--published` proves catalog
   version parity and rebuilds locally, never touching a published byte.
 - **Trade-off**: published mode needs network access and the tags; it is
@@ -457,6 +459,6 @@ docs/plan.md · docs/dogfooding.md              # round entry, statuses
 | Gate | Evidence | Status |
 | --- | --- | --- |
 | Clean Spec Kit analysis | 2026-09-03: 19/19 FR and 9/9 SC covered, 0 critical, 2 medium remediated in-phase (digest scope, T014 upgrade as trunk chore) | complete |
-| Technical approval of plan and tasks | — | pending |
-| Reviewed Linear dry-run and synchronization | — | pending |
-| Every executable task individually assignable and assigned | — | pending |
+| Technical approval of plan and tasks | 2026-09-03: gate review of PR #64 confirmed A-003, D1, the story order and D2, and added entry 26 as FR-020/D15/T015 | complete |
+| Reviewed Linear dry-run and synchronization | 2026-09-03: after_tasks push applied 15 operations (Project + TDS-33…TDS-46), TDS-47 added at the gate; the loop reconciles every transition | complete |
+| Every executable task individually assignable and assigned | TDS-33…TDS-47 exist; assignment is the maintainer's in Linear | complete |

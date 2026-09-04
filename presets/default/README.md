@@ -72,3 +72,12 @@ installed integration and appends each core command's preset layer to
 its own render, never another's; it also adds the installer's cache and
 `.venv` directories to `.gitignore` when not already covered. Both
 passes are read-only until `--fix`.
+
+## Executable blocks
+
+Every marked block in the preset's commands — `pr-create`,
+`first-task-refresh`, `task-base`, `stack-propagate`, `budget-stop`,
+`skill-mirror`, `ignore-entries` — is POSIX shell: `set -e`, no pipeline
+that needs `pipefail`, no arrays or other bash-isms. Conformance
+extracts and runs each one with `sh` (`dash` on Ubuntu CI); the agent
+replaces only the named literals inside it.
