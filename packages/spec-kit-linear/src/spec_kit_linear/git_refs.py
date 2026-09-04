@@ -50,3 +50,41 @@ def known_branches(root: Path) -> tuple[str, ...]:
             continue
         names.append(name)
     return tuple(dict.fromkeys(names))
+
+
+def main_worktree_root(root: Path) -> Path | None:
+    """Return the main checkout's root when ``root`` is a linked worktree.
+
+    ``git -C <root> rev-parse --git-common-dir`` names the one Git directory
+    every worktree of a repository shares; its parent is the main checkout on
+    every platform -- an absolute path when ``root`` is a worktree, the
+    relative ``.git`` when ``root`` already is the main checkout (probed
+    2026-09-03). Anything that prevents the read -- no repository, no `git`
+    -- or a candidate that resolves back to ``root`` itself (the main
+    checkout, or a bare-repository layout with no main checkout) yields
+    ``None``: the caller then falls back to ``root``'s own files, exactly as
+    it does today.
+    """
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--git-common-dir"],
+            check=False,
+            text=True,
+            capture_output=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    common_dir = result.stdout.strip()
+    if not common_dir:
+        return None
+    common_path = Path(common_dir)
+    if not common_path.is_absolute():
+        common_path = root / common_path
+    main_root = common_path.resolve().parent
+    if main_root == root.resolve():
+        return None
+    return main_root

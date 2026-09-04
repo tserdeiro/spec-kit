@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -285,6 +286,78 @@ class ConfigResolutionOrderTests(unittest.TestCase):
         legacy_path.write_text('schema_version: "1.0"\n', encoding="utf-8")
 
         self.assertEqual(resolve_config_path(self.root, None), self.root / ROOT_CONFIG_FILENAME)
+
+
+class ConfigWorktreeResolutionTests(unittest.TestCase):
+    """Real `git init` + `git worktree add` fixtures for plan D3 (FR-011, SC-007).
+
+    The two files a worktree may lack are per-checkout by design; a worktree
+    shares its repository's common Git dir, so `resolve_config_path` falls
+    back to the main checkout's copy only when the worktree has none of its
+    own.
+    """
+
+    def setUp(self) -> None:
+        self.temporary = TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        # Resolved once up front so every path built from it agrees with
+        # main_worktree_root's own resolved return value (macOS routes /tmp
+        # through a /private symlink `git` itself resolves).
+        self.base = Path(self.temporary.name).resolve()
+        self.main_root = self.base / "main"
+        self.main_root.mkdir()
+        self._git(self.main_root, "init", "-q")
+        self._git(self.main_root, "config", "user.email", "test@example.com")
+        self._git(self.main_root, "config", "user.name", "Test")
+        (self.main_root / "README.md").write_text("# sample\n", encoding="utf-8")
+        self._git(self.main_root, "add", "README.md")
+        self._git(self.main_root, "commit", "-q", "-m", "init")
+
+    def _git(self, root: Path, *args: str) -> None:
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
+
+    def _add_worktree(self, name: str = "wt") -> Path:
+        worktree_root = self.base / name
+        self._git(self.main_root, "worktree", "add", "-q", "-b", f"{name}-branch", str(worktree_root), "HEAD")
+        return worktree_root
+
+    def _write_config(self, root: Path, slug: str) -> Path:
+        path = root / ROOT_CONFIG_FILENAME
+        path.write_text(
+            'schema_version: "1.0"\n'
+            "linear:\n"
+            '  workspace_id: "11111111-1111-4111-8111-111111111111"\n'
+            '  team_id: "22222222-2222-4222-8222-222222222222"\n'
+            '  team_key: "WOR"\n'
+            "repository:\n"
+            f'  slug: "{slug}"\n',
+            encoding="utf-8",
+        )
+        return path
+
+    def test_worktree_without_its_own_config_resolves_the_main_checkouts(self) -> None:
+        main_config = self._write_config(self.main_root, "main-repo")
+        worktree_root = self._add_worktree()
+
+        self.assertEqual(resolve_config_path(worktree_root, None), main_config)
+
+    def test_worktree_local_config_wins_over_the_main_checkouts(self) -> None:
+        self._write_config(self.main_root, "main-repo")
+        worktree_root = self._add_worktree()
+        local_config = self._write_config(worktree_root, "worktree-repo")
+
+        self.assertEqual(resolve_config_path(worktree_root, None), local_config)
+
+    def test_main_checkout_is_unaffected_by_the_worktree_fallback(self) -> None:
+        main_config = self._write_config(self.main_root, "main-repo")
+
+        self.assertEqual(resolve_config_path(self.main_root, None), main_config)
+
+    def test_a_non_git_directory_is_unaffected(self) -> None:
+        plain = self.base / "plain"
+        plain.mkdir()
+
+        self.assertEqual(resolve_config_path(plain, None), plain / ROOT_CONFIG_FILENAME)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from .domain import RepositoryBinding
 from .endpoint import ENDPOINT_ENV
 from .errors import AppError, Diagnostic
+from .git_refs import main_worktree_root
 
 
 # The one shared configuration file, at the consumer repository root and
@@ -419,15 +420,27 @@ def resolve_config_path(root: Path, explicit_config: str | None) -> Path:
     """Resolve the shared config path.
 
     An explicit ``--config`` flag wins outright; ``SPECKIT_LINEAR_CONFIG``
-    supplies the same override from the environment; otherwise the committed
-    root config.
+    supplies the same override from the environment. Otherwise the committed
+    root config -- or, in a worktree that has none of its own, the main
+    checkout's, since the file is per-checkout by design and a worktree
+    shares the repository's common Git dir (plan D3). The fallback only
+    applies when ``root``'s own file is absent, so a repository with neither
+    file keeps the existing "unlinked repository" diagnostics pointed at the
+    path a person would create.
     """
 
     candidate = explicit_config or os.environ.get("SPECKIT_LINEAR_CONFIG")
     if candidate:
         path = Path(candidate).expanduser()
         return path if path.is_absolute() else root / path
-    return root / ROOT_CONFIG_FILENAME
+    local_path = root / ROOT_CONFIG_FILENAME
+    if not local_path.exists():
+        main_root = main_worktree_root(root)
+        if main_root is not None:
+            main_path = main_root / ROOT_CONFIG_FILENAME
+            if main_path.exists():
+                return main_path
+    return local_path
 
 
 def load_config(

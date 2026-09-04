@@ -36,6 +36,7 @@ from collections.abc import MutableMapping
 from pathlib import Path
 
 from .errors import Diagnostic
+from .git_refs import main_worktree_root
 
 
 ALLOWED_PREFIXES = ("LINEAR_", "SPECKIT_LINEAR_")
@@ -87,15 +88,37 @@ def _parse_env_file(path: Path) -> tuple[dict[str, str], list[Diagnostic]]:
     return values, diagnostics
 
 
+def repo_env_path(root: Path) -> Path:
+    """The per-repo env file this process actually consults.
+
+    ``<root>/.speckit-linear.env`` when it exists. Otherwise, in a worktree
+    that has none of its own, the main checkout's file when that exists --
+    the file is per-checkout by design and a worktree shares the
+    repository's common Git dir (plan D3). Otherwise ``root``'s own path,
+    unchanged, so a repository with neither file keeps naming the path a
+    person would create.
+    """
+
+    local_path = root / REPO_ENV_FILENAME
+    if local_path.exists():
+        return local_path
+    main_root = main_worktree_root(root)
+    if main_root is not None:
+        main_path = main_root / REPO_ENV_FILENAME
+        if main_path.exists():
+            return main_path
+    return local_path
+
+
 def load_dotenv_files(root: Path, environment: MutableMapping[str, str] | None = None) -> list[Diagnostic]:
     """Load env-file overrides into ``environment`` (defaults to ``os.environ``).
 
-    Reads, in precedence order, ``<root>/.speckit-linear.env`` (per-repo
-    override) then ``~/.config/speckit-linear/env`` (operator-global
-    default). Never overrides a key already present, in either file or in
-    the real environment. Returns diagnostics for malformed lines and
-    unreadable files; the returned list is empty on the common path
-    (neither file exists, or every line was well-formed).
+    Reads, in precedence order, the per-repo file :func:`repo_env_path`
+    resolves (worktree-aware) then ``~/.config/speckit-linear/env``
+    (operator-global default). Never overrides a key already present, in
+    either file or in the real environment. Returns diagnostics for
+    malformed lines and unreadable files; the returned list is empty on the
+    common path (neither file exists, or every line was well-formed).
     """
 
     target = os.environ if environment is None else environment
@@ -104,7 +127,7 @@ def load_dotenv_files(root: Path, environment: MutableMapping[str, str] | None =
     for var in CREDENTIAL_VARS:
         if (target.get(var) or "").strip():
             _credential_sources[var] = PROCESS_ENVIRONMENT
-    for path in (root / REPO_ENV_FILENAME, OPERATOR_GLOBAL_ENV_PATH):
+    for path in (repo_env_path(root), OPERATOR_GLOBAL_ENV_PATH):
         values, file_diagnostics = _parse_env_file(path)
         diagnostics.extend(file_diagnostics)
         for key, value in values.items():

@@ -39,7 +39,7 @@ from .endpoint import (
     is_default_endpoint,
     resolve_endpoint,
 )
-from .env_files import REPO_ENV_FILENAME, credential_source, load_dotenv_files, persist_process_credential
+from .env_files import REPO_ENV_FILENAME, credential_source, load_dotenv_files, persist_process_credential, repo_env_path
 from .errors import AppError, Diagnostic
 from .git_refs import known_branches
 from .github import cli_diagnostic as github_cli_diagnostic, scan_pull_requests
@@ -345,7 +345,7 @@ def _doctor_local_file_diagnostics(root: Path, *, fix: bool) -> list[Diagnostic]
             )
 
     recorded = credential_source()
-    env_path = root / REPO_ENV_FILENAME
+    env_path = repo_env_path(root)
     if recorded is not None:
         variable, source = recorded
         diagnostics.append(Diagnostic("linear_credentials_source", f"{variable} defined in {source}", severity="info"))
