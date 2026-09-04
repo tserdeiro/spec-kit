@@ -21,7 +21,8 @@ description: "Dependency-ordered, traceable delivery units for feature implement
   the team approves the spec and plan before implementation; the same PR,
   ready once every task is checked, later closes the feature.
 - **One branch per task**, named `NNN-T###-short-slug` (feature number, task
-  id); its pull request opens as `draft` **against the feature branch**.
+  id); its pull request opens as `draft` **against the open task PR it
+  stacks on, else the feature branch**.
 - **One task in flight per developer, never in parallel**: tasks deliver
   one at a time, in dependency order. Marking the current PR
   `ready for review` is what frees the developer to start the next task;

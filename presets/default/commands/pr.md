@@ -109,9 +109,10 @@ case "$delivery_kind" in
     base="$feature_branch"
     git fetch origin
     for head in $(awk '$3 == "false" { print $1 }' "$prs"); do
-      if git merge-base --is-ancestor "origin/$head" HEAD; then
+      git merge-base --is-ancestor "origin/$head" HEAD || continue
+      if [ "$base" = "$feature_branch" ] ||
+        git merge-base --is-ancestor "origin/$base" "origin/$head"; then
         base="$head"
-        break
       fi
     done
     ;;

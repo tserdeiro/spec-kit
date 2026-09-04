@@ -480,7 +480,8 @@ elif args and os.environ.get("FAIL_COMMAND") == args[0]:
     print(f"forced {args[0]} failure", file=sys.stderr)
     raise SystemExit(9)
 elif args[:2] == ["merge-base", "--is-ancestor"]:
-    raise SystemExit(0 if args[2] in os.environ.get("GIT_ANCESTORS", "").split() else 1)
+    pair = f"{args[2]} {args[3]}"
+    raise SystemExit(0 if pair in os.environ.get("GIT_ANCESTORS", "").splitlines() else 1)
 elif not observed:
     raise SystemExit(subprocess.run([os.environ["REAL_GIT"], *args], check=False).returncode)
 PY
@@ -655,9 +656,10 @@ render_task_base() {
 }
 
 run_task_base() {
-  local branch="$1" pr_list="$2" feature="${3:-}"
+  local branch="$1" pr_list="$2" feature="${3:-}" fail_command="${4:-}"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
-    GH_PR_LIST="$pr_list" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
+    GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE="$feature" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
     sh -c "$(render_task_base "$branch")")
 }
@@ -703,17 +705,31 @@ run_task_base 003-T002-slug '003-T001-x 003-feature true' \
   >/dev/null 2>&1 && fail "stack: task-base accepted a draft task PR"
 [ ! -s "$git_calls" ] || fail "stack: draft task-base unexpectedly touched git"
 
-# speckit.pr's task case walks the same open heads and takes the first one
-# that is an ancestor of HEAD, skipping one that is not.
+# A forced fetch failure stops before the branch switch.
+reset_command_logs
+run_task_base 003-T002-slug "" "" fetch >/dev/null 2>&1 &&
+  fail "stack: task-base ignored a forced fetch failure"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
+  fail "stack: task-base did not stop after a forced fetch failure"
+
+# speckit.pr's task case walks every open head and keeps the deepest
+# ancestor of HEAD, regardless of the order gh returns them in.
 reset_command_logs
 GH_PR_LIST=$'003-T001-x 003-feature false\n003-T002-y 003-T001-x false'
-GIT_ANCESTORS='origin/003-T002-y'
+GIT_ANCESTORS=$'origin/003-T001-x HEAD\norigin/003-T002-y HEAD\norigin/003-T001-x origin/003-T002-y'
 run_pr_create task main "" >/dev/null || fail "stack: task PR with ancestor failed"
 [ "$(cat "$gh_calls")" = "$(pr_list_call 003)
 $(create_call '003-T002-y')" ] ||
   fail "stack: task PR with ancestor used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
   fail "stack: task PR with ancestor used incorrect git argv"
+
+reset_command_logs
+GH_PR_LIST=$'003-T002-y 003-T001-x false\n003-T001-x 003-feature false'
+run_pr_create task main "" >/dev/null || fail "stack: reverse-order task PR with ancestor failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
+$(create_call '003-T002-y')" ] ||
+  fail "stack: reverse-order task PR with ancestor used incorrect gh argv"
 
 echo "ok: stack"
 echo "conformance passed"
