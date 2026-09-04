@@ -482,6 +482,19 @@ their own branches are not this loop's concern.
    `/speckit.linear.status` shows every task's derived state and its
    suggested next action (an open PR outranks the checkbox in the
    projection, so a task in review never reads as done).
+
+   **The loop never merges.** A run ends with every task PR `ready for
+   review` and its fresh review closed; merging is the human's
+   decision, made **root-first** — the first PR of the stack into the
+   feature branch, then the next — because retargeting the PR above is
+   GitHub's `edited` event, which triggers no workflow, while merging
+   leaf-first pushes the merged commits into every open PR still
+   stacked below (`synchronize`) and re-runs every check at every step.
+   Only when the human explicitly asks the agent to merge, in the
+   conversation, does it act: `git worktree prune` first — a stale
+   worktree blocks branch deletion — then `gh pr merge <n> --merge
+   --delete-branch` for each PR, root-first; then, when `linear` is in
+   the set, reconcile with `/speckit.linear.push --apply`.
 4. **Closing the feature** — when every box on the feature branch is
    checked — every task PR merged — mark the **feature PR** (the draft
    gate, whether the product phase or step 0 opened it)
@@ -489,7 +502,15 @@ their own branches are not this loop's concern.
    feature, composed of task PRs a human already reviewed one by one.
    Approving and merging are never yours — a human merges it into the
    delivery base with a **merge commit** (no squash: the task history
-   must survive). After that merge, delete your local feature branch
-   (GitHub deletes the remote when the repository auto-deletes merged
-   branches) and, when `linear` is in the set, reconcile with
+   must survive). After that merge, run `git worktree prune` — a stale
+   worktree blocks branch deletion — then delete your local feature
+   branch (GitHub deletes the remote when the repository auto-deletes
+   merged branches); when `linear` is in the set, reconcile with
    `/speckit.linear.push --apply`.
+
+**Reverting a delivered task.** Undoing a delivered change is a ledger
+task the human adds, delivered through this loop like any other: its
+own branch, PR, fresh review, and `ready for review`. Its commit is
+never the tool's default subject, which fails the conventions check:
+run `git revert --no-commit <sha>` (`-m 1` for a merge), then commit it
+yourself with `git commit -m "revert(scope): <subject>"`.

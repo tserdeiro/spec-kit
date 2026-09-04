@@ -156,10 +156,10 @@ Reglas de oro:
 
 - **Una tarea en vuelo por dev, nunca en paralelo**: se entregan de a
   una, en orden de dependencias (las listas no llevan marcadores `[P]`).
-  `ready for review` te libera para la siguiente; si esa depende de una
-  tarea sin mergear, su branch se apila sobre el de la anterior (línea
-  `Stack:`) — no esperes el merge: al llegar, GitHub reapunta el PR
-  apilado al branch de feature solo.
+  `ready for review` te libera para la siguiente: la siguiente tarea se
+  apila sobre el PR ready sin mergear de la anterior (línea `Stack:`) o
+  sale del branch de feature si no hay ninguno abierto — un solo stack
+  por feature.
 - **El checkbox viaja dentro del PR de la tarea**: tras la auto-revisión,
   el último commit del PR marca `[x]` y llena la **Completion evidence**
   (PR, verificación). Llega al branch de feature únicamente vía el merge
@@ -191,6 +191,16 @@ Reglas de oro:
   `/speckit.pr` lo llena solo desde los artefactos.
 - La revisión **nunca aprueba ni mergea** — siempre humano. Exit 1
   significa "hay hallazgos que corregir", no que algo falló.
+- **El loop nunca mergea**: deja cada PR ready con su review fresca
+  cerrada; el humano revisa y mergea **raíz-primero** (GitHub reapunta
+  el PR de arriba con un evento `edited`, sin correr workflows; de la
+  hoja hacia abajo relanza toda la CI en cada paso) — o se lo pide al
+  agente en la conversación, que corre `git worktree prune` y
+  `gh pr merge --merge --delete-branch` raíz-primero. Un ruleset de
+  GitHub que exija aprobación en ramas `NNN-*` se activa solo cuando
+  haya un segundo revisor o una identidad bot para el agente — en un
+  repo de una sola persona bloquearía al maintainer, porque GitHub no
+  cuenta la aprobación del autor del PR.
 - **El stack se deriva, no se inventa**: mandan la tarea y la sección
   `## Documentation` del plan; si no, el agente lee los manifests reales
   y el código vecino y reutiliza lo instalado. Una dependencia nueva o
@@ -199,6 +209,9 @@ Reglas de oro:
   Declara el principio en tu constitución (`/speckit.constitution`);
   tip opcional: el MCP de [Context7](https://context7.com) sirve docs
   actualizadas por versión.
+- **Un revert es una tarea**: se entrega por el loop igual que
+  cualquier otra, y su commit lleva `revert(scope): …`, nunca el
+  subject por defecto de `git revert`.
 
 **Linear en tiempo real** (opcional, recomendado): un admin conecta GitHub
 en Linear (Settings → Integrations → GitHub), **una vez por workspace**;
