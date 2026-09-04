@@ -126,13 +126,13 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
 **Goal**: a task PR touching a protected path is blocked by the command itself.
 **Independent evidence**: phase-two tests on a numeric-prefixed base versus a trunk base.
 
-- [ ] T008 [US3] `protected_paths` deterministic finding in packages/spec-kit-code-review
+- [x] T008 [US3] `protected_paths` deterministic finding in packages/spec-kit-code-review
   - **Traces**: FR-010, SC-003; outcome: `protected_paths` in `DEFAULT_CONFIG` (defaults `specs/*/spec.md`, `.specify/memory/constitution.md`), validated as a non-empty list of strings and mirrored in the config template; phase two injects one `blocking` / `contract` finding per touched protected path, anchored to the path's first changed hunk (base side for deletions), when the candidate's base branch has a final segment matching `^[0-9]+-`; trunk-based candidates and working-tree reviews unaffected; documented in `commands/code-review.md` and the README (plan D1)
   - **Depends on**: T007
   - **Boundaries**: `src/spec_kit_code_review/{config,cli}.py` (a small helper module is acceptable), `config/speckit-code-review.template.yml`, `commands/code-review.md`, `README.md`, `CHANGELOG.md` (unreleased entry), `tests/unit/` (phase-two and config cases); verdict values, publishing, and budget untouched; no version bump (T013)
   - **Evidence**: `uv run pytest packages/spec-kit-code-review/tests` -> green including: modified, added, and deleted protected path on a `004-…` base → blocking finding + `changes-requested`; the same diff on a `main` base → no generated finding; invalid `protected_paths` → configuration error
   - **Delivery**: single PR (~140 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #72 (ready 2026-09-04, stacked on #71 — base `004-T007-review-principles`); `uv run pytest packages/spec-kit-code-review/tests -q` → 799 passed, 510 subtests (5:13) on the candidate, plus the three touched suites green after the last simplification; budget-stop `271/280 (forecast ~140)` before the PR and 267/280 before ready — 1.9×, under the stop line, tests are 160 of those lines; `git diff --check` clean; orchestrator review: the deletion anchor parsed `git diff --unified=0` for a line that is always 1 — helper removed; fresh Sonnet review (session `40bb4130`, packet 157 KB reviewed file by file) found 1 major — a third, untested anchor branch (RIGHT 1..1 for in-file removals) — collapsed to two branches (RIGHT hunk, else LEFT 1..1) and tested; verdict no-blocking-findings
 
 ## Phase 4: User Story 4 — Worktrees, reverts, and published assets stay verifiable (P4)
 
