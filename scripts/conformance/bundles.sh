@@ -152,7 +152,7 @@ if [ "$mode" = "published" ]; then
 
   verify_published_digests() {
     local id="$1" tag pkg_path expected_zip expected_subtree expected_manifest
-    local download_url zip_path http_code actual_zip commit_epoch actual_subtree actual_manifest
+    local download_url zip_path http_code zip_note="" actual_zip commit_epoch actual_subtree actual_manifest
     tag=$(lock_field "$id" tag)
     pkg_path=$(lock_field "$id" path)
     expected_zip=$(lock_field "$id" release_zip_sha256)
@@ -181,6 +181,7 @@ if [ "$mode" = "published" ]; then
         ;;
       404)
         echo "pending: $id release zip not published yet ($download_url); its digest is verified by the next --published run"
+        zip_note=" (release zip pending)"
         ;;
       *)
         fail "$id: release zip $download_url returned HTTP $http_code"
@@ -189,15 +190,17 @@ if [ "$mode" = "published" ]; then
 
     commit_epoch=$(git -C "$repository_root" log -1 --format=%ct "${tag}^{commit}")
     actual_subtree=$(git -C "$repository_root" archive --mtime="@${commit_epoch}" --format=tar \
-      "${tag}:${pkg_path}" | shasum -a 256 | awk '{print $1}')
+      "${tag}:${pkg_path}" | shasum -a 256 | awk '{print $1}') ||
+      fail "$id: could not archive $tag:$pkg_path"
     [ "$actual_subtree" = "$expected_subtree" ] ||
       fail "$id: subtree archive of $tag:$pkg_path sha256 mismatch (expected $expected_subtree, got $actual_subtree)"
 
-    actual_manifest=$(git -C "$repository_root" show "${tag}:${pkg_path}/extension.yml" | shasum -a 256 | awk '{print $1}')
+    actual_manifest=$(git -C "$repository_root" show "${tag}:${pkg_path}/extension.yml" | shasum -a 256 | awk '{print $1}') ||
+      fail "$id: could not read $tag:$pkg_path/extension.yml"
     [ "$actual_manifest" = "$expected_manifest" ] ||
       fail "$id: manifest $tag:$pkg_path/extension.yml sha256 mismatch (expected $expected_manifest, got $actual_manifest)"
 
-    echo "ok: $id published digests"
+    echo "ok: $id published digests$zip_note"
   }
 
   verify_published_digests linear
