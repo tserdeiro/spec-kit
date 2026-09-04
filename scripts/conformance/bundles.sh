@@ -455,10 +455,15 @@ cat > "$task_tasks_file" <<'MD'
 
 - [x] T001 Sample outcome one
   - **Depends on**: none
+  - **Delivery**: single PR (~20 authored lines)
 - [ ] T002 Sample outcome two
   - **Depends on**: T001
+  - **Delivery**: single PR (~50 authored lines)
 - [ ] T003 Sample outcome three
   - **Depends on**: T002
+- [ ] T004 Sample outcome four
+  - **Depends on**: T003
+  - **Delivery**: single PR (~300 authored lines)
 MD
 
 [ -e "$consumer_root/.specify/presets/default/scripts" ] &&
@@ -498,7 +503,7 @@ import json, os, subprocess, sys
 
 args = sys.argv[1:]
 observed = args == ["branch", "--show-current"] or (
-    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch"}
+    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch", "diff"}
 )
 if observed:
     with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
@@ -513,6 +518,8 @@ elif args and args[0] == "check-ref-format":
 elif args and os.environ.get("FAIL_COMMAND") == args[0]:
     print(f"forced {args[0]} failure", file=sys.stderr)
     raise SystemExit(9)
+elif args[:2] == ["diff", "--numstat"]:
+    sys.stdout.write(os.environ.get("GIT_NUMSTAT", ""))
 elif args[:2] == ["merge-base", "--is-ancestor"]:
     pair = f"{args[2]} {args[3]}"
     raise SystemExit(0 if pair in os.environ.get("GIT_ANCESTORS", "").splitlines() else 1)
@@ -866,4 +873,72 @@ run_stack_propagate 003-T001-a "" >/dev/null || fail "propagate: empty chain fai
 [ ! -s "$git_calls" ] || fail "propagate: empty chain unexpectedly touched git"
 
 echo "ok: propagate"
+
+# --------------------------------------------------------------------------
+# 7. Budget stop at twice the forecast (plan D9): the extracted
+#    budget-stop block measures added lines the review budget counts
+#    against the task's forecast and stops at the smaller of 2x and 400.
+# --------------------------------------------------------------------------
+
+budget_stop=$(sed -n '/budget-stop:start/,/budget-stop:end/p' "$implement_skill")
+[ -n "$budget_stop" ] || fail "budget: installed budget-stop block is missing"
+
+render_budget_stop() {
+  printf '%s\n' "$budget_stop" |
+    sed -e "s@<T###>@$1@" -e "s@<the base the task-base block printed>@$2@"
+}
+
+run_budget_stop() {
+  local task="$1" base="$2" numstat="$3"
+  (cd "$consumer_root" && GIT_CALLS="$git_calls" GIT_NUMSTAT="$numstat" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
+    sh -c "$(render_budget_stop "$task" "$base")")
+}
+
+# T001's forecast must skip the template's fenced sample block, whose own
+# unchecked "T001" header and forecast-less Delivery line precede the real,
+# checked T001 in file order.
+reset_command_logs
+budget_status=0
+run_budget_stop T001 003-feature $'41\t0\tsrc/a.py\n' >/dev/null 2>&1 || budget_status=$?
+[ "$budget_status" -eq 2 ] || fail "budget: fenced-sample T001 exited $budget_status, expected 2"
+budget_out=$(run_budget_stop T001 003-feature $'40\t0\tsrc/a.py\n')
+[ "$budget_out" = "budget: 40/40 (forecast ~20)" ] ||
+  fail "budget: fenced-sample T001 output was '$budget_out'"
+
+# Under budget: binary and excluded files (docs, uv.lock) contribute nothing.
+reset_command_logs
+budget_out=$(run_budget_stop T002 003-feature \
+  $'30\t0\tsrc/a.py\n500\t0\tdocs/guide.md\n9\t0\tuv.lock\n-\t-\tassets/logo.png\n')
+[ "$budget_out" = "budget: 30/100 (forecast ~50)" ] ||
+  fail "budget: under-budget output was '$budget_out'"
+[ "$(cat "$git_calls")" = "$(json_argv diff --numstat '003-feature...HEAD')" ] ||
+  fail "budget: under-budget used incorrect git argv"
+
+# Over budget: stops naming the task, the added count, and the stop line.
+reset_command_logs
+budget_err="$consumer_root/.conformance/budget.err"
+budget_status=0
+run_budget_stop T002 003-feature $'101\t0\tsrc/a.py\n' >/dev/null 2>"$budget_err" || budget_status=$?
+[ "$budget_status" -eq 2 ] || fail "budget: over-budget exited $budget_status, expected 2"
+grep -Fq T002 "$budget_err" && grep -Fq 101 "$budget_err" && grep -Fq 100 "$budget_err" ||
+  fail "budget: over-budget diagnosis did not name the task, count, and stop"
+
+# No forecast on the ledger (T003): the 400-line default is the stop line.
+reset_command_logs
+budget_out=$(run_budget_stop T003 003-feature $'350\t0\tsrc/a.py\n')
+[ "$budget_out" = "budget: 350/400 (forecast ~400)" ] ||
+  fail "budget: no-forecast output was '$budget_out'"
+budget_status=0
+run_budget_stop T003 003-feature $'401\t0\tsrc/a.py\n' >/dev/null 2>"$budget_err" || budget_status=$?
+[ "$budget_status" -eq 2 ] || fail "budget: no-forecast over exited $budget_status, expected 2"
+
+# A forecast whose double exceeds 400 (T004, ~300) still stops at 400.
+reset_command_logs
+budget_status=0
+run_budget_stop T004 003-feature $'401\t0\tsrc/a.py\n' >/dev/null 2>"$budget_err" || budget_status=$?
+[ "$budget_status" -eq 2 ] || fail "budget: capped stop exited $budget_status, expected 2"
+grep -Fq 400 "$budget_err" || fail "budget: capped stop diagnosis did not name the 400 cap"
+
+echo "ok: budget"
 echo "conformance passed"

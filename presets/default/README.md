@@ -47,6 +47,15 @@ Delivery keeps one linear stack per feature: `speckit.implement` and
 `speckit.pr` derive each task's base from the feature's open, ready task
 PRs, never a second stack.
 
+## Budget stop
+
+A task stops before its PR opens — and again before `ready for review`
+if the branch grew — when its authored executable lines (the added
+lines of the files the review budget counts) pass the smaller of twice
+its `Delivery` forecast and 400. A breached forecast or budget is
+amended only by a human in the ledger, never inside the PR that
+exceeded it.
+
 ## Closing the run
 
 The loop never merges: a run ends with every task PR `ready for review`

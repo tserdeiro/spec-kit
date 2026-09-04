@@ -149,10 +149,90 @@ their own branches are not this loop's concern.
    The branch is what projects the task to *In Progress* in Linear —
    once it exists and `linear` is in the set, reconcile with
    `/speckit.linear.push --hook`.
-2. **Finishing a task** — run `/speckit.pr`: it guarantees the branch
-   invariant and opens the draft PR with the canonical body. Self-review
-   it next: the fresh reviewer's brief is fixed text, the packet path (or
-   the diff and PR body, below) prepended:
+2. **Finishing a task** — before opening the PR, run the **budget
+   stop**: replacing only the `task_id` and `base` literals (`base` is
+   what `task-base` printed), it reads the forecast from the task's
+   `Delivery` line (`~N authored lines`; absent defaults to 400), sums
+   the added lines of `git diff --numstat <base>...HEAD` over the files
+   the review budget counts, and stops at the smaller of twice the
+   forecast and 400.
+
+   ```bash
+   # budget-stop:start
+   set -e
+   task_id="<T###>"
+   base="<the base the task-base block printed>"
+   paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
+   tasks_file=$(printf '%s\n' "$paths" | sed -n 's/^FEATURE_DIR: //p')/tasks.md
+   forecast=$(awk -v id="$task_id" '
+     in_fence {
+       i=0; while (substr($0,i+1,1)==" ") i++
+       c=substr($0,i+1); sub(/[ \t]+$/, "", c)
+       ok=(i<=3 && length(c)>=mlen)
+       if (ok) for (j=1;j<=length(c);j++) if (substr(c,j,1)!=marker) { ok=0; break }
+       if (ok) in_fence=0
+       next
+     }
+     {
+       i=0; while (substr($0,i+1,1)==" ") i++
+       r=substr($0,i+1); ch=substr(r,1,1)
+       if (i<=3 && (ch=="`" || ch=="~")) {
+         n=0; while (substr(r,n+1,1)==ch) n++
+         if (n>=3 && (ch!="`" || !index(substr(r,n+1),"`"))) { in_fence=1; marker=ch; mlen=n; next }
+       }
+       if (header) {
+         if ($0 ~ /^- \[[ xX]\] T[0-9][0-9][0-9]/) exit
+         if (/\*\*Delivery\*\*:/) {
+           if (match($0, /~[0-9]+/)) print substr($0, RSTART + 1, RLENGTH - 1)
+           exit
+         }
+       }
+       if ($0 ~ "^- \\[[ xX]\\] " id " ") header = 1
+     }
+   ' "$tasks_file")
+   [ -n "$forecast" ] || forecast=400
+   numstat=$(mktemp)
+   git diff --numstat "$base...HEAD" > "$numstat"
+   listing=$(mktemp)
+   added=$(awk -v listing="$listing" '
+     {
+       lines = $1; path = $3
+       if (lines == "-" || $2 == "-") next
+       n = split(path, parts, "/"); name = parts[n]
+       if (name == "uv.lock" || name == "package-lock.json" || name == "poetry.lock" || name == "Cargo.lock") next
+       m = split(name, nparts, "."); suffix = ""
+       if (m > 1) suffix = tolower("." nparts[m])
+       if (suffix == ".md" || suffix == ".rst" || suffix == ".txt" || suffix == ".lock" ||
+           suffix == ".svg" || suffix == ".png" || suffix == ".jpg" || suffix == ".jpeg" ||
+           suffix == ".gif" || suffix == ".ico" || suffix == ".pdf") next
+       sum += lines
+       print lines, path > listing
+     }
+     END { print sum + 0 }
+   ' "$numstat")
+   stop=$((2 * forecast))
+   [ "$stop" -le 400 ] || stop=400
+   if [ "$added" -gt "$stop" ]; then
+     printf 'error: %s added %d lines against a stop of %d (forecast ~%d)\n' \
+       "$task_id" "$added" "$stop" "$forecast" >&2
+     sort -rn "$listing" | head -n 10 >&2
+     exit 2
+   fi
+   printf 'budget: %d/%d (forecast ~%d)\n' "$added" "$stop" "$forecast"
+   # budget-stop:end
+   ```
+
+   The loop runs this again before marking the PR `ready for review`, in
+   case the branch grew during the review. On a stop, the task returns
+   to the human with the diagnosis above — what does not fit and a
+   proposed split — and no PR opens as-is. **A forecast or budget is
+   never amended in the PR that exceeds it**: a human changes it in the
+   ledger, on the feature branch, outside that PR.
+
+   Run `/speckit.pr`: it guarantees the branch invariant and opens the
+   draft PR with the canonical body. Self-review it next: the fresh
+   reviewer's brief is fixed text, the packet path (or the diff and PR
+   body, below) prepended:
 
    > Verify the implementer's claims in the packet's evidence instead of
    > repeating its experiments. Before asking for an edge case, ask
