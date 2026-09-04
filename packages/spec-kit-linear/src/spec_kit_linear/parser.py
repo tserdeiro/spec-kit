@@ -277,7 +277,11 @@ def parse_feature(root: Path, feature_dir: Path) -> Feature:
     title, spec_source = _document_title(feature_dir / "spec.md", root)
     summary = _spec_summary(feature_dir / "spec.md")
     plan_title, plan_source = _document_title(feature_dir / "plan.md", root)
-    phases = _parse_tasks(feature_dir / "tasks.md", root)
+    # tasks.md is optional (plan D15): a feature with only a spec and a plan
+    # still projects its Project, with no Issues until the ledger exists.
+    tasks_path = feature_dir / "tasks.md"
+    has_ledger = tasks_path.exists()
+    phases = _parse_tasks(tasks_path, root) if has_ledger else ()
     return Feature(
         identifier=identifier,
         title=title,
@@ -286,4 +290,5 @@ def parse_feature(root: Path, feature_dir: Path) -> Feature:
         plan_source=plan_source,
         phases=phases,
         summary=summary,
+        has_ledger=has_ledger,
     )

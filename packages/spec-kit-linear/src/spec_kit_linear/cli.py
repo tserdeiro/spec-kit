@@ -1004,9 +1004,19 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
     diagnostics = [Diagnostic("config", "configuration loaded by spec-kit-linear", str(shared_path), severity="info")]
     projected = []
     for feature_dir in feature_dirs:
-        state, projection_warnings = project_feature(parse_feature(root, feature_dir), binding)
+        feature = parse_feature(root, feature_dir)
+        state, projection_warnings = project_feature(feature, binding)
         projected.append(state)
         diagnostics.extend(projection_warnings)
+        if not feature.has_ledger:
+            diagnostics.append(
+                Diagnostic(
+                    "tasks_pending",
+                    "tasks.md is absent; the Project is projected without Issues until the ledger exists",
+                    str(feature_dir / "tasks.md"),
+                    severity="info",
+                )
+            )
     desired_states = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
     work_states, work_items = _observe(root, config, desired_states, diagnostics)
@@ -1144,9 +1154,19 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
     ]
     projected = []
     for feature_dir in feature_dirs:
-        state, projection_warnings = project_feature(parse_feature(root, feature_dir), repository_binding(config))
+        feature = parse_feature(root, feature_dir)
+        state, projection_warnings = project_feature(feature, repository_binding(config))
         projected.append(state)
         diagnostics.extend(projection_warnings)
+        if not feature.has_ledger:
+            diagnostics.append(
+                Diagnostic(
+                    "tasks_pending",
+                    "tasks.md is absent; the Project is projected without Issues until the ledger exists",
+                    str(feature_dir / "tasks.md"),
+                    severity="info",
+                )
+            )
     desired = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
     work_states, work_items = _observe(root, config, desired, diagnostics)

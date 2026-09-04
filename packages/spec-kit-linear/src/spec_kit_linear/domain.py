@@ -40,6 +40,10 @@ class Feature:
     plan_source: SourceRef
     phases: tuple[Phase, ...]
     summary: str = ""
+    # False when tasks.md is absent: phases is then () with no distinction
+    # from an empty-but-present ledger, which parse_feature must still
+    # reject. See parser.parse_feature and plan D15.
+    has_ledger: bool = True
 
 
 @dataclass(frozen=True)

@@ -220,6 +220,16 @@ class PushTests(CliTestCase):
         self.assertEqual([item["kind"] for item in payload["operations"]], ["project.create", "issue.create", "issue.create", "issue.create"])
         self.assertEqual(self._files(), before)
 
+    def test_dry_run_on_a_feature_without_tasks_md_plans_only_the_project(self) -> None:
+        (self.fixture_root / "specs/001-local-projection/tasks.md").unlink()
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
+            result, payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual([item["kind"] for item in payload["operations"]], ["project.create"])
+        self.assertIn("tasks_pending", [item["code"] for item in payload["diagnostics"]])
+
     def test_preview_is_the_default_without_a_mode_flag(self) -> None:
         with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
             result, payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--json"])
@@ -436,6 +446,17 @@ class StatusTests(CliTestCase):
         self.assertFalse(task_rows[0]["has_remote_project"])
         self.assertEqual([row["task"] for row in task_rows[0]["tasks"]], ["T001", "T002", "T003"])
         self.assertEqual([row["local_complete"] for row in task_rows[0]["tasks"]], [False, True, False])
+
+    def test_json_reports_zero_task_rows_and_the_pending_diagnostic_without_tasks_md(self) -> None:
+        (self.fixture_root / "specs/001-local-projection/tasks.md").unlink()
+
+        with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
+            result, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+
+        self.assertEqual(result, 0)
+        task_rows = payload["status"]["task_rows"]
+        self.assertEqual(task_rows[0]["tasks"], [])
+        self.assertIn("tasks_pending", [item["code"] for item in payload["diagnostics"]])
 
     def _project_with_unmanaged_issue(self) -> RemoteProject:
         base_project = _matching_remote_project(self._desired())
