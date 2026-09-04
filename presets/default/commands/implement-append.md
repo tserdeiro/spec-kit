@@ -95,12 +95,48 @@ their own branches are not this loop's concern.
      The delivery base resolves the same way `speckit.pr`'s feature PR
      does (see there for the exact rule). Do not run this refresh on
      later tasks; later delivery-base refreshes are the developer's duty.
-   - Create the task branch **from the up-to-date feature branch**:
-     `git switch -c NNN-T###-short-slug`. One exception stacks: when the
-     task's **Depends on** names a task whose PR is not merged yet,
-     branch from that task's branch instead and name it in the PR body's
-     `Stack:` line — never wait idle for that merge; when it lands,
-     GitHub retargets the stacked PR to the feature branch by itself.
+   - Create the task branch **from the top of the open task stack**: run
+     the block below, replacing only the `task_branch` literal (`pr.md`'s
+     `pr-create` block replaces its own literal the same way). It
+     resolves the feature branch, reads this feature's open, non-draft
+     task PRs, and switches `task_branch` onto the one none of them uses
+     as a base — or onto the feature branch when none is open, including
+     when the human merged the stack root-first between tasks. A draft
+     task PR means one is still in flight and stops the loop; two heads
+     with nothing stacked on either is two stacks and also stops the
+     loop. **Depends on** documents delivery order; it never chooses the
+     base. Name the base the block prints in the PR body's `Stack:` line.
+
+     ```bash
+     # task-base:start
+     set -e
+     task_branch="<NNN-T###-short-slug>"
+     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
+     feature_branch=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
+     feature_number=${feature_branch##*/}
+     feature_number=${feature_number%%-*}
+     prs=$(mktemp)
+     gh pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
+       --jq ".[] | select(.headRefName | startswith(\"$feature_number-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\"" \
+       > "$prs"
+     draft=$(awk '$3 == "true" { print $1 }' "$prs")
+     [ -z "$draft" ] ||
+       { printf 'error: draft task PR still open: %s\n' "$draft" >&2; exit 2; }
+     tops=$(awk '{ head[$1]=1; used[$2]=1 } END { for (h in head) if (!(h in used)) print h }' "$prs")
+     top_count=$(printf '%s\n' "$tops" | grep -c .) || true
+     if [ "$top_count" -gt 1 ]; then
+       printf 'error: two open task stacks: %s\n' "$tops" >&2
+       exit 2
+     elif [ "$top_count" -eq 1 ]; then
+       base="$tops"
+     else
+       base="$feature_branch"
+     fi
+     git fetch origin
+     git switch -c "$task_branch" "origin/$base"
+     printf 'base=%s\n' "$base"
+     # task-base:end
+     ```
    - **The stack is derived, never invented**: when the task or the
      plan's `## Documentation` section defines stack or documentation
      links, they rule. Otherwise read the real manifests

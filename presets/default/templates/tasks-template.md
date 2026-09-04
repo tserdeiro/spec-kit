@@ -25,8 +25,9 @@ description: "Dependency-ordered, traceable delivery units for feature implement
 - **One task in flight per developer, never in parallel**: tasks deliver
   one at a time, in dependency order. Marking the current PR
   `ready for review` is what frees the developer to start the next task;
-  a task whose **Depends on** names a task not yet merged stacks its
-  branch on that task's branch (declared in the PR's `Stack:` line).
+  each task stacks its branch on the previous task's ready, unmerged PR
+  (declared in the PR's `Stack:` line), or on the feature branch when
+  none is open.
 - **Starting a task means creating its branch first**: before touching any
   code for `T###`, run `git switch -c NNN-T###-short-slug` from the
   up-to-date feature branch. If you are the implementing agent, do this as

@@ -35,10 +35,10 @@ GitHub.
 
 The branch is what projects the task to *In Progress*; it must exist and
 follow the convention before the PR opens. The PR's **base** follows from
-what is delivered: a feature task targets its **feature branch**
-(`NNN-slug`, resolved from the active feature); a work item queries the
-**GitHub default**; the feature PR resolves its **delivery base** at
-creation time (step 5).
+what is delivered: a feature task targets the open task PR it stacks on,
+else its **feature branch** (`NNN-slug`, resolved from the active
+feature); a work item queries the **GitHub default**; the feature PR
+resolves its **delivery base** at creation time (step 5).
 
 - Correctly named branch checked out → continue.
 - On the base branch or a misnamed branch with the work committed →
@@ -106,7 +106,21 @@ case "$delivery_kind" in
     ;;
   task)
     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
-    base=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
+    feature_branch=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
+    feature_number=${feature_branch##*/}
+    feature_number=${feature_number%%-*}
+    prs=$(mktemp)
+    gh pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
+      --jq ".[] | select(.headRefName | startswith(\"$feature_number-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\"" \
+      > "$prs"
+    base="$feature_branch"
+    git fetch origin
+    for head in $(awk '$3 == "false" { print $1 }' "$prs"); do
+      if git merge-base --is-ancestor "origin/$head" HEAD; then
+        base="$head"
+        break
+      fi
+    done
     ;;
   work-item) base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name) ;;
   *) printf 'error: unknown delivery kind: %s\n' "$delivery_kind" >&2; exit 2 ;;
@@ -117,7 +131,7 @@ gh pr create --draft --base "$base" --title "<type(scope): subject>" --body "<th
 
 Replace only the delivery-kind literal. Repository-derived branch names
 stay runtime data and reach `gh` only through the quoted `base` argument.
-No Python, no JSON parsing.
+No Python, no JSON parsing beyond `gh --jq`.
 
 The feature PR's **delivery base**: an explicit non-empty `trunk:` key in
 the consumer's `.specify/extensions/git/git-config.yml` wins (quotes

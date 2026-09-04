@@ -227,6 +227,11 @@ every task by its dependencies alone (`Depends on`), so the list reads
 as the sequence one developer follows. Who takes which task is decided
 by assignment in Linear, never by markers in this file.
 
+Tasks form one chain in file order: **Depends on** documents that order
+and never chooses the base — delivery always stacks the next task on the
+open, ready task PR, or starts from the feature branch when none is
+open, so the ledger accumulates every checked box on one stack.
+
 ## Phase close (tserdeiro/spec-kit)
 
 This distribution closes every product phase silent and committed —

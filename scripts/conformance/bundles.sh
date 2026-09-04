@@ -450,6 +450,8 @@ if args == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchR
     sys.stdout.write(os.environ.get("GH_DEFAULT", "main\n"))
 elif args[:2] == ["pr", "create"]:
     print("https://example.invalid/pr/1")
+elif args[:2] == ["pr", "list"]:
+    sys.stdout.write(os.environ.get("GH_PR_LIST", ""))
 else:
     print("unexpected gh argv", file=sys.stderr)
     raise SystemExit(8)
@@ -462,7 +464,7 @@ import json, os, subprocess, sys
 
 args = sys.argv[1:]
 observed = args == ["branch", "--show-current"] or (
-    args and args[0] in {"check-ref-format", "fetch", "merge", "push"}
+    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch"}
 )
 if observed:
     with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
@@ -477,6 +479,8 @@ elif args and args[0] == "check-ref-format":
 elif args and os.environ.get("FAIL_COMMAND") == args[0]:
     print(f"forced {args[0]} failure", file=sys.stderr)
     raise SystemExit(9)
+elif args[:2] == ["merge-base", "--is-ancestor"]:
+    raise SystemExit(0 if args[2] in os.environ.get("GIT_ANCESTORS", "").split() else 1)
 elif not observed:
     raise SystemExit(subprocess.run([os.environ["REAL_GIT"], *args], check=False).returncode)
 PY
@@ -520,6 +524,7 @@ run_pr_create() {
   local kind="$1" github_default="$2" fail_command="$3"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    GH_PR_LIST="${GH_PR_LIST:-}" GIT_ANCESTORS="${GIT_ANCESTORS:-}" \
     PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE='team/web/003-feature$(safe)' \
     SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
@@ -528,6 +533,10 @@ run_pr_create() {
 
 create_call() {
   json_argv pr create --draft --base "$1" --title '<type(scope): subject>' --body '<the body>'
+}
+pr_list_call() {
+  json_argv pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
+    --jq ".[] | select(.headRefName | startswith(\"$1-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\""
 }
 repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
 
@@ -570,9 +579,11 @@ run_pr_create feature main gh >/dev/null 2>&1 && fail "trunk: a failed GitHub lo
 set_config 'trunk: unused\n'
 reset_command_logs
 run_pr_create task main "" >/dev/null || fail "trunk: task PR create failed"
-[ "$(cat "$gh_calls")" = "$(create_call 'team/web/003-feature$(safe)')" ] ||
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
+$(create_call 'team/web/003-feature$(safe)')" ] ||
   fail "trunk: task PR used incorrect gh argv"
-[ ! -s "$git_calls" ] || fail "trunk: task PR unexpectedly validated a branch"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
+  fail "trunk: task PR used incorrect git argv"
 
 reset_command_logs
 run_pr_create work-item 'default$(safe)' "" >/dev/null || fail "trunk: work-item PR create failed"
@@ -629,4 +640,80 @@ grep -Fq 'git merge "$remote/$delivery_base"' "$implement_skill" ||
   fail "trunk: implement command does not quote the resolved base"
 
 echo "ok: trunk"
+
+# --------------------------------------------------------------------------
+# 5. One linear stack per feature (plan D5): step 1's task-base block picks
+#    the next task's base from the open, non-draft task PRs, and
+#    speckit.pr's task case resolves the same base for `gh pr create`.
+# --------------------------------------------------------------------------
+
+task_base=$(sed -n '/task-base:start/,/task-base:end/p' "$implement_skill")
+[ -n "$task_base" ] || fail "stack: installed task-base block is missing"
+
+render_task_base() {
+  printf '%s\n' "$task_base" | sed "s@<NNN-T###-short-slug>@$1@"
+}
+
+run_task_base() {
+  local branch="$1" pr_list="$2" feature="${3:-}"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_PR_LIST="$pr_list" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
+    SPECIFY_FEATURE="$feature" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
+    sh -c "$(render_task_base "$branch")")
+}
+
+# No open task PR: branch from the feature branch.
+reset_command_logs
+run_task_base 003-T002-slug "" >/dev/null || fail "stack: task-base with no open PR failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+  fail "stack: task-base with no open PR used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)
+$(json_argv switch -c 003-T002-slug origin/003-feature)" ] ||
+  fail "stack: task-base with no open PR used incorrect git argv"
+
+# A slashed feature branch (branch_template repositories): the feature
+# number is the final path segment's prefix, not the whole path's.
+reset_command_logs
+run_task_base 003-T002-slug "" 'team/web/003-feature$(safe)' >/dev/null ||
+  fail "stack: task-base with a slashed feature branch failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+  fail "stack: task-base with a slashed feature branch used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)
+$(json_argv switch -c 003-T002-slug 'origin/team/web/003-feature$(safe)')" ] ||
+  fail "stack: task-base with a slashed feature branch used incorrect git argv"
+
+# One ready task PR: branch from its head, not the feature branch.
+reset_command_logs
+run_task_base 003-T002-slug '003-T001-x 003-feature false' >/dev/null ||
+  fail "stack: task-base with one ready PR failed"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)
+$(json_argv switch -c 003-T002-slug origin/003-T001-x)" ] ||
+  fail "stack: task-base with one ready PR used incorrect git argv"
+
+# Two open tops: two stacks, refuse before touching Git.
+reset_command_logs
+run_task_base 003-T002-slug \
+  $'003-T001-x 003-feature false\n003-T001-z 003-feature false' \
+  >/dev/null 2>&1 && fail "stack: task-base accepted two open stacks"
+[ ! -s "$git_calls" ] || fail "stack: two-stack task-base unexpectedly touched git"
+
+# A draft task PR: a task is still in flight, refuse before touching Git.
+reset_command_logs
+run_task_base 003-T002-slug '003-T001-x 003-feature true' \
+  >/dev/null 2>&1 && fail "stack: task-base accepted a draft task PR"
+[ ! -s "$git_calls" ] || fail "stack: draft task-base unexpectedly touched git"
+
+# speckit.pr's task case walks the same open heads and takes the first one
+# that is an ancestor of HEAD, skipping one that is not.
+reset_command_logs
+GH_PR_LIST=$'003-T001-x 003-feature false\n003-T002-y 003-T001-x false'
+GIT_ANCESTORS='origin/003-T002-y'
+run_pr_create task main "" >/dev/null || fail "stack: task PR with ancestor failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
+$(create_call '003-T002-y')" ] ||
+  fail "stack: task PR with ancestor used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
+  fail "stack: task PR with ancestor used incorrect git argv"
+
+echo "ok: stack"
 echo "conformance passed"
