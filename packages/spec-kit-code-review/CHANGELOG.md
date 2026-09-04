@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.4.0
+
 - A task pull request (base branch `NNN-…`) that touches a `protected_paths`
   entry — `specs/*/spec.md` and the constitution by default, configurable —
   now gets an automatic `blocking`/`contract` finding and
