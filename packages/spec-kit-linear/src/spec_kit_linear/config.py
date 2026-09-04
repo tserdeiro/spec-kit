@@ -419,14 +419,11 @@ def _optional_uuid(section: dict[str, Any], key: str, source: Path) -> None:
 def resolve_config_path(root: Path, explicit_config: str | None) -> Path:
     """Resolve the shared config path.
 
-    An explicit ``--config`` flag wins outright; ``SPECKIT_LINEAR_CONFIG``
-    supplies the same override from the environment. Otherwise the committed
-    root config -- or, in a worktree that has none of its own, the main
-    checkout's, since the file is per-checkout by design and a worktree
-    shares the repository's common Git dir (plan D3). The fallback only
-    applies when ``root``'s own file is absent, so a repository with neither
-    file keeps the existing "unlinked repository" diagnostics pointed at the
-    path a person would create.
+    An explicit ``--config`` flag wins outright, then ``SPECKIT_LINEAR_CONFIG``.
+    Otherwise the committed root config -- or, in a worktree that has none of
+    its own, the main checkout's (plan D3) when that file exists. Applies
+    only when ``root``'s own file is absent, so an unlinked repository still
+    names the path a person would create.
     """
 
     candidate = explicit_config or os.environ.get("SPECKIT_LINEAR_CONFIG")

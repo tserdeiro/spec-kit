@@ -91,12 +91,10 @@ def _parse_env_file(path: Path) -> tuple[dict[str, str], list[Diagnostic]]:
 def repo_env_path(root: Path) -> Path:
     """The per-repo env file this process actually consults.
 
-    ``<root>/.speckit-linear.env`` when it exists. Otherwise, in a worktree
-    that has none of its own, the main checkout's file when that exists --
-    the file is per-checkout by design and a worktree shares the
-    repository's common Git dir (plan D3). Otherwise ``root``'s own path,
-    unchanged, so a repository with neither file keeps naming the path a
-    person would create.
+    ``<root>/.speckit-linear.env`` when it exists; otherwise the main
+    checkout's file (plan D3) when that exists; otherwise ``root``'s own
+    path, so a repository with neither file still names the one a person
+    would create.
     """
 
     local_path = root / REPO_ENV_FILENAME
