@@ -732,4 +732,62 @@ $(create_call '003-T002-y')" ] ||
   fail "stack: reverse-order task PR with ancestor used incorrect gh argv"
 
 echo "ok: stack"
+
+# --------------------------------------------------------------------------
+# 6. Fix propagation through the stack (plan D6): the stack-propagate block
+#    carries a commit on a fixed branch into every open task PR stacked on
+#    it, in stack order, as merge commits, and stops naming the branch on a
+#    conflict without touching the branches above it.
+# --------------------------------------------------------------------------
+
+stack_propagate=$(sed -n '/stack-propagate:start/,/stack-propagate:end/p' "$implement_skill")
+[ -n "$stack_propagate" ] || fail "propagate: installed stack-propagate block is missing"
+
+render_stack_propagate() {
+  printf '%s\n' "$stack_propagate" | sed "s@<NNN-T###-short-slug>@$1@"
+}
+
+run_stack_propagate() {
+  local branch="$1" pr_list="$2" fail_command="${3:-}"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" \
+    sh -c "$(render_stack_propagate "$branch")")
+}
+
+chain_prs=$'003-T002-b 003-T001-a false\n003-T003-c 003-T002-b false'
+
+# A chain of two stacked PRs: each is merged in stack order and pushed, and
+# the run finishes back on the fixed branch.
+reset_command_logs
+run_stack_propagate 003-T001-a "$chain_prs" >/dev/null || fail "propagate: chain failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+  fail "propagate: chain used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv switch 003-T002-b)
+$(json_argv merge --no-ff -m 'merge(task): carry the T001 fix into T002' 003-T001-a)
+$(json_argv push origin 003-T002-b)
+$(json_argv switch 003-T003-c)
+$(json_argv merge --no-ff -m 'merge(task): carry the T001 fix into T003' 003-T002-b)
+$(json_argv push origin 003-T003-c)
+$(json_argv switch 003-T001-a)" ] ||
+  fail "propagate: chain used incorrect git argv"
+
+# A conflict on the first merge stops the loop: it aborts, exits 2, and
+# the branch stacked above (003-T003-c) is never reached.
+reset_command_logs
+propagate_status=0
+run_stack_propagate 003-T001-a "$chain_prs" merge >/dev/null 2>&1 || propagate_status=$?
+[ "$propagate_status" -eq 2 ] ||
+  fail "propagate: forced merge failure exited $propagate_status, expected 2"
+[ "$(cat "$git_calls")" = "$(json_argv switch 003-T002-b)
+$(json_argv merge --no-ff -m 'merge(task): carry the T001 fix into T002' 003-T001-a)
+$(json_argv merge --abort)" ] ||
+  fail "propagate: forced merge failure used incorrect git argv"
+
+# Nothing stacked: exit 0 without touching Git at all.
+reset_command_logs
+run_stack_propagate 003-T001-a "" >/dev/null || fail "propagate: empty chain failed"
+[ ! -s "$git_calls" ] || fail "propagate: empty chain unexpectedly touched git"
+
+echo "ok: propagate"
 echo "conformance passed"

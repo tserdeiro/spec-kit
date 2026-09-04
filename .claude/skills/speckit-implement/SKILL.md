@@ -414,7 +414,60 @@ their own branches are not this loop's concern.
      mode — and name that comment in the Completion evidence.
    That independence is what makes the verdict worth anything: a reused
    findings file is not a review. Fix what it finds on the task branch,
-   whichever path produced it. Then, in the PR's **final commit**, check
+   whichever path produced it.
+
+   **Carrying a fix through the stack.** Whenever a commit lands on
+   a task branch that has open task PRs stacked on it — a review fix
+   on an earlier task, a reviewer's comment fixed later — run the
+   block below from that branch, replacing only the `fixed_branch`
+   literal. It reads this feature's open task PRs (the same query as
+   `task-base`) and walks the chain upward: the PR whose base is
+   `fixed_branch`, then the PR whose base is that head, and so on —
+   one linear stack, each `T###` read from the branch's `NNN-T###-`
+   prefix with `sed`. For every branch in that order it runs
+   `git switch`, `git merge --no-ff -m "merge(task): carry the <T###
+   of fixed_branch> fix into <T### of that branch>" <previous
+   branch>`, then `git push origin <branch>`. A merge failure runs
+   `git merge --abort`, prints the branch it stopped at, and exits 2
+   without touching the branches above it; an empty chain prints
+   that nothing is stacked and exits 0. Once every stacked branch is
+   merged and pushed, it switches back to `fixed_branch`. No
+   rewrite, no rebase, no force — merge commits only, the subject
+   form the conventions check accepts.
+
+   ```bash
+   # stack-propagate:start
+   set -e
+   fixed_branch="<NNN-T###-short-slug>"
+   feature_number=${fixed_branch%%-*}
+   prs=$(mktemp)
+   gh pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
+     --jq ".[] | select(.headRefName | startswith(\"$feature_number-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\"" \
+     > "$prs"
+   fixed_task=$(printf '%s\n' "$fixed_branch" | sed -nE 's/^[0-9]+-(T[0-9]{3})-.*/\1/p')
+   previous="$fixed_branch"
+   current=$(awk -v base="$fixed_branch" '$2 == base { print $1; exit }' "$prs")
+   if [ -z "$current" ]; then
+     printf 'nothing stacked on %s\n' "$fixed_branch"
+     exit 0
+   fi
+   while [ -n "$current" ]; do
+     current_task=$(printf '%s\n' "$current" | sed -nE 's/^[0-9]+-(T[0-9]{3})-.*/\1/p')
+     git switch "$current"
+     if ! git merge --no-ff -m "merge(task): carry the $fixed_task fix into $current_task" "$previous"; then
+       git merge --abort || true
+       printf 'error: merge conflict carrying the fix into %s\n' "$current" >&2
+       exit 2
+     fi
+     git push origin "$current"
+     previous="$current"
+     current=$(awk -v base="$previous" '$2 == base { print $1; exit }' "$prs")
+   done
+   git switch "$fixed_branch"
+   # stack-propagate:end
+   ```
+
+   Then, in the PR's **final commit**, check
    the task's box and fill its **Completion evidence** (the PR and the
    verification results; a task split into stacked PRs checks it in the
    stack's last PR), push, and mark the PR `ready for review`, then, when
