@@ -1040,20 +1040,17 @@ ignore_entries=$(sed -n '/ignore-entries:start/,/ignore-entries:end/p' "$doctor_
 [ -n "$ignore_entries" ] || fail "doctor: installed ignore-entries block is missing"
 
 render_fix() { printf '%s\n' "$1" | sed "s@<true|false>@$2@"; }
-dir_checksum() { (cd "$1" && find . -type f | sort | xargs cat | shasum -a 256 | awk '{print $1}'); }
+dir_checksum() { (cd "$1" && find . -type f | sort && find . -type f | sort | xargs cat) | shasum -a 256 | awk '{print $1}'; }
 render() { mkdir -p "$mirror_root/.claude/skills/$1"; cat > "$mirror_root/.claude/skills/$1/SKILL.md"; }
+init_options() { # $1 root, $2 ai key, $3 JSON array body (indented lines)
+  mkdir -p "$1/.specify"
+  printf '{"ai": "%s"}' "$2" > "$1/.specify/init-options.json"
+  printf '{\n  "installed_integrations": [\n%s\n  ]\n}\n' "$3" > "$1/.specify/integration.json"
+}
 
 mirror_root="$temporary_root/mirror"
 mkdir -p "$mirror_root/.specify/integrations" "$mirror_root/.specify/presets/default/commands"
-printf '{"ai": "codex"}' > "$mirror_root/.specify/init-options.json"
-cat > "$mirror_root/.specify/integration.json" <<'JSON'
-{
-  "installed_integrations": [
-    "codex",
-    "claude"
-  ]
-}
-JSON
+init_options "$mirror_root" codex $'    "codex",\n    "claude"'
 for spec in codex:agents claude:claude; do
   IFS=: read -r key suffix <<<"$spec"
   cat > "$mirror_root/.specify/integrations/$key.manifest.json" <<JSON
@@ -1148,18 +1145,23 @@ second=$(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") ||
 [ "$second" = "mirror: nothing to do" ] || fail "mirror: second fix=true run was not a clean no-op: $second"
 [ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: second fix=true run changed a file"
 
+# A preset entry registered for append but pointing at a nonexistent file
+# must fail closed, never truncate a render (review finding, major); reuse
+# checklist's render, which has no append registration yet.
+cat >> "$mirror_root/.specify/presets/default/preset.yml" <<'YAML'
+    - type: "command"
+      name: "speckit.checklist"
+      file: "commands/missing-append.md"
+      strategy: "append"
+YAML
+before=$(dir_checksum "$mirror_root")
+broken_status=0
+(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") >/dev/null 2>&1 || broken_status=$?
+[ "$broken_status" -eq 2 ] || fail "mirror: a missing append file did not exit 2 (got $broken_status)"
+[ "$(dir_checksum "$mirror_root")" = "$before" ] || fail "mirror: a missing append file still wrote a file"
+
 single_root="$temporary_root/mirror-single"
-mkdir -p "$single_root/.specify"
-cat > "$single_root/.specify/init-options.json" <<'JSON'
-{"ai": "codex"}
-JSON
-cat > "$single_root/.specify/integration.json" <<'JSON'
-{
-  "installed_integrations": [
-    "codex"
-  ]
-}
-JSON
+init_options "$single_root" codex '    "codex"'
 single_status=0
 single_out=$(cd "$single_root" && sh -c "$(render_fix "$skill_mirror" false)") || single_status=$?
 [ "$single_status" -eq 0 ] && [ "$single_out" = "mirror: only one integration installed, skipped" ] ||

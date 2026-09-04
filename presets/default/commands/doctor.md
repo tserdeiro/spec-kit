@@ -167,7 +167,12 @@ for key in $installed; do
       echo "mirror: $name missing in $lag_dir ($key) -- run: specify integration install $key"
       continue
     fi
-    heading=$(awk '/^## /{ print; exit }' "$append_file")
+    heading=""
+    [ -f "$append_file" ] && heading=$(awk '/^## /{ print; exit }' "$append_file")
+    if [ -z "$heading" ]; then
+      echo "mirror: append $append_file for $name is missing or has no heading" >&2
+      exit 2
+    fi
     prefix=$(awk -v h="$heading" '$0 == h { exit } { print }' "$render")
     body=$(cat "$append_file")
     expected=$(printf '%s\n\n\n%s\n' "$prefix" "$body")
