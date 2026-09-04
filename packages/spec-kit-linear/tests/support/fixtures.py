@@ -14,6 +14,10 @@ def copy_consumer_fixture() -> tuple[tempfile.TemporaryDirectory[str], Path]:
     return temporary, destination
 
 
+def run_git(root: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True)
+
+
 def worktree_repository() -> tuple[tempfile.TemporaryDirectory[str], Path, Path]:
     """A real repository (`git init`, one commit) with one linked worktree.
 
@@ -26,15 +30,12 @@ def worktree_repository() -> tuple[tempfile.TemporaryDirectory[str], Path, Path]
     worktree_root = main_root.parent / "wt"
     main_root.mkdir()
     (main_root / "README.md").write_text("# sample\n", encoding="utf-8")
-    for args in (
-        ("init", "-q"),
-        ("config", "user.email", "test@example.com"),
-        ("config", "user.name", "Test"),
-        ("add", "README.md"),
-        ("commit", "-q", "-m", "init"),
-        ("worktree", "add", "-q", "-b", "wt-branch", str(worktree_root), "HEAD"),
-    ):
-        subprocess.run(["git", "-C", str(main_root), *args], check=True, capture_output=True, text=True)
+    run_git(main_root, "init", "-q")
+    run_git(main_root, "config", "user.email", "test@example.com")
+    run_git(main_root, "config", "user.name", "Test")
+    run_git(main_root, "add", "README.md")
+    run_git(main_root, "commit", "-q", "-m", "init")
+    run_git(main_root, "worktree", "add", "-q", "-b", "wt-branch", str(worktree_root), "HEAD")
     return temporary, main_root, worktree_root
 
 

@@ -15,7 +15,8 @@ from spec_kit_linear.config import (
     resolve_config_path,
 )
 from spec_kit_linear.errors import AppError
-from tests.support.fixtures import copy_consumer_fixture, worktree_repository
+from spec_kit_linear.git_refs import main_worktree_root
+from tests.support.fixtures import copy_consumer_fixture, run_git, worktree_repository
 
 
 class ConfigTests(unittest.TestCase):
@@ -316,6 +317,11 @@ class ConfigWorktreeResolutionTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             plain = Path(tmp)
             self.assertEqual(resolve_config_path(plain, None), plain / ROOT_CONFIG_FILENAME)
+
+    def test_a_bare_repositorys_worktree_has_no_main_checkout(self) -> None:
+        run_git(self.main_root.parent, "clone", "-q", "--bare", str(self.main_root), str(self.main_root.parent / "bare.git"))
+        run_git(self.main_root.parent / "bare.git", "worktree", "add", "-q", str(self.main_root.parent / "bare-wt"), "HEAD")
+        self.assertIsNone(main_worktree_root(self.main_root.parent / "bare-wt"))
 
 
 if __name__ == "__main__":

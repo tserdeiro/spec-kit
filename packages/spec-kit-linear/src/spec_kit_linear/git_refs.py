@@ -55,11 +55,12 @@ def known_branches(root: Path) -> tuple[str, ...]:
 def main_worktree_root(root: Path) -> Path | None:
     """The main checkout's root when ``root`` is a linked worktree, else ``None``.
 
-    ``git -C <root> rev-parse --git-common-dir`` names the Git directory every
-    worktree shares; its parent is the main checkout on every platform. Fails
-    closed to ``None`` -- no repository, no `git`, or a candidate that
-    resolves back to ``root`` itself -- so the caller falls back to
-    ``root``'s own files.
+    ``git -C <root> rev-parse --git-common-dir`` names the Git directory a
+    repository's worktrees share; its parent is the main checkout only when
+    that directory is really named ``.git`` -- a *bare* repository's worktree
+    shares the bare repository's own directory instead, so that case fails
+    closed too, like no repository, no `git`, or a candidate resolving back
+    to ``root`` itself.
     """
 
     try:
@@ -80,7 +81,10 @@ def main_worktree_root(root: Path) -> Path | None:
     common_path = Path(common_dir)
     if not common_path.is_absolute():
         common_path = root / common_path
-    main_root = common_path.resolve().parent
+    common_path = common_path.resolve()
+    if common_path.name != ".git":
+        return None
+    main_root = common_path.parent
     if main_root == root.resolve():
         return None
     return main_root

@@ -92,9 +92,8 @@ def repo_env_path(root: Path) -> Path:
     """The per-repo env file this process actually consults.
 
     ``<root>/.speckit-linear.env`` when it exists; otherwise the main
-    checkout's file (plan D3) when that exists; otherwise ``root``'s own
-    path, so a repository with neither file still names the one a person
-    would create.
+    checkout's file (plan D3) when it exists; otherwise ``root``'s own path,
+    naming the one a person would create either way.
     """
 
     local_path = root / REPO_ENV_FILENAME
