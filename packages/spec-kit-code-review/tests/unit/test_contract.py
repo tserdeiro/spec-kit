@@ -32,7 +32,7 @@ class ProtectedPathFindingsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repository = TemporaryRepository()
         self.addCleanup(self.repository.cleanup)
-        self.base = self.repository.commit("specs/004-x/spec.md", "Initial spec.\n", "seed")
+        self.base = self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\n", "seed")
         self.git = open_git(self.repository.path)
 
     def _findings(self, head: str, *, base_branch: str | None = "004-feature", protected_paths=DEFAULTS) -> list:
@@ -56,11 +56,17 @@ class ProtectedPathFindingsTests(unittest.TestCase):
         self.repository.git("commit", "-m", "delete")
         return self.repository.head()
 
+    def _trim_spec(self) -> str:
+        # Removes a line but leaves the file in place -- unlike `_delete_spec`,
+        # which removes the whole file; both must anchor at LEFT 1..1.
+        return self.repository.commit("specs/004-x/spec.md", "Initial spec.\n", "trim")
+
     def test_each_shape_is_blocking_and_survives_normalization(self) -> None:
         cases = (
-            ("modified", lambda: self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\n", "touch"), "RIGHT"),
+            ("modified", lambda: self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\nEven more.\n", "touch"), "RIGHT"),
             ("added", lambda: self.repository.commit("specs/004-y/spec.md", "New spec.\n", "add"), "RIGHT"),
             ("deleted", self._delete_spec, "LEFT"),
+            ("in-file removal", self._trim_spec, "LEFT"),
         )
         for shape, build, side in cases:
             with self.subTest(shape=shape):
@@ -70,7 +76,8 @@ class ProtectedPathFindingsTests(unittest.TestCase):
                 self.assertEqual(len(findings), 1)
                 self.assertEqual((findings[0]["side"], findings[0]["severity"], findings[0]["category"]), (side, "blocking", "contract"))
                 if side == "LEFT":
-                    # A whole-file deletion always removes the base file's line 1.
+                    # A base file always has a line 1, whether it was removed
+                    # whole or only some of its lines were.
                     self.assertEqual((findings[0]["start_line"], findings[0]["end_line"]), (1, 1))
                 self.assertEqual(self._kept_blocking_count(head, findings), 1)
 
@@ -80,7 +87,7 @@ class ProtectedPathFindingsTests(unittest.TestCase):
         self.assertEqual(self._findings(head), [])
 
     def test_a_trunk_base_is_exempt(self) -> None:
-        head = self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\n", "touch")
+        head = self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\nEven more.\n", "touch")
 
         self.assertEqual(self._findings(head, base_branch="main"), [])
 

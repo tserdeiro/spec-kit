@@ -55,15 +55,9 @@ def protected_path_findings(
         right_hunks = hunks.for_path(path)
         if right_hunks:
             entries.append(_entry(path, "RIGHT", right_hunks[0].start, right_hunks[0].end, content))
-        elif git.path_exists_at(head_commit, path):
-            # No RIGHT hunk despite the file still existing (a pure removal):
-            # line 1 always exists, so the finding still counts for the
-            # verdict instead of being discarded for want of a hunk.
-            entries.append(_entry(path, "RIGHT", 1, 1, content))
         else:
-            # Removed entirely: `changed_paths` runs with --no-renames, so an
-            # absent head means the whole base file is gone, and a whole-file
-            # deletion always removes the base file's line 1.
+            # No RIGHT hunk: whether the file was removed whole or just some
+            # of its lines were, the base file always has a line 1 to anchor.
             entries.append(_entry(path, "LEFT", 1, 1, content))
     return entries
 
