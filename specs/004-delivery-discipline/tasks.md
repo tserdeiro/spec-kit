@@ -76,13 +76,13 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
   - **Delivery**: single PR (~90 authored lines)
   - **Completion evidence**: PR #66 (ready 2026-09-03, stacked on #65 — base `004-T001-loop-tooling-brief`, resolved by the new `pr-create` block itself); 168 net authored lines against the ~90 forecast (1.9×, under the 2× stop line; six conformance cases plus the shims); `bash scripts/conformance/bundles.sh` passed with the new `stack` scenario (no PR, one ready PR, two tops, draft, slashed feature branch, fetch failure, ancestor walk in both orders); `sh -n` on both rendered blocks; `git diff --check` clean; orchestrator review: feature number from the final path segment and `git fetch` before the ancestor walk, fixed in-branch; fresh Sonnet review (session `35526323`) found 2 major + 1 minor — order-dependent ancestor walk (now deepest-ancestor, order-independent), template line 24 still promising the feature branch as base, missing fetch-failure case — all fixed in-branch; verdict no-blocking-findings
 
-- [ ] T003 [US1] Fix propagation through the stack: `stack-propagate` block in presets/default/commands/implement-append.md
+- [x] T003 [US1] Fix propagation through the stack: `stack-propagate` block in presets/default/commands/implement-append.md
   - **Traces**: FR-002; outcome: after a commit on a task branch with open PRs stacked on it, each stacked branch receives `git merge --no-ff -m "merge(task): carry the T### fix into T###"` in stack order and is pushed; a conflict aborts the merge, stops the loop, and names the branch (plan D6)
   - **Depends on**: T002
   - **Boundaries**: `presets/default/commands/implement-append.md` (POSIX block with `# stack-propagate:start/end` markers); a propagation scenario against the fake `git`/`gh` shims in `scripts/conformance/bundles.sh`; regenerated skills
   - **Evidence**: `bash scripts/conformance/bundles.sh` -> conformance passed including propagation order and the conflict stop; `sh -n` on the extracted block
   - **Delivery**: single PR (~70 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #67 (ready 2026-09-03, stacked on #66 — base `004-T002-one-linear-stack`, resolved by the `pr-create` block); 111 net authored lines against the ~70 forecast (1.6×, under the 2× stop line); `bash scripts/conformance/bundles.sh` passed with the new `propagate` scenario (two-hop chain in order and back to the fixed branch; forced merge failure → abort, exit 2, branches above untouched; empty chain → no git call); `sh -n` on the rendered block; `git diff --check` clean; orchestrator review: `git merge --abort` tolerant under `set -e` and exit 2 asserted, fixed in-branch; fresh Sonnet review (session `2cee6014`) found nothing — verdict no-blocking-findings
 
 - [ ] T004 [US1] Branch identity check in presets/default/commands/pr.md
   - **Traces**: FR-004; outcome: the `pr-create` block's `task)` case compares the branch's `T###` with the task the user named or the first unchecked task outside fenced blocks and exits 2 naming both on a mismatch, before `gh pr create` (plan D7)
