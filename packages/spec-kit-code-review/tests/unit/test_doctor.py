@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 
 from spec_kit_code_review.config import LOCAL_CONFIG_FILENAME, RULE_RELATIVE_PATH
-from spec_kit_code_review.doctor import CHECK_GROUPS, DoctorOptions, run_doctor
+from spec_kit_code_review.doctor import CHECK_GROUPS, DoctorOptions, RULE_TEMPLATE, run_doctor
 from spec_kit_code_review.env_files import REPO_ENV_FILENAME, load_env_files
 from spec_kit_code_review.errors import (
     EXIT_AUTHENTICATION,
@@ -20,6 +20,7 @@ from spec_kit_code_review.errors import (
 from spec_kit_code_review.lockfile import lock_path, platform_key
 from spec_kit_code_review.paths import OCR_TOOL_NAME, tool_executable, tool_root
 from spec_kit_code_review.process import sha256_file
+from spec_kit_code_review.rules import parse_rule_document
 from tests.support.fixtures import (
     DEFAULT_OCR_VERSION,
     FAKE_OCR_SOURCE,
@@ -558,8 +559,28 @@ class FixTests(DoctorCase):
 
         report = self.run_doctor(fix=True)
 
-        self.assertTrue((self.root / RULE_RELATIVE_PATH).is_file())
+        rule_path = self.root / RULE_RELATIVE_PATH
         self.assertEqual(report.code, EXIT_SUCCESS)
+        written = rule_path.read_text(encoding="utf-8")
+        self.assertEqual(written, RULE_TEMPLATE)
+
+        document = parse_rule_document(written, ref=None, origin=str(rule_path))
+        self.assertEqual(len(document.rules), 2)
+        principles, python_rule = document.rules
+        self.assertEqual(principles["path"], "**/*")
+        self.assertIn("blocking", principles["rule"])
+        self.assertIn("major", principles["rule"])
+        self.assertEqual(
+            python_rule,
+            {
+                "path": "**/*.py",
+                "rule": (
+                    "Review Python changes for correctness, security, and test "
+                    "coverage. Cite the exact lines that support each finding."
+                ),
+                "merge_system_rule": True,
+            },
+        )
 
     def test_fix_with_nothing_to_repair_is_a_clean_no_op(self) -> None:
         self.run_doctor(fix=True)
