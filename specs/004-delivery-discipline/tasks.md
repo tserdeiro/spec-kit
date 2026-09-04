@@ -178,13 +178,13 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
 
 ## Final phase: Cross-cutting verification
 
-- [ ] T012 Documentation: rule 14 in presets/default/README.md, second agent and digest re-verification in README.md, the round in docs/plan.md, statuses in docs/dogfooding.md
+- [x] T012 Documentation: rule 14 in presets/default/README.md, second agent and digest re-verification in README.md, the round in docs/plan.md, statuses in docs/dogfooding.md
   - **Traces**: FR-015, FR-017, A-001, A-005; outcome: the preset README states that every executable block is POSIX (`set -e`, no `pipefail`) and that conformance runs them with `sh`; the root README's second-agent steps are verified and its Integridad section names the published digest re-verification; `docs/plan.md` records this round; `docs/dogfooding.md` marks the delivered entries resolved (20 included) and records the frictions met during this round (plan D14)
   - **Depends on**: T011
   - **Boundaries**: `presets/default/README.md`, `README.md`, `docs/plan.md`, `docs/dogfooding.md`; no code
   - **Evidence**: `git diff --check` -> clean; the round entry cites `specs/004-delivery-discipline/`; every *ronda 004* entry carries its new status
   - **Delivery**: single PR (~80 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #77 (ready 2026-09-04, stacked on #76 — base `004-T011-doctor-mirror`); text only (budget-stop `0/160`); preset README "Executable blocks" (rule 14), root README second-agent steps and the per-package test invocation, `docs/plan.md` round entry and delivery conventions (one stack, budget stop), `docs/dogfooding.md` legend (*entregada*, *documentada*), every delivered entry relabeled with its task and PR, entries 28–31, D13 and the handoff table corrected in the feature plan; `git diff --check` clean; fresh Sonnet review (session `c2c1dd62`) found 2 major (the log and the plan said the budget rule fired twice; in T011 the implementer stopped before the block ran — reworded) and 2 minor (missing legend status; entry 14 credited T005) — all fixed in-branch; verdict no-blocking-findings
 
 - [ ] T013 Release preparation: `publish.sh --bump preset=0.9.0 linear=0.12.0 code-review=0.4.0 bundles=0.15.0`
   - **Traces**: plan Rollout, A-007; outcome: manifests, bundle pins, changelog headings, and `uv.lock` bumped coherently by the script; publication stays human, from `main`, after the feature merges
