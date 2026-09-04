@@ -110,6 +110,10 @@ case "$delivery_kind" in
     current=$(git branch --show-current)
     branch_task=$(printf '%s\n' "${current##*/}" | sed -nE 's/^[0-9]+-(T[0-9]{3})-.*/\1/p')
     tasks_file=$(printf '%s\n' "$paths" | sed -n 's/^FEATURE_DIR: //p')/tasks.md
+    if [ ! -f "$tasks_file" ]; then
+      printf 'error: task ledger not found: %s\n' "$tasks_file" >&2
+      exit 2
+    fi
     ledger_task=$(awk '
       in_fence {
         i=0; while (substr($0,i+1,1)==" ") i++
@@ -124,7 +128,7 @@ case "$delivery_kind" in
         r=substr($0,i+1); ch=substr(r,1,1)
         if (i<=3 && (ch=="`" || ch=="~")) {
           n=0; while (substr(r,n+1,1)==ch) n++
-          if (n>=3) { in_fence=1; marker=ch; mlen=n; next }
+          if (n>=3 && (ch!="`" || !index(substr(r,n+1),"`"))) { in_fence=1; marker=ch; mlen=n; next }
         }
         if ($0 ~ /^[ \t]*- \[ \] T[0-9][0-9][0-9]/) {
           match($0, /T[0-9][0-9][0-9]/)

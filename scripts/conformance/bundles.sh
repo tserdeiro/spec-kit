@@ -433,7 +433,10 @@ git_calls="$consumer_root/.conformance/git-calls.jsonl"
 # the fixture lives at a feature directory distinct from the branch names
 # below. Its fenced "Task block format" sample must never be picked over
 # the real ledger: the sample's T001 is unchecked, the real T001 is
-# checked, so a correct scan finds T002 first.
+# checked, so a correct scan finds T002 first. The unclosed "```oops"
+# line has a backtick in its info string, so it is never a fence opener
+# either (parser.py's rule) -- a wrong mirror would swallow every task
+# below it and the match case would fail.
 task_tasks_file="$consumer_root/specs/003-directory-different/tasks.md"
 mkdir -p "$(dirname "$task_tasks_file")"
 cat > "$task_tasks_file" <<'MD'
@@ -445,6 +448,8 @@ cat > "$task_tasks_file" <<'MD'
 - [ ] T001 [US?] Deliver a concrete outcome in exact/path.ext
   - **Traces**: FR-001; outcome: sample
 ```
+
+```oops `not a fence`
 
 ## Phase 1: Sample
 
@@ -640,6 +645,19 @@ run_pr_create task main "" T003 >/dev/null ||
 [ "$(cat "$gh_calls")" = "$(pr_list_call 003)
 $(create_call 'team/web/003-feature$(safe)')" ] ||
   fail "identity: named task used incorrect gh argv"
+
+# A missing ledger is a coded diagnostic, never a bare awk crash.
+mv "$task_tasks_file" "$task_tasks_file.hidden"
+reset_command_logs
+GIT_CURRENT_BRANCH=003-T002-slug
+identity_status=0
+run_pr_create task main "" >/dev/null 2>"$identity_err" || identity_status=$?
+mv "$task_tasks_file.hidden" "$task_tasks_file"
+[ "$identity_status" -eq 2 ] ||
+  fail "identity: missing ledger exited $identity_status, expected 2"
+grep -Eq 'error: task ledger not found: .*specs/003-directory-different/tasks\.md$' \
+  "$identity_err" || fail "identity: missing-ledger message did not name the path"
+[ ! -s "$gh_calls" ] || fail "identity: missing ledger still queried or created a PR"
 
 reset_command_logs
 run_pr_create work-item 'default$(safe)' "" >/dev/null || fail "trunk: work-item PR create failed"
