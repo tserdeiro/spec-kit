@@ -427,6 +427,35 @@ trunk_config="$consumer_root/.specify/extensions/git/git-config.yml"
 fake_bin="$consumer_root/.conformance/bin"
 gh_calls="$consumer_root/.conformance/gh-calls.jsonl"
 git_calls="$consumer_root/.conformance/git-calls.jsonl"
+
+# Branch identity (plan D7) reads the task ledger through the same
+# check-prerequisites.sh FEATURE_DIR the base resolution already uses, so
+# the fixture lives at a feature directory distinct from the branch names
+# below. Its fenced "Task block format" sample must never be picked over
+# the real ledger: the sample's T001 is unchecked, the real T001 is
+# checked, so a correct scan finds T002 first.
+task_tasks_file="$consumer_root/specs/003-directory-different/tasks.md"
+mkdir -p "$(dirname "$task_tasks_file")"
+cat > "$task_tasks_file" <<'MD'
+# Tasks: Directory fixture
+
+## Task block format
+
+```markdown
+- [ ] T001 [US?] Deliver a concrete outcome in exact/path.ext
+  - **Traces**: FR-001; outcome: sample
+```
+
+## Phase 1: Sample
+
+- [x] T001 Sample outcome one
+  - **Depends on**: none
+- [ ] T002 Sample outcome two
+  - **Depends on**: T001
+- [ ] T003 Sample outcome three
+  - **Depends on**: T002
+MD
+
 [ -e "$consumer_root/.specify/presets/default/scripts" ] &&
   fail "trunk: the retired scripts/ directory is still installed"
 grep -Fq 'feature enters the **delivery base** only' "$tasks_template" &&
@@ -518,18 +547,20 @@ for skill in "$pr_skill" "$implement_skill"; do
 done
 
 render_pr_create() {
-  printf '%s\n' "$pr_create" | sed "s@<feature|task|work-item>@$1@"
+  printf '%s\n' "$pr_create" |
+    sed -e "s@<feature|task|work-item>@$1@" -e "s@<T### or empty>@${2:-}@"
 }
 
 run_pr_create() {
-  local kind="$1" github_default="$2" fail_command="$3"
+  local kind="$1" github_default="$2" fail_command="$3" named_task="${4:-}"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
     GH_PR_LIST="${GH_PR_LIST:-}" GIT_ANCESTORS="${GIT_ANCESTORS:-}" \
+    GIT_CURRENT_BRANCH="${GIT_CURRENT_BRANCH:-}" \
     PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE='team/web/003-feature$(safe)' \
     SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
-    sh -c "$(render_pr_create "$kind")")
+    sh -c "$(render_pr_create "$kind" "$named_task")")
 }
 
 create_call() {
@@ -579,12 +610,36 @@ run_pr_create feature main gh >/dev/null 2>&1 && fail "trunk: a failed GitHub lo
 # repository-derived names stay inert argv.
 set_config 'trunk: unused\n'
 reset_command_logs
+GIT_CURRENT_BRANCH=003-T002-slug
 run_pr_create task main "" >/dev/null || fail "trunk: task PR create failed"
 [ "$(cat "$gh_calls")" = "$(pr_list_call 003)
 $(create_call 'team/web/003-feature$(safe)')" ] ||
   fail "trunk: task PR used incorrect gh argv"
-[ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
+[ "$(cat "$git_calls")" = "$(json_argv branch --show-current)
+$(json_argv fetch origin)" ] ||
   fail "trunk: task PR used incorrect git argv"
+
+# Branch identity (plan D7, FR-004): the branch's T### must match the task
+# the user named, else the ledger's first unchecked task outside fenced
+# blocks -- T002 in the fixture above, never the fenced sample's T001.
+identity_err="$consumer_root/.conformance/identity.err"
+reset_command_logs
+GIT_CURRENT_BRANCH=003-T003-slug
+identity_status=0
+run_pr_create task main "" >/dev/null 2>"$identity_err" || identity_status=$?
+[ "$identity_status" -eq 2 ] ||
+  fail "identity: mismatched branch exited $identity_status, expected 2"
+grep -Fq 'branch 003-T003-slug delivers T003 but the task to deliver is T002' \
+  "$identity_err" || fail "identity: mismatch message did not name both tasks"
+[ ! -s "$gh_calls" ] || fail "identity: mismatched branch still queried or created a PR"
+
+reset_command_logs
+GIT_CURRENT_BRANCH=003-T003-slug
+run_pr_create task main "" T003 >/dev/null ||
+  fail "identity: a named task did not override the ledger"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
+$(create_call 'team/web/003-feature$(safe)')" ] ||
+  fail "identity: named task used incorrect gh argv"
 
 reset_command_logs
 run_pr_create work-item 'default$(safe)' "" >/dev/null || fail "trunk: work-item PR create failed"
@@ -717,15 +772,18 @@ run_task_base 003-T002-slug "" "" fetch >/dev/null 2>&1 &&
 reset_command_logs
 GH_PR_LIST=$'003-T001-x 003-feature false\n003-T002-y 003-T001-x false'
 GIT_ANCESTORS=$'origin/003-T001-x HEAD\norigin/003-T002-y HEAD\norigin/003-T001-x origin/003-T002-y'
+GIT_CURRENT_BRANCH=003-T002-slug
 run_pr_create task main "" >/dev/null || fail "stack: task PR with ancestor failed"
 [ "$(cat "$gh_calls")" = "$(pr_list_call 003)
 $(create_call '003-T002-y')" ] ||
   fail "stack: task PR with ancestor used incorrect gh argv"
-[ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
+[ "$(cat "$git_calls")" = "$(json_argv branch --show-current)
+$(json_argv fetch origin)" ] ||
   fail "stack: task PR with ancestor used incorrect git argv"
 
 reset_command_logs
 GH_PR_LIST=$'003-T002-y 003-T001-x false\n003-T001-x 003-feature false'
+GIT_CURRENT_BRANCH=003-T002-slug
 run_pr_create task main "" >/dev/null || fail "stack: reverse-order task PR with ancestor failed"
 [ "$(cat "$gh_calls")" = "$(pr_list_call 003)
 $(create_call '003-T002-y')" ] ||
