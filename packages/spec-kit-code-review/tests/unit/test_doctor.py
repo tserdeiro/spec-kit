@@ -582,6 +582,13 @@ class FixTests(DoctorCase):
             },
         )
 
+    def test_this_repositorys_committed_rule_file_matches_the_template(self) -> None:
+        root = Path(__file__).resolve().parents[4]
+        committed = root / RULE_RELATIVE_PATH
+        if not committed.is_file():
+            self.skipTest("not running inside the spec-kit monorepo")
+        self.assertEqual(committed.read_text(encoding="utf-8"), RULE_TEMPLATE)
+
     def test_fix_with_nothing_to_repair_is_a_clean_no_op(self) -> None:
         self.run_doctor(fix=True)
 
