@@ -1023,4 +1023,175 @@ run_budget_stop T004 003-feature $'401\t0\tsrc/a.py\n' >/dev/null 2>"$budget_err
 grep -Fq 400 "$budget_err" || fail "budget: capped stop diagnosis did not name the 400 cap"
 
 echo "ok: budget"
+
+# --------------------------------------------------------------------------
+# 8. Doctor: safe skill mirror and ignore entries (plan D11). Step 5 copies
+#    extension/preset skills whole and appends each core command's own
+#    layer to that integration's render, never crossing integrations,
+#    idempotently; step 6 adds the installer's cache and venv directories
+#    to .gitignore. The blocks read only files, so a hand-made fixture
+#    stands in for a real `specify` install.
+# --------------------------------------------------------------------------
+
+doctor_skill="$consumer_root/.agents/skills/speckit-doctor/SKILL.md"
+skill_mirror=$(sed -n '/skill-mirror:start/,/skill-mirror:end/p' "$doctor_skill")
+ignore_entries=$(sed -n '/ignore-entries:start/,/ignore-entries:end/p' "$doctor_skill")
+[ -n "$skill_mirror" ] || fail "doctor: installed skill-mirror block is missing"
+[ -n "$ignore_entries" ] || fail "doctor: installed ignore-entries block is missing"
+
+render_fix() { printf '%s\n' "$1" | sed "s@<true|false>@$2@"; }
+dir_checksum() { (cd "$1" && find . -type f | sort | xargs cat | shasum -a 256 | awk '{print $1}'); }
+render() { mkdir -p "$mirror_root/.claude/skills/$1"; cat > "$mirror_root/.claude/skills/$1/SKILL.md"; }
+
+mirror_root="$temporary_root/mirror"
+mkdir -p "$mirror_root/.specify/integrations" "$mirror_root/.specify/presets/default/commands"
+printf '{"ai": "codex"}' > "$mirror_root/.specify/init-options.json"
+cat > "$mirror_root/.specify/integration.json" <<'JSON'
+{
+  "installed_integrations": [
+    "codex",
+    "claude"
+  ]
+}
+JSON
+for spec in codex:agents claude:claude; do
+  IFS=: read -r key suffix <<<"$spec"
+  cat > "$mirror_root/.specify/integrations/$key.manifest.json" <<JSON
+{"files": {
+  ".$suffix/skills/speckit-implement/SKILL.md": "x",
+  ".$suffix/skills/speckit-tasks/SKILL.md": "x",
+  ".$suffix/skills/speckit-checklist/SKILL.md": "x"}}
+JSON
+done
+cat > "$mirror_root/.specify/presets/default/preset.yml" <<'YAML'
+provides:
+  commands:
+    - type: "command"
+      name: "speckit.tasks"
+      file: "commands/tasks-append.md"
+      strategy: "append"
+    - type: "command"
+      name: "speckit.implement"
+      file: "commands/implement-append.md"
+      strategy: "append"
+YAML
+printf '\n## Loop (tserdeiro/spec-kit)\nline one\nline two\n' \
+  > "$mirror_root/.specify/presets/default/commands/implement-append.md"
+printf '\n## Order (tserdeiro/spec-kit)\nline one\nline two\n' \
+  > "$mirror_root/.specify/presets/default/commands/tasks-append.md"
+
+# The mirror never reads a core render's content when deciding to leave it
+# alone (only its directory name), so codex's own core skills need only
+# exist; only its extension skill speckit-pr is ever compared or copied.
+for name in speckit-implement speckit-tasks speckit-checklist; do
+  mkdir -p "$mirror_root/.agents/skills/$name"
+  printf 'codex core render, content unused by this name\n' > "$mirror_root/.agents/skills/$name/SKILL.md"
+done
+mkdir -p "$mirror_root/.agents/skills/speckit-pr"
+printf 'codex pr body, extension skill\n' > "$mirror_root/.agents/skills/speckit-pr/SKILL.md"
+
+render speckit-implement <<'MD'
+---
+name: "speckit-implement"
+frontmatter: "claude"
+---
+claude implement body
+MD
+render speckit-tasks <<'MD'
+---
+name: "speckit-tasks"
+frontmatter: "claude"
+---
+claude tasks body
+MD
+checklist_claude="$mirror_root/.claude/skills/speckit-checklist/SKILL.md"
+mkdir -p "$(dirname "$checklist_claude")"
+printf 'claude checklist body, core, no append\n' > "$checklist_claude"
+mkdir -p "$mirror_root/.claude/skills/speckit-pr"
+printf 'stale content\n' > "$mirror_root/.claude/skills/speckit-pr/SKILL.md"
+checklist_before=$(shasum -a 256 < "$checklist_claude")
+
+before=$(dir_checksum "$mirror_root")
+mirror_report=$(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" false)") ||
+  fail "mirror: fix=false run failed"
+[ "$(dir_checksum "$mirror_root")" = "$before" ] || fail "mirror: fix=false changed a file"
+for name in speckit-pr speckit-implement speckit-tasks; do
+  printf '%s\n' "$mirror_report" | grep -Fq "$name" ||
+    fail "mirror: fix=false did not name $name as pending"
+done
+printf '%s\n' "$mirror_report" | grep -Fq speckit-checklist &&
+  fail "mirror: fix=false reported the untouchable core checklist"
+
+(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") ||
+  fail "mirror: fix=true run failed"
+
+cmp -s "$mirror_root/.agents/skills/speckit-pr/SKILL.md" \
+  "$mirror_root/.claude/skills/speckit-pr/SKILL.md" ||
+  fail "mirror: speckit-pr is not byte-identical across integrations"
+[ "$(shasum -a 256 < "$checklist_claude")" = "$checklist_before" ] ||
+  fail "mirror: fix=true touched the untouchable core checklist"
+
+for spec in "speckit-implement:claude implement body:implement-append.md" \
+            "speckit-tasks:claude tasks body:tasks-append.md"; do
+  IFS=: read -r name body append_file <<<"$spec"
+  core=$(printf '%s\n%s\n%s\n%s\n%s\n' '---' "name: \"$name\"" 'frontmatter: "claude"' '---' "$body")
+  append=$(cat "$mirror_root/.specify/presets/default/commands/$append_file")
+  expected="$temporary_root/expected-$name.md"
+  printf '%s\n\n\n%s\n' "$core" "$append" > "$expected"
+  cmp -s "$expected" "$mirror_root/.claude/skills/$name/SKILL.md" ||
+    fail "mirror: claude's $name is not its own render plus the preset append"
+done
+
+mid=$(dir_checksum "$mirror_root")
+second=$(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") ||
+  fail "mirror: second fix=true run failed"
+[ "$second" = "mirror: nothing to do" ] || fail "mirror: second fix=true run was not a clean no-op: $second"
+[ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: second fix=true run changed a file"
+
+single_root="$temporary_root/mirror-single"
+mkdir -p "$single_root/.specify"
+cat > "$single_root/.specify/init-options.json" <<'JSON'
+{"ai": "codex"}
+JSON
+cat > "$single_root/.specify/integration.json" <<'JSON'
+{
+  "installed_integrations": [
+    "codex"
+  ]
+}
+JSON
+single_status=0
+single_out=$(cd "$single_root" && sh -c "$(render_fix "$skill_mirror" false)") || single_status=$?
+[ "$single_status" -eq 0 ] && [ "$single_out" = "mirror: only one integration installed, skipped" ] ||
+  fail "mirror: single-integration fixture did not skip cleanly"
+
+echo "ok: mirror"
+
+ignore_root="$temporary_root/ignore"
+mkdir -p "$ignore_root"
+git -C "$ignore_root" init --quiet
+printf '.venv/\n' > "$ignore_root/.gitignore"
+
+before=$(shasum -a 256 < "$ignore_root/.gitignore")
+ignore_report=$(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" false)") ||
+  fail "ignore: fix=false run failed"
+[ "$(shasum -a 256 < "$ignore_root/.gitignore")" = "$before" ] || fail "ignore: fix=false changed .gitignore"
+printf '%s\n' "$ignore_report" | grep -Fq '.specify/extensions/.cache/' &&
+  printf '%s\n' "$ignore_report" | grep -Fq '.specify/presets/.cache/' ||
+  fail "ignore: fix=false did not report both cache entries"
+printf '%s\n' "$ignore_report" | grep -Fq '.venv/' &&
+  fail "ignore: fix=false reported the entry the fixture .gitignore already covers"
+
+(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" true)") ||
+  fail "ignore: fix=true run failed"
+[ "$(cat "$ignore_root/.gitignore")" = "$(printf '.venv/\n\n# tserdeiro/spec-kit installer state\n.specify/extensions/.cache/\n.specify/presets/.cache/')" ] ||
+  fail "ignore: fix=true did not append exactly the two missing entries"
+
+mid=$(shasum -a 256 < "$ignore_root/.gitignore")
+second=$(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" true)") ||
+  fail "ignore: second fix=true run failed"
+[ "$second" = "ignore: nothing to do" ] || fail "ignore: second fix=true run was not a clean no-op: $second"
+[ "$(shasum -a 256 < "$ignore_root/.gitignore")" = "$mid" ] || fail "ignore: second fix=true run changed .gitignore"
+
+echo "ok: ignore"
 echo "conformance passed"

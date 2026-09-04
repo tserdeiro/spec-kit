@@ -64,3 +64,11 @@ explicit request does the agent act — `git worktree prune`, then
 `gh pr merge <n> --merge --delete-branch` for each PR, root-first. A
 revert travels through the same loop as any task, its commit subject
 `revert(scope): <subject>`, never `git revert`'s default.
+
+## Doctor
+
+`speckit.doctor` mirrors extension and preset skills whole across every
+installed integration and appends each core command's preset layer to
+its own render, never another's; it also adds the installer's cache and
+`.venv` directories to `.gitignore` when not already covered. Both
+passes are read-only until `--fix`.
