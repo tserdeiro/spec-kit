@@ -337,13 +337,17 @@ verification), feature PR #64. Releases pending: preset 0.9.0, linear
   projected at plan, published digests re-verified (#73–#75).
 - **Installation** — a safe skill mirror and the installer's ignore
   entries (#76).
-- **Process record** — the budget rule fired twice in its own round
-  (T009 at 231/180, T011 at 213/180), both fit after consolidating
-  duplicated test scaffolding, never by widening the budget; the plan's
-  assumption that `publish.sh` re-runs published mode after publication
-  was wrong — it runs before pushing, so the digest check reports a
-  missing zip as pending; the orchestrator's first skill mirror
-  reproduced the very bug of entry 17, caught by the diff before commit.
+- **Process record** — the 2× rule reached its stop line twice in its
+  own round, by different paths: in T009 the `budget-stop` block ran and
+  stopped the task at 231/180, returning it to the human; in T011 the
+  implementer measured 213/180 and stopped before the PR under the same
+  rule, and the orchestrator applied the T009 precedent — consolidate —
+  before the block ever ran. Both fit after consolidating duplicated
+  test scaffolding, never by widening the budget; the plan's assumption
+  that `publish.sh` re-runs published mode after publication was wrong
+  — it runs before pushing, so the digest check reports a missing zip as
+  pending; the orchestrator's first skill mirror reproduced the very bug
+  of entry 17, caught by the diff before commit.
 
 ## Releases
 

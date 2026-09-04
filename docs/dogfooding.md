@@ -5,8 +5,10 @@ usándolo sobre sí mismo. Cada problemática va seguida de su solución
 pactada y de su estado: **resuelta** (entregada y publicada), **entregada**
 (en el stack de la 004, pendiente de publicación; pasa a **resuelta**
 cuando se publica), **ronda 004** (acordada, pendiente de implementar),
-**regla** (sin código: se documenta en el loop o el README), **aceptada**
-(se convive con ella) o **upstream** (vive en assets de upstream;
+**regla** (sin código: se documenta en el loop o el README),
+**documentada** (una regla ya enunciada en el loop o el README, con la
+tarea que la escribió), **aceptada** (se convive con ella) o **upstream**
+(vive en assets de upstream;
 candidata a PR allá). Los commits de este archivo van separados de los
 commits de fase.
 
@@ -115,7 +117,7 @@ de corrección (2026-09-01 → 09-02).
 14. **La conformance corre los bloques documentados bajo `sh`.** El
     `set -eo pipefail` de T017 pasó en macOS (`sh` es bash en modo POSIX) y
     falló en Ubuntu (`dash`); solo CI lo vio.
-    *Documentada (004, T005/#69; T012):* todo bloque ejecutable de los comandos
+    *Documentada (004, T012):* todo bloque ejecutable de los comandos
     del preset es POSIX — `set -e`, sin pipelines que necesiten
     `pipefail`; la conformance ya los ejecuta con `sh`. Enunciado en el README del preset.
 15. **La conformance de bundles no valida los hashes históricos del lock.**
@@ -233,13 +235,17 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     commit.
     *Entregada (004, T011/#76):* core = lo que lista el manifest de la
     integración; el doctor lo hace con un bloque ejecutable.
-30. **La regla 2× se disparó dos veces en su propia ronda.** T009 llegó a
-    231/180 y T011 a 213/180, ambas por scaffolding de tests duplicado
-    (fixtures de worktree; un fixture entero para un caso).
-    *Decisión (2026-09-04):* consolidar fixtures compartidos, nunca
-    ampliar el presupuesto — el forecast de tareas con fixtures de git
-    suele quedarse corto; se estima con helper compartido desde el
-    inicio.
+30. **La regla 2× se disparó dos veces en su propia ronda, por caminos
+    distintos.** En T009 el bloque `budget-stop` corrió y frenó la tarea
+    en 231/180, devolviéndola al humano; en T011 el implementador midió
+    213/180 y paró antes del PR bajo la misma regla, y el orquestador
+    aplicó el precedente de T009 —consolidar— antes de que el bloque
+    llegara a correr.
+    *Decisión (2026-09-04):* las dos entran tras consolidar scaffolding
+    de tests duplicado (fixtures de worktree; un fixture entero para un
+    caso), nunca ampliando el presupuesto — el forecast de tareas con
+    fixtures de git suele quedarse corto; se estima con helper compartido
+    desde el inicio.
 31. **El preset instalado se etiquetaba 0.7.0 con contenido 0.8.0.**
     `specify preset resolve` leía el registro viejo hasta `preset remove
     default && preset add --dev presets/default`.
