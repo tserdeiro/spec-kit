@@ -906,13 +906,14 @@ budget_out=$(run_budget_stop T001 003-feature $'40\t0\tsrc/a.py\n')
 [ "$budget_out" = "budget: 40/40 (forecast ~20)" ] ||
   fail "budget: fenced-sample T001 output was '$budget_out'"
 
-# Under budget: binary and excluded files (docs, uv.lock) contribute nothing.
+# Under budget: binary and excluded files (docs, uv.lock) contribute
+# nothing; a tab-separated path containing a space is still counted whole.
 reset_command_logs
 budget_out=$(run_budget_stop T002 003-feature \
-  $'30\t0\tsrc/a.py\n500\t0\tdocs/guide.md\n9\t0\tuv.lock\n-\t-\tassets/logo.png\n')
-[ "$budget_out" = "budget: 30/100 (forecast ~50)" ] ||
+  $'30\t0\tsrc/a.py\n500\t0\tdocs/guide.md\n9\t0\tuv.lock\n-\t-\tassets/logo.png\n12\t0\tsrc/with space.py\n')
+[ "$budget_out" = "budget: 42/100 (forecast ~50)" ] ||
   fail "budget: under-budget output was '$budget_out'"
-[ "$(cat "$git_calls")" = "$(json_argv diff --numstat '003-feature...HEAD')" ] ||
+[ "$(cat "$git_calls")" = "$(json_argv diff --numstat --no-renames '003-feature...HEAD')" ] ||
   fail "budget: under-budget used incorrect git argv"
 
 # Over budget: stops naming the task, the added count, and the stop line.

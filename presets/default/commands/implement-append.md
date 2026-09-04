@@ -164,6 +164,8 @@ their own branches are not this loop's concern.
    base="<the base the task-base block printed>"
    paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
    tasks_file=$(printf '%s\n' "$paths" | sed -n 's/^FEATURE_DIR: //p')/tasks.md
+   [ -f "$tasks_file" ] ||
+     { printf 'error: task ledger not found: %s\n' "$tasks_file" >&2; exit 2; }
    forecast=$(awk -v id="$task_id" '
      in_fence {
        i=0; while (substr($0,i+1,1)==" ") i++
@@ -192,9 +194,9 @@ their own branches are not this loop's concern.
    ' "$tasks_file")
    [ -n "$forecast" ] || forecast=400
    numstat=$(mktemp)
-   git diff --numstat "$base...HEAD" > "$numstat"
+   git diff --numstat --no-renames "$base...HEAD" > "$numstat"
    listing=$(mktemp)
-   added=$(awk -v listing="$listing" '
+   added=$(awk -F'\t' -v listing="$listing" '
      {
        lines = $1; path = $3
        if (lines == "-" || $2 == "-") next
@@ -319,9 +321,10 @@ their own branches are not this loop's concern.
    Then, in the PR's **final commit**, check
    the task's box and fill its **Completion evidence** (the PR and the
    verification results; a task split into stacked PRs checks it in the
-   stack's last PR), push, and mark the PR `ready for review`, then, when
-   `linear` is in the set, reconcile with `/speckit.linear.push --hook`
-   so the issue shows its review state. The checked box travels inside
+   stack's last PR), push, run the budget stop again first, and mark the
+   PR `ready for review`, then, when `linear` is in the set, reconcile
+   with `/speckit.linear.push --hook` so the issue shows its review
+   state. The checked box travels inside
    the task PR, so it reaches the feature branch only through the human
    merge; reviewer comments are fixed on this same PR, the box stays
    checked. Ready for review is what frees you to start the next task
