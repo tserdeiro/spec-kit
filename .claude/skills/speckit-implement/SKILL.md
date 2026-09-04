@@ -488,9 +488,10 @@ their own branches are not this loop's concern.
    review` and its fresh review closed; merging is the human's
    decision, made **root-first** — the first PR of the stack into the
    feature branch, then the next — because retargeting the PR above is
-   GitHub's `edited` event, which triggers no workflow, while merging
-   leaf-first pushes the merged commits into every open PR still
-   stacked below (`synchronize`) and re-runs every check at every step.
+   GitHub's `edited` event, which re-runs no tests or conformance (only
+   the naming check listens to it), while merging leaf-first
+   synchronizes every open PR still stacked below and re-runs every
+   check at every step.
    Only when the human explicitly asks the agent to merge, in the
    conversation, does it act: `git worktree prune` first — a stale
    worktree blocks branch deletion — then `gh pr merge <n> --merge

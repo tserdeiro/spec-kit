@@ -193,9 +193,11 @@ Reglas de oro:
   significa "hay hallazgos que corregir", no que algo falló.
 - **El loop nunca mergea**: deja cada PR ready con su review fresca
   cerrada; el humano revisa y mergea **raíz-primero** (GitHub reapunta
-  el PR de arriba con un evento `edited`, sin correr workflows; de la
-  hoja hacia abajo relanza toda la CI en cada paso) — o se lo pide al
-  agente en la conversación, que corre `git worktree prune` y
+  el PR de arriba con un evento `edited` que no relanza tests ni
+  conformance, solo el check de naming lo escucha; de la hoja hacia
+  abajo, en cambio, cada merge sincroniza los PRs abiertos debajo y
+  relanza toda la CI en cada paso) — o se lo pide al agente en la
+  conversación, que corre `git worktree prune` y
   `gh pr merge --merge --delete-branch` raíz-primero. Un ruleset de
   GitHub que exija aprobación en ramas `NNN-*` se activa solo cuando
   haya un segundo revisor o una identidad bot para el agente — en un
@@ -210,7 +212,7 @@ Reglas de oro:
   tip opcional: el MCP de [Context7](https://context7.com) sirve docs
   actualizadas por versión.
 - **Un revert es una tarea**: se entrega por el loop igual que
-  cualquier otra, y su commit lleva `revert(scope): …`, nunca el
+  cualquier otra, y su commit lleva `revert(scope): <subject>`, nunca el
   subject por defecto de `git revert`.
 
 **Linear en tiempo real** (opcional, recomendado): un admin conecta GitHub

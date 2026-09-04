@@ -45,8 +45,7 @@ work-item PRs target the GitHub default.
 
 Delivery keeps one linear stack per feature: `speckit.implement` and
 `speckit.pr` derive each task's base from the feature's open, ready task
-PRs, never a second stack. Merging stacked PRs root-first is the human's
-step, not the loop's.
+PRs, never a second stack.
 
 ## Closing the run
 
@@ -55,4 +54,4 @@ and its fresh review closed. The human merges root-first; only on an
 explicit request does the agent act — `git worktree prune`, then
 `gh pr merge <n> --merge --delete-branch` for each PR, root-first. A
 revert travels through the same loop as any task, its commit subject
-`revert(scope): subject`, never `git revert`'s default.
+`revert(scope): <subject>`, never `git revert`'s default.
