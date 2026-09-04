@@ -31,7 +31,6 @@ class ParserTests(unittest.TestCase):
         feature = parse_feature(self.fixture_root, self.fixture_root / "specs/001-local-projection")
 
         self.assertEqual(feature.phases, ())
-        self.assertFalse(feature.has_ledger)
 
     def test_missing_plan_md_still_raises_artifact_missing(self) -> None:
         (self.fixture_root / "specs/001-local-projection/plan.md").unlink()

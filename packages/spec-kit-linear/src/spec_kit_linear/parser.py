@@ -277,11 +277,11 @@ def parse_feature(root: Path, feature_dir: Path) -> Feature:
     title, spec_source = _document_title(feature_dir / "spec.md", root)
     summary = _spec_summary(feature_dir / "spec.md")
     plan_title, plan_source = _document_title(feature_dir / "plan.md", root)
-    # tasks.md is optional (plan D15): a feature with only a spec and a plan
-    # still projects its Project, with no Issues until the ledger exists.
     tasks_path = feature_dir / "tasks.md"
-    has_ledger = tasks_path.exists()
-    phases = _parse_tasks(tasks_path, root) if has_ledger else ()
+    # tasks.md is optional (plan D15): absent -> phases=(), the same value
+    # _parse_tasks itself never returns (it raises phase_missing/task_missing
+    # instead), so an empty tuple uniquely means "no tasks.md".
+    phases = _parse_tasks(tasks_path, root) if tasks_path.exists() else ()
     return Feature(
         identifier=identifier,
         title=title,
@@ -290,5 +290,4 @@ def parse_feature(root: Path, feature_dir: Path) -> Feature:
         plan_source=plan_source,
         phases=phases,
         summary=summary,
-        has_ledger=has_ledger,
     )
