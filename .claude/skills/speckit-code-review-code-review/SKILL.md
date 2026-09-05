@@ -69,6 +69,13 @@ The verdict is `no-blocking-findings`, `changes-requested` or `inconclusive` —
 the candidate needs work. An `inconclusive` verdict names what it did not cover,
 in the human render as well as in the JSON.
 
+A task pull request — one whose base branch name starts with a number, such
+as the feature branch `004-delivery-discipline` or a stacked task's own
+`004-T007-…` — gets an automatic `blocking` finding for every touched
+`protected_paths` entry (`specs/*/spec.md` and the constitution by default),
+regardless of what the reviewing agent found. A pull request based on the
+delivery trunk is exempt.
+
 ### findings.json
 
 ```json

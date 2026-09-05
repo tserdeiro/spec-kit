@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+- A task pull request (base branch `NNN-…`) that touches a `protected_paths`
+  entry — `specs/*/spec.md` and the constitution by default, configurable —
+  now gets an automatic `blocking`/`contract` finding and
+  `changes-requested`, whatever the reviewing agent found. A pull request
+  based on the delivery trunk is exempt.
+- The base rule template `doctor --fix` writes now states the
+  repository's engineering principles as a `**/*` rule ahead of the
+  Python-specific one: over-engineering and speculative abstraction are
+  `major` findings, a new runtime dependency is `blocking`. A repository
+  with an existing rule file merges it in by hand.
+
 ## 0.3.0
 
 - Normalized findings are written to `findings-normalized.json`; the
