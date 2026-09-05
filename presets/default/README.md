@@ -38,5 +38,12 @@ feature targets a branch other than GitHub's default. The feature-PR path
 in `speckit.pr` and the first-task refresh in `speckit.implement` use that
 explicit value first and fall back to the GitHub default when it is absent
 or empty; either way the name must pass `git check-ref-format --branch`.
-Task PRs target the feature branch; work-item PRs target the GitHub
-default.
+Task PRs target the open task PR they stack on, else the feature branch;
+work-item PRs target the GitHub default.
+
+## One stack
+
+Delivery keeps one linear stack per feature: `speckit.implement` and
+`speckit.pr` derive each task's base from the feature's open, ready task
+PRs, never a second stack. Merging stacked PRs root-first is the human's
+step, not the loop's.

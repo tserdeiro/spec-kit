@@ -450,6 +450,8 @@ if args == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchR
     sys.stdout.write(os.environ.get("GH_DEFAULT", "main\n"))
 elif args[:2] == ["pr", "create"]:
     print("https://example.invalid/pr/1")
+elif args[:2] == ["pr", "list"]:
+    sys.stdout.write(os.environ.get("GH_PR_LIST", ""))
 else:
     print("unexpected gh argv", file=sys.stderr)
     raise SystemExit(8)
@@ -462,7 +464,7 @@ import json, os, subprocess, sys
 
 args = sys.argv[1:]
 observed = args == ["branch", "--show-current"] or (
-    args and args[0] in {"check-ref-format", "fetch", "merge", "push"}
+    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch"}
 )
 if observed:
     with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
@@ -477,6 +479,9 @@ elif args and args[0] == "check-ref-format":
 elif args and os.environ.get("FAIL_COMMAND") == args[0]:
     print(f"forced {args[0]} failure", file=sys.stderr)
     raise SystemExit(9)
+elif args[:2] == ["merge-base", "--is-ancestor"]:
+    pair = f"{args[2]} {args[3]}"
+    raise SystemExit(0 if pair in os.environ.get("GIT_ANCESTORS", "").splitlines() else 1)
 elif not observed:
     raise SystemExit(subprocess.run([os.environ["REAL_GIT"], *args], check=False).returncode)
 PY
@@ -520,6 +525,7 @@ run_pr_create() {
   local kind="$1" github_default="$2" fail_command="$3"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    GH_PR_LIST="${GH_PR_LIST:-}" GIT_ANCESTORS="${GIT_ANCESTORS:-}" \
     PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE='team/web/003-feature$(safe)' \
     SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
@@ -528,6 +534,10 @@ run_pr_create() {
 
 create_call() {
   json_argv pr create --draft --base "$1" --title '<type(scope): subject>' --body '<the body>'
+}
+pr_list_call() {
+  json_argv pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
+    --jq ".[] | select(.headRefName | startswith(\"$1-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\""
 }
 repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
 
@@ -570,9 +580,11 @@ run_pr_create feature main gh >/dev/null 2>&1 && fail "trunk: a failed GitHub lo
 set_config 'trunk: unused\n'
 reset_command_logs
 run_pr_create task main "" >/dev/null || fail "trunk: task PR create failed"
-[ "$(cat "$gh_calls")" = "$(create_call 'team/web/003-feature$(safe)')" ] ||
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
+$(create_call 'team/web/003-feature$(safe)')" ] ||
   fail "trunk: task PR used incorrect gh argv"
-[ ! -s "$git_calls" ] || fail "trunk: task PR unexpectedly validated a branch"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
+  fail "trunk: task PR used incorrect git argv"
 
 reset_command_logs
 run_pr_create work-item 'default$(safe)' "" >/dev/null || fail "trunk: work-item PR create failed"
@@ -629,4 +641,153 @@ grep -Fq 'git merge "$remote/$delivery_base"' "$implement_skill" ||
   fail "trunk: implement command does not quote the resolved base"
 
 echo "ok: trunk"
+
+# --------------------------------------------------------------------------
+# 5. One linear stack per feature (plan D5): step 1's task-base block picks
+#    the next task's base from the open, non-draft task PRs, and
+#    speckit.pr's task case resolves the same base for `gh pr create`.
+# --------------------------------------------------------------------------
+
+task_base=$(sed -n '/task-base:start/,/task-base:end/p' "$implement_skill")
+[ -n "$task_base" ] || fail "stack: installed task-base block is missing"
+
+render_task_base() {
+  printf '%s\n' "$task_base" | sed "s@<NNN-T###-short-slug>@$1@"
+}
+
+run_task_base() {
+  local branch="$1" pr_list="$2" feature="${3:-}" fail_command="${4:-}"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" \
+    SPECIFY_FEATURE="$feature" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
+    sh -c "$(render_task_base "$branch")")
+}
+
+# No open task PR: branch from the feature branch.
+reset_command_logs
+run_task_base 003-T002-slug "" >/dev/null || fail "stack: task-base with no open PR failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+  fail "stack: task-base with no open PR used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)
+$(json_argv switch -c 003-T002-slug origin/003-feature)" ] ||
+  fail "stack: task-base with no open PR used incorrect git argv"
+
+# A slashed feature branch (branch_template repositories): the feature
+# number is the final path segment's prefix, not the whole path's.
+reset_command_logs
+run_task_base 003-T002-slug "" 'team/web/003-feature$(safe)' >/dev/null ||
+  fail "stack: task-base with a slashed feature branch failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+  fail "stack: task-base with a slashed feature branch used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)
+$(json_argv switch -c 003-T002-slug 'origin/team/web/003-feature$(safe)')" ] ||
+  fail "stack: task-base with a slashed feature branch used incorrect git argv"
+
+# One ready task PR: branch from its head, not the feature branch.
+reset_command_logs
+run_task_base 003-T002-slug '003-T001-x 003-feature false' >/dev/null ||
+  fail "stack: task-base with one ready PR failed"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)
+$(json_argv switch -c 003-T002-slug origin/003-T001-x)" ] ||
+  fail "stack: task-base with one ready PR used incorrect git argv"
+
+# Two open tops: two stacks, refuse before touching Git.
+reset_command_logs
+run_task_base 003-T002-slug \
+  $'003-T001-x 003-feature false\n003-T001-z 003-feature false' \
+  >/dev/null 2>&1 && fail "stack: task-base accepted two open stacks"
+[ ! -s "$git_calls" ] || fail "stack: two-stack task-base unexpectedly touched git"
+
+# A draft task PR: a task is still in flight, refuse before touching Git.
+reset_command_logs
+run_task_base 003-T002-slug '003-T001-x 003-feature true' \
+  >/dev/null 2>&1 && fail "stack: task-base accepted a draft task PR"
+[ ! -s "$git_calls" ] || fail "stack: draft task-base unexpectedly touched git"
+
+# A forced fetch failure stops before the branch switch.
+reset_command_logs
+run_task_base 003-T002-slug "" "" fetch >/dev/null 2>&1 &&
+  fail "stack: task-base ignored a forced fetch failure"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
+  fail "stack: task-base did not stop after a forced fetch failure"
+
+# speckit.pr's task case walks every open head and keeps the deepest
+# ancestor of HEAD, regardless of the order gh returns them in.
+reset_command_logs
+GH_PR_LIST=$'003-T001-x 003-feature false\n003-T002-y 003-T001-x false'
+GIT_ANCESTORS=$'origin/003-T001-x HEAD\norigin/003-T002-y HEAD\norigin/003-T001-x origin/003-T002-y'
+run_pr_create task main "" >/dev/null || fail "stack: task PR with ancestor failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
+$(create_call '003-T002-y')" ] ||
+  fail "stack: task PR with ancestor used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv fetch origin)" ] ||
+  fail "stack: task PR with ancestor used incorrect git argv"
+
+reset_command_logs
+GH_PR_LIST=$'003-T002-y 003-T001-x false\n003-T001-x 003-feature false'
+run_pr_create task main "" >/dev/null || fail "stack: reverse-order task PR with ancestor failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
+$(create_call '003-T002-y')" ] ||
+  fail "stack: reverse-order task PR with ancestor used incorrect gh argv"
+
+echo "ok: stack"
+
+# --------------------------------------------------------------------------
+# 6. Fix propagation through the stack (plan D6): the stack-propagate block
+#    carries a commit on a fixed branch into every open task PR stacked on
+#    it, in stack order, as merge commits, and stops naming the branch on a
+#    conflict without touching the branches above it.
+# --------------------------------------------------------------------------
+
+stack_propagate=$(sed -n '/stack-propagate:start/,/stack-propagate:end/p' "$implement_skill")
+[ -n "$stack_propagate" ] || fail "propagate: installed stack-propagate block is missing"
+
+render_stack_propagate() {
+  printf '%s\n' "$stack_propagate" | sed "s@<NNN-T###-short-slug>@$1@"
+}
+
+run_stack_propagate() {
+  local branch="$1" pr_list="$2" fail_command="${3:-}"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" \
+    sh -c "$(render_stack_propagate "$branch")")
+}
+
+chain_prs=$'003-T002-b 003-T001-a false\n003-T003-c 003-T002-b false'
+
+# A chain of two stacked PRs: each is merged in stack order and pushed, and
+# the run finishes back on the fixed branch.
+reset_command_logs
+run_stack_propagate 003-T001-a "$chain_prs" >/dev/null || fail "propagate: chain failed"
+[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+  fail "propagate: chain used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv switch 003-T002-b)
+$(json_argv merge --no-ff -m 'merge(task): carry the T001 fix into T002' 003-T001-a)
+$(json_argv push origin 003-T002-b)
+$(json_argv switch 003-T003-c)
+$(json_argv merge --no-ff -m 'merge(task): carry the T001 fix into T003' 003-T002-b)
+$(json_argv push origin 003-T003-c)
+$(json_argv switch 003-T001-a)" ] ||
+  fail "propagate: chain used incorrect git argv"
+
+# A conflict on the first merge stops the loop: it aborts, exits 2, and
+# the branch stacked above (003-T003-c) is never reached.
+reset_command_logs
+propagate_status=0
+run_stack_propagate 003-T001-a "$chain_prs" merge >/dev/null 2>&1 || propagate_status=$?
+[ "$propagate_status" -eq 2 ] ||
+  fail "propagate: forced merge failure exited $propagate_status, expected 2"
+[ "$(cat "$git_calls")" = "$(json_argv switch 003-T002-b)
+$(json_argv merge --no-ff -m 'merge(task): carry the T001 fix into T002' 003-T001-a)
+$(json_argv merge --abort)" ] ||
+  fail "propagate: forced merge failure used incorrect git argv"
+
+# Nothing stacked: exit 0 without touching Git at all.
+reset_command_logs
+run_stack_propagate 003-T001-a "" >/dev/null || fail "propagate: empty chain failed"
+[ ! -s "$git_calls" ] || fail "propagate: empty chain unexpectedly touched git"
+
+echo "ok: propagate"
 echo "conformance passed"

@@ -326,12 +326,48 @@ their own branches are not this loop's concern.
      The delivery base resolves the same way `speckit.pr`'s feature PR
      does (see there for the exact rule). Do not run this refresh on
      later tasks; later delivery-base refreshes are the developer's duty.
-   - Create the task branch **from the up-to-date feature branch**:
-     `git switch -c NNN-T###-short-slug`. One exception stacks: when the
-     task's **Depends on** names a task whose PR is not merged yet,
-     branch from that task's branch instead and name it in the PR body's
-     `Stack:` line — never wait idle for that merge; when it lands,
-     GitHub retargets the stacked PR to the feature branch by itself.
+   - Create the task branch **from the top of the open task stack**: run
+     the block below, replacing only the `task_branch` literal (`pr.md`'s
+     `pr-create` block replaces its own literal the same way). It
+     resolves the feature branch, reads this feature's open, non-draft
+     task PRs, and switches `task_branch` onto the one none of them uses
+     as a base — or onto the feature branch when none is open, including
+     when the human merged the stack root-first between tasks. A draft
+     task PR means one is still in flight and stops the loop; two heads
+     with nothing stacked on either is two stacks and also stops the
+     loop. **Depends on** documents delivery order; it never chooses the
+     base. Name the base the block prints in the PR body's `Stack:` line.
+
+     ```bash
+     # task-base:start
+     set -e
+     task_branch="<NNN-T###-short-slug>"
+     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
+     feature_branch=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
+     feature_number=${feature_branch##*/}
+     feature_number=${feature_number%%-*}
+     prs=$(mktemp)
+     gh pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
+       --jq ".[] | select(.headRefName | startswith(\"$feature_number-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\"" \
+       > "$prs"
+     draft=$(awk '$3 == "true" { print $1 }' "$prs")
+     [ -z "$draft" ] ||
+       { printf 'error: draft task PR still open: %s\n' "$draft" >&2; exit 2; }
+     tops=$(awk '{ head[$1]=1; used[$2]=1 } END { for (h in head) if (!(h in used)) print h }' "$prs")
+     top_count=$(printf '%s\n' "$tops" | grep -c .) || true
+     if [ "$top_count" -gt 1 ]; then
+       printf 'error: two open task stacks: %s\n' "$tops" >&2
+       exit 2
+     elif [ "$top_count" -eq 1 ]; then
+       base="$tops"
+     else
+       base="$feature_branch"
+     fi
+     git fetch origin
+     git switch -c "$task_branch" "origin/$base"
+     printf 'base=%s\n' "$base"
+     # task-base:end
+     ```
    - **The stack is derived, never invented**: when the task or the
      plan's `## Documentation` section defines stack or documentation
      links, they rule. Otherwise read the real manifests
@@ -378,7 +414,60 @@ their own branches are not this loop's concern.
      mode — and name that comment in the Completion evidence.
    That independence is what makes the verdict worth anything: a reused
    findings file is not a review. Fix what it finds on the task branch,
-   whichever path produced it. Then, in the PR's **final commit**, check
+   whichever path produced it.
+
+   **Carrying a fix through the stack.** Whenever a commit lands on
+   a task branch that has open task PRs stacked on it — a review fix
+   on an earlier task, a reviewer's comment fixed later — run the
+   block below from that branch, replacing only the `fixed_branch`
+   literal. It reads this feature's open task PRs (the same query as
+   `task-base`) and walks the chain upward: the PR whose base is
+   `fixed_branch`, then the PR whose base is that head, and so on —
+   one linear stack, each `T###` read from the branch's `NNN-T###-`
+   prefix with `sed`. For every branch in that order it runs
+   `git switch`, `git merge --no-ff -m "merge(task): carry the <T###
+   of fixed_branch> fix into <T### of that branch>" <previous
+   branch>`, then `git push origin <branch>`. A merge failure runs
+   `git merge --abort`, prints the branch it stopped at, and exits 2
+   without touching the branches above it; an empty chain prints
+   that nothing is stacked and exits 0. Once every stacked branch is
+   merged and pushed, it switches back to `fixed_branch`. No
+   rewrite, no rebase, no force — merge commits only, the subject
+   form the conventions check accepts.
+
+   ```bash
+   # stack-propagate:start
+   set -e
+   fixed_branch="<NNN-T###-short-slug>"
+   feature_number=${fixed_branch%%-*}
+   prs=$(mktemp)
+   gh pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
+     --jq ".[] | select(.headRefName | startswith(\"$feature_number-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\"" \
+     > "$prs"
+   fixed_task=$(printf '%s\n' "$fixed_branch" | sed -nE 's/^[0-9]+-(T[0-9]{3})-.*/\1/p')
+   previous="$fixed_branch"
+   current=$(awk -v base="$fixed_branch" '$2 == base { print $1; exit }' "$prs")
+   if [ -z "$current" ]; then
+     printf 'nothing stacked on %s\n' "$fixed_branch"
+     exit 0
+   fi
+   while [ -n "$current" ]; do
+     current_task=$(printf '%s\n' "$current" | sed -nE 's/^[0-9]+-(T[0-9]{3})-.*/\1/p')
+     git switch "$current"
+     if ! git merge --no-ff -m "merge(task): carry the $fixed_task fix into $current_task" "$previous"; then
+       git merge --abort || true
+       printf 'error: merge conflict carrying the fix into %s\n' "$current" >&2
+       exit 2
+     fi
+     git push origin "$current"
+     previous="$current"
+     current=$(awk -v base="$previous" '$2 == base { print $1; exit }' "$prs")
+   done
+   git switch "$fixed_branch"
+   # stack-propagate:end
+   ```
+
+   Then, in the PR's **final commit**, check
    the task's box and fill its **Completion evidence** (the PR and the
    verification results; a task split into stacked PRs checks it in the
    stack's last PR), push, and mark the PR `ready for review`, then, when
