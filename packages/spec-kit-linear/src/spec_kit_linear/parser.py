@@ -277,7 +277,11 @@ def parse_feature(root: Path, feature_dir: Path) -> Feature:
     title, spec_source = _document_title(feature_dir / "spec.md", root)
     summary = _spec_summary(feature_dir / "spec.md")
     plan_title, plan_source = _document_title(feature_dir / "plan.md", root)
-    phases = _parse_tasks(feature_dir / "tasks.md", root)
+    tasks_path = feature_dir / "tasks.md"
+    # tasks.md is optional (plan D15): absent -> phases=(), the same value
+    # _parse_tasks itself never returns (it raises phase_missing/task_missing
+    # instead), so an empty tuple uniquely means "no tasks.md".
+    phases = _parse_tasks(tasks_path, root) if tasks_path.exists() else ()
     return Feature(
         identifier=identifier,
         title=title,

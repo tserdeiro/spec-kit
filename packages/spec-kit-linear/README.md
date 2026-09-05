@@ -39,7 +39,9 @@ Flags, in full:
 `extension.yml` (`after_plan` and `after_tasks` — the moments the Project
 and the Issues are created, which nothing native can do) pass it so a hook
 invocation degrades to a clean no-op when there is no configuration yet,
-and honors the `hooks.*` gates. Every later state transition is Linear's
+and honors the `hooks.*` gates. `after_plan` projects the feature's Project
+with zero Issues even before `tasks.md` exists; `after_tasks` adds the
+Issues once the ledger does. Every later state transition is Linear's
 native GitHub integration's job; `push` remains the idempotent reconciler.
 
 ## Getting started
