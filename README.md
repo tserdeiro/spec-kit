@@ -334,8 +334,10 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
   quien, no qué instala.
 - **Agentes distintos conviven**: upstream registra los comandos de
   extensiones y preset solo en la integración **default** — y
-  `/speckit.doctor --fix` espeja esos skills al resto de los agentes
-  instalados, para que ninguno sea de segunda clase. Sumar un agente:
+  `/speckit.doctor --fix` copia enteros los skills de extensión y preset
+  al resto de los agentes instalados y, en los comandos core, mantiene
+  el render propio de cada agente y le suma las capas del preset, sin
+  pisar nunca el render de un agente con el de otro. Sumar un agente:
   `specify integration install <agente> --force`, `/speckit.doctor
   --fix`, y se commitea. Tras un `bundle update` o un `integration
   switch`, el mismo doctor re-espeja.
@@ -497,6 +499,10 @@ uv sync
 uv run pytest packages/spec-kit-linear/tests
 uv run pytest packages/spec-kit-code-review/tests
 ```
+
+La invocación de arriba —`uv run pytest packages/<paquete>/tests` desde
+la raíz— es la documentada: `uv run --project <paquete> pytest`
+recolecta ambos árboles de tests y choca en `tests.conftest`.
 
 La conformance por paquete vive en `packages/*/scripts/conformance/`; la
 de los bundles en
