@@ -231,6 +231,10 @@ and never chooses the base — delivery always stacks the next task on the
 open, ready task PR, or starts from the feature branch when none is
 open, so the ledger accumulates every checked box on one stack.
 
+Every task's `**Delivery**:` line carries its forecast as
+`(~N authored lines)` — the review budget's count of added executable
+lines — so the delivery loop can stop the task at twice it.
+
 ## Phase close (tserdeiro/spec-kit)
 
 This distribution closes every product phase silent and committed —
