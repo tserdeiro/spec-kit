@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 from spec_kit_code_review.errors import EXIT_SUCCESS, EXIT_USAGE
+from tests.support.fixtures import install_fake_gh, pull_request_payload
 from tests.unit.test_cli import RunCommandCase
 
 
@@ -525,6 +526,51 @@ class NormalizationThroughTheCommandTests(PhaseTwoCase):
 
         self.assertEqual(len(self.session_payload()["findings_sha256"]), 64)
         self.assertEqual(self.session_payload()["findings_count"], 1)
+
+
+class ProtectedPathThroughTheCommandTests(RunCommandCase):
+    """FR-010 / plan D1, wired end to end -- `test_contract.py` covers the
+    generated finding's shapes directly and much more cheaply; this is the
+    proof that phase two actually reaches it and the verdict follows. Only a
+    real pull request carries a ``base_branch``, hence the PR selector."""
+
+    PR_NUMBER = 900
+
+    def _review(self, *, base_branch: str, base_commit: str, head_commit: str) -> tuple[int, dict]:
+        self._engine_reports("specs/004-x/spec.md")
+        install_fake_gh(
+            self.bin,
+            {
+                "auth": {"authenticated": True, "scopes": ["repo"]},
+                "user": "tester",
+                "pull_requests": {
+                    str(self.PR_NUMBER): pull_request_payload(
+                        number=self.PR_NUMBER,
+                        repository="tserdeiro/consumer",
+                        base_branch=base_branch,
+                        base_commit=base_commit,
+                        head_commit=head_commit,
+                    )
+                },
+            },
+        )
+        code, opened = self.invoke_json("review", str(self.PR_NUMBER))
+        self.assertEqual(code, EXIT_SUCCESS, opened)
+        session = opened["session"]["path"]
+        findings_path = Path(session) / "findings.json"
+        findings_path.write_text(json.dumps({"findings": []}), encoding="utf-8")
+        return self.invoke_json("review", "--findings", str(findings_path), "--session", session)
+
+    def test_a_protected_path_on_a_task_base_reaches_changes_requested(self) -> None:
+        feature_base = self.repository.commit("specs/004-x/spec.md", "Initial spec.\n", "seed the protected path")
+        head = self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\n", "touch the spec")
+
+        code, payload = self._review(base_branch="004-feature", base_commit=feature_base, head_commit=head)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(payload["verdict"]["value"], "changes-requested")
+        finding = payload["findings"][0]
+        self.assertEqual((finding["severity"], finding["category"], finding["path"]), ("blocking", "contract", "specs/004-x/spec.md"))
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs

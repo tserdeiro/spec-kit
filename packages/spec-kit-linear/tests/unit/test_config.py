@@ -15,7 +15,8 @@ from spec_kit_linear.config import (
     resolve_config_path,
 )
 from spec_kit_linear.errors import AppError
-from tests.support.fixtures import copy_consumer_fixture
+from spec_kit_linear.git_refs import main_worktree_root
+from tests.support.fixtures import copy_consumer_fixture, run_git, worktree_repository
 
 
 class ConfigTests(unittest.TestCase):
@@ -285,6 +286,42 @@ class ConfigResolutionOrderTests(unittest.TestCase):
         legacy_path.write_text('schema_version: "1.0"\n', encoding="utf-8")
 
         self.assertEqual(resolve_config_path(self.root, None), self.root / ROOT_CONFIG_FILENAME)
+
+
+class ConfigWorktreeResolutionTests(unittest.TestCase):
+    """Plan D3 (FR-011, SC-007): main-checkout fallback for the shared config."""
+
+    def setUp(self) -> None:
+        self.temporary, self.main_root, self.worktree_root = worktree_repository()
+        self.addCleanup(self.temporary.cleanup)
+
+    def _write_config(self, root: Path, tag: str) -> Path:
+        path = root / ROOT_CONFIG_FILENAME
+        path.write_text(f"# {tag}\n", encoding="utf-8")
+        return path
+
+    def test_worktree_without_its_own_config_resolves_the_main_checkouts(self) -> None:
+        main_config = self._write_config(self.main_root, "main")
+        self.assertEqual(resolve_config_path(self.worktree_root, None), main_config)
+
+    def test_worktree_local_config_wins_over_the_main_checkouts(self) -> None:
+        self._write_config(self.main_root, "main")
+        local_config = self._write_config(self.worktree_root, "worktree")
+        self.assertEqual(resolve_config_path(self.worktree_root, None), local_config)
+
+    def test_main_checkout_is_unaffected_by_the_worktree_fallback(self) -> None:
+        main_config = self._write_config(self.main_root, "main")
+        self.assertEqual(resolve_config_path(self.main_root, None), main_config)
+
+    def test_a_non_git_directory_is_unaffected(self) -> None:
+        with TemporaryDirectory() as tmp:
+            plain = Path(tmp)
+            self.assertEqual(resolve_config_path(plain, None), plain / ROOT_CONFIG_FILENAME)
+
+    def test_a_bare_repositorys_worktree_has_no_main_checkout(self) -> None:
+        run_git(self.main_root.parent, "clone", "-q", "--bare", str(self.main_root), str(self.main_root.parent / "bare.git"))
+        run_git(self.main_root.parent / "bare.git", "worktree", "add", "-q", str(self.main_root.parent / "bare-wt"), "HEAD")
+        self.assertIsNone(main_worktree_root(self.main_root.parent / "bare-wt"))
 
 
 if __name__ == "__main__":

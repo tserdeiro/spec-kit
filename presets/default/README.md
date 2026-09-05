@@ -18,7 +18,7 @@ untouched) and skipping silently when nothing changed.
 ## Install
 
 ```bash
-specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.14.0/default-0.8.0.zip
+specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.15.0/default-0.9.0.zip
 ```
 
 Local development:
@@ -38,5 +38,46 @@ feature targets a branch other than GitHub's default. The feature-PR path
 in `speckit.pr` and the first-task refresh in `speckit.implement` use that
 explicit value first and fall back to the GitHub default when it is absent
 or empty; either way the name must pass `git check-ref-format --branch`.
-Task PRs target the feature branch; work-item PRs target the GitHub
-default.
+Task PRs target the open task PR they stack on, else the feature branch;
+work-item PRs target the GitHub default.
+
+## One stack
+
+Delivery keeps one linear stack per feature: `speckit.implement` and
+`speckit.pr` derive each task's base from the feature's open, ready task
+PRs, never a second stack.
+
+## Budget stop
+
+A task stops before its PR opens — and again before `ready for review`
+if the branch grew — when its authored executable lines (the added
+lines of the files the review budget counts) pass the smaller of twice
+its `Delivery` forecast and 400. A breached forecast or budget is
+amended only by a human in the ledger, never inside the PR that
+exceeded it.
+
+## Closing the run
+
+The loop never merges: a run ends with every task PR `ready for review`
+and its fresh review closed. The human merges root-first; only on an
+explicit request does the agent act — `git worktree prune`, then
+`gh pr merge <n> --merge --delete-branch` for each PR, root-first. A
+revert travels through the same loop as any task, its commit subject
+`revert(scope): <subject>`, never `git revert`'s default.
+
+## Doctor
+
+`speckit.doctor` mirrors extension and preset skills whole across every
+installed integration and appends each core command's preset layer to
+its own render, never another's; it also adds the installer's cache and
+`.venv` directories to `.gitignore` when not already covered. Both
+passes are read-only until `--fix`.
+
+## Executable blocks
+
+Every marked block in the preset's commands — `pr-create`,
+`first-task-refresh`, `task-base`, `stack-propagate`, `budget-stop`,
+`skill-mirror`, `ignore-entries` — is POSIX shell: `set -e`, no pipeline
+that needs `pipefail`, no arrays or other bash-isms. Conformance
+extracts and runs each one with `sh` (`dash` on Ubuntu CI); the agent
+replaces only the named literals inside it.

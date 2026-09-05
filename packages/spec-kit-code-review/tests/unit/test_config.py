@@ -134,6 +134,11 @@ class ConfigResolutionTests(unittest.TestCase):
 
         self.assertNotEqual(first, load_config(self.root).sha256)
 
+    def test_protected_paths_default_when_the_key_is_absent(self) -> None:
+        config = load_config(self.root)
+
+        self.assertEqual(config.values["protected_paths"], ["specs/*/spec.md", ".specify/memory/constitution.md"])
+
 
 class ConfigValidationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -210,6 +215,18 @@ class ConfigValidationTests(unittest.TestCase):
                     load_config(self.root)
                 self.assertEqual(caught.exception.code, EXIT_CONFIGURATION)
 
+    def test_protected_paths_must_be_a_non_empty_list_of_non_empty_strings(self) -> None:
+        for text in (
+            'schema_version: "1.0"\nprotected_paths: "specs/*/spec.md"\n',
+            'schema_version: "1.0"\nprotected_paths:\n  - 400\n',
+        ):
+            with self.subTest(text=text):
+                self._shared(text)
+                with self.assertRaises(AppError) as caught:
+                    load_config(self.root)
+                self.assertEqual(caught.exception.code, EXIT_CONFIGURATION)
+                self.assertEqual(caught.exception.diagnostics[0].code, "config_protected_paths")
+
 
 class SharedDocumentTests(unittest.TestCase):
     def test_install_document_is_valid_and_binds_the_repository(self) -> None:
@@ -218,6 +235,7 @@ class SharedDocumentTests(unittest.TestCase):
         self.assertEqual(document["repository"], {"slug": "spec-kit", "github": "tserdeiro/spec-kit", "remote": "upstream"})
         self.assertEqual(document["engine"]["ocr_version"], "v1.8.3")
         self.assertNotIn("root", document["evidence"])
+        self.assertEqual(document["protected_paths"], ["specs/*/spec.md", ".specify/memory/constitution.md"])
 
     def test_the_shipped_template_matches_the_documented_rule_path(self) -> None:
         self.assertEqual(RULE_RELATIVE_PATH, ".opencodereview/rule.json")

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0
+
+- In a Git worktree without its own `speckit-linear.yml` or
+  `.speckit-linear.env`, both now resolve to the main checkout's; a
+  worktree-local file always wins. The doctor's credential diagnostics name
+  whichever file was actually consulted.
+- `tasks.md` is now optional: a feature with only a spec and a plan
+  projects its Project with zero Issues, carrying an info `tasks_pending`
+  diagnostic instead of failing. `push --hook` right after planning a
+  feature now succeeds instead of erroring on the missing ledger; the
+  Issues appear on the first push after `tasks.md` exists. A missing
+  `spec.md` or `plan.md` is still an error.
+
 ## 0.11.0
 
 - The tasks parser skips fenced ``` and ~~~ blocks, so the tasks

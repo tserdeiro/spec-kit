@@ -1,0 +1,14 @@
+{
+  "rules": [
+    {
+      "path": "**/*",
+      "rule": "Review against the repository's engineering principles: the simplest implementation that fully meets the current requirement; no compatibility layers, fallbacks or migrations; no speculative abstraction or configuration; reuse what is already installed. Before asking for an edge case, ask whether the mechanism is needed at all. Report over-engineering and speculative abstraction as major findings and any new runtime dependency as a blocking finding. Cite the exact lines that support each finding.",
+      "merge_system_rule": true
+    },
+    {
+      "path": "**/*.py",
+      "rule": "Review Python changes for correctness, security, and test coverage. Cite the exact lines that support each finding.",
+      "merge_system_rule": true
+    }
+  ]
+}

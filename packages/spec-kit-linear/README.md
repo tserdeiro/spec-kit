@@ -39,7 +39,9 @@ Flags, in full:
 `extension.yml` (`after_plan` and `after_tasks` — the moments the Project
 and the Issues are created, which nothing native can do) pass it so a hook
 invocation degrades to a clean no-op when there is no configuration yet,
-and honors the `hooks.*` gates. Every later state transition is Linear's
+and honors the `hooks.*` gates. `after_plan` projects the feature's Project
+with zero Issues even before `tasks.md` exists; `after_tasks` adds the
+Issues once the ledger does. Every later state transition is Linear's
 native GitHub integration's job; `push` remains the idempotent reconciler.
 
 ## Getting started
@@ -158,7 +160,8 @@ items under **Work items** (`status.work_items` in `--json`).
 **committed**: it carries no secrets, so teammates and CI inherit the binding
 from Git. See [`config/speckit-linear.template.yml`](config/speckit-linear.template.yml)
 for the full schema. `--config PATH` or `SPECKIT_LINEAR_CONFIG` override the
-location.
+location. In a Git worktree that has none of its own, the main checkout's
+`speckit-linear.yml` is used; a worktree-local file wins.
 
 Optional sections: `lifecycle` (the four workflow state IDs a derived state
 is written to) and `hooks` (`lifecycle_enabled`/`auto_apply`, both default
@@ -172,8 +175,10 @@ through the `gh` binary, which owns its own credential.
 Set exactly one of `LINEAR_API_KEY` or `LINEAR_OAUTH_ACCESS_TOKEN`. They are
 read from the process environment, from `.speckit-linear.env` at the
 repository root (gitignored; `onboard` and `doctor --fix` add the entry), or
-from `~/.config/speckit-linear/env`. The real environment always wins.
-Credentials never appear in output, in the configuration, or in Git.
+from `~/.config/speckit-linear/env`. The real environment always wins. In a
+Git worktree that has no `.speckit-linear.env` of its own, the main
+checkout's is used; a worktree-local file wins. Credentials never appear in
+output, in the configuration, or in Git.
 
 ## Choosing the GraphQL destination
 

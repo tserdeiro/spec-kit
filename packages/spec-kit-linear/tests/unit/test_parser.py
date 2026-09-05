@@ -25,6 +25,21 @@ class ParserTests(unittest.TestCase):
         self.assertEqual([task.identifier for phase in feature.phases for task in phase.tasks], ["T001", "T002", "T003"])
         self.assertTrue(feature.phases[0].tasks[1].completed)
 
+    def test_missing_tasks_md_parses_as_an_empty_ledger(self) -> None:
+        (self.fixture_root / "specs/001-local-projection/tasks.md").unlink()
+
+        feature = parse_feature(self.fixture_root, self.fixture_root / "specs/001-local-projection")
+
+        self.assertEqual(feature.phases, ())
+
+    def test_missing_plan_md_still_raises_artifact_missing(self) -> None:
+        (self.fixture_root / "specs/001-local-projection/plan.md").unlink()
+
+        with self.assertRaises(AppError) as raised:
+            parse_feature(self.fixture_root, self.fixture_root / "specs/001-local-projection")
+
+        self.assertEqual(raised.exception.diagnostics[0].code, "artifact_missing")
+
     def test_rejects_duplicate_task_ids(self) -> None:
         tasks = self.fixture_root / "specs/001-local-projection/tasks.md"
         tasks.write_text(tasks.read_text(encoding="utf-8") + "\n- [ ] T001 Duplicate\n", encoding="utf-8")

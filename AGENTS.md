@@ -77,8 +77,8 @@ conflict, the vision wins.
 - Commit messages always use English, in the form `type(scope): subject`
   (e.g. `docs(readme): the front door`), one concern per commit.
 - Repository documents are written in English, with one deliberate
-  exception: the README and `docs/vision.md` are in Spanish for the
-  consuming team.
+  exception: the README, `docs/vision.md`, and `docs/dogfooding.md` are in
+  Spanish for the consuming team.
 - Never commit secrets, agent credentials, operator identity, or environment
   files. Git commits and remote publication remain human-controlled unless a
   user explicitly changes that operating agreement.

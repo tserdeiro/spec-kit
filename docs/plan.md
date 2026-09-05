@@ -85,14 +85,18 @@ command exposes only what its step needs.
   `.github/PULL_REQUEST_TEMPLATE.md`.
 - One task in flight per developer, in dependency order — never parallel
   tasks (no `[P]` markers). The next task starts at `ready for review`;
-  a task depending on an unmerged predecessor stacks on its branch.
+  it stacks on the previous task's ready, unmerged PR — one linear stack
+  per feature — and branches from the feature branch when none is open;
+  the human merges root-first.
 - The task PR's final commit — after self-review, before
   `ready for review` — checks the box and records completion evidence,
   so a checked box reaches the feature branch only through the human
   merge. In the Linear derivation an open PR outranks the checkbox.
 - Review budget: a reviewed PR stays under ~400 authored executable lines;
-  larger tasks split into stacked PRs. This is a convention plus a warning
-  in the review command, not a subsystem.
+  larger tasks split into stacked PRs. The loop stops a task at twice its
+  `Delivery` forecast, or at the budget, whichever comes first, and
+  returns it to the human; a forecast is never widened in the PR that
+  exceeds it.
 - The developer self-reviews with `speckit.code-review` before
   `ready for review`; the reviewer runs the same command plus human review
   before approving.
@@ -311,6 +315,39 @@ budget as #62), feature PR #43. Released as linear 0.11.0, code-review
   found in the workflow itself: sixteen PRs merged without the human gate,
   budgets amended in the PR that breached them, reviews pushing complexity,
   a task editing the product contract. Their rules are the next round.
+
+### Delivery discipline (2026-09-03 → 2026-09-04)
+
+[`004-delivery-discipline`](../specs/004-delivery-discipline/): the loop
+is disciplined by construction. Delivered through task PRs #65–#76 plus
+this PR and the two that follow (T013 release preparation, T014
+verification), feature PR #64. Releases pending: preset 0.9.0, linear
+0.12.0, code-review 0.4.0, bundles 0.15.0.
+
+- **Stack** — tooling detected once at loop start, one linear stack with
+  the base derived from open PRs, fix propagation, branch identity, and
+  a closure that never merges — root-first, with a revert path
+  (#65–#69).
+- **Process** — the budget stop at twice the forecast, the engineering
+  principles in the base rule set, `CLAUDE.md` importing `AGENTS.md`
+  (#70, #71).
+- **Contract** — a deterministic `protected_paths` blocking finding
+  (#72).
+- **Tooling** — worktree-aware Linear configuration, the Project
+  projected at plan, published digests re-verified (#73–#75).
+- **Installation** — a safe skill mirror and the installer's ignore
+  entries (#76).
+- **Process record** — the 2× rule reached its stop line twice in its
+  own round, by different paths: in T009 the `budget-stop` block ran and
+  stopped the task at 231/180, returning it to the human; in T011 the
+  implementer measured 213/180 and stopped before the PR under the same
+  rule, and the orchestrator applied the T009 precedent — consolidate —
+  before the block ever ran. Both fit after consolidating duplicated
+  test scaffolding, never by widening the budget; the plan's assumption
+  that `publish.sh` re-runs published mode after publication was wrong
+  — it runs before pushing, so the digest check reports a missing zip as
+  pending; the orchestrator's first skill mirror reproduced the very bug
+  of entry 17, caught by the diff before commit.
 
 ## Releases
 

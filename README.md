@@ -156,10 +156,10 @@ Reglas de oro:
 
 - **Una tarea en vuelo por dev, nunca en paralelo**: se entregan de a
   una, en orden de dependencias (las listas no llevan marcadores `[P]`).
-  `ready for review` te libera para la siguiente; si esa depende de una
-  tarea sin mergear, su branch se apila sobre el de la anterior (línea
-  `Stack:`) — no esperes el merge: al llegar, GitHub reapunta el PR
-  apilado al branch de feature solo.
+  `ready for review` te libera para la siguiente: la siguiente tarea se
+  apila sobre el PR ready sin mergear de la anterior (línea `Stack:`) o
+  sale del branch de feature si no hay ninguno abierto — un solo stack
+  por feature.
 - **El checkbox viaja dentro del PR de la tarea**: tras la auto-revisión,
   el último commit del PR marca `[x]` y llena la **Completion evidence**
   (PR, verificación). Llega al branch de feature únicamente vía el merge
@@ -191,6 +191,18 @@ Reglas de oro:
   `/speckit.pr` lo llena solo desde los artefactos.
 - La revisión **nunca aprueba ni mergea** — siempre humano. Exit 1
   significa "hay hallazgos que corregir", no que algo falló.
+- **El loop nunca mergea**: deja cada PR ready con su review fresca
+  cerrada; el humano revisa y mergea **raíz-primero** (GitHub reapunta
+  el PR de arriba con un evento `edited` que no relanza tests ni
+  conformance, solo el check de naming lo escucha; de la hoja hacia
+  abajo, en cambio, cada merge sincroniza los PRs abiertos debajo y
+  relanza toda la CI en cada paso) — o se lo pide al agente en la
+  conversación, que corre `git worktree prune` y
+  `gh pr merge --merge --delete-branch` raíz-primero. Un ruleset de
+  GitHub que exija aprobación en ramas `NNN-*` se activa solo cuando
+  haya un segundo revisor o una identidad bot para el agente — en un
+  repo de una sola persona bloquearía al maintainer, porque GitHub no
+  cuenta la aprobación del autor del PR.
 - **El stack se deriva, no se inventa**: mandan la tarea y la sección
   `## Documentation` del plan; si no, el agente lee los manifests reales
   y el código vecino y reutiliza lo instalado. Una dependencia nueva o
@@ -199,6 +211,9 @@ Reglas de oro:
   Declara el principio en tu constitución (`/speckit.constitution`);
   tip opcional: el MCP de [Context7](https://context7.com) sirve docs
   actualizadas por versión.
+- **Un revert es una tarea**: se entrega por el loop igual que
+  cualquier otra, y su commit lleva `revert(scope): <subject>`, nunca el
+  subject por defecto de `git revert`.
 
 **Linear en tiempo real** (opcional, recomendado): un admin conecta GitHub
 en Linear (Settings → Integrations → GitHub), **una vez por workspace**;
@@ -319,8 +334,10 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
   quien, no qué instala.
 - **Agentes distintos conviven**: upstream registra los comandos de
   extensiones y preset solo en la integración **default** — y
-  `/speckit.doctor --fix` espeja esos skills al resto de los agentes
-  instalados, para que ninguno sea de segunda clase. Sumar un agente:
+  `/speckit.doctor --fix` copia enteros los skills de extensión y preset
+  al resto de los agentes instalados y, en los comandos core, mantiene
+  el render propio de cada agente y le suma las capas del preset, sin
+  pisar nunca el render de un agente con el de otro. Sumar un agente:
   `specify integration install <agente> --force`, `/speckit.doctor
   --fix`, y se commitea. Tras un `bundle update` o un `integration
   switch`, el mismo doctor re-espeja.
@@ -440,8 +457,14 @@ cualquier consumidor verifique lo que `doctor --fix` instala. Las releases
 se construyen reproduciblemente desde tags por paquete
 ([`scripts/release/`](scripts/release/)), y cada etapa se aceptó contra
 los artefactos publicados, con la evidencia en
-[`validation/`](validation/). El pin de upstream se reproduce desde un
-clon independiente:
+[`validation/`](validation/). `bash scripts/conformance/bundles.sh
+--published` recalcula el digest del archive del tag y del manifiesto de
+cada extensión contra [`versions.lock.yml`](versions.lock.yml), y
+descarga y verifica el zip publicado cuando ya existe; `publish.sh` lo
+corre antes de publicar, cuando el zip todavía no existe, así que el
+mantenedor lo vuelve a correr una vez publicado para verificar también
+los zips subidos. El pin de upstream se reproduce desde un clon
+independiente:
 
 ```bash
 git clone --branch v1.0.1 --depth 1 \
@@ -476,6 +499,10 @@ uv sync
 uv run pytest packages/spec-kit-linear/tests
 uv run pytest packages/spec-kit-code-review/tests
 ```
+
+La invocación de arriba —`uv run pytest packages/<paquete>/tests` desde
+la raíz— es la documentada: `uv run --project <paquete> pytest`
+recolecta ambos árboles de tests y choca en `tests.conftest`.
 
 La conformance por paquete vive en `packages/*/scripts/conformance/`; la
 de los bundles en
