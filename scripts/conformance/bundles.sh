@@ -109,6 +109,9 @@ catalog_zip() {
 catalog_version() {
   python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]['version'])" "$@"
 }
+catalog_download_url() {
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]]['download_url'])" "$@"
+}
 
 if [ "$mode" = "published" ]; then
   LINEAR_ZIP=$(catalog_zip "$repository_root/catalog/extensions.json" extensions linear)
@@ -124,6 +127,84 @@ if [ "$mode" = "published" ]; then
   check_published preset "$(catalog_version "$repository_root/catalog/presets.json" presets default)" "$PRESET_VERSION"
   check_published bundles "$(catalog_version "$repository_root/catalog/bundles.json" bundles product)" "$BUNDLE_VERSION"
   ! $mismatched || exit 1
+
+  # Published digests (plan D13, FR-014): the parity check above only
+  # compares version strings; re-verify the actual published bytes for each
+  # first-party extension against versions.lock.yml -- the release zip
+  # `build-release.sh` uploaded, the tag's subtree archive, and its
+  # manifest, recomputed exactly as `build-release.sh:45-51` does at
+  # publication.
+  command -v curl >/dev/null 2>&1 || {
+    echo "conformance --published requires curl" >&2
+    exit 4
+  }
+
+  # A lock scalar for one extension id, e.g. `lock_field linear tag`. The
+  # file is flat and two-space indented: an id line starts its block, the
+  # next id line (or EOF) ends it, so scan only inside that span.
+  lock_field() {
+    awk -v id="  $1:" -v key="    $2: " '
+      $0 == id { inside = 1; next }
+      inside && /^  [a-zA-Z]/ { inside = 0 }
+      inside && index($0, key) == 1 { print substr($0, length(key) + 1); exit }
+    ' "$repository_root/versions.lock.yml"
+  }
+
+  verify_published_digests() {
+    local id="$1" tag pkg_path expected_zip expected_subtree expected_manifest
+    local download_url zip_path http_code zip_note="" actual_zip commit_epoch actual_subtree actual_manifest
+    tag=$(lock_field "$id" tag)
+    pkg_path=$(lock_field "$id" path)
+    expected_zip=$(lock_field "$id" release_zip_sha256)
+    expected_subtree=$(lock_field "$id" subtree_archive_sha256)
+    expected_manifest=$(lock_field "$id" manifest_sha256)
+    [ -n "$tag" ] && [ -n "$pkg_path" ] && [ -n "$expected_zip" ] &&
+      [ -n "$expected_subtree" ] && [ -n "$expected_manifest" ] ||
+      fail "$id: versions.lock.yml is missing a published-digest field"
+
+    git -C "$repository_root" rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null ||
+      fail "$id: tag '$tag' not found locally -- run: git fetch --tags origin"
+
+    # publish.sh runs this gate before pushing the tag or creating the
+    # release (scripts/release/publish.sh:275, ahead of 296-316), so the
+    # zip legitimately does not exist yet at that point: a 404 is expected
+    # there, not a failure. Any other non-200 (including a transport
+    # failure, which leaves http_code "000") is.
+    download_url=$(catalog_download_url "$repository_root/catalog/extensions.json" extensions "$id")
+    zip_path="$temporary_root/published-$id.zip"
+    http_code=$(curl -sSL -o "$zip_path" -w '%{http_code}' "$download_url") || true
+    case "$http_code" in
+      200)
+        actual_zip=$(shasum -a 256 "$zip_path" | awk '{print $1}')
+        [ "$actual_zip" = "$expected_zip" ] ||
+          fail "$id: release zip $download_url sha256 mismatch (expected $expected_zip, got $actual_zip)"
+        ;;
+      404)
+        echo "pending: $id release zip not published yet ($download_url); its digest is verified by the next --published run"
+        zip_note=" (release zip pending)"
+        ;;
+      *)
+        fail "$id: release zip $download_url returned HTTP $http_code"
+        ;;
+    esac
+
+    commit_epoch=$(git -C "$repository_root" log -1 --format=%ct "${tag}^{commit}")
+    actual_subtree=$(git -C "$repository_root" archive --mtime="@${commit_epoch}" --format=tar \
+      "${tag}:${pkg_path}" | shasum -a 256 | awk '{print $1}') ||
+      fail "$id: could not archive $tag:$pkg_path"
+    [ "$actual_subtree" = "$expected_subtree" ] ||
+      fail "$id: subtree archive of $tag:$pkg_path sha256 mismatch (expected $expected_subtree, got $actual_subtree)"
+
+    actual_manifest=$(git -C "$repository_root" show "${tag}:${pkg_path}/extension.yml" | shasum -a 256 | awk '{print $1}') ||
+      fail "$id: could not read $tag:$pkg_path/extension.yml"
+    [ "$actual_manifest" = "$expected_manifest" ] ||
+      fail "$id: manifest $tag:$pkg_path/extension.yml sha256 mismatch (expected $expected_manifest, got $actual_manifest)"
+
+    echo "ok: $id published digests$zip_note"
+  }
+
+  verify_published_digests linear
+  verify_published_digests "code-review"
 else
   LINEAR_ZIP="spec-kit-linear-v${LINEAR_VERSION}.zip"
   REVIEW_ZIP="spec-kit-code-review-v${REVIEW_VERSION}.zip"

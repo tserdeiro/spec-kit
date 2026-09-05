@@ -455,8 +455,14 @@ cualquier consumidor verifique lo que `doctor --fix` instala. Las releases
 se construyen reproduciblemente desde tags por paquete
 ([`scripts/release/`](scripts/release/)), y cada etapa se aceptó contra
 los artefactos publicados, con la evidencia en
-[`validation/`](validation/). El pin de upstream se reproduce desde un
-clon independiente:
+[`validation/`](validation/). `bash scripts/conformance/bundles.sh
+--published` recalcula el digest del archive del tag y del manifiesto de
+cada extensión contra [`versions.lock.yml`](versions.lock.yml), y
+descarga y verifica el zip publicado cuando ya existe; `publish.sh` lo
+corre antes de publicar, cuando el zip todavía no existe, así que el
+mantenedor lo vuelve a correr una vez publicado para verificar también
+los zips subidos. El pin de upstream se reproduce desde un clon
+independiente:
 
 ```bash
 git clone --branch v1.0.1 --depth 1 \
