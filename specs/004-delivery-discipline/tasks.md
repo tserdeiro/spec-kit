@@ -60,13 +60,13 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
 **Goal**: the loop adapts to the branch's tooling, keeps one linear stack, carries fixes itself, refuses a misnamed branch, and never merges.
 **Independent evidence**: this round's own PR bases (`gh pr list --json headRefName,baseRefName`), the ledger on the last PR, zero agent merges.
 
-- [ ] T001 [US1] Loop tooling set, hook silence, and the standard reviewer brief in presets/default/commands/implement-append.md
+- [x] T001 [US1] Loop tooling set, hook silence, and the standard reviewer brief in presets/default/commands/implement-append.md
   - **Traces**: FR-001, FR-009, FR-019, SC-008; outcome: step 0 fixes the run's tooling set from `.specify/extensions/{linear,code-review}` on the feature branch and reports it once; reconcile calls run only with `linear`; without `code-review` the fresh reviewer gets `gh pr diff <n>` and posts findings with `gh pr comment`; tasks never install or remove extensions; the reviewer brief is fixed text (verify claims, question the mechanism before edge cases, packets over 100 KB file by file, findings inside the session); optional hooks are never announced (plan D4, D10, D12)
   - **Depends on**: none
   - **Boundaries**: `presets/default/commands/implement-append.md`; regenerated `.agents/skills/speckit-implement/SKILL.md` and the append in `.claude/skills/speckit-implement/SKILL.md`; core templates untouched (C-001)
   - **Evidence**: `bash scripts/conformance/bundles.sh` -> conformance passed; `grep` of the installed implement skill shows the tooling-set, brief, and hook-silence rules; later transcripts of this round carry the tooling line and no hook announcement
   - **Delivery**: single PR (~70 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #65 (ready 2026-09-03, root of the stack, base `004-delivery-discipline`); +38 net lines in `implement-append.md`, both renders regenerated with byte-identical append tails; `bash scripts/conformance/bundles.sh` passed on the final candidate `7a8b462` (implementer run and orchestrator run); `git diff --check` clean; fresh Sonnet review (session `9712e67f`) found 2 minor + 1 info — F003 fixed in-branch (`7a8b462`: the degraded reviewer also gets `gh pr view <n>`), F001 accepted as-is (step 0 runs once per run), F002 informational (the rules file lands in T007); verdict no-blocking-findings
 
 - [ ] T002 [US1] One linear stack: base selection in implement-append.md, stack-aware task base in presets/default/commands/pr.md, ledger rule in tasks-append.md
   - **Traces**: FR-003, SC-001; outcome: step 1 branches from the top of the open ready stack (open non-draft PRs with heads `004-T###-`, the head no other open task PR uses as base) or from the feature branch when none is open, naming it in `Stack:`; `pr.md`'s `task)` case resolves the same base (nearest open task head that is an ancestor of `HEAD`, else the feature branch) instead of always the feature branch; `Depends on` documents order, never the base (plan D5)
