@@ -270,3 +270,14 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Regla:* abrir y cerrar cada sesión con la misma versión
     instalada — en un chore de upgrade, cerrar desde la rama del
     chore o con el CLI del paquete a esa versión.
+
+## H. Hallazgos del diseño de releases (ronda 005)
+
+34. **Los work items resolvían su base contra el default de GitHub, no
+    contra el `trunk` configurado.** `chore`, `bugfix` y `pr` creaban la
+    rama y abrían el PR de un bug o chore contra el default de GitHub
+    aunque el PR de feature ya resolviera `trunk:` primero; en un
+    consumidor con `trunk: dev` un fix de bug se saltaba `dev` por
+    completo.
+    *Entregada (chore TDS-48):* los tres comandos y la conformance
+    resuelven la base de entrega igual que el PR de feature.

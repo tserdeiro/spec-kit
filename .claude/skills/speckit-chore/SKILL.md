@@ -28,9 +28,18 @@ each outcome.
 
 ## 2. Create the branch
 
-- From the repository's **up-to-date default branch** (resolve it with
-  `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`;
-  `git fetch` first): `git switch -c wor-123-short-slug`.
+Resolve the repository's up-to-date **delivery base** and branch from it:
+
+```bash
+set -e
+trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*["'"'"']?([^"'"'"'#[:space:]]*)["'"'"']?.*$/\1/p;q;}' \
+  .specify/extensions/git/git-config.yml 2>/dev/null || true)
+base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
+git check-ref-format --branch "$base" >/dev/null
+git fetch origin
+git switch -c wor-123-short-slug "origin/$base"
+```
+
 - The slug is 2–4 words from the issue's title. If the user gave only the
   key and the title is not in the conversation, ask for the title — do
   not invent a slug.

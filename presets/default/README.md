@@ -39,7 +39,8 @@ in `speckit.pr` and the first-task refresh in `speckit.implement` use that
 explicit value first and fall back to the GitHub default when it is absent
 or empty; either way the name must pass `git check-ref-format --branch`.
 Task PRs target the open task PR they stack on, else the feature branch;
-work-item PRs target the GitHub default.
+work-item branches and PRs (`speckit.chore`, `speckit.bugfix`,
+`speckit.pr`) use the delivery base too.
 
 ## One stack
 

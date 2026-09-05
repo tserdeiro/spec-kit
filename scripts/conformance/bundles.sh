@@ -699,7 +699,7 @@ run_pr_create feature main gh >/dev/null 2>&1 && fail "trunk: a failed GitHub lo
 [ "$(cat "$gh_calls")" = "$repo_view" ] || fail "trunk: failed GitHub lookup used incorrect argv"
 [ ! -s "$git_calls" ] || fail "trunk: validated a branch after a failed GitHub lookup"
 
-# Task and work-item bases ignore trunk config entirely; metacharacters in
+# The task base ignores trunk config entirely; metacharacters in
 # repository-derived names stay inert argv.
 set_config 'trunk: unused\n'
 reset_command_logs
@@ -747,12 +747,24 @@ grep -Eq 'error: task ledger not found: .*specs/003-directory-different/tasks\.m
   "$identity_err" || fail "identity: missing-ledger message did not name the path"
 [ ! -s "$gh_calls" ] || fail "identity: missing ledger still queried or created a PR"
 
+# The work-item base resolves the delivery base exactly like the feature
+# PR: configured trunk wins (still active from above), and the fallback
+# both queries the GitHub default and validates it.
+reset_command_logs
+run_pr_create work-item main "" >/dev/null || fail "trunk: work-item PR create failed"
+[ "$(cat "$gh_calls")" = "$(create_call unused)" ] ||
+  fail "trunk: work-item PR used incorrect gh argv"
+[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch unused)" ] ||
+  fail "trunk: work-item PR did not validate its configured base"
+
+set_config __missing_file__
 reset_command_logs
 run_pr_create work-item 'default$(safe)' "" >/dev/null || fail "trunk: work-item PR create failed"
-[ "$(cat "$gh_calls")" = "$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
+[ "$(cat "$gh_calls")" = "$repo_view
 $(create_call 'default$(safe)')" ] ||
   fail "trunk: work-item PR did not resolve the GitHub default at runtime"
-[ ! -s "$git_calls" ] || fail "trunk: work-item PR unexpectedly validated a branch"
+[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')" ] ||
+  fail "trunk: work-item PR did not validate its fallback base"
 
 # The first-task refresh resolves the delivery base the same way and
 # guards that the checkout is the expected feature branch.
