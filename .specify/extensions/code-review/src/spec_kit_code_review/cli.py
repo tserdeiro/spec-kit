@@ -76,6 +76,7 @@ from .session import (
 from .lockfile import SELF_PIN_FILENAME, first_line, lock_path, platform_key, version_matches_pin
 from .ocr import ADAPTER_VERSION, Ocr, verify_scope_against_git, write_minimal_config
 from .anchors import load_hunks
+from .contract import protected_path_findings
 from .findings import load_document, normalize as normalize_findings, render_markdown as render_findings_markdown
 from .packet import assemble as assemble_packet
 from .packet import digest_of as packet_digest
@@ -1385,8 +1386,17 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     entries, source_digest = load_document(findings_path)
     hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
     diagnostics.extend(hunks.diagnostics)
+    # FR-010 / plan D1: a task PR's protected-path change is an automatic blocking finding.
+    generated = protected_path_findings(
+        base_branch=candidate.base_branch,
+        protected_paths=config.values.get("protected_paths", []),
+        git=context.git,
+        hunks=hunks,
+        merge_base=candidate.merge_base,
+        head_commit=candidate.head_commit,
+    )
     normalized = normalize_findings(
-        entries,
+        [*entries, *generated],
         git=context.git,
         head_commit=candidate.head_commit,
         merge_base=candidate.merge_base,

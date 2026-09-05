@@ -21,6 +21,12 @@ budget:
   # stacked pull requests; it never fails.
   limit: 400
 
+protected_paths:
+  # Task pull requests (base branch NNN-...) that touch any of these get an
+  # automatic blocking finding; the feature pull request itself is exempt.
+  - "specs/*/spec.md"
+  - ".specify/memory/constitution.md"
+
 publish:
   event: "request-changes"
   batch_size: 25

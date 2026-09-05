@@ -20,9 +20,9 @@
       "installed_at": "2026-08-29T18:15:03.051790+00:00"
     },
     "linear": {
-      "version": "0.11.0",
+      "version": "0.12.0",
       "source": "local",
-      "manifest_hash": "sha256:9ed74ba6abacf8141e5fc5506b3705f3de92a71f952e5acc4563d96135efb384",
+      "manifest_hash": "sha256:fbc150f4cdf83e31669e85b6681e440b4325a33be88bea765b664cd9de462683",
       "enabled": true,
       "priority": 10,
       "registered_commands": {
@@ -37,9 +37,9 @@
       "installed_at": "2026-09-01T00:07:01.066442+00:00"
     },
     "code-review": {
-      "version": "0.3.0",
+      "version": "0.4.0",
       "source": "local",
-      "manifest_hash": "sha256:0c2482c94a64eee89d20a5ffaf6d5efc1ba3f4c9ea7d361710c8aea613836129",
+      "manifest_hash": "sha256:03af338493759a64db4c0cf260ae7156c60505cc2f5aa90e18f941fee9530fc8",
       "enabled": true,
       "priority": 10,
       "registered_commands": {

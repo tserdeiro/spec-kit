@@ -48,6 +48,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "include_pr_body": True,
     },
     "budget": {"limit": 400},
+    "protected_paths": ["specs/*/spec.md", ".specify/memory/constitution.md"],
     "publish": {
         "event": "request-changes",
         "batch_size": 25,
@@ -484,6 +485,18 @@ def _validate_effective(values: Mapping[str, Any], path: Path) -> None:
             f"unsupported publish.event: {event}",
             code=EXIT_CONFIGURATION,
             diagnostics=[Diagnostic("publish_event_invalid", f"expected one of {', '.join(PUBLISH_EVENTS)}", str(path))],
+        )
+
+    protected_paths = values.get("protected_paths")
+    if (
+        not isinstance(protected_paths, list)
+        or not protected_paths
+        or any(not isinstance(item, str) or not item.strip() for item in protected_paths)
+    ):
+        raise AppError(
+            "protected_paths must be a non-empty list of non-empty strings",
+            code=EXIT_CONFIGURATION,
+            diagnostics=[Diagnostic("config_protected_paths", f"protected_paths = {protected_paths!r}", str(path))],
         )
 
     for section, key in (
