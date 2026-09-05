@@ -64,6 +64,10 @@ findings path outside that session is a usage error.
 - **The candidate does not write the criteria it is judged by.** When it is
   cross-repository, or when its own diff touches `.opencodereview/`, the rules
   come from the merge base and the proposed ones travel in the packet as data.
+- **The candidate does not edit the contract it is judged by.** A task pull
+  request (base branch `NNN-…`) that touches a `protected_paths` entry gets an
+  automatic `blocking` finding and `changes-requested`, whatever the agent
+  found; the feature pull request, based on the trunk, is exempt.
 - **No approval.** The verdict is `no-blocking-findings`, `changes-requested` or
   `inconclusive`. `APPROVE` and merging are unreachable by construction.
 - **Two writes to GitHub, both behind `--publish`**: creating a review with
@@ -91,7 +95,7 @@ request is a human decision. `budget.limit` sets the number.
 
 | File | Committed? | Purpose |
 | --- | --- | --- |
-| `speckit-code-review.yml` | yes | shared policy: engine, packet, budget, publish ceiling |
+| `speckit-code-review.yml` | yes | shared policy: engine, packet, budget, publish ceiling, protected paths |
 | `speckit-code-review.local.yml` | no (gitignored) | machine preferences: evidence root, verbosity |
 | `.speckit-code-review.env` | no (gitignored) | `SPECKIT_CODE_REVIEW_*` values for this repository |
 | `${XDG_CONFIG_HOME:-~/.config}/tserdeiro/spec-kit/env` | n/a | the operator's own, trusted values |
@@ -105,6 +109,9 @@ with a starting `**/*` rule stating the engineering principles —
 over-engineering and speculative abstraction are `major` findings, a new
 runtime dependency is `blocking` — ahead of the shipped `**/*.py` rule; a
 repository with an existing rule file merges the `**/*` rule in by hand.
+
+`protected_paths` (default `specs/*/spec.md` and `.specify/memory/constitution.md`)
+names the paths a task pull request may not touch; see Invariants above.
 
 A repository env file can never define an executable path:
 `SPECKIT_CODE_REVIEW_OCR_BIN` and `SPECKIT_CODE_REVIEW_GH_BIN` are honored only

@@ -1,5 +1,10 @@
 # Changelog
 
+- A task pull request (base branch `NNN-…`) that touches a `protected_paths`
+  entry — `specs/*/spec.md` and the constitution by default, configurable —
+  now gets an automatic `blocking`/`contract` finding and
+  `changes-requested`, whatever the reviewing agent found. A pull request
+  based on the delivery trunk is exempt.
 - The base rule template `doctor --fix` writes now states the
   repository's engineering principles as a `**/*` rule ahead of the
   Python-specific one: over-engineering and speculative abstraction are
