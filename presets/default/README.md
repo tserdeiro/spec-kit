@@ -18,7 +18,7 @@ untouched) and skipping silently when nothing changed.
 ## Install
 
 ```bash
-specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.14.0/default-0.8.0.zip
+specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.15.0/default-0.9.0.zip
 ```
 
 Local development:
