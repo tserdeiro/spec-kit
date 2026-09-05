@@ -168,13 +168,13 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
 **Goal**: the doctor mirrors safely and ignores the installer's noise.
 **Independent evidence**: `/speckit.doctor --fix` in this two-agent repository changes nothing but appends.
 
-- [ ] T011 [US5] Doctor: safe skill mirror and ignore entries in presets/default/commands/doctor.md
+- [x] T011 [US5] Doctor: safe skill mirror and ignore entries in presets/default/commands/doctor.md
   - **Traces**: FR-016, FR-018, SC-006, SC-009; outcome: step 5 copies extension and preset skills whole and, for the five core commands, keeps each integration's own render and appends the preset's registered `strategy: append` layers from `.specify/presets/<id>/` after three blank lines, idempotently, never copying a core skill across integrations; step 6 checks `.specify/extensions/.cache/`, `.specify/presets/.cache/`, `.specify/extensions/*/.venv/` with `git check-ignore -q`, reports the missing ones, and appends them to `.gitignore` with `--fix` (plan D11)
   - **Depends on**: T010
   - **Boundaries**: `presets/default/commands/doctor.md`, `presets/default/README.md`; a two-integration fixture in `scripts/conformance/bundles.sh` (core render keeps its frontmatter and gains the appends once; extension skills identical; ignore entries added once); regenerated skills
   - **Evidence**: `bash scripts/conformance/bundles.sh` -> conformance passed including the mirror and ignore cases; `/speckit.doctor --fix` in this repository -> `.claude/skills` core renders unchanged except their appends, nothing left to mirror on a second run
   - **Delivery**: single PR (~90 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #76 (ready 2026-09-04, stacked on #75 — base `004-T010-published-digests`); design: steps 5 and 6 became executable POSIX blocks (`skill-mirror`, `ignore-entries`) so conformance runs them; budget-stop `173/180 (forecast ~90)` after consolidating the last conformance case onto the shared fixture (it had reached 213: the T009 precedent applied, never the budget); `bash scripts/conformance/bundles.sh` passed with section 8 (report-only changes nothing; fix copies the extension skill whole, rebuilds two core renders byte-exact, leaves the append-less core untouched; second run `mirror: nothing to do` with the tree checksum unchanged; single integration skipped; bad append entry → exit 2, nothing written; ignore fixture with `.venv/` gets exactly the two cache entries once); both blocks run on this two-agent repository → `mirror: nothing to do`, `ignore: nothing to do` (SC-006, SC-009); `git diff --check` clean; fresh Sonnet review (session `b9f57c64`) found 1 major (truncation on a bad append — now fails closed), 2 minor, 1 nit — file-list checksum fixed, the `mktemp` leftovers and `cp -R` merge accepted as-is; verdict no-blocking-findings
 
 ## Final phase: Cross-cutting verification
 

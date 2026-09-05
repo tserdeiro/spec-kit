@@ -79,26 +79,166 @@ Warnings that block nothing go in one final line, not in the list.
 
 Upstream registers extension and preset commands only for the **default**
 integration ("active-only registration"); this distribution's portability
-principle says no agent is second-class. Close that gap here:
+principle says no agent is second-class. Close that gap here, without ever
+overwriting one integration's own render with another's: extension and
+preset skills are copied whole from the default integration's directory;
+the five core commands with a registered preset append (`specify`, `plan`,
+`tasks`, `analyze`, `implement`) keep each integration's own render and
+receive that append. Run this block, replacing only the `fix` literal
+(`true` when the user asked to fix, else `false`):
 
-- Read `installed_integrations` from `.specify/integration.json`. With
-  one integration, skip this step silently.
-- Resolve each integration's skills directory from the path prefix of
-  the `files` entries in `.specify/integrations/<key>.manifest.json`
-  (e.g. `.claude/skills/`, `.agents/skills/` — several integrations may
-  share one directory). A directory holding no `speckit-*` skill folders
-  belongs to a command-mode agent: leave it out with one info line.
-- The **source of truth** is the default integration's directory (`ai`
-  in `.specify/init-options.json`). Compare its `speckit-*` skill
-  folders against every other installed integration's directory.
-- Read-only: report missing or differing `speckit-*` skills per
-  directory as one finding with the remediation (`--fix`). With
-  `--fix`: copy each missing or differing `speckit-*` folder from the
-  source into the lagging directories — only `speckit-*` entries, never
-  any other skill — and report what was copied.
-- Re-run after `bundle update` or `integration switch`: both refresh
-  only the default agent's copies.
+```bash
+# skill-mirror:start
+set -e
+fix="<true|false>"
+default_ai=$(sed -n 's/.*"ai": *"\([^"]*\)".*/\1/p' .specify/init-options.json | head -1)
+installed=$(awk '
+  /"installed_integrations":/ { inside = 1; next }
+  inside && /\]/ { exit }
+  inside { gsub(/[",]/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); if (length($0)) print }
+' .specify/integration.json)
+count=$(printf '%s\n' "$installed" | grep -c .)
+if [ "$count" -le 1 ]; then
+  echo "mirror: only one integration installed, skipped"
+  exit 0
+fi
 
-Never mutate anything outside step 2's explicit `--fix` pass-through and
-step 5's `speckit-*` skill mirror; never install, download, or configure
-on your own.
+manifest_paths() {
+  grep -Eo '"[^"]*/speckit-[^"/]*/SKILL\.md"' "$1" | tr -d '"'
+}
+
+appends=$(mktemp)
+: > "$appends"
+for preset_yml in .specify/presets/*/preset.yml; do
+  [ -f "$preset_yml" ] || continue
+  preset_dir=$(dirname "$preset_yml")
+  awk -v dir="$preset_dir" '
+    function flush() {
+      if (t == "command" && s == "append" && n != "" && fl != "") {
+        gsub(/^speckit\./, "speckit-", n); print n, dir "/" fl
+      }
+    }
+    /^[ \t]*- type:/ { flush(); t = ($0 ~ /"command"/) ? "command" : ""; n = ""; fl = ""; s = ""; next }
+    /name:/     && t == "command" { n = $0;  sub(/^.*name:[ \t]*"/, "", n);     sub(/".*$/, "", n) }
+    /file:/     && t == "command" { fl = $0; sub(/^.*file:[ \t]*"/, "", fl);    sub(/".*$/, "", fl) }
+    /strategy:/ && t == "command" { s = $0;  sub(/^.*strategy:[ \t]*"/, "", s); sub(/".*$/, "", s) }
+    END { flush() }
+  ' "$preset_yml" >> "$appends"
+done
+
+default_paths=$(manifest_paths ".specify/integrations/$default_ai.manifest.json")
+default_dir=$(printf '%s\n' "$default_paths" | head -1 | sed -E 's#/speckit-[^/]*/SKILL\.md$##')
+if [ -z "$default_dir" ]; then
+  echo "mirror: default integration $default_ai has no skills to mirror"
+  exit 0
+fi
+
+acted=false
+for key in $installed; do
+  [ "$key" = "$default_ai" ] && continue
+  manifest=".specify/integrations/$key.manifest.json"
+  paths=$(manifest_paths "$manifest")
+  lag_dir=$(printf '%s\n' "$paths" | head -1 | sed -E 's#/speckit-[^/]*/SKILL\.md$##')
+  if [ -z "$lag_dir" ]; then
+    echo "mirror: $key is command-mode, no skills to mirror"
+    continue
+  fi
+  core=$(mktemp)
+  printf '%s\n' "$paths" | sed -E 's#.*/(speckit-[^/]*)/SKILL\.md$#\1#' > "$core"
+
+  for src in "$default_dir"/speckit-*/; do
+    [ -d "$src" ] || continue
+    name=$(basename "$src")
+    grep -qxF "$name" "$core" && continue
+    srcfile="$default_dir/$name"
+    dst="$lag_dir/$name"
+    if [ ! -f "$dst/SKILL.md" ] || ! cmp -s "$srcfile/SKILL.md" "$dst/SKILL.md"; then
+      acted=true
+      if [ "$fix" = "true" ]; then
+        mkdir -p "$lag_dir"
+        cp -R "$srcfile" "$lag_dir/"
+        echo "mirror: copied $name into $lag_dir ($key)"
+      else
+        echo "mirror: $name missing or differs in $lag_dir ($key) -- run with --fix"
+      fi
+    fi
+  done
+
+  while read -r name; do
+    [ -n "$name" ] || continue
+    append_file=$(awk -v n="$name" '$1 == n { print $2; exit }' "$appends")
+    [ -n "$append_file" ] || continue
+    render="$lag_dir/$name/SKILL.md"
+    if [ ! -f "$render" ]; then
+      acted=true
+      echo "mirror: $name missing in $lag_dir ($key) -- run: specify integration install $key"
+      continue
+    fi
+    heading=""
+    [ -f "$append_file" ] && heading=$(awk '/^## /{ print; exit }' "$append_file")
+    if [ -z "$heading" ]; then
+      echo "mirror: append $append_file for $name is missing or has no heading" >&2
+      exit 2
+    fi
+    prefix=$(awk -v h="$heading" '$0 == h { exit } { print }' "$render")
+    body=$(cat "$append_file")
+    expected=$(printf '%s\n\n\n%s\n' "$prefix" "$body")
+    actual=$(cat "$render")
+    if [ "$expected" != "$actual" ]; then
+      acted=true
+      if [ "$fix" = "true" ]; then
+        printf '%s\n\n\n%s\n' "$prefix" "$body" > "$render"
+        echo "mirror: appended the preset layer to $name in $lag_dir ($key)"
+      else
+        echo "mirror: $name in $lag_dir ($key) needs the preset append -- run with --fix"
+      fi
+    fi
+  done < "$core"
+done
+
+[ "$acted" = "true" ] || echo "mirror: nothing to do"
+# skill-mirror:end
+```
+
+A core render with no registered append (e.g. `checklist`) is never
+touched, and a core skill is never copied across integrations — only its
+own append text ever reaches it. Re-run after `bundle update` or
+`integration switch`: both refresh only the default agent's copies.
+
+## 6. Add the installer's ignore entries
+
+The installer's cache directories and the extension payload virtual
+environments are rarely in a fresh consumer's ignore file. Run this
+block, replacing only the `fix` literal:
+
+```bash
+# ignore-entries:start
+set -e
+fix="<true|false>"
+acted=false
+for entry in ".specify/extensions/.cache/" ".specify/presets/.cache/" ".specify/extensions/*/.venv/"; do
+  probe=$(printf '%s' "$entry" | sed 's/\*/x/')
+  git check-ignore -q "$probe" && continue
+  acted=true
+  if [ "$fix" = "true" ]; then
+    if [ ! -f .gitignore ]; then
+      printf '# tserdeiro/spec-kit installer state\n' > .gitignore
+    elif ! grep -q '# tserdeiro/spec-kit installer state' .gitignore; then
+      printf '\n# tserdeiro/spec-kit installer state\n' >> .gitignore
+    fi
+    printf '%s\n' "$entry" >> .gitignore
+    echo "ignore: added $entry to .gitignore"
+  else
+    echo "ignore: $entry is not covered by .gitignore -- run with --fix"
+  fi
+done
+[ "$acted" = "true" ] || echo "ignore: nothing to do"
+# ignore-entries:end
+```
+
+`check-ignore` honors broader patterns already in the ignore file, so a
+repository ignoring `.venv/` globally gets no duplicate entry.
+
+Never mutate anything outside step 2's explicit `--fix` pass-through,
+step 5's skill mirror, and step 6's ignore entries; never install,
+download, or configure on your own.
