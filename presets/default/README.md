@@ -60,8 +60,12 @@ exceeded it.
 
 The loop never merges: a run ends with every task PR `ready for review`
 and its fresh review closed. The human merges root-first; only on an
-explicit request does the agent act — `git worktree prune`, then
-`gh pr merge <n> --merge --delete-branch` for each PR, root-first. A
+explicit request does the agent act — `git worktree prune`, then, for
+each PR root-first, retargets its base to the feature branch by API
+(`gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -f base=<feature-branch>`)
+and merges it with `gh pr merge <n> --merge`. Never `--delete-branch`:
+it closes the PR stacked above before GitHub retargets it, and the
+repository's auto-delete of merged branches does the cleanup instead. A
 revert travels through the same loop as any task, its commit subject
 `revert(scope): <subject>`, never `git revert`'s default.
 
