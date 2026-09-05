@@ -228,10 +228,11 @@ surface is nine operation kinds with an enumerated input field list each
 
 ```bash
 uv sync --frozen
-uv run pytest tests
 PYTHONPATH=src uv run --frozen python -m spec_kit_linear.cli doctor --offline --root /path/to/consumer
 PYTHONPATH=src uv run --frozen python -m spec_kit_linear.cli push --dry-run --json --root /path/to/consumer --feature 001
 ```
+
+Tests run from the repository root: `uv run pytest packages/spec-kit-linear/tests`.
 
 `scripts/conformance/installed-artifact.sh` installs the extension into a
 throwaway consumer repository and asserts that the installed artifact

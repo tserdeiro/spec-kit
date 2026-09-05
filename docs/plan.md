@@ -50,10 +50,13 @@ taskstoissues).
   draft PR from the feature artifacts.
 - `speckit.bugfix` / `speckit.chore` — issue-key branch from a Linear
   issue; `bugfix` continues into the triage trio.
-- `speckit.doctor` — every installed extension's doctor summarized, plus
-  the `speckit-*` skills mirrored across installed agents.
-- Appends to `speckit.tasks` and `speckit.implement` — the one-task
-  delivery loop and its rules.
+- `speckit.doctor` — every installed extension's doctor summarized,
+  plus the `speckit-*` skills mirrored across installed agents, and
+  the installer's cache and payload virtual-environment entries added
+  to the consumer's ignore file.
+- Appends to `speckit.specify`, `speckit.plan`, `speckit.tasks`,
+  `speckit.analyze` and `speckit.implement` — silent, committed
+  product phases and the one-task delivery loop with its rules.
 
 `spec-kit-linear` extension:
 
@@ -71,7 +74,9 @@ taskstoissues).
   context: on a working tree it reviews the pending diff; on a PR it
   reviews the anchored candidate and can `--publish`. The packet/findings
   two-phase protocol is internal, never user-facing. It warns when the
-  diff exceeds the review budget. Delegates to pinned OCR; fails closed.
+  diff exceeds the review budget and blocks a task PR that touches a
+  protected path (`protected_paths`) with an automatic finding.
+  Delegates to pinned OCR; fails closed.
 - `doctor` (with `--fix`) — environment diagnosis; `--fix` installs the
   pinned engine into the distribution's data root and verifies its digest
   against the pin the extension ships. `completions`.
@@ -319,10 +324,11 @@ budget as #62), feature PR #43. Released as linear 0.11.0, code-review
 ### Delivery discipline (2026-09-03 → 2026-09-04)
 
 [`004-delivery-discipline`](../specs/004-delivery-discipline/): the loop
-is disciplined by construction. Delivered through task PRs #65–#76 plus
-this PR and the two that follow (T013 release preparation, T014
-verification), feature PR #64. Releases pending: preset 0.9.0, linear
-0.12.0, code-review 0.4.0, bundles 0.15.0.
+is disciplined by construction. Delivered through task PRs #65–#79
+(#66 closed by GitHub during the on-request merge, its commits landed
+through #67), feature PR #64. Released 2026-09-05 as linear 0.12.0,
+code-review 0.4.0, preset 0.9.0, bundles 0.15.0; the consumer upgrade is
+#80 and the merge-path fix #81.
 
 - **Stack** — tooling detected once at loop start, one linear stack with
   the base derived from open PRs, fix propagation, branch identity, and

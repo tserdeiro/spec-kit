@@ -142,8 +142,8 @@ con el estado que Linear refleja solo:
 | --- | --- | --- |
 | 1. Especificar | `/speckit.specify` — nace el **branch de feature** `NNN-slug` | — |
 | 2. Planificar | `/speckit.plan` | se crea el Project |
-| 3. Tareas | `/speckit.tasks`, y `/speckit.pr` sobre el branch de feature abre su **draft PR** (`NNN-slug` → branch de entrega): el gate donde el equipo aprueba spec y plan | se crean los Issues (*Todo*) |
-| 4. Implementar | `/speckit.implement` — toma la primera tarea sin marcar y crea su branch `NNN-T###-slug` (ej. `002-T004-parser-fix`) **desde el branch de feature** | *In Progress* |
+| 3. Tareas | `/speckit.tasks` | se crean los Issues (*Todo*) |
+| 4. Implementar | `/speckit.implement` verifica el gate — el **draft PR de feature** (`NNN-slug` → branch de entrega), donde el equipo aprueba spec y plan — y lo abre si falta, antes de la primera tarea; toma la primera tarea sin marcar y crea su branch `NNN-T###-slug` (ej. `002-T004-parser-fix`) **desde el branch de feature** | *In Progress* |
 | 5. Pull request | `/speckit.pr` — abre el PR **draft** de la tarea, **hacia el branch de feature**, con el body canónico | *In Progress* |
 | 6. Auto-revisión | `/speckit.code-review`, corriges, `[x]` + evidencia en el último commit, y marcas `ready for review` | *In Review* |
 | 7. Revisión final | el revisor: `/speckit.code-review --publish` más su revisión humana; una persona mergea al branch de feature | *Done* |
@@ -184,8 +184,12 @@ Reglas de oro:
 - **PRs chicos**: máximo ~400 líneas ejecutables escritas por ti; una
   tarea mayor se parte en
   [Stacked PRs](https://docs.github.com/en/pull-requests/get-started/stacked-prs-quickstart)
-  (cada uno nombra al anterior en su línea `Stack:`). El comando de
-  revisión avisa si te pasas.
+  (cada uno nombra al anterior en su línea `Stack:`). El loop frena la
+  tarea antes de abrir (o marcar ready) el PR cuando sus líneas
+  ejecutables añadidas pasan el doble del forecast de su línea
+  `Delivery` (o 400, lo que llegue primero) y vuelve al humano con el
+  diagnóstico; un forecast nunca se amplía en el PR que lo excede; el
+  comando de revisión sigue avisando sobre 400.
 - **El body del PR usa el template canónico**
   [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md);
   `/speckit.pr` lo llena solo desde los artefactos.
@@ -273,9 +277,9 @@ el trío `/speckit.bug.*`.
 
 | Origen | Comandos |
 | --- | --- |
-| preset `default` | `/speckit.pr`, `.bugfix`, `.chore`, `.doctor` — más el workflow que inyecta dentro de `.tasks` y `.implement` |
+| preset `default` | `/speckit.pr`, `.bugfix`, `.chore`, `.doctor` (espeja skills entre agentes y agrega al `.gitignore` las cachés del instalador) — más los appends que inyecta en `.specify`, `.plan`, `.tasks`, `.analyze` e `.implement` (fases silenciosas y commiteadas, el loop de entrega) |
 | extensión `linear` | `onboard`, `push` (`--dry-run` / `--apply`), `status`, `doctor --fix`, `completions` |
-| extensión `code-review` | `speckit.code-review` (`--publish`), `doctor --fix`, `completions` |
+| extensión `code-review` | `speckit.code-review` (`--publish`), `doctor --fix`, `completions` — bloquea con un finding automático el PR de tarea que toque `spec.md` o la constitución (`protected_paths`) |
 
 No hay más superficie que esta: cada comando expone solo lo que su paso
 necesita (y hay tests que lo fijan).
@@ -311,7 +315,8 @@ specify bundle install developer
                        → templates a .specify/presets/ y registra los
                          comandos (/speckit.pr, /speckit.bugfix,
                          /speckit.chore, /speckit.doctor y los appends
-                         de tasks/implement) como skills de TU agente
+                         de specify/plan/tasks/analyze/implement) como
+                         skills de TU agente
 ```
 
 **Después de instalar, todo es local**: comandos, templates y extensiones
