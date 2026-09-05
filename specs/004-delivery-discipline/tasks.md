@@ -139,13 +139,13 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
 **Goal**: Linear works from a worktree; published digests are re-verified.
 **Independent evidence**: a `git worktree add` fixture resolves the main checkout's files; `--published` fails on an altered digest.
 
-- [ ] T009 [US4] Worktree-aware configuration and credentials resolution in packages/spec-kit-linear
+- [x] T009 [US4] Worktree-aware configuration and credentials resolution in packages/spec-kit-linear
   - **Traces**: FR-011, SC-007; outcome: `git_refs.main_worktree_root(root)` (parent of `git rev-parse --git-common-dir`, `None` in the main checkout); `resolve_config_path` and `load_dotenv_files` fall back to it when the worktree lacks the file and no explicit override is set; the doctor names the resolved env path; `persist_process_credential` unchanged (plan D3)
   - **Depends on**: T008
   - **Boundaries**: `src/spec_kit_linear/{git_refs,config,env_files,cli}.py`, `tests/unit/{test_config,test_env_files}.py` (real `git init` + `git worktree add` fixtures), `packages/spec-kit-linear/{README.md,CHANGELOG.md}` (unreleased entry); no version bump (T013)
   - **Evidence**: `uv run pytest packages/spec-kit-linear/tests` -> green including: worktree without files resolves the main checkout's config and env; worktree-local files win; main checkout unchanged; `bash packages/spec-kit-linear/scripts/conformance/installed-artifact.sh` -> passed
   - **Delivery**: single PR (~90 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #73 (ready 2026-09-04, stacked on #72 — base `004-T008-protected-paths`); **the budget stop fired** at 231 counted lines (forecast ~90, stop 180): the task returned to the human, who chose to consolidate the duplicated worktree fixtures into one shared helper (`tests/support/fixtures.py`) instead of widening the budget — 169 after consolidation, 178/180 after the review fix; `uv run pytest packages/spec-kit-linear/tests -q` → 419 passed, 176 subtests; `installed-artifact.sh` conformance passed; `git diff --check` clean; fresh Sonnet review (session `0a08609b`, packet 163 KB reviewed file by file) found 1 major — a worktree of a bare repository resolved to a stranger directory — fixed in-branch (the common dir must be named `.git`, regression test added) and 1 minor (the PR body's risk line, corrected); verdict no-blocking-findings
 
 - [ ] T015 [US4] Project at plan: `tasks.md` optional in the packages/spec-kit-linear parser and projection
   - **Traces**: FR-020, SC-010; outcome: `parse_feature` treats a missing `tasks.md` as an empty ledger with an info diagnostic `tasks_pending`; `push --hook` after plan creates the feature's Project with zero Issues and exits 0; `status` reports the Project and names the ledger as the next artifact; `spec.md` and `plan.md` stay required (plan D15)

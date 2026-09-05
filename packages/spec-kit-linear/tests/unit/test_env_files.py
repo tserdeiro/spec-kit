@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 
 from spec_kit_linear import env_files
 from spec_kit_linear.env_files import REPO_ENV_FILENAME, load_dotenv_files
+from tests.support.fixtures import isolate_operator_global_env, worktree_repository
 
 
 class EnvFilesTests(unittest.TestCase):
@@ -181,3 +182,35 @@ class PersistProcessCredentialTests(EnvFilesTests):
 
         self.assertIsNone(env_files.persist_process_credential(self.root, environment))
         self.assertFalse((self.root / REPO_ENV_FILENAME).exists())
+
+
+class EnvFilesWorktreeResolutionTests(unittest.TestCase):
+    """Plan D3 (FR-011, SC-007): main-checkout fallback for the per-repo env file."""
+
+    def setUp(self) -> None:
+        isolate_operator_global_env(self)
+        self.temporary, self.main_root, self.worktree_root = worktree_repository()
+        self.addCleanup(self.temporary.cleanup)
+
+    def test_worktree_without_its_own_env_file_resolves_the_main_checkouts(self) -> None:
+        (self.main_root / REPO_ENV_FILENAME).write_text("LINEAR_API_KEY=from-main\n", encoding="utf-8")
+        environment: dict[str, str] = {}
+        load_dotenv_files(self.worktree_root, environment)
+        self.assertEqual(environment["LINEAR_API_KEY"], "from-main")
+
+    def test_worktree_local_env_file_wins_over_the_main_checkouts(self) -> None:
+        (self.main_root / REPO_ENV_FILENAME).write_text("LINEAR_API_KEY=from-main\n", encoding="utf-8")
+        (self.worktree_root / REPO_ENV_FILENAME).write_text("LINEAR_API_KEY=from-worktree\n", encoding="utf-8")
+        environment: dict[str, str] = {}
+        load_dotenv_files(self.worktree_root, environment)
+        self.assertEqual(environment["LINEAR_API_KEY"], "from-worktree")
+
+    def test_main_checkout_is_unaffected_by_the_worktree_fallback(self) -> None:
+        main_env = self.main_root / REPO_ENV_FILENAME
+        main_env.write_text("LINEAR_API_KEY=from-main\n", encoding="utf-8")
+        self.assertEqual(env_files.repo_env_path(self.main_root), main_env)
+
+    def test_a_non_git_directory_is_unaffected(self) -> None:
+        with TemporaryDirectory() as tmp:
+            plain = Path(tmp)
+            self.assertEqual(env_files.repo_env_path(plain), plain / REPO_ENV_FILENAME)
