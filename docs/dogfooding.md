@@ -260,3 +260,13 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Entregada (chore #81):* el camino a pedido fija la base por
     API antes de cada merge y mergea sin `--delete-branch`; el
     auto-borrado del repo limpia.
+33. **Una sesión de review abierta por una versión de la extensión no
+    se cierra con otra.** Al revisar el PR del upgrade de este repo
+    (#80), la sesión se abrió con code-review 0.4.0 (instalada en esa
+    rama) y el cierre desde otra rama, con 0.3.0 instalada, falló con
+    `config_sha256_mismatch`: la configuración congelada incluye los
+    defaults del paquete, y 0.4.0 suma `protected_paths`. Es la
+    guardia funcionando, no un bug.
+    *Regla:* abrir y cerrar cada sesión con la misma versión
+    instalada — en un chore de upgrade, cerrar desde la rama del
+    chore o con el CLI del paquete a esa versión.
