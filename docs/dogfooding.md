@@ -257,6 +257,6 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     borró la rama antes de que GitHub reapuntara #66 y GitHub lo
     cerró; un PR cerrado no admite cambio de base, así que #66 quedó
     cerrado sin mergear y sus commits entraron por #67.
-    *Resuelta (chore, este PR):* el camino a pedido fija la base por
+    *Entregada (chore #81):* el camino a pedido fija la base por
     API antes de cada merge y mergea sin `--delete-branch`; el
     auto-borrado del repo limpia.
