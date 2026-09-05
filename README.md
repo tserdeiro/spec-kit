@@ -170,13 +170,13 @@ Reglas de oro:
 - **El branch de feature (`NNN-slug`) es la integración**: los branches
   de tarea salen de él actualizado y sus PRs vuelven a él; la feature
   entra al branch de entrega **una sola vez**, con merge commit — nada a
-  medias llega antes. Bugs y chores siguen yendo al default de GitHub.
+  medias llega antes. Bugs y chores también van al branch de entrega.
   Por defecto los comandos usan el default de GitHub; si el trunk real es
   otro, configura `trunk: <branch>` en
   `.specify/extensions/git/git-config.yml` (este repo declara
   `trunk: main`) — ese valor explícito tiene prioridad para el PR de
   feature y el primer refresh de `/speckit.implement`. Los PRs de tarea
-  van a la feature activa y los de bug/chore al default de GitHub.
+  van a la feature activa y los de bug/chore al branch de entrega.
 - **Nunca actualices Linear a mano**: el Project y los Issues nacen solos
   en plan/tareas, los estados los mueve la integración nativa por eventos
   de PR, y `push --apply` es la reconciliación idempotente que repara lo
@@ -260,7 +260,7 @@ El camino corto — sin spec ni plan:
 
 1. Nace como **Issue en Linear** (lo crea una persona), p. ej. `WOR-123`.
 2. `/speckit.bugfix WOR-123` (bugs) o `/speckit.chore WOR-123` (chores)
-   crea el branch (`wor-123-slug-corto`) desde la default al día y
+   crea el branch (`wor-123-slug-corto`) desde el branch de entrega al día y
    proyecta *In Progress*. Igual de válido: el botón **Copy git branch
    name** de la tarjeta (`usuario/wor-123-slug` — según tu config, al
    copiarlo Linear te asigna y arranca la tarjeta). Estados como en

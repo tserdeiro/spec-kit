@@ -41,7 +41,8 @@ The branch is what projects the task to *In Progress*; it must exist and
 follow the convention before the PR opens. The PR's **base** follows from
 what is delivered: a feature task targets the open task PR it stacks on,
 else its **feature branch** (`NNN-slug`, resolved from the active
-feature); a work item queries the **GitHub default**; the feature PR
+feature); a work item resolves the **delivery base** (explicit `trunk:`,
+else the GitHub default) exactly like the feature PR; the feature PR
 resolves its **delivery base** at creation time (step 5).
 
 - Correctly named branch checked out → continue.
@@ -75,7 +76,7 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` — every section, in its order:
 - **Outcome** — the task's outcome line, phrased as the delivered result.
 - **Changes** — summarize the real diff against the PR's base branch
   (`git diff <base>...HEAD --stat` — the feature branch for a feature
-  task, the GitHub default for a work item), not the plan.
+  task, the delivery base for a work item), not the plan.
 - **Verification evidence** — the task's **Evidence** commands with their
   actual, truthful results; run them if you have not.
 - **Risk and delivery** — honest risks; `Stack: standalone`, or
@@ -102,7 +103,7 @@ cover the spec with nothing missing and nothing extra?
 set -e
 delivery_kind="<feature|task|work-item>"
 case "$delivery_kind" in
-  feature)
+  feature|work-item)
     trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*["'"'"']?([^"'"'"'#[:space:]]*)["'"'"']?.*$/\1/p;q;}' \
       .specify/extensions/git/git-config.yml 2>/dev/null || true)
     base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
@@ -168,7 +169,6 @@ case "$delivery_kind" in
       fi
     done
     ;;
-  work-item) base=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name) ;;
   *) printf 'error: unknown delivery kind: %s\n' "$delivery_kind" >&2; exit 2 ;;
 esac
 gh pr create --draft --base "$base" --title "<type(scope): subject>" --body "<the body>"
@@ -183,9 +183,9 @@ The feature PR's **delivery base**: an explicit non-empty `trunk:` key in
 the consumer's `.specify/extensions/git/git-config.yml` wins (quotes
 optional); absent or empty falls back to the GitHub default branch;
 either way the name must pass `git check-ref-format --branch`, or the
-command stops. `implement-append.md`'s first-task refresh resolves the
-delivery base the same way. The feature PR's title is
-`feat(<area>): <feature outcome>`.
+command stops. The work-item PR resolves the same base the same way, and
+so does `implement-append.md`'s first-task refresh. The feature PR's
+title is `feat(<area>): <feature outcome>`.
 
 Title in English, `type(scope): subject`, matching the branch's commit.
 Report the PR URL, then remind the flow: the next steps are the
