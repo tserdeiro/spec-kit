@@ -197,8 +197,12 @@ Reglas de oro:
   conformance, solo el check de naming lo escucha; de la hoja hacia
   abajo, en cambio, cada merge sincroniza los PRs abiertos debajo y
   relanza toda la CI en cada paso) — o se lo pide al agente en la
-  conversación, que corre `git worktree prune` y
-  `gh pr merge --merge --delete-branch` raíz-primero. Un ruleset de
+  conversación, que corre `git worktree prune` y, raíz-primero, fija
+  por API la base de cada PR antes de mergearlo (`gh api -X PATCH
+  repos/<owner>/<repo>/pulls/<n> -f base=<rama-feature>`) y lo mergea
+  con `gh pr merge --merge`, nunca `--delete-branch`: cierra el PR
+  apilado antes del reapunte; el auto-borrado del repo limpia las
+  ramas. Un ruleset de
   GitHub que exija aprobación en ramas `NNN-*` se activa solo cuando
   haya un segundo revisor o una identidad bot para el agente — en un
   repo de una sola persona bloquearía al maintainer, porque GitHub no

@@ -91,7 +91,8 @@ de corrección (2026-09-01 → 09-02).
     cada PR ready y su review fresca cerrada; el humano revisa por la
     mañana y mergea raíz-primero — o se lo pide al agente en la
     conversación, que entonces ejecuta `gh pr merge --merge
-    --delete-branch`. Un ruleset de GitHub que exija aprobación en ramas
+    --delete-branch` (comando corregido en el punto 32). Un ruleset
+    de GitHub que exija aprobación en ramas
     `NNN-*` se activa solo cuando haya un segundo revisor o una identidad
     bot para el agente: en un repo de una sola persona bloquearía al
     maintainer, porque GitHub no cuenta la aprobación del autor del PR.
@@ -251,3 +252,11 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     default && preset add --dev presets/default`.
     *Regla:* regenerar tras cada edición del preset (el loop lo hace en
     cada tarea de preset).
+32. **`--delete-branch` cierra el PR apilado antes del reapunte.** Al
+    mergear la 004 a pedido, `gh pr merge 65 --merge --delete-branch`
+    borró la rama antes de que GitHub reapuntara #66 y GitHub lo
+    cerró; un PR cerrado no admite cambio de base, así que #66 quedó
+    cerrado sin mergear y sus commits entraron por #67.
+    *Entregada (chore #81):* el camino a pedido fija la base por
+    API antes de cada merge y mergea sin `--delete-branch`; el
+    auto-borrado del repo limpia.

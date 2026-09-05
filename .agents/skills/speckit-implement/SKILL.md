@@ -576,9 +576,17 @@ their own branches are not this loop's concern.
    check at every step.
    Only when the human explicitly asks the agent to merge, in the
    conversation, does it act: `git worktree prune` first — a stale
-   worktree blocks branch deletion — then `gh pr merge <n> --merge
-   --delete-branch` for each PR, root-first; then, when `linear` is in
-   the set, reconcile with `/speckit.linear.push --apply`.
+   worktree blocks branch deletion — then, for each PR root-first, sets
+   its base to the feature branch explicitly with `gh api -X PATCH
+   repos/<owner>/<repo>/pulls/<n> -f base=<feature-branch>` — GitHub's
+   own retarget as an `edited` event, so no check re-runs — and merges
+   it with `gh pr merge <n> --merge`, **never `--delete-branch`**:
+   deleting the head branch by hand before GitHub retargets the PR
+   above closes that PR, and GitHub does not reopen a closed PR onto a
+   new base; the repository's auto-delete of merged branches (the
+   doctor verifies `deleteBranchOnMerge`) does the cleanup. Then, when
+   `linear` is in the set, reconcile with `/speckit.linear.push
+   --apply`.
 4. **Closing the feature** — when every box on the feature branch is
    checked — every task PR merged — mark the **feature PR** (the draft
    gate, whether the product phase or step 0 opened it)
