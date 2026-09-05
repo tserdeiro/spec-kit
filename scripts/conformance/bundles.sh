@@ -766,6 +766,51 @@ $(create_call 'default$(safe)')" ] ||
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')" ] ||
   fail "trunk: work-item PR did not validate its fallback base"
 
+# The chore and bugfix commands' own branch-creation block (never routed
+# through pr.md's pr-create case statement) resolves the same delivery
+# base the same way. The two commands carry byte-identical blocks, so
+# asserting one proves both once their equality is checked.
+chore_skill="$consumer_root/.agents/skills/speckit-chore/SKILL.md"
+bugfix_skill="$consumer_root/.agents/skills/speckit-bugfix/SKILL.md"
+work_item_branch=$(sed -n '/work-item-branch:start/,/work-item-branch:end/p' "$chore_skill")
+bugfix_work_item_branch=$(sed -n '/work-item-branch:start/,/work-item-branch:end/p' "$bugfix_skill")
+[ -n "$work_item_branch" ] || fail "trunk: installed chore work-item-branch block is missing"
+[ -n "$bugfix_work_item_branch" ] || fail "trunk: installed bugfix work-item-branch block is missing"
+[ "$work_item_branch" = "$bugfix_work_item_branch" ] ||
+  fail "trunk: work-item branch chore and bugfix blocks are not byte-identical"
+
+switch_call() {
+  json_argv switch -c wor-123-short-slug "origin/$1"
+}
+
+run_work_item_branch() {
+  local github_default="$1"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_DEFAULT="$github_default" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
+    sh -c "$work_item_branch")
+}
+
+# Configured trunk wins; no GitHub lookup happens.
+set_config 'trunk: unused\n'
+reset_command_logs
+run_work_item_branch main >/dev/null || fail "trunk: work-item branch create failed"
+[ ! -s "$gh_calls" ] || fail "trunk: work-item branch queried GitHub although trunk was configured"
+[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch unused)
+$(json_argv fetch origin)
+$(switch_call unused)" ] ||
+  fail "trunk: work-item branch used incorrect git argv for the configured base"
+
+# Absent config falls back to the GitHub default, queried and validated.
+set_config __missing_file__
+reset_command_logs
+run_work_item_branch 'default$(safe)' >/dev/null || fail "trunk: work-item branch create failed"
+[ "$(cat "$gh_calls")" = "$repo_view" ] ||
+  fail "trunk: work-item branch did not resolve the GitHub default at runtime"
+[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')
+$(json_argv fetch origin)
+$(switch_call 'default$(safe)')" ] ||
+  fail "trunk: work-item branch did not validate its fallback base"
+
 # The first-task refresh resolves the delivery base the same way and
 # guards that the checkout is the expected feature branch.
 run_refresh() {

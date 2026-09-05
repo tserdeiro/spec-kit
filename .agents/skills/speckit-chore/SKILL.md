@@ -31,6 +31,7 @@ each outcome.
 Resolve the repository's up-to-date **delivery base** and branch from it:
 
 ```bash
+# work-item-branch:start
 set -e
 trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*["'"'"']?([^"'"'"'#[:space:]]*)["'"'"']?.*$/\1/p;q;}' \
   .specify/extensions/git/git-config.yml 2>/dev/null || true)
@@ -38,6 +39,7 @@ base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
 git check-ref-format --branch "$base" >/dev/null
 git fetch origin
 git switch -c wor-123-short-slug "origin/$base"
+# work-item-branch:end
 ```
 
 - The slug is 2–4 words from the issue's title. If the user gave only the

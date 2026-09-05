@@ -279,5 +279,5 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     aunque el PR de feature ya resolviera `trunk:` primero; en un
     consumidor con `trunk: dev` un fix de bug se saltaba `dev` por
     completo.
-    *Entregada (chore TDS-48):* los tres comandos y la conformance
+    *Entregada (chore TDS-48, #83):* los tres comandos y la conformance
     resuelven la base de entrega igual que el PR de feature.
