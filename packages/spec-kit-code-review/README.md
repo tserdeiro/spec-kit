@@ -99,7 +99,12 @@ request is a human decision. `budget.limit` sets the number.
 
 Resolution order for the shared configuration: `--config PATH`, then
 `SPECKIT_CODE_REVIEW_CONFIG`, then `<repo>/speckit-code-review.yml`.
-`doctor --fix` creates the first three when they are absent.
+`doctor --fix` creates the first three when they are absent. For a
+repository with no rule file, it also writes `.opencodereview/rule.json`
+with a starting `**/*` rule stating the engineering principles —
+over-engineering and speculative abstraction are `major` findings, a new
+runtime dependency is `blocking` — ahead of the shipped `**/*.py` rule; a
+repository with an existing rule file merges the `**/*` rule in by hand.
 
 A repository env file can never define an executable path:
 `SPECKIT_CODE_REVIEW_OCR_BIN` and `SPECKIT_CODE_REVIEW_GH_BIN` are honored only

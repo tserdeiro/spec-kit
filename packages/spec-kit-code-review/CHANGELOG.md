@@ -1,5 +1,11 @@
 # Changelog
 
+- The base rule template `doctor --fix` writes now states the
+  repository's engineering principles as a `**/*` rule ahead of the
+  Python-specific one: over-engineering and speculative abstraction are
+  `major` findings, a new runtime dependency is `blocking`. A repository
+  with an existing rule file merges it in by hand.
+
 ## 0.3.0
 
 - Normalized findings are written to `findings-normalized.json`; the
