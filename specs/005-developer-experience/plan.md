@@ -423,9 +423,12 @@ mechanism: `type: script` entries, extension `events:` manifests, `push
   `next_action` (`reporting.py:129`) never receives `STATE_UNSTARTED`;
   the row was always unreachable, and `next_action` gains no issue-key
   parameter. What it gains is a PR number, for the `started`/`pr` row
-  alone, identical for a task or a work item — threaded from data both
-  `build_task_rows`/`build_work_item_rows` already have in scope, a
-  tasks-phase field addition, not a new `gh` call.
+  alone, identical for a task or a work item. That number is not in
+  scope today: `PullRequest` carries only `head_branch`, `is_draft` and
+  `state`, and `GH_JSON_FIELDS` requests `headRefName,isDraft,state`
+  (`github.py`). It becomes one more field on the existing `gh pr list`
+  query and on `PullRequest`, threaded through `build_task_rows` and
+  `build_work_item_rows` — not a new `gh` call.
 - **Rationale**: FR-004's own wording, and its own negative example is
   code that exists today.
 - **Trade-off**: `next_action`'s existing contract ("pure text over the
