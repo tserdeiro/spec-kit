@@ -54,28 +54,30 @@ sigue siendo la regla y el doctor lo dice.
 - **Pin v1.0.4.** Entregado: `chore/upstream-1.0.4`, PR #85. Los
   eventos necesitan ≥ 1.0.2 (fix del stdin de `event run`); los
   manifests de las extensiones pasan a exigir ≥ 1.0.4.
-- **El mecanismo se reparte entre lo que ya existe; no hay extensión
-  nueva.** Los presets pueden shippear scripts (`provides` acepta
-  `type: script`, en `scripts/`) y el payload del preset se commitea en
-  el consumidor, así que el preset `default` shippea como scripts POSIX
-  lo que hoy es shell inline en sus comandos: `task-base`,
-  `budget-stop`, `stack-propagate`, `pr-create`, el merge a pedido
-  raíz-primero, el check del ledger (checkbox más evidencia de
-  completitud) y los dos bloques del doctor, `skill-mirror` e
-  `ignore-entries`, que con 110 y 22 líneas son los más grandes de
-  todos; cada paso de un comando es una línea que ejecuta uno. La
-  conformance ejecuta scripts, no bloques extraídos de prosa. Los
-  eventos solo pueden declararlos extensiones, y las dos existentes ya
-  son dueñas de esas dos preocupaciones: `linear` declara los de
-  reconciliación y contexto (llaman a `push` y `status`), `code-review`
-  los de guardas (`protected_paths` y las reglas de review, aplicadas
-  antes de la acción en vez de después). Los handlers son comandos
-  internos de cada extensión, fuera de la superficie de usuario como ya
-  lo es `--hook`. `linear` y `code-review` siguen siendo opcionales,
-  como ya lo es el tooling set del loop: sin `linear` no hay contexto ni
-  reconcile, sin `code-review` no hay guardas, y la prosa sigue siendo
-  la regla.
-- **Cuatro handlers de eventos.**
+- - **El mecanismo se reparte entre lo que ya existe; no hay extensión
+  nueva.** Los presets pueden shippear scripts (`provides` acepta `type:
+  script`, en `scripts/`) y el payload del preset se commitea en el
+  consumidor, así que el preset `default` shippea como scripts POSIX lo
+  que hoy es shell inline en sus comandos: `task-base`, `budget-stop`,
+  `stack-propagate`, `pr-create`, el merge a pedido raíz-primero, el
+  check del ledger (checkbox más evidencia de completitud) y los dos
+  bloques del doctor, `skill-mirror` e `ignore-entries`, que con 110 y
+  22 líneas son los más grandes de todos; cada paso de un comando es una
+  línea que ejecuta uno. La conformance ejecuta scripts, no bloques
+  extraídos de prosa. Los eventos solo pueden declararlos extensiones, y
+  las dos existentes ya son dueñas de esas dos preocupaciones: `linear`
+  declara los de reconciliación y contexto (llaman a `push` y `status`),
+  `code-review` los de guardas (`protected_paths` y las reglas de
+  review, aplicadas antes de la acción en vez de después). Los handlers
+  son comandos internos de cada extensión, fuera de la superficie de
+  usuario como ya lo es `--hook`, sin puntos y con el mismo nombre que
+  su archivo `.md`: el dispatcher los resuelve por nombre de archivo y
+  falla abierto si no coinciden (entrada 46). `linear` y `code-review`
+  siguen siendo opcionales, como ya lo es el tooling set del loop: sin
+  `linear` no hay contexto ni reconcile, sin `code-review` no hay
+  guardas, y la prosa sigue siendo la regla.
+
+- **Tres registros de eventos, cuatro reglas.**
   - `session_start` (`linear`): `push --hook` (no-op limpio sin config)
     y una línea de contexto: rama, feature, primera tarea sin marcar, PRs
     de tarea abiertos, próximo comando. Agente y dev arrancan cada
@@ -83,13 +85,14 @@ sigue siendo la regla y el doctor lo dice.
   - `post_tool_use` (`linear`), matcher `Bash`: tras `git push` o
     `gh pr create|ready|merge`, `push --hook`. Las tres frases de
     "reconciliá ahora" salen del loop.
-  - `pre_tool_use` (`code-review`), matcher `Bash`: bloquea
-    `git commit -m` cuyo subject no cumpla `type(scope): subject` (una
-    sola regex compartida con `conventions.yml`), `git push --force*` y
-    `gh pr merge --delete-branch`. Cada bloqueo nombra el arreglo.
-  - `pre_tool_use` (`code-review`), matcher `Edit|Write`: bloquea
-    `protected_paths` en una rama `NNN-T###-*`. Hoy la review lo atrapa
-    un ciclo más tarde.
+  - `pre_tool_use` (`code-review`), matcher `Bash|Edit|Write`: un solo
+    handler, porque el esquema admite uno por evento y por extensión
+    (entrada 45), con dos guardas dentro según `tool_name`. En `Bash`
+    bloquea `git commit -m` cuyo subject no cumpla `type(scope): subject`
+    (una sola regex compartida con `conventions.yml`), `git push
+    --force*` y `gh pr merge --delete-branch`; en `Edit|Write` bloquea
+    `protected_paths` en una rama `NNN-T###-*`, que hoy la review atrapa
+    un ciclo más tarde. Cada bloqueo nombra el arreglo.
 - **`implement` se reemplaza, no se appendea.** Los presets soportan
   `replace` para comandos; el loop pasa a ser un comando compacto en vez
   de 15 KB de core más 17 KB de overrides. Lo mismo para `tasks` si su
@@ -120,7 +123,9 @@ Preset `default`:
 - `scripts/bash/`: `task-base.sh`, `budget-stop.sh`,
   `stack-propagate.sh`, `pr-create.sh`, `merge-root-first.sh`,
   `ledger-check.sh`, `skill-mirror.sh`, `ignore-entries.sh`, declarados
-  como `type: script` en `preset.yml`;
+  como `type: script` en `preset.yml`; `task-base.sh` termina con
+  `push --hook` si `linear` está instalada, así ningún comando conserva
+  una frase de reconcile;
   `sh` POSIX como hoy (los bloques nunca tuvieron gemelo PowerShell).
   La conformance corre cada script contra fixtures (los casos de
   `bundles.sh` se mudan con ellos).
@@ -138,8 +143,8 @@ Extensión `linear`:
 
 Extensión `code-review`:
 
-- `events:` con los dos `pre_tool_use` (guarda de `Bash`, guarda de
-  `Edit|Write`); la regex de subjects compartida con `conventions.yml`.
+- `events:` con un `pre_tool_use` (matcher `Bash|Edit|Write`) y las dos
+  guardas dentro; la regex de subjects compartida con `conventions.yml`.
 - Sale el hook `after_implement` (una review advisory del working tree a
   la que el loop nunca llega). `completions` sale.
 - `requires.speckit_version` pasa a `>=1.0.4,<1.1.0`.
@@ -167,23 +172,24 @@ Pull requests a upstream (convierten neutralizaciones en borrados):
 
 ## No se hace
 
-Una extensión nueva para el mecanismo (los scripts caben en el preset
-y los eventos en las extensiones que ya son dueñas de cada
-preocupación); archivos de hooks autorados por agente (los genera el CLI); un handler
+Una extensión nueva para el mecanismo (los scripts caben en el preset y
+los eventos en las extensiones que ya son dueñas de cada preocupación);
+archivos de hooks autorados por agente (los genera el CLI); un handler
 de `stop` en cada turno (costo sin señal); guardas más allá de las
-cuatro reglas duras; `specify workflow` para el loop (gates interactivos,
-corre comandos y no scripts); `gh stack` (entrada 27); un script de
-bootstrap para la instalación (descartado antes; el README sigue siendo
-la portada).
+cuatro reglas duras; `specify workflow` para el loop (gates
+interactivos, corre comandos y no scripts); `gh stack` (entrada 27); un
+script de bootstrap para la instalación (descartado antes; el README
+sigue siendo la portada).
 
 ## Secuencia
 
 1. Pin v1.0.4. Hecho.
 2. Los scripts al preset, todavía sin eventos: los comandos los llaman,
    la conformance se muda. La tarea más grande; va sola.
-3. Eventos, un handler por tarea (dos en `linear`, dos en
-   `code-review`), verificados en Claude y Codex en este repo y en
-   Cursor en app-maker.
+3. Eventos, un handler por tarea (dos en `linear`, uno en
+   `code-review`), verificados en Claude y Codex en un consumidor
+   temporal (nunca dev-instalando sobre este checkout) y en Cursor en
+   app-maker tras publicar.
 4. `implement` por replace, comandos en `NEXT`, onboarding del doctor,
    README.
 5. Higiene: el hook `after_implement`, `completions`, los PRs a
@@ -194,7 +200,8 @@ humano.
 
 ## Verificación previa a la spec
 
-1. Un handler declarado por `linear` en este repo aparece en `.claude/settings.json` y `.codex/config.toml` tras
+1. Un handler declarado por `linear` en un consumidor temporal aparece
+   en `.claude/settings.json` y `.codex/config.toml` tras
    `specify integration install <key> --force`, se dispara en
    `session_start`, y un exit 2 en `pre_tool_use` bloquea la llamada en
    ambos agentes.
