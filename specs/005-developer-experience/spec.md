@@ -2,15 +2,19 @@
 
 **Feature directory**: `specs/005-developer-experience`
 **Status**: Draft
-**Input**: "Deliver the developer-experience round from docs/dx.md: script the
-default preset's inline shell (task setup, budget stop, stack-fix
-propagation, PR creation, the on-request root-first merge, the ledger
-check) and replace `implement` instead of appending to it; give the linear
-and code-review extensions runtime events for session context,
-reconciliation, and the four hard-rule guards; make every 'next step' name
-a command; drive onboarding through the doctor; open the README with the
-day in four commands; and turn three neutralized upstream workarounds into
-upstream deletions"
+**Input**: "Deliver the developer-experience round agreed in docs/dx.md: the
+loop's mechanism leaves the prose. The default preset ships its inline
+shell blocks as scripts (task-base, budget-stop, stack-propagate,
+pr-create, the on-request root-first merge, the ledger check) and
+replaces the implement command instead of appending to it; the linear
+extension declares runtime events (session_start context and reconcile,
+post_tool_use reconcile after git push and gh pr) and its NEXT column
+names commands; the code-review extension declares pre_tool_use guards
+(commit-subject convention, force-push, --delete-branch, protected paths
+on task branches) and drops the after_implement hook; completions leaves
+both extensions; /speckit.doctor drives onboarding; the README opens with
+the day in four commands; upstream pull requests turn the neutralized
+behaviors into deletions. Suggested short name: developer-experience."
 
 ## Problem and affected users
 
@@ -34,7 +38,7 @@ hand-mirrored something a machine should have guaranteed instead.
   explicit branch deletion on merge, no edits to a protected path from a
   task branch — are caught by CI or by review, after the commit or the
   edit already happened.
-- Four 30-60 line shell blocks travel inside command prose; the agent is
+- Six blocks of 22 to 110 lines travel inside command prose; the agent is
   expected to "replace only the literal" inside them, and a weaker agent
   breaks them.
 - A junior reads about 700 words of golden rules to learn a flow that,
@@ -62,12 +66,14 @@ becomes something the tooling itself guarantees.
 
 ### User Story 1 - The loop's repeatable steps run as scripts, not prose the agent edits (Priority: P1)
 
-An implementer runs a task through the loop. Every repeatable procedure —
-setting up a task's branch, checking whether a task has passed its
-budget, propagating a fix up a stack, opening a pull request, merging a
-stack root-first on request, and checking a ledger's completeness —
-executes as a script the owning command calls, not a block of shell the
-agent has to keep intact inside its own context.
+An implementer runs a task through the loop, and the doctor onboards a
+consumer. Every repeatable procedure — setting up a task's branch,
+checking whether a task has passed its budget, propagating a fix up a
+stack, opening a pull request, merging a stack root-first on request,
+checking a ledger's completeness, mirroring skills across installed
+integrations, and adding the installer's ignore entries — executes as a
+script the owning command calls, not a block of shell the agent has to
+keep intact inside its own context.
 
 **Why this priority**: the largest and most foundational change of the
 round — it removes the fragile "replace only the literal" pattern a
@@ -77,22 +83,23 @@ commands that call scripts instead of embedding shell.
 **Independent test**: invoke each script directly against fixtures,
 without going through the full loop, and confirm it produces the result
 the owning command relies on; read each command's own prose and confirm
-none of the six procedures is authored there as inline shell.
+none of the eight procedures is authored there as inline shell.
 
 **Acceptance scenarios**:
 
 1. **Given** a task ready for its setup, budget check, stack-fix
-   propagation, PR creation, root-first merge, or ledger check, **When**
-   the owning command reaches that step, **Then** it invokes a dedicated
-   script for that step instead of running shell authored inline in the
-   command's own text.
-2. **Given** a script for one of these six procedures, **When**
+   propagation, PR creation, root-first merge, or ledger check, or a
+   doctor run ready to mirror skills across installed integrations or add
+   the installer's ignore entries, **When** the owning command reaches
+   that step, **Then** it invokes a dedicated script for that step
+   instead of running shell authored inline in the command's own text.
+2. **Given** a script for one of these eight procedures, **When**
    conformance runs, **Then** it invokes the script directly against
    fixtures and reports that script's own pass or fail, not the pass or
    fail of a block copied out of a command's prose.
 3. **Given** a consumer that has this preset dev-installed, **When** a
-   command runs one of the six procedures, **Then** the behavior matches
-   what conformance verified against the same script file.
+   command runs one of the eight procedures, **Then** the behavior
+   matches what conformance verified against the same script file.
 
 ### User Story 2 - Linear names what's next and reconciles on its own (Priority: P2)
 
@@ -115,11 +122,13 @@ next-step field of `status` across a few different states.
 
 **Acceptance scenarios**:
 
-1. **Given** a session starting on a feature or task branch, with Linear
-   configured, **When** the session begins, **Then** a context line
-   names the branch, the feature, the first unchecked task, every open
-   task pull request, and the next command to run, before the agent does
-   anything else.
+1. **Given** a session starting on a feature, task, or work-item branch,
+   with Linear configured, **When** the session begins, **Then** a
+   context line names what applies to it, before the agent does anything
+   else — for a feature or task branch: the branch, the feature, the
+   first unchecked task, every open task pull request, and the next
+   command to run; for a work-item branch: the issue, its derived state,
+   and the next command to run.
 2. **Given** the agent has just run `git push` or a `gh pr create`,
    `ready`, or `merge` command, **When** that command finishes, **Then**
    Linear has already reconciled, with no separate reconcile instruction
@@ -223,8 +232,9 @@ section.
    and the repository's GitHub delivery settings.
 2. **Given** the same consumer, **When** the doctor runs in fix mode,
    **Then** every gap in that list that can be resolved mechanically is
-   resolved, and the GitHub delivery settings — never mechanically
-   fixable — are still only reported.
+   resolved, and the GitHub delivery settings are still only reported:
+   this round's doctor never changes them, and applying them is the
+   releases round's scope.
 3. **Given** the README, **When** a reader opens it, **Then** the day's
    workflow appears as four commands before any other content, and the
    golden rules further down are split into what the developer does and
@@ -272,9 +282,11 @@ one removes.
 - A protected-path write on a feature branch rather than a task branch:
   the guard does not fire, matching round 004's own exemption for the
   branch where the contract legitimately changes.
-- A consumer whose `auto_commit.default` is already `false`: no
-  `git.commit` hook exists there to begin with, so the corresponding
-  upstream fix changes nothing locally for that consumer.
+- A consumer whose `auto_commit.default` is already `false`: until the
+  upstream fix of FR-018 is merged and consumed, the sixteen `git.commit`
+  hooks stay registered in `.specify/extensions.yml` and silenced by the
+  phase-close rules like everywhere else; afterwards, they are simply
+  absent.
 - An agent tries the exact upstream-neutralized behavior this round
   proposes to delete (for example, mirroring commands across
   integrations by hand): the local workaround this repository already
@@ -285,19 +297,24 @@ one removes.
 
 ### Functional requirements
 
-- **FR-001**: The default preset MUST execute each of the following six
+- **FR-001**: The default preset MUST execute each of the following eight
   procedures as a dedicated script that the owning command invokes, never
   as shell authored inline in the command's own prose: per-task setup,
   the budget-stop check, stack-fix propagation, pull-request creation,
-  the on-request root-first merge, and the ledger-completeness check.
-- **FR-002**: Automated conformance MUST invoke each of these six scripts
-  directly against fixtures and report that script's own result; it MUST
-  NOT report passing conformance from a block extracted out of a
+  the on-request root-first merge, the ledger-completeness check,
+  mirroring skills across installed integrations, and adding the
+  installer's ignore entries.
+- **FR-002**: Automated conformance MUST invoke each of these eight
+  scripts directly against fixtures and report that script's own result;
+  it MUST NOT report passing conformance from a block extracted out of a
   command's prose.
 - **FR-003**: Starting a session on a feature or task branch, with Linear
   configured, MUST show, before the agent takes any other action, a
   context line naming the branch, the feature, the first unchecked task,
-  every open task pull request, and the next command to run.
+  every open task pull request, and the next command to run. Starting a
+  session on a work-item branch (a bug's or a chore's issue-key branch,
+  such as `wor-123-slug`) MUST show a context line naming what applies to
+  it instead: the issue, its derived state, and the next command to run.
 - **FR-004**: Wherever Linear names what to do next — the session-start
   context line of FR-003, and the `status` command — it MUST name a
   runnable command, or explicitly say to wait for a human merge; it MUST
@@ -334,7 +351,9 @@ one removes.
   authentication, the Linear API key, the Linear onboarding binding, the
   review engine installation, and the repository's GitHub delivery
   settings. Its fix mode MUST resolve every gap in that list that can be
-  resolved mechanically, without a human decision.
+  resolved mechanically, without a human decision, except the GitHub
+  delivery settings: this round's doctor only reports them, and applying
+  them is the releases round's scope.
 - **FR-013**: The README MUST open with the day's workflow expressed as
   four commands before any other content, and MUST split the golden
   rules further down into what the developer does and what the loop
@@ -354,11 +373,19 @@ one removes.
 - **FR-018**: This round MUST open an upstream pull request against
   `github/spec-kit` that stops registering the sixteen `git.commit` hooks
   when `auto_commit.default` is `false`.
+- **FR-019**: This round MUST update its documentation: `docs/vision.md`
+  records runtime events as the mechanism layer, the explicit degradation
+  on coding agents without event support, and that command autocompletion
+  is each agent's own — replacing the current autocompletion line;
+  `docs/plan.md` records the round; `docs/dogfooding.md`'s entries this
+  round resolves move to *resuelta* as each lands; and `AGENTS.md`'s list
+  of Spanish-language exceptions gains `docs/dx.md` and
+  `docs/releases.md`.
 
 ### Constraints and boundaries
 
 - **C-001**: No new extension is introduced for this round's mechanism
-  layer. The six scripts of FR-001 ship inside the default preset;
+  layer. The eight scripts of FR-001 ship inside the default preset;
   runtime events are declared only by the two extensions that already
   own each concern — linear for context and reconciliation, code-review
   for guards. Event handlers are internal commands of their extension,
@@ -371,7 +398,7 @@ one removes.
   scope. The README remains the sole installation front door.
 - **C-004**: Both extensions require `speckit_version >=1.0.4,<1.1.0` —
   the version where runtime events and the `event run` stdin fix ship.
-- **C-005**: The six scripts of FR-001 are POSIX `sh`, matching the
+- **C-005**: The eight scripts of FR-001 are POSIX `sh`, matching the
   blocks they replace; none gains a PowerShell twin this round.
 - **C-006**: This feature's own `spec.md` is not modified by any of its
   tasks; the protected-path guard FR-008 builds also governs this
@@ -380,7 +407,7 @@ one removes.
 ## Success criteria *(mandatory)*
 
 - **SC-001**: A diff of the default preset's commands against today's
-  shows zero inline shell blocks for the six procedures of FR-001; each
+  shows zero inline shell blocks for the eight procedures of FR-001; each
   is an independently invocable script that conformance exercises
   directly.
 - **SC-002**: Across ten consecutive sessions on a feature or task branch
@@ -420,8 +447,7 @@ one removes.
   as before this round, and the doctor names the gap per FR-009.
 - **A-004**: `AGENTS.md`'s list of Spanish-language exceptions (the
   README, `vision.md`, `dogfooding.md`) does not yet name `docs/dx.md` or
-  `docs/releases.md`. dx.md raises this as an open question; amending the
-  list is left as a follow-up outside this round.
+  `docs/releases.md`; FR-019 amends it as part of this round.
 - **A-005**: This feature is delivered through the workflow it changes;
   every friction met on the way is appended to `docs/dogfooding.md`.
 - **A-006**: This round bumps the default preset and both extensions;
