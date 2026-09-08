@@ -357,3 +357,59 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     implementador lo recuperó leyendo `dx.md`. *Regla:* el brief apunta
     al documento y no lo resume; la regla del loop ("punteros, nunca la
     conversación") vale también para las fases de producto.
+43. **`plan` ordena artefactos que el template del preset no tiene.** El
+    skill core dice "Phase 0: Generate research.md… Phase 1:
+    data-model.md, contracts/, quickstart.md", pero el
+    `plan-template.md` del preset no tiene esas secciones y ni la 003 ni
+    la 004 los produjeron; un junior los crearía. El mismo par
+    skill/template deja al plan sin vara de brevedad: el de la 005 salió
+    de 770 líneas contra 330 del de la 004 y hubo que recortarlo en
+    revisión. *Ronda 005:* el append de cierre de fase dice que el
+    template resuelto manda (solo sus secciones y archivos, en la
+    densidad del precedente).
+44. **`pr.md` decía "reemplazá solo dos literales" con cuatro placeholders
+    en el bloque.** "Replace only the delivery-kind and named-task
+    literals" convive con `<type(scope): subject>` y `<the body>` dentro
+    del mismo `gh pr create`; copiado al pie de la letra deja
+    placeholders en un PR real. *Resuelta (005, D1):* `pr-create.sh`
+    solo resuelve e imprime la base; el `gh pr create` con título y body
+    lo compone el comando.
+45. **Un solo handler por evento y por extensión.** `validate_events`
+    exige que `events.<evento>` sea un mapping (`Invalid event
+    '<evento>': expected a mapping`) y `collect_extension_events` acumula
+    handlers entre extensiones distintas, nunca dos de la misma; `dx.md`
+    daba por hechas dos registraciones `pre_tool_use` en code-review.
+    *Documentada (005, D5; `dx.md` corregido):* un `pre_tool_use` con
+    matcher `Bash|Edit|Write` y las dos guardas dentro, despachadas por
+    `tool_name`.
+46. **Un handler fuera de `provides.commands` se resuelve por nombre de
+    archivo, y el dispatcher falla abierto.** `_find_command_template`
+    cae al stem del `.md` (el `command:` crudo o sin prefijo
+    `speckit.`/`spec.`): un comando con puntos y un archivo
+    `session-start.md` no coinciden, y el dispatcher devuelve exit 0 sin
+    decir nada, así que el evento nunca dispara. *Regla (005, D4):*
+    handlers sin puntos e iguales a su archivo, con un comentario en
+    `events:`; *ronda 005:* el doctor verifica el cableado por
+    integración (FR-009).
+47. **La conformance prohibía `scripts/` en el preset.** `bundles.sh:550`
+    falla si existe `.specify/presets/default/scripts`, un resto de la
+    004 (que retiró un resolver Python) que haría fallar a la 005 a mitad
+    de camino. *Resuelta (005, D2):* la aserción se invierte.
+48. **Hay más bloques marcados que los ocho procedimientos del spec.**
+    `first-task-refresh` y `work-item-branch` (pegado dos veces, en
+    `chore.md` y `bugfix.md`) no aparecen en `dx.md` ni en el spec.
+    *Resuelta (005, D1):* son modos de `task-base.sh` (`refresh`, `task`,
+    `work-item`); no queda shell inline.
+49. **`NEXT` de un work item sugería crear una rama de tarea.**
+    `reporting.py:129` llama a `next_action` sin identificador y el
+    estado `unstarted` imprime `start: create branch NNN-T###-<slug>`:
+    la convención equivocada y el gesto que FR-004 prohíbe, en una fila
+    además inalcanzable (un work item se lista solo con rama o PR).
+    *Resuelta (005, D6):* `next_action` devuelve comandos y la fila
+    `unstarted` de work items desaparece.
+50. **El reconcile tras crear la rama seguía siendo prosa.**
+    `post_tool_use` dispara con `git push` y `gh pr`, pero la rama de
+    tarea o de work item nace local, y el loop, `chore` y `bugfix` piden
+    `push --hook` o `--apply` a mano justo después. *Resuelta (005,
+    D1/D4):* `task-base.sh` termina con `push --hook` si `linear` está
+    instalada.
