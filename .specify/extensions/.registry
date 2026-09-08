@@ -16,7 +16,13 @@
           "speckit.git.commit"
         ]
       },
-      "registered_skills": [],
+      "registered_skills": [
+        "speckit-git-feature",
+        "speckit-git-validate",
+        "speckit-git-remote",
+        "speckit-git-initialize",
+        "speckit-git-commit"
+      ],
       "installed_at": "2026-08-29T18:15:03.051790+00:00"
     },
     "linear": {
@@ -33,7 +39,12 @@
           "speckit.linear.doctor"
         ]
       },
-      "registered_skills": [],
+      "registered_skills": [
+        "speckit-linear-onboard",
+        "speckit-linear-push",
+        "speckit-linear-status",
+        "speckit-linear-doctor"
+      ],
       "installed_at": "2026-09-01T00:07:01.066442+00:00"
     },
     "code-review": {
@@ -49,7 +60,11 @@
           "speckit.code-review.completions"
         ]
       },
-      "registered_skills": [],
+      "registered_skills": [
+        "speckit-code-review-code-review",
+        "speckit-code-review-doctor",
+        "speckit-code-review-completions"
+      ],
       "installed_at": "2026-09-01T00:07:02.311585+00:00"
     }
   }

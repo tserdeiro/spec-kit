@@ -281,3 +281,28 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     completo.
     *Entregada (chore TDS-48, #83):* los tres comandos y la conformance
     resuelven la base de entrega igual que el PR de feature.
+
+## I. Hallazgos del bump a v1.0.4 (2026-09-08)
+
+35. **`specify init --here --force` deja huérfana a la segunda integración
+    y re-renderiza desde el preset instalado, no desde el fuente.** Al
+    refrescar los assets base para v1.0.4, `init --force` reescribió
+    `integration.json` solo con `codex` (los skills de `.claude/` quedaron
+    en disco sin registro) y regeneró `speckit-doctor` desde la copia
+    dev-instalada del preset, anterior a #84: el fix desapareció del
+    render hasta rehacer `preset add --dev`. `integration install claude
+    --force` restauró el registro pero re-renderizó los cinco core sin
+    los appends (entrada 17); el bloque `skill-mirror` los reaplicó.
+    *Regla:* un bump de upstream en este repo es `init --force` →
+    `preset remove/add --dev` → `integration install <otro> --force` →
+    `skill-mirror` con fix → `ignore-entries` con fix, y el diff de los
+    renders se revisa antes de commitear. La review fresca del PR #85
+    señaló además que `.specify/integrations/*.manifest.json` registra
+    para los cinco core con append el hash del render de upstream, no
+    el del archivo: en claude es la línea base con la que `integration
+    upgrade` detecta archivos modificados (corregirla a mano haría que
+    el upgrade pise los appends); en codex quedó desfasado desde antes
+    y lo reescribe cada `preset add`. Es estado del instalador: no se
+    edita a mano. *Upstream:* que `init --force` preserve
+    `installed_integrations` y que el registro del preset en todas las
+    integraciones sea suyo (y con él, el hash) es candidato a PR.

@@ -4,8 +4,10 @@ description: Diagnose the Spec Kit Linear prerequisites. Never mutates Linear.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: linear:commands/doctor.md
+  source: extension:linear
 ---
+
+# Linear Doctor Skill
 
 # Spec Kit Linear doctor
 

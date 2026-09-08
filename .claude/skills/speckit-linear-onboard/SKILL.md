@@ -1,11 +1,14 @@
 ---
 name: speckit-linear-onboard
-description: Bind this repository to a Linear team. Resolves every ID read-only; never mutates Linear.
+description: Bind this repository to a Linear team. Resolves every ID read-only; never
+  mutates Linear.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: linear:commands/onboard.md
+  source: extension:linear
 ---
+
+# Linear Onboard Skill
 
 # Spec Kit Linear onboard
 

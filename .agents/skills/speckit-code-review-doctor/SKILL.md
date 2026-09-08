@@ -1,11 +1,14 @@
 ---
 name: speckit-code-review-doctor
-description: Validate git, ocr, gh, configuration, and rules; --fix applies the local repairs.
+description: Validate git, ocr, gh, configuration, and rules; --fix applies the local
+  repairs.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: code-review:commands/doctor.md
+  source: extension:code-review
 ---
+
+# Code Review Doctor Skill
 
 # Spec Kit code review doctor
 

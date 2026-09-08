@@ -56,11 +56,11 @@ de Linear (Linear → Settings → API → Personal API keys).
 ### 1. Instala el CLI de Spec Kit (versión exacta)
 
 ```bash
-uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.0.1
+uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v1.0.4
 uv tool update-shell
 ```
 
-Reinicia la terminal; `specify version` debe decir `1.0.1`.
+Reinicia la terminal; `specify version` debe decir `1.0.4`.
 
 ### 2. Inicializa tu repositorio
 
@@ -416,11 +416,11 @@ specify bundle update --all
 ```
 
 **El CLI de upstream** (solo cuando esta distribución mueva su pin — hoy
-`v1.0.1`): actualiza la herramienta, refresca los assets base del repo
+`v1.0.4`): actualiza la herramienta, refresca los assets base del repo
 (la constitución autorada se preserva) y re-aplica los bundles:
 
 ```bash
-uv tool install specify-cli --force --from git+https://github.com/github/spec-kit.git@v1.0.1
+uv tool install specify-cli --force --from git+https://github.com/github/spec-kit.git@v1.0.4
 specify init --here --force --integration <agente>
 specify bundle update --all
 ```
@@ -476,11 +476,11 @@ los zips subidos. El pin de upstream se reproduce desde un clon
 independiente:
 
 ```bash
-git clone --branch v1.0.1 --depth 1 \
-  https://github.com/github/spec-kit.git /tmp/spec-kit-v1.0.1
-git -C /tmp/spec-kit-v1.0.1 rev-parse 'v1.0.1^{commit}'
-git -C /tmp/spec-kit-v1.0.1 rev-parse 'v1.0.1^{tree}'
-git -C /tmp/spec-kit-v1.0.1 archive --format=tar v1.0.1 | shasum -a 256
+git clone --branch v1.0.4 --depth 1 \
+  https://github.com/github/spec-kit.git /tmp/spec-kit-v1.0.4
+git -C /tmp/spec-kit-v1.0.4 rev-parse 'v1.0.4^{commit}'
+git -C /tmp/spec-kit-v1.0.4 rev-parse 'v1.0.4^{tree}'
+git -C /tmp/spec-kit-v1.0.4 archive --format=tar v1.0.4 | shasum -a 256
 ```
 
 ## 🗺️ Mapa del repositorio

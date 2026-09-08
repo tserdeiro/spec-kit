@@ -16,7 +16,7 @@ measures itself against the vision and extends this plan explicitly.
 ## Product
 
 An ultra-light, portable SDD distribution composed on top of pinned
-`github/spec-kit` v1.0.1. It covers the whole daily delivery cycle —
+`github/spec-kit` v1.0.4. It covers the whole daily delivery cycle —
 business need → spec → plan → tasks → implementation → review → merge — for
 features, bugs, and chores, with Linear as the tracking system and a single
 agentic code-review command. Three role bundles: `product`, `developer`,
@@ -354,6 +354,14 @@ code-review 0.4.0, preset 0.9.0, bundles 0.15.0; the consumer upgrade is
   — it runs before pushing, so the digest check reports a missing zip as
   pending; the orchestrator's first skill mirror reproduced the very bug
   of entry 17, caught by the diff before commit.
+
+### Maintenance (2026-09-08)
+
+- **Upstream pin v1.0.4** — the pinned CLI moved from v1.0.1 to v1.0.4
+  (three upstream patch releases: `--require-spec` in the prerequisite
+  script, the `wrap` composition fix, stable runtime events, presets that
+  declare a required extension). Baseline assets refreshed; every
+  `>=1.0.1,<1.1.0` range still holds, so no component is re-released.
 
 ## Releases
 
