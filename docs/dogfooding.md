@@ -306,3 +306,54 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     edita a mano. *Upstream:* que `init --force` preserve
     `installed_integrations` y que el registro del preset en todas las
     integraciones sea suyo (y con él, el hash) es candidato a PR.
+
+## J. Hallazgos de la ronda 005
+
+36. **El hook de rama mezcla un comentario con su JSON.**
+    `create-new-feature-branch.sh --json` escribe
+    `# To persist: export SPECIFY_FEATURE=005-developer-experience` en
+    stderr y `{"BRANCH_NAME":…,"FEATURE_NUM":…}` en stdout; la
+    herramienta del agente une los dos streams, así que ve el
+    comentario antes del JSON y un `jq` sobre lo que ve falla. El skill
+    promete "salida parseable" sin decir que hay que separar stderr, y
+    la línea sigue sugiriendo la persistencia equivocada (entrada 18).
+    Tampoco advierte que la descripción larga viaja como un argumento
+    posicional sin guía de escapado. *Upstream.*
+37. **La regla de hooks del preset no nombra la clave que la gobierna.**
+    El append de cierre de fase dice "un hook opcional cuya propia
+    configuración de extensión habilita su evento (mirar bajo
+    `.specify/extensions/<extensión>/`)": `extensions.yml` lo marca
+    `enabled: true` y la clave real es `auto_commit.<evento>.enabled` en
+    `git-config.yml`, bajo `auto_commit.default: false`. Un agente que
+    mire solo `extensions.yml` dispararía `git.commit`, que hace
+    `git add .` antes del commit acotado del propio append (entrada 24).
+    *Ronda 005:* el append nombra la clave; el PR 3 a upstream lo
+    elimina de raíz.
+38. **`specify` no nombra el script determinista que ya trae.** El skill
+    dice "resolvé el `spec-template` por el stack (equivalente a
+    `specify preset resolve spec-template`)" sin nombrar
+    `.specify/scripts/bash/resolve-template.sh` ni
+    `check-prerequisites.sh --template`; el implementador lo resolvió a
+    mano comparando copias. *Upstream.*
+39. **La checklist de calidad del spec no encaja con un producto de
+    tooling.** "Sin detalles de implementación" y "criterios agnósticos
+    de tecnología" chocan con un spec cuya superficie de usuario son
+    comandos y flags; la 004 hizo la misma excepción sin registrarla.
+    *Regla:* la excepción se documenta en las Notas de la checklist,
+    como hizo la 005.
+40. **El short name se genera dos veces sin cruzarse.** Lo genera el
+    skill de `git.feature` (rama) y otra vez el de `specify`
+    (directorio), y el texto avisa que pueden diferir; nada dice que
+    deben coincidir, y un agente descuidado terminaría con rama y
+    directorio distintos por accidente. *Regla:* mismo slug para rama y
+    directorio.
+41. **`dx.md` contó cuatro bloques y omitió los dos más grandes.**
+    `skill-mirror` (110 líneas) e `ignore-entries` (22) del doctor son
+    el mismo anti-patrón "reemplazá solo el literal". *Resuelta (spec
+    005):* FR-001 pasa a ocho scripts y `dx.md` se corrigió.
+42. **El brief del orquestador aplanó el diseño.** Al resumir `dx.md` en
+    el argumento de `specify`, las dos guardas `pre_tool_use` (matchers
+    `Bash` y `Edit|Write`) quedaron como una lista de cuatro pares; el
+    implementador lo recuperó leyendo `dx.md`. *Regla:* el brief apunta
+    al documento y no lo resume; la regla del loop ("punteros, nunca la
+    conversación") vale también para las fases de producto.
