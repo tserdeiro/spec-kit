@@ -38,9 +38,10 @@ hand-mirrored something a machine should have guaranteed instead.
   explicit branch deletion on merge, no edits to a protected path from a
   task branch — are caught by CI or by review, after the commit or the
   edit already happened.
-- Six blocks of 22 to 110 lines travel inside command prose; the agent is
-  expected to "replace only the literal" inside them, and a weaker agent
-  breaks them.
+- Six shell blocks of 22 to 110 lines travel inside command prose, and
+  two more procedures (the root-first merge, the ledger check) exist only
+  as prose; the agent is expected to "replace only the literal" inside
+  the blocks, and a weaker agent breaks them.
 - A junior reads about 700 words of golden rules to learn a flow that,
   task by task, is four commands.
 
@@ -104,18 +105,20 @@ none of the eight procedures is authored there as inline shell.
 ### User Story 2 - Linear names what's next and reconciles on its own (Priority: P2)
 
 A developer, or the unattended agent, starts a session on a branch bound
-to a feature and finds, without asking, the branch, the feature, the
-first unchecked task, every open task pull request, and a command to run
-next. After a push or a pull-request action, Linear is already
-reconciled by the time anyone looks.
+to a feature — or to a bug or chore — and finds, without asking, where
+they are (the branch, the feature and its first unchecked task with the
+open task pull requests, or the issue and its derived state) and a
+command to run next. After a push or a pull-request action, Linear is
+already reconciled by the time anyone looks.
 
 **Why this priority**: replaces the friction of an agent that must
 remember to run `push --hook` at three separate points, and of a "next
 step" that today can read as a manual instruction instead of a runnable
 command.
 
-**Independent test**: start a session on a feature or task branch with
-Linear configured and read the greeting before typing anything; run
+**Independent test**: start a session on a feature, task, or work-item
+branch with Linear configured and read the greeting before typing
+anything; run
 `git push` or a `gh pr` action and check Linear's state immediately
 after, with no reconcile command anywhere in the transcript; read the
 next-step field of `status` across a few different states.
@@ -265,6 +268,12 @@ one removes.
 3. **Given** upstream `github/spec-kit`, **When** this round closes,
    **Then** three pull requests are open there, each turning one of this
    distribution's local workarounds into an upstream deletion.
+4. **Given** the repository's documents, **When** this round closes,
+   **Then** the vision names runtime events as the mechanism layer and
+   the explicit degradation without them, the plan records the round,
+   the resolved dogfooding entries read *resuelta*, and `AGENTS.md` lists
+   `docs/dx.md` and `docs/releases.md` among the Spanish-language
+   exceptions.
 
 ### Edge cases
 
