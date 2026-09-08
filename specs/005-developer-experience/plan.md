@@ -5,68 +5,64 @@
 
 ## Summary
 
-Round 005 moves the delivery loop's mechanism out of command prose and into
-machinery the pinned CLI already supports, verified in its installed source
-rather than assumed from `dx.md`'s own framing. The default preset ships its
+Round 005 moves the delivery loop's mechanism out of command prose into
+machinery the pinned CLI already supports. The default preset ships its
 eight repeatable procedures as invocable POSIX scripts (`type: "script"`
-preset entries, a first-class primitive) instead of inline shell an agent
-edits by hand; conformance invokes those installed scripts directly. The
-`linear` and `code-review` extensions declare native runtime events
-(`session_start`/`post_tool_use`, `pre_tool_use`) so session context and
+preset entries) instead of inline shell an agent edits by hand;
+conformance invokes them directly. The `linear` and `code-review`
+extensions declare native runtime events so session context and
 reconciliation happen without a prose reminder, and the four hard rules
 block before the action instead of after. `implement` and `tasks` become
 authored replacements of the upstream core instead of a base plus a
-contradicting append. The doctor's existing checks already produce most of
-FR-012's fixed onboarding order; this round closes the summarization gap,
-not the checks. Three neutralized local workarounds are prepared as
-upstream deletions. No new extension, no new command, no new persisted
-configuration: every new behavior reuses a mechanism already installed —
-`type: script` preset entries, extension `events:` manifests, `push
---hook`'s existing config gate, the existing `protected_paths` field.
+contradicting append; the doctor's existing checks already produce most
+of the fixed onboarding order, so this round closes only the
+summarization gap. Three neutralized local workarounds are prepared as
+upstream deletions. No new extension, command, or persisted
+configuration — every new behavior reuses an already-installed
+mechanism: `type: script` entries, extension `events:` manifests, `push
+--hook`'s config gate, `protected_paths`.
 
 ## Technical context
 
 - **Language/runtime**: preset commands stay agent-executed Markdown; the
-  eight FR-001 procedures become POSIX `sh` scripts the commands invoke
-  with real argv (no inline blocks, no literal substitution); the two
-  extensions' new event handlers are POSIX `sh` scripts invoked by the
-  CLI-generated dispatcher (`.specify/events.py`) with the native payload
-  on stdin; both packages stay Python ≥3.11, stdlib-only, `uv`-managed;
-  conformance stays bash.
+  eight FR-001 procedures become POSIX `sh` scripts invoked with real
+  argv; the two extensions' new event handlers are POSIX `sh` scripts
+  invoked by the CLI-generated dispatcher (`.specify/events.py`) with the
+  native payload on stdin; both packages stay Python ≥3.11, stdlib-only,
+  `uv`-managed; conformance stays bash.
 - **Primary dependencies**: pinned upstream `specify-cli` 1.0.4
-  (`versions.lock.yml`; installed and confirmed — `specify version` reports
-  `1.0.4`); `gh`; `git`; each verified agent's own native hook runtime
-  (Claude Code, Codex, Cursor — no SDK, no new package). Nothing is added
-  to either package's `pyproject.toml`.
+  (`versions.lock.yml`, confirmed installed); `gh`; `git`; each verified
+  agent's own native hook runtime (Claude Code, Codex, Cursor — no SDK,
+  no new package). Nothing added to either package's `pyproject.toml`.
 - **Storage/state**: no new persisted configuration schema (see Data and
-  migration behavior). New physical files only: the preset's eight
-  `scripts/bash/*.sh` and the two extensions' three internal command+script
-  pairs, all materialized by the existing install mechanism.
+  migration behavior); new physical files only, materialized by the
+  existing install mechanism — the preset's eight `scripts/bash/*.sh` and
+  the two extensions' three internal command+script pairs.
 - **Verification**: package pytest suites (`uv run pytest
   packages/<package>/tests`); `bash scripts/conformance/bundles.sh`
-  (redesigned, D2); live verification on Claude Code and Codex in this
-  repository and Cursor in the app-maker consumer (A-002, D12); this
-  feature's own delivery as dogfood evidence for SC-002 through SC-004,
-  the same way `specs/004-delivery-discipline/plan.md` proved its own loop
-  rules through its own transcripts.
-- **Target environment**: any upstream-supported agent for the script layer
-  (FR-001/FR-002); Claude Code, Codex, and Cursor specifically for the
-  events layer this round proves; every other agent (Zed, today) degrades
+  (redesigned, D2); live verification on Claude Code and Codex in a
+  temporary consumer repository and Cursor in the app-maker consumer
+  (A-002, D12); this feature's own delivery as dogfood evidence for
+  SC-002 through SC-004, as `specs/004-delivery-discipline/plan.md`
+  proved its own loop rules through its own transcripts.
+- **Target environment**: any upstream-supported agent for the script
+  layer (FR-001/FR-002); Claude Code, Codex, and Cursor for the events
+  layer this round proves; every other agent (Zed, today) degrades
   explicitly (A-003); macOS/Linux shells, `dash` on Ubuntu CI.
-- **Constraints**: C-001 through C-006 (`spec.md`); the extension manifest
-  schema allows exactly one handler mapping per event name per extension
-  (verified below — shapes D5); the 400-line task budget with the 2× stop;
-  release lag (A-002) — this repository's own loop gets the new events
-  only once the two extensions are locally reinstalled, other consumers
-  only once published and bundle-updated.
+- **Constraints**: C-001 through C-006 (`spec.md`); the extension
+  manifest schema allows exactly one handler mapping per event name per
+  extension (shapes D5); the 400-line task budget with the 2× stop;
+  release lag (A-002) — this repository's own loop stays on the
+  installed releases for the whole round (D12), like every other
+  consumer, until they publish and bundle-update.
 
 ## Documentation
 
 | Library or API | Version in use | Documentation |
 | --- | --- | --- |
 | specify-cli (upstream) | 1.0.4 (`versions.lock.yml`) | https://github.com/github/spec-kit |
-| specify-cli runtime events (`events:`, `CANONICAL_EVENTS`, the dispatcher) | 1.0.4, installed source | Verified directly in the installed `specify_cli/events.py`, `extensions/__init__.py`, `integrations/{claude,codex,cursor_agent}/__init__.py` — Spec Kit's own reference pages do not document this yet, confirmed while researching this plan |
-| Claude Code hooks (SessionStart/PreToolUse/PostToolUse payload shape) | installed Claude Code | https://docs.claude.com/en/docs/claude-code/hooks — confirm exact payload field names (`tool_name`, `tool_input.*`) against this before `guard.sh`/`session-start.sh` are written; not re-derived here |
+| specify-cli runtime events (`events:`, `CANONICAL_EVENTS`, the dispatcher) | 1.0.4, installed source | `specify_cli/events.py`, `extensions/__init__.py`, `integrations/{claude,codex,cursor_agent}/__init__.py` — Spec Kit's own reference pages do not document this yet |
+| Claude Code hooks (SessionStart/PreToolUse/PostToolUse payload shape) | installed Claude Code | https://docs.claude.com/en/docs/claude-code/hooks — confirm exact payload field names (`tool_name`, `tool_input.*`) before `guard.sh`/`session-start.sh` are written |
 | Codex CLI (`.codex/config.toml` hooks) | installed codex | https://github.com/openai/codex |
 | Cursor CLI hooks (`.cursor/hooks.json`) | installed cursor-agent | https://docs.cursor.com/en/cli/overview |
 | gh CLI (`pr merge --delete-branch`, `api -X PATCH`, `auth status`) | consumer-installed | https://cli.github.com/manual/ |
@@ -102,87 +98,84 @@ configuration: every new behavior reuses a mechanism already installed —
 - **Decision**: eight POSIX `sh` scripts at
   `presets/default/scripts/bash/{task-base,budget-stop,stack-propagate,
   pr-create,merge-root-first,ledger-check,skill-mirror,ignore-entries}.sh`,
-  each a `preset.yml` entry with `type: "script"`, explicit
-  `file: "scripts/bash/<name>.sh"`, hyphenated `name` (matches
-  `presets/__init__.py:518`'s `^[a-z0-9-]+$` rule for non-command
-  templates), `strategy: "replace"` — the only sensible
-  `VALID_SCRIPT_STRATEGIES` value here (`presets/__init__.py:274`; there is
-  no upstream base script to `wrap`). Verified: `type: "script"` is a
-  first-class preset primitive
-  (`presets/__init__.py:271`, `VALID_PRESET_TEMPLATE_TYPES = {"template",
-  "command", "script"}`) that installs by full-directory
-  `shutil.copytree(source_dir, dest_dir)` (`presets/__init__.py:3874`), so
-  every consumer materializes the file at
-  `.specify/presets/default/scripts/bash/<name>.sh`; the owning command's
-  prose invokes it there directly
+  each a `preset.yml` entry with `type: "script"` (a first-class
+  primitive, `presets/__init__.py:271`), `file: "scripts/bash/<name>.sh"`,
+  a hyphenated `name` (`presets/__init__.py:518`'s `^[a-z0-9-]+$` rule),
+  and `strategy: "replace"` (`presets/__init__.py:274`; no upstream base
+  to `wrap`). Installed by full-directory `shutil.copytree`
+  (`presets/__init__.py:3874`) to
+  `.specify/presets/default/scripts/bash/<name>.sh`; the owning command
+  invokes it there directly
   (`bash .specify/presets/default/scripts/bash/task-base.sh ...`),
-  mirroring the extensions' own established
-  `bash .specify/extensions/<id>/scripts/bash/run.sh ...` convention. The
-  "replace only the literal" pattern is gone by construction — commands
-  pass real argv instead of the agent editing placeholder text before
-  running `sh -c`.
-- `task-base.sh` absorbs three related setup blocks that exist today as
-  separate marked shell — `task-base`, `first-task-refresh`, and
-  `work-item-branch` (byte-identical, pasted in both `chore.md` and
-  `bugfix.md`) — as three modes of one script, since FR-001 names
-  "per-task setup" as a single procedure and all three exist only to put
-  the right branch under the developer before work starts:
+  mirroring the extensions' own `run.sh` convention. The "replace only
+  the literal" pattern is gone by construction — commands pass real argv
+  instead of the agent editing placeholder text before `sh -c`.
+- `task-base.sh` absorbs three setup blocks that exist today as separate
+  marked shell — `task-base`, `first-task-refresh`, and `work-item-branch`
+  (byte-identical, pasted in both `chore.md` and `bugfix.md`) — as three
+  modes of one script, since FR-001 names "per-task setup" as a single
+  procedure:
   - `task-base.sh refresh` — today's `first-task-refresh` (merge the
     delivery base into the feature branch, once per feature).
   - `task-base.sh task <NNN-T###-slug>` — today's `task-base` (branch from
     the open task stack's top, or the feature branch).
   - `task-base.sh work-item <branch-name>` — today's `work-item-branch`
     (branch from the delivery base), called identically from `chore.md`
-    and `bugfix.md`: one script, two callers, instead of one block pasted
-    twice — the byte-identity check at `bundles.sh:773-780` becomes
-    structural, not textual.
-- `pr-create.sh <feature|task|work-item> [named-task]` resolves and prints
-  `base=<name>` only — today's base-resolution rules unchanged (trunk
+    and `bugfix.md`: one script, two callers — the byte-identity check at
+    `bundles.sh:773-780` becomes structural, not textual.
+  - Every mode ends the same way: `[ -d .specify/extensions/linear ] &&
+    bash .specify/extensions/linear/scripts/bash/run.sh push --hook` —
+    silent no-op without the extension. `post_tool_use` (D4) fires only
+    on `git push`/`gh pr`, never on a local branch creation, so today's
+    reconcile-right-after-branch sentences — `implement-append.md:61-62`
+    after `task-base`, `chore.md`/`bugfix.md`'s `push --apply` after
+    `work-item-branch` — have no event to replace them; ending the
+    script this way makes the branch's *In Progress* projection
+    mechanical instead, and neither sentence survives into any command
+    this round ships (FR-005, SC-002).
+- `pr-create.sh <feature|task|work-item> [named-task]` resolves and
+  prints `base=<name>` only, unchanged base-resolution rules (trunk
   config wins, else the GitHub default, else the open-task-stack head,
   with the branch-identity check against the ledger's first unchecked
-  task). `pr.md`'s own prose keeps composing the canonical title/body and
-  running `gh pr create` itself. This is a deliberate split from today's
-  single block, which conflates deterministic base-resolution with an
-  agent-composed `gh pr create` call — see Alternatives and the friction
-  report for the exact inconsistency it corrects: `pr.md` says "Replace
-  only the delivery-kind and named-task literals" while its block also
-  embeds two more untouched placeholders, `<type(scope): subject>` and
-  `<the body>`.
+  task); `pr.md`'s own prose keeps composing the title/body and running
+  `gh pr create` itself. This deliberately splits deterministic
+  base-resolution from the agent-composed `gh pr create` call — see
+  Alternatives and `docs/dogfooding.md` entry 44 for the inconsistency it
+  corrects: `pr.md` says "Replace only the delivery-kind and named-task
+  literals" while its block also embeds two more untouched placeholders,
+  `<type(scope): subject>` and `<the body>`.
 - `budget-stop.sh <task_id> <base>` and `stack-propagate.sh <fixed_branch>`
-  are direct translations of today's blocks — unchanged rules, unchanged
+  are direct translations of today's blocks — unchanged rules and
   exit-code/message conventions (`exit 2` with an `error: ...` diagnosis
   on stderr; `exit 0` with a one-line summary on stdout).
 - `merge-root-first.sh` (no required argument; self-derives the feature
-  branch via `check-prerequisites.sh --paths-only`, the pattern
-  `task-base`/`budget-stop` already use) is new: it extracts today's
-  prose-only "Between tasks" procedure — `git worktree prune`, then for
-  each open task PR root-first, retarget by API (`gh api -X PATCH
+  branch via `check-prerequisites.sh --paths-only`, as `task-base`/
+  `budget-stop` already do) extracts today's prose-only "Between tasks"
+  procedure — `git worktree prune`, then for each open task PR
+  root-first, retarget by API (`gh api -X PATCH
   repos/{owner}/{repo}/pulls/<n> -f base=<feature-branch>`) and
-  `gh pr merge <n> --merge` (never `--delete-branch`, matching the guard
-  of D5/FR-007). It runs only on an explicit human instruction in the
-  conversation — the script performs the mechanical steps; the human's
-  "yes, merge" stays a conversation-level decision, never automated.
-- `ledger-check.sh <task_id>` is new: it verifies, deterministically, what
-  the loop's prose today only asks the agent to remember — the task's
-  checkbox is `[x]` and its **Completion evidence** field is filled (not
-  "Pending", not empty) — before the command marks the PR
-  `ready for review`. Same fence-aware ledger-parsing approach as
+  `gh pr merge <n> --merge` (never `--delete-branch`, the guard of
+  D5/FR-007) — and runs only on an explicit human instruction in the
+  conversation: the script performs the mechanical steps, the "yes,
+  merge" itself stays a conversation-level decision.
+- `ledger-check.sh <task_id>` verifies, deterministically, what the
+  loop's prose today only asks the agent to remember — the task's
+  checkbox is `[x]` and its **Completion evidence** field is filled, not
+  "Pending" or empty — before the command marks the PR
+  `ready for review`; same fence-aware ledger parsing as
   `budget-stop.sh`/`pr-create.sh`'s task case. `exit 2` names exactly
-  what's missing, turning "the agent forgot" (the Problem statement's own
-  diagnosis) into a script-enforced gate.
+  what's missing, turning "the agent forgot" into a script-enforced gate.
 - `skill-mirror.sh <true|false>` and `ignore-entries.sh <true|false>` are
   direct translations of `doctor.md`'s two largest blocks — 110 and 22
-  lines, dogfooding entry 41 — unchanged logic, called from `doctor.md`'s
-  steps 5 and 6 with the `fix` argument taken from whether the user asked
-  to fix.
-- **Rationale**: FR-001/FR-002 require every one of these eight procedures
-  to be a dedicated, directly-invocable script; `type: "script"` is the
-  CLI's own supported mechanism for exactly this, verified rather than
-  invented, and it installs with zero new dependency.
+  lines, dogfooding entry 41 — called from `doctor.md`'s steps 5 and 6
+  with `fix` taken from whether the user asked to fix.
+- **Rationale**: FR-001/FR-002 require each of these eight procedures to
+  be a dedicated, directly-invocable script; `type: "script"` is the
+  CLI's own mechanism for exactly this, and it installs with zero new
+  dependency.
 - **Trade-off**: `task-base.sh`'s three modes are one script with a mode
-  argument rather than three separate FR-001-adjacent scripts — simpler
-  surface, at the cost of one positional argument every caller must pass
-  correctly.
+  argument rather than three separate scripts — simpler surface, at the
+  cost of one positional argument every caller must pass correctly.
 
 ### D2. Conformance invokes the installed scripts directly (scripts)
 
@@ -193,37 +186,33 @@ configuration: every new behavior reuses a mechanism already installed —
   `render_fix` — `bundles.sh:642-645,872-874,967-969,1024-1027,1099`)
   entirely. Each scenario instead invokes the installed file directly —
   `bash "$consumer_root/.specify/presets/default/scripts/bash/<name>.sh"
-  <argv>` — against the same fake-`git`/fake-`gh` PATH harness
-  (`fake_bin`, the `gh_calls`/`git_calls` JSONL logs) already in place;
-  the scenario-level assertions (which git/gh calls happen, in what
-  order, with what argv) are unchanged, because the scripts' behavior is
-  unchanged from the blocks they replace.
+  <argv>` — against the same fake-`git`/fake-`gh` PATH harness already in
+  place; the scenario-level assertions (which git/gh calls happen, in
+  what order, with what argv) are unchanged, since the scripts' behavior
+  is unchanged from the blocks they replace.
 - `bundles.sh:550-551` —
   `[ -e "$consumer_root/.specify/presets/default/scripts" ] &&
   fail "trunk: the retired scripts/ directory is still installed"` — is a
-  direct regression trap for this round: round 004 retired a Python
-  `resolve-delivery-base` script in favor of inline shell specifically to
-  avoid a `scripts/` directory; round 005 reintroduces one, this time
-  through the CLI's own supported `type: script` primitive, not an ad hoc
-  resolver. This assertion is replaced with its opposite — the eight files
-  exist at that path — while `bundles.sh:636-637`'s
-  `python3|resolve-delivery-base` grep stays valid and now runs against
-  the new `implement.md`/`pr.md`/`chore.md`/`bugfix.md` content.
-- A new assertion proves SC-001 directly against the installed artifact:
-  the installed command files (`speckit-implement`, `speckit-pr`,
-  `speckit-chore`, `speckit-bugfix`, `speckit-doctor`) contain no
-  `# <name>:start`/`# <name>:end` marker pairs at all.
+  regression trap from round 004, which retired a Python
+  `resolve-delivery-base` script specifically to avoid a `scripts/`
+  directory; round 005 reintroduces one through the CLI's own `type:
+  script` primitive, not an ad hoc resolver. The assertion is replaced
+  with its opposite — the eight files exist at that path — while
+  `bundles.sh:636-637`'s `python3|resolve-delivery-base` grep stays valid
+  against the new `implement.md`/`pr.md`/`chore.md`/`bugfix.md` content.
+- A new assertion proves SC-001 directly: the installed command files
+  (`speckit-implement`, `speckit-pr`, `speckit-chore`, `speckit-bugfix`,
+  `speckit-doctor`) contain no `# <name>:start`/`# <name>:end` marker
+  pairs at all.
 - The `work_item_branch`/`bugfix_work_item_branch` byte-identity
   assertion (`bundles.sh:773-780`) is replaced by asserting both
   `chore.md` and `bugfix.md` invoke the same
   `task-base.sh work-item <branch>` call — identity is now structural
   (one script, two call sites), the direct product of D1's consolidation.
-- **Rationale**: FR-002 — conformance must report the script's own result,
-  never a block extracted from prose; direct invocation is also
-  materially simpler (no `render_*` sed layer, no placeholder syntax to
-  keep in sync with the command prose).
-- **Trade-off**: none identified — this is a strict simplification of the
-  existing harness.
+- **Rationale**: FR-002 — conformance must report the script's own
+  result, never a block extracted from prose; also materially simpler,
+  with no `render_*` sed layer or placeholder syntax to keep in sync.
+- **Trade-off**: none — a strict simplification of the existing harness.
 
 ### D3. `implement` and `tasks` become authored replacements (preset)
 
@@ -231,56 +220,57 @@ configuration: every new behavior reuses a mechanism already installed —
   entries change `strategy: "append"` → `strategy: "replace"`, with new,
   freestanding `commands/implement.md` and `commands/tasks.md` (replacing
   `implement-append.md`/`tasks-append.md`). `speckit.specify`,
-  `speckit.plan`, and `speckit.analyze` keep `strategy: "append"`
-  unchanged — their append (`phase-close-append.md`) has no equivalent
-  contradiction with their upstream cores. Verified:
-  `presets/__init__.py:6053-6056` — "If the top (highest-priority) layer
-  is replace, it wins entirely — lower layers are irrelevant regardless of
-  their strategies" — so with `strategy: replace` the rendered command is
-  the new file's raw content alone; upstream's core `implement.md`/
-  `tasks.md` (`core_pack/commands/{implement,tasks}.md`, read in full —
-  222/219 lines, ~12.4/10.8 KB) contributes nothing, closing FR-010/FR-011
-  by construction instead of by an appended sentence telling the agent
-  which half to disregard.
+  `speckit.plan`, and `speckit.analyze` keep `strategy: "append"` — their
+  append (`phase-close-append.md`) has no equivalent contradiction with
+  their upstream cores. `presets/__init__.py:6053-6056`: "If the top
+  (highest-priority) layer is replace, it wins entirely — lower layers
+  are irrelevant regardless of their strategies," so the rendered command
+  becomes the new file's raw content alone; upstream's core
+  `implement.md`/`tasks.md` (`core_pack/commands/{implement,tasks}.md` —
+  222/219 lines, ~12.4/10.8 KB) contributes nothing, closing FR-010/
+  FR-011 by construction instead of by an appended sentence telling the
+  agent which half to disregard.
 - Because `replace` discards the upstream file wholesale, including its
-  frontmatter, the new files must carry their own `scripts:` frontmatter
-  block verbatim from upstream core (`sh: scripts/bash/
-  check-prerequisites.sh --json --require-tasks --include-tasks` for
-  implement; `sh: scripts/bash/setup-tasks.sh --json` for tasks) — this is
-  what resolves the body's `{SCRIPT}` placeholder; dropping it silently
-  breaks the command. This is the single non-negotiable correctness
-  constraint of this decision.
-- Content shape, verified against upstream core's actual text: the new
-  files keep upstream's still-useful, non-contradicted Outline steps (the
-  prerequisites-script Setup step; the checklist-status gate; loading
-  `plan.md`/`data-model.md`/`research.md`/`quickstart.md`/
-  `constitution.md` when present; `implement.md`'s ignore-file
-  verification), rewritten in this distribution's voice, and fold in this
-  repository's own loop as the sole execution-order model — replacing
+  frontmatter, the new files carry their own `scripts:` frontmatter block
+  verbatim from upstream core (`sh: scripts/bash/check-prerequisites.sh
+  --json --require-tasks --include-tasks` for implement;
+  `sh: scripts/bash/setup-tasks.sh --json` for tasks), which resolves the
+  body's `{SCRIPT}` placeholder — dropping it silently breaks the
+  command, the one non-negotiable constraint here.
+- Content shape: the new files keep upstream's still-useful,
+  non-contradicted Outline steps — the prerequisites-script Setup step,
+  the checklist-status gate, and loading `plan.md` and `tasks.md`, plus
+  `data-model.md`/`research.md`/`quickstart.md`/`constitution.md` when
+  present — rewritten in this distribution's voice, and fold in this
+  repository's own loop as the sole execution-order model, replacing
   upstream's generic "phase-by-phase, `[P]`-parallel, TDD-first" model
-  wholesale. That model is exactly what this repository's
-  `tasks-template.md` and delivery loop already supersede: upstream
-  `tasks.md`'s own "Checklist Format" section requires `[P]` markers
-  ("3. **[P] marker**: Include ONLY if task is parallelizable") and
-  "Create parallel execution examples per user story" — the literal
-  contradiction FR-011 names, confirmed by reading the file, not assumed.
-  The hook-announcement boilerplate (`Pre-Execution Checks`/`Mandatory
-  Post-Execution Hooks`, upstream's printed "Optional Hook" block) is
-  authored directly as this distribution's silent behavior instead of
-  surviving as text an override bullet then contradicts.
-- **Rationale**: FR-010's own wording — "MUST NOT contain both an upstream
-  base procedure and a locally authored override that contradicts it" —
-  is only satisfiable by removing the base from the render entirely;
-  deleting the contradicting sentences while keeping `strategy: append`
-  would still leave upstream's parallel-task model physically present in
-  the same document.
-- **Trade-off**: this is real authoring work — a document rewritten from
-  two ~200-line sources, not a mechanical merge — and it is the largest
-  single task User Story 4 produces; sized and reviewed as its own
-  delivery unit. The two files then drift from upstream silently on a
-  future CLI upgrade (no append left to reconcile against) — accepted,
-  consistent with how `speckit.doctor` and `speckit.pr` are already full
-  replacements today with no upstream base at all.
+  wholesale. `implement.md`'s own "Project Setup Verification" step —
+  its per-language `.gitignore`/`.dockerignore` pattern list, some sixty
+  lines — is dropped outright: it is not the loop's concern, and the
+  doctor already owns ignore entries end to end (D1's
+  `ignore-entries.sh`, `doctor.md` step 6). That upstream model is
+  exactly what `tasks-template.md` and the delivery loop already
+  supersede: upstream `tasks.md`'s own "Checklist Format" section
+  requires `[P]` markers ("3. **[P] marker**: Include ONLY if task is
+  parallelizable") and "Create parallel execution examples per user
+  story" — the literal contradiction FR-011 names. The hook-announcement
+  boilerplate (`Pre-Execution Checks`/`Mandatory Post-Execution Hooks`,
+  upstream's printed "Optional Hook" block) is authored directly as this
+  distribution's silent behavior instead of surviving as text an
+  override bullet then contradicts.
+- **Rationale**: FR-010's own wording — "MUST NOT contain both an
+  upstream base procedure and a locally authored override that
+  contradicts it" — is only satisfiable by removing the base from the
+  render entirely; deleting the contradicting sentences while keeping
+  `strategy: append` would still leave upstream's parallel-task model
+  physically present in the same document.
+- **Trade-off**: real authoring work — a document rewritten from two
+  ~200-line sources, not a mechanical merge — the largest single task
+  User Story 4 produces, sized and reviewed as its own delivery unit; the
+  two files then drift from upstream silently on a future CLI upgrade
+  (no append left to reconcile against) — accepted, consistent with how
+  `speckit.doctor`/`speckit.pr` are already full replacements with no
+  upstream base at all.
 
 ### D4. Linear runtime events: session_start and post_tool_use (linear)
 
@@ -300,44 +290,36 @@ configuration: every new behavior reuses a mechanism already installed —
   `commands/session-start.md` and `commands/post-tool-use.md`, each with
   a `scripts: {sh: scripts/bash/<name>.sh}` frontmatter block (no `ps`/`py`
   variant — see the Constraints note below) and no other required field.
-- **Naming, verified precisely**: because these two commands are not
-  registered under `provides.commands`, the dispatcher resolves them
-  through `_find_command_template`'s on-disk fallback
-  (`events.py:165-174`), which matches a file under `commands/` by stem
-  against either the raw `command:` string or that string with a
-  `speckit.`/`spec.` prefix stripped (`events.py:123`). A dotted name like
-  `speckit.linear.session-start` would need a file literally named
-  `speckit.linear.session-start.md` or `linear.session-start.md` to
-  resolve — a plain `session-start.md` matches neither. Naming the command
-  (and the file) `session-start`/`post-tool-use` — undotted, unlike the
-  public `speckit.linear.*` commands, which resolve through the
-  registered-manifest path instead (`events.py:125-163`) and so tolerate
-  any filename — avoids that mismatch by construction. This is why these
-  two names deliberately break the extension's own dotted convention; a
-  short comment at the `events:` block should say so, or a future edit
-  risks "fixing" it back into a silently broken dispatch (the dispatcher
-  fails open on a resolution miss — see Failure behavior below).
+- **Naming**: because these two commands are not registered under
+  `provides.commands`, the dispatcher resolves them by matching a
+  `commands/` file's stem against the raw `command:` string
+  (`_find_command_template`'s on-disk fallback, `events.py:123,165-174`)
+  — never against the `speckit.`/`spec.`-prefixed form the
+  registered-manifest path tolerates (`events.py:125-163`) — so
+  `session-start`/`post-tool-use` must stay undotted and equal to their
+  own filename, breaking the extension's dotted convention on purpose.
+  `docs/dogfooding.md` entry 46 records why and the risk of "fixing" it
+  back: the dispatcher fails open (exit 0, no error) on a resolution
+  miss, so a mismatch here means the event silently never fires, not a
+  startup error.
 - `session-start.sh` does two things, in order: (1) `push --hook`
-  (unchanged entrypoint, unchanged config gate —
+  (unchanged entrypoint and config gate —
   `hooks.lifecycle_enabled`/`auto_apply` in `speckit-linear.yml`, already
-  documented as a clean no-op without configuration, reused verbatim, no
-  new config field); (2) reads the current branch and calls
-  `status --current --json` (existing, read-only) to build one context
-  block.
+  a documented clean no-op without configuration); (2) reads the current
+  branch and calls `status --current --json` (existing, read-only) to
+  build one context block.
 - **Context content, by branch shape (FR-003)**, fixing the required
   fields and their order — exact spacing is an implementation choice:
   - Feature or task branch (`NNN-...` or `NNN-T###-...`): the branch, the
     feature identifier, the first unchecked task from `status`'s
     `task_rows[].tasks[]` (first entry with `local_complete: false`),
     every open task pull request (rows whose `state_source == "pr"`), and
-    the next command from the redesigned `next_action` (D6). Indicative
-    shape:
-    `Linear: <feature> on <branch> — next <T###> (unchecked); open task
-    PRs: <branch> -> #<n> (<review|started>)[, ...]; next: <command>`
+    the next command from the redesigned `next_action` (D6): `Linear:
+    <feature> on <branch> — next <T###> (unchecked); open task PRs:
+    <branch> -> #<n> (<review|started>)[, ...]; next: <command>`
   - Work-item branch (`<team-key>-<n>-...`): the issue key, its derived
     state, and the next command, from `status`'s `work_items[]` row for
-    that key:
-    `Linear: <ISSUE-KEY> (<state>) — next: <command>`
+    that key: `Linear: <ISSUE-KEY> (<state>) — next: <command>`
   - Neither shape, or no `speckit-linear.yml`: no line at all (FR-006) —
     the script prints nothing and exits 0, which the dispatcher's `_emit`
     already treats as "emit nothing" for empty output
@@ -347,13 +329,14 @@ configuration: every new behavior reuses a mechanism already installed —
   otherwise): reads the PostToolUse payload's `tool_input.command`; when
   it matches `git push` or `gh pr (create|ready|merge)`, runs
   `push --hook`; otherwise exits 0 silently. This mechanically replaces
-  the loop's three "reconcile now" sentences (FR-005), none of which need
-  to survive in `implement.md`'s replacement (D3).
-- Both handlers reuse the same `push`/`status` entrypoints and config
-  gates the extension already ships — no new config schema, no new
-  credential path.
-- **Rationale**: FR-003 through FR-006, reusing rather than reimplementing
-  `push`/`status`, per the repository's own simplicity principle.
+  the loop's reconcile-after-push/PR sentences (FR-005); the
+  reconcile-after-branch-creation sentence is `task-base.sh`'s own
+  `push --hook` instead (D1), since `post_tool_use` never fires on a
+  local branch creation — between the two, no reconcile sentence survives
+  in `implement.md`'s replacement (D3) or in `chore.md`/`bugfix.md`.
+- **Rationale**: FR-003 through FR-006; both handlers reuse the same
+  `push`/`status` entrypoints and config gates the extension already
+  ships — no new config schema, no new credential path.
 - **Trade-off**: the context line duplicates a subset of what `status`
   already renders — accepted, since it is a summary for a moment (session
   start) `status` does not otherwise reach automatically.
@@ -373,65 +356,54 @@ configuration: every new behavior reuses a mechanism already installed —
   One new file `commands/guard.md` (outside `provides.commands`, undotted
   for the same file-stem resolution reason as D4),
   `scripts: {sh: scripts/bash/guard.sh}`.
-- **Why one registration, not two — verified against the schema rather
-  than `dx.md`'s own two-handler framing**: an extension manifest's
-  `events.<name>` value must be a single mapping, never a list.
+- **Why one registration, not two**: an extension manifest's
+  `events.<name>` value must be a single mapping, never a list —
   `extensions/__init__.py:391-393` routes any `events:` key to
   `events.py`'s `validate_events`, which raises `"Invalid event '<name>':
   expected a mapping"` the moment `event_config` is not a `dict`
-  (`events.py:1843-1847`). `collect_extension_events`
+  (`events.py:1843-1847`), and `collect_extension_events`
   (`events.py:1029-1105`) only ever accumulates handlers **across
-  different extensions** declaring the same event name — never two
-  handlers from the same extension's own manifest. So code-review's two
-  guard concerns (`dx.md`'s "matcher `Bash`" and "matcher `Edit|Write`"
-  framing) cannot be two top-level `pre_tool_use` entries in one
-  `extension.yml`; they are two branches inside the one handler script,
-  dispatched on the native payload's `tool_name` field, under a matcher
-  that is the union of the tools either concern needs
-  (`"Bash|Edit|Write"`, so the native hook fires only for these three
-  tools at all). This corrects `dx.md`'s own framing; recorded here so
-  the tasks phase does not re-derive it, and repeated in the friction
-  report.
+  different extensions**, never two from the same manifest. So
+  code-review's two guard concerns (`dx.md`'s "matcher `Bash`" and
+  "matcher `Edit|Write`" framing) cannot be two top-level `pre_tool_use`
+  entries in one `extension.yml`; they are two branches inside the one
+  handler script, dispatched on the native payload's `tool_name`, under
+  the union matcher `"Bash|Edit|Write"`. Documented in
+  `docs/dogfooding.md` entry 45.
 - `guard.sh` behavior:
   - `tool_name == "Bash"`: reads `tool_input.command`; blocks (`exit 2`,
     message naming the fix) a `git commit -m` whose subject fails
-    `^[a-z]+\([a-z0-9-]+\): .+$` — the exact pattern
-    `.github/workflows/conventions.yml` already enforces server-side
-    (`conventions.yml`, the "Commit subjects follow type(scope) subject"
-    step); any form of `git push --force`/`-f`/`--force-with-lease`; and
-    any `gh pr merge ... --delete-branch`. Anything else: `exit 0`,
-    silent.
+    `^[a-z]+\([a-z0-9-]+\): .+$` — the pattern
+    `.github/workflows/conventions.yml` already enforces server-side;
+    any form of `git push --force`/`-f`/`--force-with-lease`; and any
+    `gh pr merge ... --delete-branch`. Anything else: `exit 0`, silent.
   - `tool_name` in `("Edit", "Write")`: reads the target path and the
     current branch; on a `NNN-T###-*` branch (the numeric-prefix rule
-    `specs/004-delivery-discipline/plan.md`'s D1 already established for
-    the phase-two finding — reused, not reinvented), blocks a write
-    matching any `protected_paths` glob (`speckit-code-review.yml`,
-    unchanged default `specs/*/spec.md` and
+    `specs/004-delivery-discipline/plan.md` D1 already established),
+    blocks a write matching any `protected_paths` glob
+    (`speckit-code-review.yml`, unchanged default `specs/*/spec.md` and
     `.specify/memory/constitution.md`), naming the protected path. A
     feature branch (no `T###` segment) is exempt, matching round 004's
-    own exemption and this round's own C-006 (this feature's `spec.md` is
-    protected on its own task branches).
+    own exemption and this round's own C-006.
   - Everything else: `exit 0`, silent — C-002's "no guard beyond the four
-    named" holds by construction, since the script has exactly four block
-    conditions.
+    named" holds by construction.
 - No new config: the commit-subject pattern and the force-push/
-  `--delete-branch` forms are structural (mirroring CI exactly, not meant
-  to be configurable); `protected_paths` already exists.
-- **Rationale**: FR-007, FR-008; reuse of the exact server-side regex
-  keeps the two checks (client-side block, server-side gate) from ever
+  `--delete-branch` forms are structural, mirroring CI exactly;
+  `protected_paths` already exists.
+- **Rationale**: FR-007, FR-008; reusing the exact server-side regex
+  keeps the client-side block and the server-side gate from ever
   disagreeing.
 - **Trade-off**: one script now owns two logically separate concerns —
-  accepted; the alternative (two registrations) is not schema-valid, not
-  a stylistic choice.
+  accepted; two registrations is not schema-valid, not a stylistic
+  choice.
 
 ### D6. `next_action` returns runnable commands (linear)
 
 - **Decision**: `packages/spec-kit-linear/src/spec_kit_linear/
   work_state.py`'s `next_action` (lines 161-190, read in full) is
   rewritten so every non-`None` return is either a slash command or the
-  literal "wait for a human merge" sentence — never a gesture the agent
-  has to translate. One of its five branches is FR-004's own negative
-  example almost verbatim: `state == STATE_UNSTARTED` today returns
+  literal "wait for the human merge" sentence — never a gesture the agent
+  has to translate. Its `STATE_UNSTARTED` branch today returns
   `f"start: create branch {prefix}-<slug>"` (`work_state.py:187-189`) —
   the exact "create the branch" gesture FR-004's acceptance scenario 3
   names as what must stop happening.
@@ -439,27 +411,21 @@ configuration: every new behavior reuses a mechanism already installed —
   | Derived state | Current text (`work_state.py:177-189`) | Redesigned |
   | --- | --- | --- |
   | `completed`, `checked=False` | "record completion evidence and check the box in tasks.md" | `None` — this combination means the merge outran a local sync; nothing local is actionable |
-  | `review` | "await the final review and the human merge" | unchanged — already FR-004-compliant |
-  | `started`, source `pr` | "self-review (/speckit.code-review), then mark ready for review" | `/speckit.code-review <PR>` — ready-for-review is the review command's own completion instruction, not a second gesture named here |
+  | `review` | "await the final review and the human merge" | "wait for the human merge" |
+  | `started`, source `pr` | "self-review (/speckit.code-review), then mark ready for review" | `/speckit.code-review <n>` — ready-for-review is the review command's own completion instruction, not a second gesture named here |
   | `started`, source `branch` | "open the draft PR" | `/speckit.pr` |
-  | `unstarted` (feature task) | `"start: create branch {feature}-{task}-<slug>"` | `/speckit.implement <feature>` — the command that now runs `task-base.sh task`, not the developer by hand |
-  | `unstarted` (work item) | same, with `feature`/`task` both `None` → literally `"start: create branch NNN-T###-<slug>"` | `/speckit.chore <ISSUE-KEY>` |
+  | `unstarted` (feature task only) | `"start: create branch {feature}-{task}-<slug>"` | `/speckit.implement <feature>` — the command that now runs `task-base.sh task`, not the developer by hand |
 
-- The work-item row surfaces a real signature gap, not only a wording
-  change: `reporting.py:129` calls `next_action(item.state, item.source)`
-  with neither the issue key nor whether it is a bug or a chore —
-  `next_action` has no parameter today to build a work-item command from.
-  `next_action` gains `identifier: str | None`, threaded from
-  `WorkItemState.identifier` (already available at the call site).
-  Distinguishing `/speckit.bugfix` from `/speckit.chore` needs a signal
-  the current `WorkItemState` does not carry (bug vs. chore is a Linear
-  issue-type distinction this extension does not read today); resolved
-  here by naming `/speckit.chore <ISSUE-KEY>` as the safe generic default
-  — a chore path with no triage trio still lets a human redirect to
-  `/speckit.bugfix` — documented as a known imprecision rather than a
-  silent guess. Threading the PR number for the `review`/`started(pr)`
-  rows is a tasks-phase implementation choice; the data is already in
-  scope at both call sites (`build_task_rows`/`build_work_item_rows`).
+- The work-item `unstarted` row is gone, not reworded: a work item is
+  listed by `status` only when a branch or PR names it — "an Issue
+  nobody has started is never observed" (`packages/spec-kit-linear/
+  README.md`, "Bugs and chores") — so `build_work_item_rows`' call to
+  `next_action` (`reporting.py:129`) never receives `STATE_UNSTARTED`;
+  the row was always unreachable, and `next_action` gains no issue-key
+  parameter. What it gains is a PR number, for the `started`/`pr` row
+  alone, identical for a task or a work item — threaded from data both
+  `build_task_rows`/`build_work_item_rows` already have in scope, a
+  tasks-phase field addition, not a new `gh` call.
 - **Rationale**: FR-004's own wording, and its own negative example is
   code that exists today.
 - **Trade-off**: `next_action`'s existing contract ("pure text over the
@@ -476,31 +442,40 @@ configuration: every new behavior reuses a mechanism already installed —
   installation, (5) the repository's GitHub delivery settings (unchanged
   step 3, still report-only per FR-012's own carve-out). No change to
   either package's own `doctor` implementation.
-- **Verified this is a report-ordering fix, not a check-ordering one**:
-  linear's `run_doctor` (`cli.py:384-428`) already emits, in this
-  relative order, `github_cli_diagnostic` (`cli.py:404`) before
-  `linear_auth` (the API-key check, `cli.py:422`) before `linear_binding`
-  (the onboarding check, `cli.py:423`) — categories 1-2-3 already come
-  out in the right relative order from one sub-doctor call. Code-review's
-  `run_doctor` (`doctor.py:204-221`) calls `_check_ocr` (category 4,
-  `doctor.py:215`) **before** `_check_gh` (`doctor.py:216`) — its own
-  internal order does not match categories 1 and 4 cleanly, so "run
-  linear's doctor, then code-review's doctor, print everything in that
-  order" (today's literal doctor.md step 1/2 listing) is not sufficient.
-  The fix is the agent's categorization at summary time: map each
-  diagnostic's code (`github_cli_diagnostic`/`_check_gh`'s codes →
-  category 1, `linear_auth` → 2, `linear_binding` → 3, `_check_ocr`'s
-  codes → 4) into the fixed list, independent of which sub-doctor
-  produced it or in what order it printed.
+- **A report-ordering fix, not a check-ordering one**: linear's
+  `run_doctor` (`cli.py:384-428`) already emits `github_cli_diagnostic`
+  (`cli.py:404`) before `linear_auth` (`cli.py:422`) before
+  `linear_binding` (`cli.py:423`) — categories 1-2-3 already come out in
+  order from one sub-doctor call. Code-review's `run_doctor`
+  (`doctor.py:204-221`) calls `_check_ocr` (category 4, `doctor.py:215`)
+  **before** `_check_gh` (`doctor.py:216`), so "run linear's doctor, then
+  code-review's, print everything in order" is not sufficient. The fix is
+  categorization at summary time: map each diagnostic's code
+  (`github_cli_diagnostic`/`_check_gh` → 1, `linear_auth` → 2,
+  `linear_binding` → 3, `_check_ocr` → 4) into the fixed list, independent
+  of which sub-doctor produced it or in what order it printed.
 - `--fix` scope is unchanged: FR-012's "resolves every gap ... that can be
   resolved mechanically" is already each doctor's own `--fix` passed
   through (doctor.md's existing step 2, "you never fix anything
   yourself"); the GitHub-settings category stays read-only even under
   `--fix` — this round's own scope boundary, applying them is the
   releases round's.
-- **Rationale**: FR-012, minimal-footprint per AGENTS.md — a prose
-  reordering closes the gap; neither package's doctor needs new flags or
-  new check sequencing.
+- **FR-009's own doctor step, read-only**: for each key in
+  `.specify/integration.json`'s `installed_integrations`, checks whether
+  its runtime events are wired — the generated dispatcher
+  `.specify/events.py` exists, and the integration's native hook file
+  (its `events_config_file`: `.claude/settings.json`,
+  `.codex/config.toml`, `.cursor/hooks.json`, one per integration class)
+  carries the `__speckit_event__` marker every generated hook writes
+  (`events.py:50`). No `events_config_file` at all (Zed, today) means
+  nothing to check; the doctor states plainly that FR-007/FR-008's
+  guards and FR-003/FR-005's Linear behaviors do not run there and the
+  prose rules stay authoritative — the whole of what FR-009 owes. Two
+  file reads per installed integration, nothing written, even under
+  `--fix`.
+- **Rationale**: FR-009, FR-012, minimal-footprint per AGENTS.md — a
+  prose reordering and a read-only wiring check close both gaps; neither
+  package's doctor needs new flags or new check sequencing.
 - **Trade-off**: the fixed order lives in agent-executed prose, not in a
   script — acceptable, since it is a summarization judgment over two
   tools' free-text diagnostics, not a mechanical procedure with clean
@@ -531,10 +506,9 @@ configuration: every new behavior reuses a mechanism already installed —
   `packages/spec-kit-code-review/extension.yml` change
   `requires.speckit_version` from `">=1.0.1,<1.1.0"` to
   `">=1.0.4,<1.1.0"` — the version where runtime events and the
-  `event run` stdin fix ship (A-001, already pinned in
-  `versions.lock.yml`: `tag: v1.0.4`, `package_version: 1.0.4`, verified
-  installed and matching). `presets/default/preset.yml`'s own
-  `requires.speckit_version` is left unchanged — the preset's new surface
+  `event run` stdin fix ship (A-001; `versions.lock.yml` already pins
+  `tag: v1.0.4`, `package_version: 1.0.4`). `presets/default/preset.yml`'s
+  own `requires.speckit_version` is left unchanged — its new surface
   (`type: script` entries) is a general 1.0.x primitive, not
   events-specific, and C-004's wording scopes the floor to "both
   extensions" only.
@@ -583,37 +557,49 @@ configuration: every new behavior reuses a mechanism already installed —
 ### D12. Cross-agent verification (linear + code-review)
 
 - **Decision**: the two extensions' event declarations are proven, during
-  this round's own delivery, on Claude Code and Codex in this repository
-  (both already-installed integrations, per `.specify/integration.json`)
-  and Cursor in the app-maker consumer (A-002). Verified wiring: after
+  this round's own delivery, on Claude Code and Codex inside a temporary
+  consumer repository, and on Cursor in app-maker once published (A-002)
+  — never by dev-installing into this checkout, which commits its
+  installed extension payloads (`.specify/extensions/{linear,
+  code-review}/`, vendored from the published tags, PR #80); AGENTS.md
+  requires a fixture for exactly this kind of state-changing
+  verification. Built the way `bundles.sh`'s `new_consumer` builds its
+  fixture (`bundles.sh:330-344`: fresh directory, `git init`,
+  `specify init --here --force`), then `specify extension add <path>
+  --dev` against `packages/spec-kit-linear` and
+  `packages/spec-kit-code-review`, and `specify preset add --dev`
+  against `presets/default`, so the events under test are this round's
+  own in-progress code. Verified wiring: after
   `specify integration install <key> --force`, the handler appears in
   `.claude/settings.json` (`events_format: "json-nested"`,
   `integrations/claude/__init__.py:57-66`) and `.codex/config.toml`
-  (`events_format: "toml"`, `integrations/codex/__init__.py:32-41`)
-  respectively; a `session_start` handler's stdout surfaces as context on
-  both (Claude and Codex both use the default "plain" envelope —
-  `events.py:326` — passthrough, no JSON wrapping); a `pre_tool_use`
-  handler's `exit 2` blocks the native tool call on both — `_run_inline`
-  (`events.py:274-303`) propagates the handler's own exit code as the
-  dispatcher's exit code, which each agent's own native hook runner
-  treats as "block".
-- Cursor's own format (`events_format: "json-flat"`, native names
-  camelCased — `integrations/cursor_agent/__init__.py:41-49`) and its
+  (`events_format: "toml"`, `integrations/codex/__init__.py:32-41`); a
+  `session_start` handler's stdout surfaces as context on both (the
+  default "plain" envelope, `events.py:326`, passthrough, no JSON
+  wrapping); a `pre_tool_use` handler's `exit 2` blocks the tool call on
+  both, since `_run_inline` (`events.py:274-303`) propagates the
+  handler's exit code as the dispatcher's, which each agent's hook
+  runner treats as "block".
+- Cursor's format (`events_format: "json-flat"`, camelCased native names
+  — `integrations/cursor_agent/__init__.py:41-49`) and its
   `events_context_envelope` (`session_start` → `additional_context`,
   everything else → `suppress`, `cursor_agent/__init__.py:55-59`) mean
-  Cursor's `preToolUse` communicates block/allow by exit code alone,
-  never by injected text — verification there is exit-code-only, which is
-  all `guard.sh` needs anyway (its message lands on stderr regardless of
-  agent, `events.py:294-295`).
-- Zed carries no `events:` wiring — no `CANONICAL_TO_NATIVE`/
-  `events_config_file` exists for it in `integrations/zed/` — A-003's
-  explicit degradation; FR-009's doctor sentence is the only artifact this
-  round owes Zed users.
+  its `preToolUse` communicates block/allow by exit code alone, never
+  injected text — exit-code-only verification, which is all `guard.sh`
+  needs anyway (its message lands on stderr regardless of agent,
+  `events.py:294-295`).
+- Zed has no `events:` wiring at all — no `CANONICAL_TO_NATIVE`/
+  `events_config_file` in `integrations/zed/` — A-003's explicit
+  degradation; FR-009's doctor sentence is the only artifact this round
+  owes Zed users.
 - **Rationale**: A-002; proves the mechanism on every agent this round
-  can reach, exactly as named.
+  can reach, without a fixture-rule violation on this checkout's own
+  vendored payloads.
 - **Trade-off**: publication lag — other consumers get the events layer
-  only once the extensions publish and the consumer's bundle updates
-  (unchanged from how every prior release already worked).
+  only once the extensions publish and bundle-update, same as every
+  prior release; this repository's own loop keeps running on the
+  installed releases for the whole round, exactly as round 004's loop
+  did (`specs/004-delivery-discipline/plan.md` D14's trade-off).
 
 ### D13. Release sequencing (release)
 
@@ -652,12 +638,11 @@ before — events are additive capability, not a breaking change to
 - **Failure behavior**: the events dispatcher fails **open** by design —
   an unresolvable command or script variant returns exit 0, a silent
   no-op (`events.py`'s `_run_inline`, "command not found: fail open
-  (no-op) for lifecycle events", and `_resolve_argv` returning `None`), so
-  a wrong handler filename (D4's naming constraint) or a missing script
-  does not block the agent's session or tool call — it just silently
-  never fires. This is why D12's live verification across Claude, Codex,
-  and Cursor is this round's only way to catch that class of mistake, not
-  a conformance assertion. `guard.sh`/`session-start.sh`/
+  (no-op) for lifecycle events"; `_resolve_argv` returning `None`), so a
+  wrong handler filename (D4's naming constraint) or a missing script
+  never fires but never blocks either — why D12's live cross-agent
+  verification, not a conformance assertion, is this round's only way to
+  catch that class of mistake. `guard.sh`/`session-start.sh`/
   `post-tool-use.sh` exit 2 with a stderr message naming the fix on every
   blocking path, matching the existing script convention (D1).
 - **Retry/idempotency**: `push --hook` is already idempotent (unchanged);
@@ -668,15 +653,13 @@ before — events are additive capability, not a breaking change to
 - **Rollout**: the eight preset scripts and the `implement`/`tasks`
   replacement apply to this repository immediately through the
   dev-installed preset (`specify preset remove default && specify preset
-  add --dev presets/default`, matching dogfooding entry 35's own
-  documented upgrade recipe); the two extensions' `events:` declarations
-  apply to this repository's own loop only once locally reinstalled
-  (`specify extension add ... --dev` per package) and to other consumers
-  (app-maker) only once published and bundle-updated there (A-002's
-  release lag) — Claude and Codex here prove it during the round; Cursor
-  in app-maker proves the cross-consumer path; Zed and any other
-  non-event agent get the documented degradation (A-003), never a broken
-  command.
+  add --dev presets/default`, dogfooding entry 35's own upgrade recipe);
+  the two extensions' `events:` declarations apply here, like to every
+  other consumer, only once published and bundle-updated (A-002) —
+  proven beforehand in a temporary consumer repository for Claude and
+  Codex, and in app-maker for Cursor once published (D12); Zed and any
+  other non-event agent get the documented degradation (A-003), never a
+  broken command.
 - **Rollback**: every changed file is text or a script — revert by
   commit, matching `specs/004-delivery-discipline/plan.md`'s own D8
   revert convention (`git revert --no-commit`, `revert(scope): subject`);
@@ -686,21 +669,19 @@ before — events are additive capability, not a breaking change to
 
 No new credential and no new remote write. `session-start.sh`/
 `post-tool-use.sh` call the same `push --hook` entrypoint that already
-resolves `LINEAR_API_KEY`/`LINEAR_OAUTH_ACCESS_TOKEN` exactly as
-documented. `guard.sh` reads only the native tool-call payload the
-agent's own runtime already handed it (command text, file path) and the
-repository's own committed config (`protected_paths`) — never a secret,
-never a remote call. The PreToolUse/PostToolUse/SessionStart payloads
-land on the handler script's stdin and nowhere else (`events.py`'s
-`_run_inline`, `input=payload`); nothing this round adds writes that
-payload to a file or logs it. Trust boundary: a handler script now runs
-on every relevant tool call in a session, so its own correctness joins
-the agent's control flow for the first time (a bug in `guard.sh` could
-wrongly block, or — the more dangerous direction — wrongly allow); the
-fail-open dispatcher behavior above means a broken handler degrades to
-"no guard," never to "agent hangs" or "a wrong action force-blocks
-something safe," and the prose rules stay authoritative underneath it
-regardless (FR-009's own framing).
+resolves `LINEAR_API_KEY`/`LINEAR_OAUTH_ACCESS_TOKEN`. `guard.sh` reads
+only the native tool-call payload the agent's runtime already handed it
+(command text, file path) and the repository's own committed
+`protected_paths` — never a secret, never a remote call. The
+PreToolUse/PostToolUse/SessionStart payload lands on the handler
+script's stdin and nowhere else (`events.py`'s `_run_inline`,
+`input=payload`); nothing this round writes it to a file or logs it.
+Trust boundary: a handler now runs on every relevant tool call, so its
+correctness joins the agent's control flow for the first time (a bug in
+`guard.sh` could wrongly block or, worse, wrongly allow); the fail-open
+dispatcher means a broken handler degrades to "no guard," never to
+"agent hangs" or "a wrong action force-blocks something safe," and the
+prose rules stay authoritative underneath regardless (FR-009).
 
 ## Verification strategy
 
@@ -710,7 +691,7 @@ regardless (FR-009's own framing).
 | FR-003, FR-006, SC-002 (session-start context line, clean no-op) | unit tests for the context-line formatter over `status`'s existing JSON shape; ten consecutive sessions during this round's own delivery, transcripts as evidence | `uv run pytest packages/spec-kit-linear/tests`; this round's own session transcripts |
 | FR-004 (`next_action` returns commands) | table-driven unit tests over every `(state, source)` pair, asserting no returned string lacks a leading `/speckit.` or the literal wait-for-merge sentence | `uv run pytest packages/spec-kit-linear/tests` |
 | FR-005 (post_tool_use reconcile, no prose reconcile instruction left) | unit test of the Bash-payload filter; grep confirms no "reconcile" instruction survives in the new `implement.md` | `uv run pytest packages/spec-kit-linear/tests`; `grep -n reconcile presets/default/commands/implement.md` |
-| FR-007, FR-008, SC-003, SC-004 (guards block before the action) | unit tests over `guard.sh` for all four rules plus the branch/path exemptions; live verification on Claude and Codex here, Cursor in app-maker (D12) | `bash packages/spec-kit-code-review/scripts/conformance/*.sh`; this round's own transcripts on each agent |
+| FR-007, FR-008, SC-003, SC-004 (guards block before the action) | unit tests over `guard.sh` for all four rules plus the branch/path exemptions; live verification on Claude and Codex in a temporary consumer repository, Cursor in app-maker (D12) | `bash packages/spec-kit-code-review/scripts/conformance/*.sh`; this round's own transcripts on each agent |
 | FR-009 (doctor names the degradation) | doctor.md text review; a conformance fixture without an events-capable agent | manual read; `bash scripts/conformance/bundles.sh` |
 | FR-010, FR-011, SC-005 (single coherent `implement`/`tasks`) | manual read of the installed `speckit-implement`/`speckit-tasks` skill finds no "core" vs. "this loop wins" contradiction language | review of the rendered command after `specify integration install` |
 | FR-012, SC-006 (doctor's fixed order) | `doctor.md`'s summary step names the five categories explicitly; a fresh, unconfigured consumer fixture shows the gaps in order | `bash scripts/conformance/bundles.sh`; `/speckit.doctor` on a clean fixture |
