@@ -1236,15 +1236,16 @@ ignore_report=$(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" false
   fail "ignore: fix=false run failed"
 [ "$(shasum -a 256 < "$ignore_root/.gitignore")" = "$before" ] || fail "ignore: fix=false changed .gitignore"
 printf '%s\n' "$ignore_report" | grep -Fq '.specify/extensions/.cache/' &&
-  printf '%s\n' "$ignore_report" | grep -Fq '.specify/presets/.cache/' ||
-  fail "ignore: fix=false did not report both cache entries"
+  printf '%s\n' "$ignore_report" | grep -Fq '.specify/presets/.cache/' &&
+  printf '%s\n' "$ignore_report" | grep -Fq '.specify/integrations/.cache/' ||
+  fail "ignore: fix=false did not report the three cache entries"
 printf '%s\n' "$ignore_report" | grep -Fq '.venv/' &&
   fail "ignore: fix=false reported the entry the fixture .gitignore already covers"
 
 (cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" true)") ||
   fail "ignore: fix=true run failed"
-[ "$(cat "$ignore_root/.gitignore")" = "$(printf '.venv/\n\n# tserdeiro/spec-kit installer state\n.specify/extensions/.cache/\n.specify/presets/.cache/')" ] ||
-  fail "ignore: fix=true did not append exactly the two missing entries"
+[ "$(cat "$ignore_root/.gitignore")" = "$(printf '.venv/\n\n# tserdeiro/spec-kit installer state\n.specify/extensions/.cache/\n.specify/presets/.cache/\n.specify/integrations/.cache/')" ] ||
+  fail "ignore: fix=true did not append exactly the three missing entries"
 
 mid=$(shasum -a 256 < "$ignore_root/.gitignore")
 second=$(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" true)") ||
