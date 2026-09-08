@@ -26,7 +26,7 @@ mano.
 - Las reglas duras (subjects `type(scope)`, `--delete-branch`, `spec.md`
   en rama de tarea, force-push) las atrapa la CI o la review, después
   del hecho.
-- Cuatro bloques awk/sh de 30–60 líneas viajan dentro del prompt y el
+- Seis bloques awk/sh de 22 a 110 líneas viajan dentro del prompt y el
   agente "reemplaza solo el literal"; un agente más débil los rompe.
 - Un junior lee unas setecientas palabras de reglas de oro para aprender
   un flujo que, de a una tarea, son cuatro comandos.
@@ -60,8 +60,10 @@ sigue siendo la regla y el doctor lo dice.
   el consumidor, así que el preset `default` shippea como scripts POSIX
   lo que hoy es shell inline en sus comandos: `task-base`,
   `budget-stop`, `stack-propagate`, `pr-create`, el merge a pedido
-  raíz-primero y el check del ledger (checkbox más evidencia de
-  completitud); cada paso de un comando es una línea que ejecuta uno. La
+  raíz-primero, el check del ledger (checkbox más evidencia de
+  completitud) y los dos bloques del doctor, `skill-mirror` e
+  `ignore-entries`, que con 110 y 22 líneas son los más grandes de
+  todos; cada paso de un comando es una línea que ejecuta uno. La
   conformance ejecuta scripts, no bloques extraídos de prosa. Los
   eventos solo pueden declararlos extensiones, y las dos existentes ya
   son dueñas de esas dos preocupaciones: `linear` declara los de
@@ -117,7 +119,8 @@ Preset `default`:
 
 - `scripts/bash/`: `task-base.sh`, `budget-stop.sh`,
   `stack-propagate.sh`, `pr-create.sh`, `merge-root-first.sh`,
-  `ledger-check.sh`, declarados como `type: script` en `preset.yml`;
+  `ledger-check.sh`, `skill-mirror.sh`, `ignore-entries.sh`, declarados
+  como `type: script` en `preset.yml`;
   `sh` POSIX como hoy (los bloques nunca tuvieron gemelo PowerShell).
   La conformance corre cada script contra fixtures (los casos de
   `bundles.sh` se mudan con ellos).
