@@ -296,5 +296,13 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Regla:* un bump de upstream en este repo es `init --force` →
     `preset remove/add --dev` → `integration install <otro> --force` →
     `skill-mirror` con fix → `ignore-entries` con fix, y el diff de los
-    renders se revisa antes de commitear. *Upstream:* que `init --force`
-    preserve `installed_integrations` es candidato a PR.
+    renders se revisa antes de commitear. La review fresca del PR #85
+    señaló además que `.specify/integrations/*.manifest.json` registra
+    para los cinco core con append el hash del render de upstream, no
+    el del archivo: en claude es la línea base con la que `integration
+    upgrade` detecta archivos modificados (corregirla a mano haría que
+    el upgrade pise los appends); en codex quedó desfasado desde antes
+    y lo reescribe cada `preset add`. Es estado del instalador: no se
+    edita a mano. *Upstream:* que `init --force` preserve
+    `installed_integrations` y que el registro del preset en todas las
+    integraciones sea suyo (y con él, el hash) es candidato a PR.
