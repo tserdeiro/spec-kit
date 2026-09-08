@@ -207,16 +207,17 @@ own append text ever reaches it. Re-run after `bundle update` or
 
 ## 6. Add the installer's ignore entries
 
-The installer's cache directories and the extension payload virtual
-environments are rarely in a fresh consumer's ignore file. Run this
-block, replacing only the `fix` literal:
+The installer's cache directories (extension, preset, and integration
+catalogs) and the extension payload virtual environments are rarely in
+a fresh consumer's ignore file. Run this block, replacing only the
+`fix` literal:
 
 ```bash
 # ignore-entries:start
 set -e
 fix="<true|false>"
 acted=false
-for entry in ".specify/extensions/.cache/" ".specify/presets/.cache/" ".specify/extensions/*/.venv/"; do
+for entry in ".specify/extensions/.cache/" ".specify/presets/.cache/" ".specify/integrations/.cache/" ".specify/extensions/*/.venv/"; do
   probe=$(printf '%s' "$entry" | sed 's/\*/x/')
   git check-ignore -q "$probe" && continue
   acted=true
