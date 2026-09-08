@@ -2,10 +2,10 @@
 
 Propuesta del 2026-09-08, para revisión. Deriva de
 [`vision.md`](vision.md) ("toda fricción se pule; lo automatizable se
-automatiza") y de las fricciones de [`dogfooding.md`](dogfooding.md). Una
-vez acordada, la spec se escribe a partir de este documento. No lleva
-número de ronda: releases ([`releases.md`](releases.md)) espera el plan
-Business, así que cualquiera de las dos puede ir primero.
+automatiza") y de las fricciones de [`dogfooding.md`](dogfooding.md). Acordada
+el mismo día: es la **ronda 005** y la spec se escribe a partir de este
+documento; releases ([`releases.md`](releases.md)) pasa a la 006 mientras
+espera el plan Business.
 
 ## Problema
 

@@ -1,6 +1,8 @@
 # Releases: diseño acordado
 
-Decisiones del 2026-09-02 al 2026-09-05 para la ronda 005. Deriva de
+Decisiones del 2026-09-02 al 2026-09-05 para la ronda de releases, que
+pasa a ser la 006 (la 005 es la de experiencia de desarrollo,
+[`dx.md`](dx.md)). Deriva de
 [`vision.md`](vision.md); la spec se escribe a partir de este documento.
 
 ## Problema

@@ -271,7 +271,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     instalada — en un chore de upgrade, cerrar desde la rama del
     chore o con el CLI del paquete a esa versión.
 
-## H. Hallazgos del diseño de releases (ronda 005)
+## H. Hallazgos del diseño de releases (ronda 006)
 
 34. **Los work items resolvían su base contra el default de GitHub, no
     contra el `trunk` configurado.** `chore`, `bugfix` y `pr` creaban la
