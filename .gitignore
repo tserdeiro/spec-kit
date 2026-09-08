@@ -44,3 +44,6 @@ venv/
 # Session-local agent state
 /.claude/*
 !/.claude/skills/
+
+# tserdeiro/spec-kit installer state
+.specify/integrations/.cache/

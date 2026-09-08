@@ -4,8 +4,10 @@ description: Report the local feature state and its Linear projection. Never wri
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: linear:commands/status.md
+  source: extension:linear
 ---
+
+# Linear Status Skill
 
 # Spec Kit Linear status
 
