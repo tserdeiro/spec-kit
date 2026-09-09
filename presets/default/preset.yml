@@ -91,6 +91,12 @@ provides:
       description: "Stop a task before its authored lines pass the review budget"
       strategy: "replace"
 
+    - type: "script"
+      name: "stack-propagate"
+      file: "scripts/python/stack_propagate.py"
+      description: "Carry a fix on a branch through every open task PR stacked on it"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"
