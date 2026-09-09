@@ -115,6 +115,12 @@ provides:
       description: "Mirror extension and preset skills whole across installed integrations and append the preset's registered layer to each core render"
       strategy: "replace"
 
+    - type: "script"
+      name: "ignore-entries"
+      file: "scripts/python/ignore_entries.py"
+      description: "Add the installer's cache and payload-venv directories to .gitignore when not already covered"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"
