@@ -593,7 +593,9 @@ manifests, `push --hook`'s config gate, `protected_paths`.
   findings) graduate to *resuelta* as each lands, task by task, not in
   this plan. `AGENTS.md`'s Spanish-exception sentence gains `docs/dx.md`
   and `docs/releases.md` (A-004), the open question `dx.md` itself left.
-- **Rationale**: FR-019.
+  `README.md`'s four-command opening and split golden rules (FR-013) are a
+  separate documentation task, not part of this decision's docs pass.
+- **Rationale**: FR-019; FR-013 is named here only to keep the boundaries table honest.
 - **Trade-off**: none.
 
 ### D11. Upstream pull requests, prepared not published (upstream)
@@ -611,7 +613,7 @@ manifests, `push --hook`'s config gate, `protected_paths`.
      `auto_commit.default` is `false` — entry 25, and dogfooding entry 37
      (the append's own hook-silence rule exists only because this bug is
      not fixed upstream yet).
-- These are prepared as patches against the pinned `v1.0.4` tag's tree —
+- These are prepared as patches against the pinned `v1.0.4` tag's tree — in a scratch clone of that tag outside this checkout, as `git format-patch` output the human opens from their own fork, the task's PR here recording the patch and, once opened, the URL — —
   this repository does not fork or vendor upstream (Constitution I).
   Opening them is a human, credentialed act outside this plan's scope,
   tracked as its own task with the PR URLs as evidence once done.
