@@ -230,9 +230,10 @@ section.
 
 1. **Given** a consumer that installed a role bundle and configured
    nothing yet, **When** the doctor runs, **Then** it reports every
-   remaining gap in this order: GitHub CLI authentication, the Linear API
-   key, the Linear onboarding binding, the review engine installation,
-   and the repository's GitHub delivery settings.
+   remaining gap in this order: the Python interpreter, GitHub CLI
+   authentication, the Linear API key, the Linear onboarding binding,
+   the review engine installation, and the repository's GitHub delivery
+   settings.
 2. **Given** the same consumer, **When** the doctor runs in fix mode,
    **Then** every gap in that list that can be resolved mechanically is
    resolved, and the GitHub delivery settings are still only reported:
@@ -356,13 +357,13 @@ one removes.
   become a single coherent procedure rather than a base plus a
   contradicting append.
 - **FR-012**: After a role bundle is installed, running the doctor MUST
-  report every remaining onboarding gap in this fixed order: GitHub CLI
-  authentication, the Linear API key, the Linear onboarding binding, the
-  review engine installation, and the repository's GitHub delivery
-  settings. Its fix mode MUST resolve every gap in that list that can be
-  resolved mechanically, without a human decision, except the GitHub
-  delivery settings: this round's doctor only reports them, and applying
-  them is the releases round's scope.
+  report every remaining onboarding gap in this fixed order: the Python
+  interpreter, GitHub CLI authentication, the Linear API key, the Linear
+  onboarding binding, the review engine installation, and the
+  repository's GitHub delivery settings. Its fix mode MUST resolve every
+  gap in that list that can be resolved mechanically, without a human
+  decision, except the GitHub delivery settings: this round's doctor
+  only reports them, and applying them is the releases round's scope.
 - **FR-013**: The README MUST open with the day's workflow expressed as
   four commands before any other content, and MUST split the golden
   rules further down into what the developer does and what the loop
@@ -407,8 +408,12 @@ one removes.
   scope. The README remains the sole installation front door.
 - **C-004**: Both extensions require `speckit_version >=1.0.4,<1.1.0` —
   the version where runtime events and the `event run` stdin fix ship.
-- **C-005**: The eight scripts of FR-001 are POSIX `sh`, matching the
-  blocks they replace; none gains a PowerShell twin this round.
+- **C-005**: The eight scripts of FR-001 and the event handlers are
+  Python 3.11+, standard library only, run with the interpreter
+  upstream's own `py` script variant resolves — the consumer's `.venv`
+  python when present, else `python3` on PATH. Python 3.11+ is an
+  upstream prerequisite this distribution's README states; no PowerShell
+  twins, none are needed.
 - **C-006**: This feature's own `spec.md` is not modified by any of its
   tasks; the protected-path guard FR-008 builds also governs this
   round's own delivery.
