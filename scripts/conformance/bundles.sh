@@ -506,9 +506,9 @@ done
 echo "ok: update"
 
 # --------------------------------------------------------------------------
-# 4. The product bundle wires trunk resolution as a three-line shell
-#    snippet (no Python, no runtime dependency, no scripts/ directory);
-#    generated delivery commands keep every resolved branch as inert argv.
+# 4. The product bundle installs the preset's eight scripts and the
+#    commands invoke them directly (plan D1, D2); the delivery base and
+#    every resolved branch reach git and gh only as inert argv.
 # --------------------------------------------------------------------------
 
 new_consumer "trunk"
@@ -549,6 +549,7 @@ cat > "$task_tasks_file" <<'MD'
 - [x] T001 Sample outcome one
   - **Depends on**: none
   - **Delivery**: single PR (~20 authored lines)
+  - **Completion evidence**: merged as PR #1
 - [ ] T002 Sample outcome two
   - **Depends on**: T001
   - **Delivery**: single PR (~50 authored lines)
@@ -557,10 +558,24 @@ cat > "$task_tasks_file" <<'MD'
 - [ ] T004 Sample outcome four
   - **Depends on**: T003
   - **Delivery**: single PR (~300 authored lines)
+- [x] T005 Sample outcome five
+  - **Depends on**: T004
+  - **Completion evidence**: Pending
 MD
 
-[ -e "$consumer_root/.specify/presets/default/scripts/python/task_base.py" ] ||
-  fail "trunk: task_base.py is not installed"
+scripts_dir="$consumer_root/.specify/presets/default/scripts/python"
+for script in task_base pr_create budget_stop stack_propagate merge_root_first ledger_check skill_mirror ignore_entries; do
+  [ -e "$scripts_dir/$script.py" ] || fail "trunk: $script.py is not installed"
+done
+[ -e "$scripts_dir/_common.py" ] || fail "trunk: _common.py is not installed"
+task_base_script="$scripts_dir/task_base.py"
+pr_create_script="$scripts_dir/pr_create.py"
+budget_stop_script="$scripts_dir/budget_stop.py"
+stack_propagate_script="$scripts_dir/stack_propagate.py"
+merge_root_first_script="$scripts_dir/merge_root_first.py"
+ledger_check_script="$scripts_dir/ledger_check.py"
+skill_mirror_script="$scripts_dir/skill_mirror.py"
+ignore_entries_script="$scripts_dir/ignore_entries.py"
 grep -Fq 'feature enters the **delivery base** only' "$tasks_template" &&
   grep -Fq 'the explicit non-empty `trunk:` value' "$tasks_template" &&
   grep -Fq '**draft feature PR** (`NNN-slug` → delivery base)' "$tasks_template" ||
@@ -582,14 +597,22 @@ if args == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchR
     sys.stdout.write(os.environ.get("GH_DEFAULT", "main\n"))
 elif args[:2] == ["pr", "create"]:
     print("https://example.invalid/pr/1")
-elif args[:2] == ["pr", "list"] and "--jq" in args:
-    sys.stdout.write(os.environ.get("GH_PR_LIST", ""))
 elif args[:2] == ["pr", "list"]:
+    fields = args[args.index("--json") + 1].split(",")
     prs = []
-    for line in os.environ.get("GH_PR_LIST", "").splitlines():
+    for i, line in enumerate(os.environ.get("GH_PR_LIST", "").splitlines(), 1):
         head, base, draft = line.split(" ")
-        prs.append({"headRefName": head, "baseRefName": base, "isDraft": draft == "true"})
+        pr = {"headRefName": head, "baseRefName": base, "isDraft": draft == "true"}
+        if "number" in fields:
+            pr["number"] = i
+        prs.append(pr)
     sys.stdout.write(json.dumps(prs))
+elif args[:2] == ["api", "-X"]:
+    pass
+elif args[:2] == ["pr", "merge"]:
+    if os.environ.get("FAIL_PR_MERGE") == args[2]:
+        print(f"forced merge failure for #{args[2]}", file=sys.stderr)
+        raise SystemExit(9)
 else:
     print("unexpected gh argv", file=sys.stderr)
     raise SystemExit(8)
@@ -602,7 +625,7 @@ import json, os, subprocess, sys
 
 args = sys.argv[1:]
 observed = args == ["branch", "--show-current"] or (
-    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch", "diff"}
+    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch", "diff", "worktree"}
 )
 if observed:
     with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
@@ -646,16 +669,8 @@ set_config() {
 
 pr_skill="$consumer_root/.agents/skills/speckit-pr/SKILL.md"
 implement_skill="$consumer_root/.agents/skills/speckit-implement/SKILL.md"
-implement_refresh=$(sed -n '/first-task-refresh:start/,/first-task-refresh:end/p' "$implement_skill")
-[ -n "$implement_refresh" ] || fail "trunk: installed first-task refresh is missing"
-grep -Eq 'resolve-delivery-base' "$implement_skill" &&
-  fail "trunk: $implement_skill still references the retired Python resolver"
-grep -Fq "sed -nE '/^trunk:/" "$implement_skill" ||
-  fail "trunk: $implement_skill does not use the shell trunk resolution"
 grep -Fq 'pr_create.py' "$pr_skill" ||
   fail "trunk: $pr_skill does not invoke pr_create.py"
-pr_create_script="$consumer_root/.specify/presets/default/scripts/python/pr_create.py"
-[ -e "$pr_create_script" ] || fail "trunk: pr_create.py is not installed"
 
 run_pr_create() {
   local kind="$1" github_default="$2" fail_command="$3" named_task="${4:-}"
@@ -669,10 +684,6 @@ run_pr_create() {
     "$PYTHON" "$pr_create_script" "$kind" ${named_task:+"$named_task"})
 }
 
-pr_list_call() {
-  json_argv pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
-    --jq ".[] | select(.headRefName | startswith(\"$1-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\""
-}
 pr_list_json_call() {
   json_argv pr list --state open --limit 100 --json headRefName,baseRefName,isDraft
 }
@@ -785,11 +796,11 @@ output=$(run_pr_create work-item 'default$(safe)' "") || fail "trunk: work-item 
 # byte-for-byte -- one script, two callers.
 chore_skill="$consumer_root/.agents/skills/speckit-chore/SKILL.md"
 bugfix_skill="$consumer_root/.agents/skills/speckit-bugfix/SKILL.md"
+doctor_skill="$consumer_root/.agents/skills/speckit-doctor/SKILL.md"
 for skill in "$chore_skill" "$bugfix_skill"; do
   grep -Fq 'task_base.py work-item' "$skill" ||
     fail "trunk: $skill does not invoke task_base.py work-item"
 done
-task_base_script="$consumer_root/.specify/presets/default/scripts/python/task_base.py"
 
 switch_call() {
   json_argv switch -c wor-123-short-slug "origin/$1"
@@ -830,7 +841,8 @@ run_refresh() {
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" GIT_CURRENT_BRANCH="$current_branch" \
     FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
-    SPECIFY_FEATURE_DIRECTORY='specs/003-feature' sh -c "$implement_refresh")
+    SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
+    "$PYTHON" "$task_base_script" refresh)
 }
 branch_call=$(json_argv branch --show-current)
 
@@ -867,23 +879,21 @@ $(json_argv check-ref-format --branch release)
 $(json_argv fetch origin)" ] || fail "trunk: refresh did not stop after a forced fetch failure"
 [ ! -s "$gh_calls" ] || fail "trunk: refresh queried GitHub after a forced fetch failure"
 
-grep -Fq 'git merge "$remote/$delivery_base"' "$implement_skill" ||
-  fail "trunk: implement command does not quote the resolved base"
+# SC-001: none of the installed delivery commands carry a marked shell
+# block for the agent to keep intact or edit by hand -- every one of them
+# now invokes a script directly (plan D2).
+for skill in "$implement_skill" "$pr_skill" "$chore_skill" "$bugfix_skill" "$doctor_skill"; do
+  grep -Eq '^# [a-z-]+:(start|end)$' "$skill" &&
+    fail "trunk: $skill still carries a :start/:end marker"
+done
 
 echo "ok: trunk"
 
 # --------------------------------------------------------------------------
-# 5. One linear stack per feature (plan D5): step 1's task-base block picks
+# 5. One linear stack per feature (plan D5): task_base.py's task mode picks
 #    the next task's base from the open, non-draft task PRs, and
 #    speckit.pr's task case resolves the same base for `gh pr create`.
 # --------------------------------------------------------------------------
-
-task_base=$(sed -n '/task-base:start/,/task-base:end/p' "$implement_skill")
-[ -n "$task_base" ] || fail "stack: installed task-base block is missing"
-
-render_task_base() {
-  printf '%s\n' "$task_base" | sed "s@<NNN-T###-short-slug>@$1@"
-}
 
 run_task_base() {
   local branch="$1" pr_list="$2" feature="${3:-}" fail_command="${4:-}"
@@ -891,13 +901,15 @@ run_task_base() {
     GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
     PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE="$feature" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
-    sh -c "$(render_task_base "$branch")")
+    "$PYTHON" "$task_base_script" task "$branch")
 }
 
 # No open task PR: branch from the feature branch.
 reset_command_logs
-run_task_base 003-T002-slug "" >/dev/null || fail "stack: task-base with no open PR failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+output=$(run_task_base 003-T002-slug "") || fail "stack: task-base with no open PR failed"
+[ "$output" = "base=003-feature" ] ||
+  fail "stack: task-base with no open PR printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: task-base with no open PR used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
 $(json_argv switch -c 003-T002-slug origin/003-feature)" ] ||
@@ -906,9 +918,11 @@ $(json_argv switch -c 003-T002-slug origin/003-feature)" ] ||
 # A slashed feature branch (branch_template repositories): the feature
 # number is the final path segment's prefix, not the whole path's.
 reset_command_logs
-run_task_base 003-T002-slug "" 'team/web/003-feature$(safe)' >/dev/null ||
+output=$(run_task_base 003-T002-slug "" 'team/web/003-feature$(safe)') ||
   fail "stack: task-base with a slashed feature branch failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+[ "$output" = 'base=team/web/003-feature$(safe)' ] ||
+  fail "stack: task-base with a slashed feature branch printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: task-base with a slashed feature branch used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
 $(json_argv switch -c 003-T002-slug 'origin/team/web/003-feature$(safe)')" ] ||
@@ -916,23 +930,34 @@ $(json_argv switch -c 003-T002-slug 'origin/team/web/003-feature$(safe)')" ] ||
 
 # One ready task PR: branch from its head, not the feature branch.
 reset_command_logs
-run_task_base 003-T002-slug '003-T001-x 003-feature false' >/dev/null ||
+output=$(run_task_base 003-T002-slug '003-T001-x 003-feature false') ||
   fail "stack: task-base with one ready PR failed"
+[ "$output" = "base=003-T001-x" ] ||
+  fail "stack: task-base with one ready PR printed the wrong base"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
 $(json_argv switch -c 003-T002-slug origin/003-T001-x)" ] ||
   fail "stack: task-base with one ready PR used incorrect git argv"
 
 # Two open tops: two stacks, refuse before touching Git.
 reset_command_logs
+stack_err="$consumer_root/.conformance/stack.err"
+stack_status=0
 run_task_base 003-T002-slug \
   $'003-T001-x 003-feature false\n003-T001-z 003-feature false' \
-  >/dev/null 2>&1 && fail "stack: task-base accepted two open stacks"
+  >/dev/null 2>"$stack_err" || stack_status=$?
+[ "$stack_status" -eq 2 ] || fail "stack: two-stack task-base exited $stack_status, expected 2"
+grep -Fq 'error: two open task stacks' "$stack_err" ||
+  fail "stack: two-stack task-base did not name the error"
 [ ! -s "$git_calls" ] || fail "stack: two-stack task-base unexpectedly touched git"
 
 # A draft task PR: a task is still in flight, refuse before touching Git.
 reset_command_logs
+stack_status=0
 run_task_base 003-T002-slug '003-T001-x 003-feature true' \
-  >/dev/null 2>&1 && fail "stack: task-base accepted a draft task PR"
+  >/dev/null 2>"$stack_err" || stack_status=$?
+[ "$stack_status" -eq 2 ] || fail "stack: draft task-base exited $stack_status, expected 2"
+grep -Fq 'error: draft task PR still open' "$stack_err" ||
+  fail "stack: draft task-base did not name the error"
 [ ! -s "$git_calls" ] || fail "stack: draft task-base unexpectedly touched git"
 
 # A forced fetch failure stops before the branch switch.
@@ -967,25 +992,18 @@ output=$(run_pr_create task main "") || fail "stack: reverse-order task PR with 
 echo "ok: stack"
 
 # --------------------------------------------------------------------------
-# 6. Fix propagation through the stack (plan D6): the stack-propagate block
+# 6. Fix propagation through the stack (plan D6): stack_propagate.py
 #    carries a commit on a fixed branch into every open task PR stacked on
 #    it, in stack order, as merge commits, and stops naming the branch on a
 #    conflict without touching the branches above it.
 # --------------------------------------------------------------------------
-
-stack_propagate=$(sed -n '/stack-propagate:start/,/stack-propagate:end/p' "$implement_skill")
-[ -n "$stack_propagate" ] || fail "propagate: installed stack-propagate block is missing"
-
-render_stack_propagate() {
-  printf '%s\n' "$stack_propagate" | sed "s@<NNN-T###-short-slug>@$1@"
-}
 
 run_stack_propagate() {
   local branch="$1" pr_list="$2" fail_command="${3:-}"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
     PATH="$fake_bin:$PATH" \
-    sh -c "$(render_stack_propagate "$branch")")
+    "$PYTHON" "$stack_propagate_script" "$branch")
 }
 
 chain_prs=$'003-T002-b 003-T001-a false\n003-T003-c 003-T002-b false'
@@ -994,7 +1012,7 @@ chain_prs=$'003-T002-b 003-T001-a false\n003-T003-c 003-T002-b false'
 # the run finishes back on the fixed branch.
 reset_command_logs
 run_stack_propagate 003-T001-a "$chain_prs" >/dev/null || fail "propagate: chain failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "propagate: chain used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv switch 003-T002-b)
 $(json_argv merge --no-ff -m 'merge(task): carry the T001 fix into T002' 003-T001-a)
@@ -1025,24 +1043,16 @@ run_stack_propagate 003-T001-a "" >/dev/null || fail "propagate: empty chain fai
 echo "ok: propagate"
 
 # --------------------------------------------------------------------------
-# 7. Budget stop at twice the forecast (plan D9): the extracted
-#    budget-stop block measures added lines the review budget counts
-#    against the task's forecast and stops at the smaller of 2x and 400.
+# 7. Budget stop at twice the forecast (plan D9): budget_stop.py measures
+#    added lines the review budget counts against the task's forecast and
+#    stops at the smaller of 2x and 400.
 # --------------------------------------------------------------------------
-
-budget_stop=$(sed -n '/budget-stop:start/,/budget-stop:end/p' "$implement_skill")
-[ -n "$budget_stop" ] || fail "budget: installed budget-stop block is missing"
-
-render_budget_stop() {
-  printf '%s\n' "$budget_stop" |
-    sed -e "s@<T###>@$1@" -e "s@<the base the task-base block printed>@$2@"
-}
 
 run_budget_stop() {
   local task="$1" base="$2" numstat="$3"
   (cd "$consumer_root" && GIT_CALLS="$git_calls" GIT_NUMSTAT="$numstat" REAL_GIT="$real_git" \
     PATH="$fake_bin:$PATH" SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
-    sh -c "$(render_budget_stop "$task" "$base")")
+    "$PYTHON" "$budget_stop_script" "$task" "$base")
 }
 
 # T001's forecast must skip the template's fenced sample block, whose own
@@ -1098,14 +1108,9 @@ echo "ok: budget"
 #    extension/preset skills whole and appends each core command's own
 #    layer to that integration's render, never crossing integrations,
 #    idempotently; step 6 adds the installer's cache and venv directories
-#    to .gitignore. The blocks read only files, so a hand-made fixture
+#    to .gitignore. The scripts read only files, so a hand-made fixture
 #    stands in for a real `specify` install.
 # --------------------------------------------------------------------------
-
-skill_mirror_script="$consumer_root/.specify/presets/default/scripts/python/skill_mirror.py"
-[ -e "$skill_mirror_script" ] || fail "doctor: skill_mirror.py is not installed"
-ignore_entries_script="$consumer_root/.specify/presets/default/scripts/python/ignore_entries.py"
-[ -e "$ignore_entries_script" ] || fail "doctor: ignore_entries.py is not installed"
 
 dir_checksum() { (cd "$1" && find . -type f | sort && find . -type f | sort | xargs cat) | shasum -a 256 | awk '{print $1}'; }
 render() { mkdir -p "$mirror_root/.claude/skills/$1"; cat > "$mirror_root/.claude/skills/$1/SKILL.md"; }
@@ -1264,4 +1269,92 @@ second=$(cd "$ignore_root" && "$PYTHON" "$ignore_entries_script" true) ||
 [ "$(shasum -a 256 < "$ignore_root/.gitignore")" = "$mid" ] || fail "ignore: second fix=true run changed .gitignore"
 
 echo "ok: ignore"
+
+# --------------------------------------------------------------------------
+# 9. Root-first merge on explicit human request (plan D1, D5;
+#    merge_root_first.py): retarget-then-merge walks the open task-PR
+#    stack root first regardless of listing order, never requests
+#    --delete-branch (the guard T014 will build), and a mid-stack failure
+#    stops before the next retarget.
+# --------------------------------------------------------------------------
+
+merge_list_call=$(json_argv pr list --state open --limit 100 --json number,headRefName,baseRefName,isDraft)
+merge_root_first_pr_list=$'003-T003-c 003-T002-b false\n003-T001-a 003-feature false\n003-T002-b 003-T001-a false'
+
+run_merge_root_first() {
+  local pr_list="$1" fail_pr_merge="${2:-}"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_PR_LIST="$pr_list" FAIL_PR_MERGE="$fail_pr_merge" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
+    "$PYTHON" "$merge_root_first_script")
+}
+
+# A three-PR stack listed out of order: line order assigns the gh-reported
+# PR numbers (1, 2, 3), but the walk still retargets and merges root first
+# (#2, then #3, then #1), never requesting branch deletion.
+reset_command_logs
+output=$(run_merge_root_first "$merge_root_first_pr_list") ||
+  fail "merge-root-first: three-PR stack failed"
+[ "$output" = 'merged #2 003-T001-a
+merged #3 003-T002-b
+merged #1 003-T003-c' ] || fail "merge-root-first: wrong merge order or output: $output"
+[ "$(cat "$gh_calls")" = "$merge_list_call
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/2' -f base=003-feature)
+$(json_argv pr merge 2 --merge)
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/3' -f base=003-feature)
+$(json_argv pr merge 3 --merge)
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/1' -f base=003-feature)
+$(json_argv pr merge 1 --merge)" ] ||
+  fail "merge-root-first: incorrect gh argv sequence"
+[ "$(cat "$git_calls")" = "$(json_argv worktree prune)" ] ||
+  fail "merge-root-first: incorrect git argv"
+grep -Fq -- '--delete-branch' "$gh_calls" &&
+  fail "merge-root-first: requested branch deletion"
+
+# A mid-stack failure (the second PR's merge) stops before the next PR's
+# retarget: #1's PATCH/merge never happen.
+reset_command_logs
+merge_status=0
+run_merge_root_first "$merge_root_first_pr_list" 3 >/dev/null 2>&1 || merge_status=$?
+[ "$merge_status" -eq 2 ] ||
+  fail "merge-root-first: forced merge failure exited $merge_status, expected 2"
+[ "$(cat "$gh_calls")" = "$merge_list_call
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/2' -f base=003-feature)
+$(json_argv pr merge 2 --merge)
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/3' -f base=003-feature)
+$(json_argv pr merge 3 --merge)" ] ||
+  fail "merge-root-first: forced merge failure did not stop before the next retarget"
+
+echo "ok: merge-root-first"
+
+# --------------------------------------------------------------------------
+# 10. Ledger completeness gate before ready-for-review (plan D1;
+#     ledger_check.py): a checked task with real completion evidence
+#     passes; an unchecked task or one whose evidence is still "Pending"
+#     names exactly what is missing.
+# --------------------------------------------------------------------------
+
+run_ledger_check() {
+  (cd "$consumer_root" && SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
+    "$PYTHON" "$ledger_check_script" "$1")
+}
+
+output=$(run_ledger_check T001) || fail "ledger-check: checked task with evidence failed"
+[ "$output" = "ledger: T001 checked, completion evidence filled" ] ||
+  fail "ledger-check: checked task with evidence printed the wrong confirmation"
+
+ledger_err="$consumer_root/.conformance/ledger.err"
+ledger_status=0
+run_ledger_check T002 >/dev/null 2>"$ledger_err" || ledger_status=$?
+[ "$ledger_status" -eq 2 ] || fail "ledger-check: unchecked task exited $ledger_status, expected 2"
+grep -Fq 'is not checked' "$ledger_err" ||
+  fail "ledger-check: unchecked task did not name the gap"
+
+ledger_status=0
+run_ledger_check T005 >/dev/null 2>"$ledger_err" || ledger_status=$?
+[ "$ledger_status" -eq 2 ] || fail "ledger-check: pending evidence exited $ledger_status, expected 2"
+grep -Fq 'has no completion evidence' "$ledger_err" ||
+  fail "ledger-check: pending evidence did not name the gap"
+
+echo "ok: ledger-check"
 echo "conformance passed"
