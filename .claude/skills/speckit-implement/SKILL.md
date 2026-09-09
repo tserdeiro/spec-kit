@@ -49,7 +49,7 @@ gh pr view <feature-branch> --json url,isDraft,state 2>/dev/null
 
 Only an OPEN pull request counts. When none exists, run the `/speckit.pr` routine's **feature-PR variant** — from the feature branch, with the feature's artifacts committed — before the first task: it opens the canonical draft gate, and the loop continues. When it is open, report its URL and never open another. When it is CLOSED or MERGED, stop and tell the human — a closed gate is a decision, not a gap. The gate is where a human approves the spec and plan; the loop never delivers a task against a feature with no gate open.
 
-Report the tooling once, from the feature branch: `[ -d .specify/extensions/code-review ]` decides the review path of step 2 below — `Tooling: code-review` or `Tooling: none — reviews by diff`. Linear's own context and state-syncing now run through session and tool-use events, needing nothing from this loop. A task never installs or removes an extension — that is a trunk chore, never a feature task.
+Report the tooling once, from the feature branch: `[ -d .specify/extensions/code-review ]` decides the review path of step 2 below — `Tooling: code-review` or `Tooling: none — reviews by diff`. Linear's own state-syncing runs outside this loop — in `task_base.py`'s branch creation and, where the linear extension's session and tool-use handlers are installed, in those handlers; the loop carries no instruction for it. A task never installs or removes an extension — that is a trunk chore, never a feature task.
 
 ## 1. Starting a task
 
