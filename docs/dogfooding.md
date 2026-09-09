@@ -534,3 +534,18 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     igual, entrada 60); los comandos llaman al archivo instalado por su
     ruta literal. La entrada declara la superficie, no la cablea.
     *Documentada.*
+64. **El slash command de review se llama
+    `/speckit-code-review-code-review`.** Upstream antepone el id de la
+    extensión al nombre del comando, y el comando único de `code-review`
+    ya se llama `speckit.code-review`, así que el registro queda
+    `speckit.code-review.code-review` (se ve en `extensions.yml`) y el
+    skill instalado, en Claude y Codex, con el nombre doblado. Toda la
+    prosa (README, visión, el loop de `implement`) dice
+    `/speckit.code-review <n>`, que no existe tal cual. El orquestador
+    corrió los dos pasos del skill por el CLI (`review <n> --json` y el
+    cierre con `--findings`), que es exactamente lo que el skill
+    prescribe, sin invocar el skill por su nombre. *Pendiente:* renombrar
+    el comando (`speckit.code-review.review`, que rendería
+    `speckit-code-review-review`) o documentar el nombre doblado; es un
+    cambio de superficie de la extensión, fuera de esta ronda salvo
+    decisión humana.
