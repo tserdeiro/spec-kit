@@ -448,5 +448,11 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     nunca borra ni archiva: quitar o fusionar tareas en la revisión del
     gate dejaría Issues en Todo para siempre, así que la revisión solo
     agrega tareas con IDs nuevos (T025 y T026 acá; T015 en la 004).
-    *Aceptada:* archivar en `push` los Issues de tareas desaparecidas,
-    reversible con `issueUnarchive`, es candidato para la extensión.
+    *Ronda 005 (FR-020, T027; decidido en el gate, 2026-09-09):* `push`
+    archiva los Issues que él mismo creó cuando su tarea desaparece del
+    ledger y los restaura si vuelve, como operaciones previsualizadas y
+    reversibles; nunca borra ni toca Issues creados por personas. Es la
+    proyección siguiendo a la fuente en las dos direcciones, no un cambio
+    del momento en que se proyecta: la constitución exige la
+    sincronización revisada y la asignación de cada tarea **antes** de
+    `ready-for-development`, así que los Issues deben existir en el gate.
