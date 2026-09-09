@@ -48,7 +48,9 @@ y en versiones exactas.
 ## ⚡ Primeros pasos
 
 Cinco pasos y tu repo queda conectado a tu agente, a Linear y al motor de
-revisión. Prerrequisitos: `git`, [`uv`](https://docs.astral.sh/uv/), `gh`
+revisión. Prerrequisitos: `git`, [`uv`](https://docs.astral.sh/uv/),
+[Python 3.11+](https://www.python.org/downloads/) (el mismo que exige
+Spec Kit; corre los scripts del preset y los hooks), `gh`
 ([GitHub CLI](https://cli.github.com/), autenticado con `gh auth login`) y
 `node`/`npm` (los usa el motor de revisión). Para el paso 4, una API key
 de Linear (Linear → Settings → API → Personal API keys).
