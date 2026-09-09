@@ -2,10 +2,10 @@
 """skill-mirror: mirror extension/preset skills across installed agents.
 
 Direct translation of doctor.md step 5's shell block: copies every
-non-core skill whole from the default integration's directory into each
-lagging one, and appends the preset's registered layer to each lagging
-integration's own core-command renders -- never a core skill copied
-whole, never one integration's render overwritten by another's.
+non-core skill, plus any core skill the preset replaces, whole from the
+default integration's directory into each lagging one, and appends the
+preset's registered layer to every other lagging core-command render --
+never one integration's render overwritten by another's.
 """
 
 from __future__ import annotations
@@ -25,20 +25,25 @@ def _quoted(key: str, line: str) -> str | None:
     match = re.search(rf'{key}:\s*"([^"]*)"', line)
     return match.group(1) if match else None
 
-def _registered_appends(repo_root: Path) -> dict[str, Path]:
+def _registered_appends(repo_root: Path) -> tuple[dict[str, Path], set[str]]:
     """speckit-x name -> its registered append file (relative to
-    repo_root), first match wins, across every installed preset's
-    preset.yml -- a direct translation of the block's own awk state
-    machine over that YAML shape, one flush per "- type:" list entry."""
+    repo_root), first match wins, plus the set of speckit-x names
+    registered strategy "replace" (copied whole, like an extension
+    skill) -- across every installed preset's preset.yml, a direct
+    translation of the block's own awk state machine over that YAML
+    shape, one flush per "- type:" list entry."""
     appends: dict[str, Path] = {}
+    replaced: set[str] = set()
     for preset_yml in sorted((repo_root / ".specify/presets").glob("*/preset.yml")):
         preset_dir = preset_yml.parent.relative_to(repo_root)
         kind, name, file, strategy = "", "", "", ""
         lines = [*preset_yml.read_text(encoding="utf-8").splitlines(), "- type:"]
         for line in lines:
             if _ENTRY_RE.match(line):
-                if kind == "command" and strategy == "append" and name and file:
+                if kind == "command" and name and strategy == "append" and file:
                     appends.setdefault(re.sub(r"^speckit\.", "speckit-", name), preset_dir / file)
+                elif kind == "command" and name and strategy == "replace":
+                    replaced.add(re.sub(r"^speckit\.", "speckit-", name))
                 kind = "command" if '"command"' in line else ""
                 name, file, strategy = "", "", ""
                 continue
@@ -47,7 +52,7 @@ def _registered_appends(repo_root: Path) -> dict[str, Path]:
             name = _quoted("name", line) or name
             file = _quoted("file", line) or file
             strategy = _quoted("strategy", line) or strategy
-    return appends
+    return appends, replaced
 
 def _manifest_skills(manifest: Path) -> list[str]:
     """Every "*/speckit-*/SKILL.md" path in a manifest's files, in order."""
@@ -69,7 +74,7 @@ def mirror_skills(repo_root: Path, fix: bool) -> int:
         print("mirror: only one integration installed, skipped")
         return 0
 
-    appends = _registered_appends(repo_root)
+    appends, replaced = _registered_appends(repo_root)
     integrations_dir = repo_root / ".specify/integrations"
     default_dir = _skills_dir(_manifest_skills(integrations_dir / f"{default_ai}.manifest.json"))
     if not default_dir:
@@ -88,7 +93,7 @@ def mirror_skills(repo_root: Path, fix: bool) -> int:
         core = [_SKILL_RE.search(path).group(1) for path in paths]  # _manifest_skills already filtered
 
         for src in sorted((repo_root / default_dir).glob("speckit-*")):
-            if not src.is_dir() or src.name in core:
+            if not src.is_dir() or (src.name in core and src.name not in replaced):
                 continue
             dst = repo_root / lag_dir / src.name
             dst_skill = dst / "SKILL.md"

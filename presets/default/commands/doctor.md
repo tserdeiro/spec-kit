@@ -75,20 +75,23 @@ integration ("active-only registration"); this distribution's portability
 principle says no agent is second-class. Close that gap here, without ever
 overwriting one integration's own render with another's: extension and
 preset skills are copied whole from the default integration's directory;
-the five core commands with a registered preset append (`specify`, `plan`,
-`tasks`, `analyze`, `implement`) keep each integration's own render and
-receive that append. Run `skill_mirror.py` — with the consumer's
-`.venv/bin/python` when it exists, else `python3` on PATH, the rule
-upstream's own `py` scripts follow. Its one argument replaces
+the four core commands with a registered preset append (`specify`, `plan`,
+`tasks`, `analyze`) keep each integration's own render and receive that
+append; a core command the preset **replaces** (`implement`) is copied
+whole instead, like an extension skill, since it has no
+integration-specific render to keep. Run `skill_mirror.py` — with the
+consumer's `.venv/bin/python` when it exists, else `python3` on PATH,
+the rule upstream's own `py` scripts follow. Its one argument replaces
 `<true|false>`: `true` when the user asked to fix, else `false`:
 
 ```bash
 python3 .specify/presets/default/scripts/python/skill_mirror.py <true|false>
 ```
 
-A core render with no registered append (e.g. `checklist`) is never
-touched, and a core skill is never copied across integrations — only its
-own append text ever reaches it. Re-run after `bundle update` or
+A core render with no registered append or replace strategy (e.g.
+`checklist`) is never touched, and a core skill with an append only ever
+receives its own append text, never a whole copy, across integrations.
+Re-run after `bundle update` or
 `integration switch`: both refresh only the default agent's copies.
 
 ## 6. Add the installer's ignore entries
