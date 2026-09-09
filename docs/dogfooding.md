@@ -468,3 +468,13 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     requeridos y se validan aparte, pero el JSON sugiere que faltan), y
     el ejemplo de la tabla de hallazgos usa el prefijo `A` para una
     "Duplication" cuando la regla pide la inicial de la categoría.
+56. **Abrir el PR de gate mostró tres huecos chicos y uno de ruido.**
+    `pr.md` no dice que el "no pull requests found" de `gh pr view` es
+    la señal para seguir, ni los patrones de las tres formas de rama,
+    ni si la línea Requirements lleva las C-###; la variante de feature
+    manda leer el nombre del Project en `status`, que solo imprime
+    `Feature 005` (el nombre lo conoce la proyección). Y cada
+    invocación por `run.sh` antepone `Uninstalled 1 package` /
+    `Installed 1 package` de `uv` al stream que el agente parsea, así
+    que un `--json` falla igual que en la entrada 36. *Ronda 005:* la
+    prosa en T002, el nombre del Project en T013, `uv run -q` en T017.
