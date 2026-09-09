@@ -245,9 +245,11 @@ section.
    settings.
 2. **Given** the same consumer, **When** the doctor runs in fix mode,
    **Then** every gap in that list that can be resolved mechanically is
-   resolved, and the GitHub delivery settings are still only reported:
-   this round's doctor never changes them, and applying them is the
-   releases round's scope.
+   resolved, and two gaps are still only reported with their exact
+   remediation: the Python interpreter (installing or activating one is
+   a human decision) and the GitHub delivery settings (this round's
+   doctor never changes them; applying them is the releases round's
+   scope).
 3. **Given** the README, **When** a reader opens it, **Then** the day's
    workflow appears as four commands before any other content, and the
    golden rules further down are split into what the developer does and
@@ -371,8 +373,10 @@ one removes.
   onboarding binding, the review engine installation, and the
   repository's GitHub delivery settings. Its fix mode MUST resolve every
   gap in that list that can be resolved mechanically, without a human
-  decision, except the GitHub delivery settings: this round's doctor
-  only reports them, and applying them is the releases round's scope.
+  decision, except two it only reports with their exact remediation: the
+  Python interpreter, because installing or activating one is a human
+  decision, and the GitHub delivery settings, whose application is the
+  releases round's scope.
 - **FR-013**: The README MUST open with the day's workflow expressed as
   four commands before any other content, and MUST split the golden
   rules further down into what the developer does and what the loop

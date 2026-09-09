@@ -839,6 +839,9 @@ packages/spec-kit-code-review/src/spec_kit_code_review/completions.py   # remove
 packages/spec-kit-code-review/{README.md,CHANGELOG.md}    # 0.5.0
 scripts/conformance/bundles.sh                             # direct script invocation, python3 argv (D2)
 docs/{vision.md,plan.md,dogfooding.md} · AGENTS.md · README.md           # FR-019, D10
+.github/workflows/ci.yml                                   # third pytest job: presets/default/tests (T025)
+packages/spec-kit-linear/commands/push.md                  # the lifecycle-hook invocation form (T011, entry 52)
+packages/spec-kit-linear/src/spec_kit_linear/{github.py,work_items.py}  # PullRequest.number threaded (D6, T013)
 .github/workflows/conventions.yml                          # regex read, not changed (D5)
 ```
 
