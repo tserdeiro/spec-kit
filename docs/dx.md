@@ -57,7 +57,7 @@ sigue siendo la regla y el doctor lo dice.
 - - **El mecanismo se reparte entre lo que ya existe; no hay extensión
   nueva.** Los presets pueden shippear scripts (`provides` acepta `type:
   script`, en `scripts/`) y el payload del preset se commitea en el
-  consumidor, así que el preset `default` shippea como scripts POSIX lo
+  consumidor, así que el preset `default` shippea como scripts Python lo
   que hoy es shell inline en sus comandos: `task-base`, `budget-stop`,
   `stack-propagate`, `pr-create`, el merge a pedido raíz-primero, el
   check del ledger (checkbox más evidencia de completitud) y los dos
@@ -120,15 +120,20 @@ sigue siendo la regla y el doctor lo dice.
 
 Preset `default`:
 
-- `scripts/bash/`: `task-base.sh`, `budget-stop.sh`,
-  `stack-propagate.sh`, `pr-create.sh`, `merge-root-first.sh`,
-  `ledger-check.sh`, `skill-mirror.sh`, `ignore-entries.sh`, declarados
-  como `type: script` en `preset.yml`; `task-base.sh` termina con
+- `scripts/python/`: `task_base.py`, `budget_stop.py`,
+  `stack_propagate.py`, `pr_create.py`, `merge_root_first.py`,
+  `ledger_check.py`, `skill_mirror.py`, `ignore_entries.py`, declarados
+  como `type: script` en `preset.yml`; `task_base.py` termina con
   `push --hook` si `linear` está instalada, así ningún comando conserva
-  una frase de reconcile;
-  `sh` POSIX como hoy (los bloques nunca tuvieron gemelo PowerShell).
-  La conformance corre cada script contra fixtures (los casos de
-  `bundles.sh` se mudan con ellos).
+  una frase de reconcile. **En Python 3.11+** (decisión del 2026-09-09):
+  es el prerrequisito que upstream ya exige y el lenguaje de los dos
+  paquetes, el awk de los bloques era lo difícil de mantener, y el JSON
+  de `gh` y de los hooks se parsea nativo. Se invocan con `python3`
+  (o el `.venv` del consumidor), la regla con la que upstream renderiza
+  su propia variante `py`; sin `uv` ni `.sh` de por medio, sin gemelos
+  PowerShell. El preset
+  gana una suite de pytest y la conformance queda como humo sobre el
+  artefacto instalado.
 - `implement` (y `tasks` si hace falta) con `strategy: replace`.
 - La prosa de `pr`, `chore`, `bugfix`, `doctor` e `implement` reducida a
   pasos que llaman scripts.
@@ -136,15 +141,18 @@ Preset `default`:
 Extensión `linear`:
 
 - `events:` con `session_start` y `post_tool_use`, sus dos handlers
-  como comandos internos (`scripts:` en el frontmatter, como exige el
-  dispatcher) que llaman a `push --hook` y a `status`.
+  como comandos internos con variante `py` en el frontmatter: un `.py`
+  de tres líneas que importa el paquete y llama a un subcomando interno
+  (la lógica y sus tests viven en el paquete; el dispatcher lo corre con
+  su propio intérprete, 0,02 s).
 - `next_action` devuelve comandos. `completions` sale.
 - `requires.speckit_version` pasa a `>=1.0.4,<1.1.0`.
 
 Extensión `code-review`:
 
 - `events:` con un `pre_tool_use` (matcher `Bash|Edit|Write`) y las dos
-  guardas dentro; la regex de subjects compartida con `conventions.yml`.
+  guardas dentro, mismo esquema de `.py` mínimo más subcomando interno;
+  la regex de subjects compartida con `conventions.yml`.
 - Sale el hook `after_implement` (una review advisory del working tree a
   la que el loop nunca llega). `completions` sale.
 - `requires.speckit_version` pasa a `>=1.0.4,<1.1.0`.
@@ -154,7 +162,7 @@ Documentos:
 - `vision.md`: los eventos como capa de mecanismo; Zed se degrada
   explícitamente; "autocompletado" pasa a ser el de cada agente.
 - `README.md`: portada, onboarding vía doctor, receta de actualización
-  (entrada 35).
+  (entrada 35), Python 3.11+ de vuelta en los prerrequisitos.
 - `plan.md`: la ronda. `dogfooding.md`: las entradas pasan a *resuelta*
   a medida que aterrizan.
 
