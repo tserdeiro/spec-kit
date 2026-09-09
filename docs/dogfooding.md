@@ -584,3 +584,11 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     por diseño. *Pendiente de decisión:* contar líneas netas, o una
     tarea de consolidación con su propio presupuesto cuando termine la
     fase 1.
+68. **El bloque de T006 se contradice con su propio ejemplo.** La prosa
+    dice que el mensaje combinado une los dos fragmentos con ` and `
+    (leído literal: `task T003 is not checked and task T003 has no
+    completion evidence`) y el ejemplo entre paréntesis dice `error: task
+    T003 is not checked and has no completion evidence`. El implementador
+    escribió el test desde el ejemplo y atrapó su primera versión, que
+    seguía la prosa. *Regla:* cuando un bloque trae ejemplo, el ejemplo
+    es el contrato; la prosa se escribe para coincidir con él.
