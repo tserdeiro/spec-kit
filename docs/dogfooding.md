@@ -549,3 +549,14 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `speckit-code-review-review`) o documentar el nombre doblado; es un
     cambio de superficie de la extensión, fuera de esta ronda salvo
     decisión humana.
+65. **El host sirve el skill cacheado después de regenerarlo.** Tras
+    `preset add --dev` y el espejo del doctor, `/speckit-pr` llegó al
+    agente con el párrafo viejo del paso 5 mientras
+    `.claude/skills/speckit-pr/SKILL.md` en disco ya tenía el nuevo (el
+    host indexa los skills al arrancar o al listarlos, y sirve esa
+    copia). En una sesión que regenera el preset, el skill que se invoca
+    puede no ser el que se acaba de instalar. *Regla:* tras regenerar,
+    verificar el archivo en disco antes de fiarse del skill servido, o
+    abrir sesión nueva. Aun así el mecanismo nuevo corrió bien: el PR de
+    T002 resolvió su base con `pr_create.py task T002` bajo
+    `.venv/bin/python`.
