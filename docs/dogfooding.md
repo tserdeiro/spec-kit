@@ -428,3 +428,25 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     consumidor si existe, si no `python3`), sin `--python` fijo ni `uv`
     ni `.sh` de por medio; el README recupera el prerrequisito y el
     doctor verifica el intérprete que esa regla elige.
+52. **El hook de Linear no dice con qué forma se corre.** El core emite
+    `EXECUTE_COMMAND: speckit.linear.push` y aclara que "un agente en modo
+    skills lo corre como `/skill:…` o `$speckit-…`", pero invocar el skill
+    de `push` solo carga su doc; nada dice que un hook corre
+    `push --current --hook` (y `--current` es redundante con
+    `feature.json`). El implementador lo dedujo del README de la
+    extensión. *Ronda 005 (T011):* `commands/push.md` lo enuncia.
+53. **Dos reglas del ledger que solo existían como precedente.** El
+    template core ordena las fases por prioridad de historia y el append
+    por dependencias, y chocan: la US4 va antes que la US2 y la US3
+    porque los scripts no tienen quien los llame hasta que `implement` se
+    reemplaza, y nada dice cuál manda. Y una tarea solo de prosa mide
+    ~0 líneas para el presupuesto, que cuenta ejecutables, así que su
+    forecast es el tamaño del diff por convención heredada de la 004.
+    *Ronda 005 (T010):* el `tasks` reemplazado enuncia las dos.
+54. **Editar el ledger después de `after_tasks` deja Issues huérfanos.**
+    El hook proyecta los Issues en el mismo run del comando y `push`
+    nunca borra ni archiva: quitar o fusionar tareas en la revisión del
+    gate dejaría Issues en Todo para siempre, así que la revisión solo
+    agrega tareas con IDs nuevos (T025 y T026 acá; T015 en la 004).
+    *Aceptada:* archivar en `push` los Issues de tareas desaparecidas,
+    reversible con `issueUnarchive`, es candidato para la extensión.
