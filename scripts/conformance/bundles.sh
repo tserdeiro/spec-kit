@@ -582,8 +582,14 @@ if args == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchR
     sys.stdout.write(os.environ.get("GH_DEFAULT", "main\n"))
 elif args[:2] == ["pr", "create"]:
     print("https://example.invalid/pr/1")
-elif args[:2] == ["pr", "list"]:
+elif args[:2] == ["pr", "list"] and "--jq" in args:
     sys.stdout.write(os.environ.get("GH_PR_LIST", ""))
+elif args[:2] == ["pr", "list"]:
+    prs = []
+    for line in os.environ.get("GH_PR_LIST", "").splitlines():
+        head, base, draft = line.split(" ")
+        prs.append({"headRefName": head, "baseRefName": base, "isDraft": draft == "true"})
+    sys.stdout.write(json.dumps(prs))
 else:
     print("unexpected gh argv", file=sys.stderr)
     raise SystemExit(8)
@@ -640,21 +646,16 @@ set_config() {
 
 pr_skill="$consumer_root/.agents/skills/speckit-pr/SKILL.md"
 implement_skill="$consumer_root/.agents/skills/speckit-implement/SKILL.md"
-pr_create=$(sed -n '/pr-create:start/,/pr-create:end/p' "$pr_skill")
 implement_refresh=$(sed -n '/first-task-refresh:start/,/first-task-refresh:end/p' "$implement_skill")
-[ -n "$pr_create" ] || fail "trunk: installed PR-create block is missing"
 [ -n "$implement_refresh" ] || fail "trunk: installed first-task refresh is missing"
-for skill in "$pr_skill" "$implement_skill"; do
-  grep -Eq 'resolve-delivery-base' "$skill" &&
-    fail "trunk: $skill still references the retired Python resolver"
-  grep -Fq "sed -nE '/^trunk:/" "$skill" ||
-    fail "trunk: $skill does not use the shell trunk resolution"
-done
-
-render_pr_create() {
-  printf '%s\n' "$pr_create" |
-    sed -e "s@<feature|task|work-item>@$1@" -e "s@<T### or empty>@${2:-}@"
-}
+grep -Eq 'resolve-delivery-base' "$implement_skill" &&
+  fail "trunk: $implement_skill still references the retired Python resolver"
+grep -Fq "sed -nE '/^trunk:/" "$implement_skill" ||
+  fail "trunk: $implement_skill does not use the shell trunk resolution"
+grep -Fq 'pr_create.py' "$pr_skill" ||
+  fail "trunk: $pr_skill does not invoke pr_create.py"
+pr_create_script="$consumer_root/.specify/presets/default/scripts/python/pr_create.py"
+[ -e "$pr_create_script" ] || fail "trunk: pr_create.py is not installed"
 
 run_pr_create() {
   local kind="$1" github_default="$2" fail_command="$3" named_task="${4:-}"
@@ -665,15 +666,15 @@ run_pr_create() {
     PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE='team/web/003-feature$(safe)' \
     SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
-    sh -c "$(render_pr_create "$kind" "$named_task")")
+    "$PYTHON" "$pr_create_script" "$kind" ${named_task:+"$named_task"})
 }
 
-create_call() {
-  json_argv pr create --draft --base "$1" --title '<type(scope): subject>' --body '<the body>'
-}
 pr_list_call() {
   json_argv pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
     --jq ".[] | select(.headRefName | startswith(\"$1-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\""
+}
+pr_list_json_call() {
+  json_argv pr list --state open --limit 100 --json headRefName,baseRefName,isDraft
 }
 repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
 
@@ -682,9 +683,9 @@ repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.nam
 for config in 'trunk: release\n' 'trunk: "release"\n' 'trunk: '"'"'release'"'"'\n' 'trunk: release  # ship branch\n'; do
   set_config "$config"
   reset_command_logs
-  run_pr_create feature main "" >/dev/null || fail "trunk: configured '$config' failed"
-  [ "$(cat "$gh_calls")" = "$(create_call release)" ] ||
-    fail "trunk: configured '$config' used incorrect gh argv"
+  output=$(run_pr_create feature main "") || fail "trunk: configured '$config' failed"
+  [ "$output" = "base=release" ] || fail "trunk: configured '$config' printed the wrong base"
+  [ ! -s "$gh_calls" ] || fail "trunk: configured '$config' queried GitHub"
   [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch release)" ] ||
     fail "trunk: configured '$config' did not validate its base"
 done
@@ -693,9 +694,9 @@ done
 for config in __missing_file__ 'trunk: ""\n' 'other: value\n'; do
   set_config "$config"
   reset_command_logs
-  run_pr_create feature main "" >/dev/null || fail "trunk: fallback '$config' failed"
-  [ "$(cat "$gh_calls")" = "$repo_view
-$(create_call main)" ] || fail "trunk: fallback '$config' used incorrect gh argv"
+  output=$(run_pr_create feature main "") || fail "trunk: fallback '$config' failed"
+  [ "$output" = "base=main" ] || fail "trunk: fallback '$config' printed the wrong base"
+  [ "$(cat "$gh_calls")" = "$repo_view" ] || fail "trunk: fallback '$config' used incorrect gh argv"
 done
 
 # An invalid branch name stops before a PR ever opens.
@@ -716,9 +717,9 @@ run_pr_create feature main gh >/dev/null 2>&1 && fail "trunk: a failed GitHub lo
 set_config 'trunk: unused\n'
 reset_command_logs
 GIT_CURRENT_BRANCH=003-T002-slug
-run_pr_create task main "" >/dev/null || fail "trunk: task PR create failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
-$(create_call 'team/web/003-feature$(safe)')" ] ||
+output=$(run_pr_create task main "") || fail "trunk: task PR create failed"
+[ "$output" = 'base=team/web/003-feature$(safe)' ] || fail "trunk: task PR printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "trunk: task PR used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv branch --show-current)
 $(json_argv fetch origin)" ] ||
@@ -740,10 +741,10 @@ grep -Fq 'branch 003-T003-slug delivers T003 but the task to deliver is T002' \
 
 reset_command_logs
 GIT_CURRENT_BRANCH=003-T003-slug
-run_pr_create task main "" T003 >/dev/null ||
+output=$(run_pr_create task main "" T003) ||
   fail "identity: a named task did not override the ledger"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
-$(create_call 'team/web/003-feature$(safe)')" ] ||
+[ "$output" = 'base=team/web/003-feature$(safe)' ] || fail "identity: named task printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "identity: named task used incorrect gh argv"
 
 # A missing ledger is a coded diagnostic, never a bare awk crash.
@@ -763,17 +764,17 @@ grep -Eq 'error: task ledger not found: .*specs/003-directory-different/tasks\.m
 # PR: configured trunk wins (still active from above), and the fallback
 # both queries the GitHub default and validates it.
 reset_command_logs
-run_pr_create work-item main "" >/dev/null || fail "trunk: work-item PR create failed"
-[ "$(cat "$gh_calls")" = "$(create_call unused)" ] ||
-  fail "trunk: work-item PR used incorrect gh argv"
+output=$(run_pr_create work-item main "") || fail "trunk: work-item PR create failed"
+[ "$output" = "base=unused" ] || fail "trunk: work-item PR printed the wrong base"
+[ ! -s "$gh_calls" ] || fail "trunk: work-item PR queried GitHub"
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch unused)" ] ||
   fail "trunk: work-item PR did not validate its configured base"
 
 set_config __missing_file__
 reset_command_logs
-run_pr_create work-item 'default$(safe)' "" >/dev/null || fail "trunk: work-item PR create failed"
-[ "$(cat "$gh_calls")" = "$repo_view
-$(create_call 'default$(safe)')" ] ||
+output=$(run_pr_create work-item 'default$(safe)' "") || fail "trunk: work-item PR create failed"
+[ "$output" = 'base=default$(safe)' ] || fail "trunk: work-item PR printed the wrong base"
+[ "$(cat "$gh_calls")" = "$repo_view" ] ||
   fail "trunk: work-item PR did not resolve the GitHub default at runtime"
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')" ] ||
   fail "trunk: work-item PR did not validate its fallback base"
@@ -947,9 +948,9 @@ reset_command_logs
 GH_PR_LIST=$'003-T001-x 003-feature false\n003-T002-y 003-T001-x false'
 GIT_ANCESTORS=$'origin/003-T001-x HEAD\norigin/003-T002-y HEAD\norigin/003-T001-x origin/003-T002-y'
 GIT_CURRENT_BRANCH=003-T002-slug
-run_pr_create task main "" >/dev/null || fail "stack: task PR with ancestor failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
-$(create_call '003-T002-y')" ] ||
+output=$(run_pr_create task main "") || fail "stack: task PR with ancestor failed"
+[ "$output" = "base=003-T002-y" ] || fail "stack: task PR with ancestor printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: task PR with ancestor used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv branch --show-current)
 $(json_argv fetch origin)" ] ||
@@ -958,9 +959,9 @@ $(json_argv fetch origin)" ] ||
 reset_command_logs
 GH_PR_LIST=$'003-T002-y 003-T001-x false\n003-T001-x 003-feature false'
 GIT_CURRENT_BRANCH=003-T002-slug
-run_pr_create task main "" >/dev/null || fail "stack: reverse-order task PR with ancestor failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
-$(create_call '003-T002-y')" ] ||
+output=$(run_pr_create task main "") || fail "stack: reverse-order task PR with ancestor failed"
+[ "$output" = "base=003-T002-y" ] || fail "stack: reverse-order task PR with ancestor printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: reverse-order task PR with ancestor used incorrect gh argv"
 
 echo "ok: stack"
