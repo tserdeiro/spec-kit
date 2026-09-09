@@ -560,3 +560,13 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     abrir sesión nueva. Aun así el mecanismo nuevo corrió bien: el PR de
     T002 resolvió su base con `pr_create.py task T002` bajo
     `.venv/bin/python`.
+66. **El instalador reescribe rutas relativas dentro de los comandos de
+    extensiones.** En el render de `speckit-code-review-code-review`,
+    en Claude y Codex, el ejemplo de `findings.json` dice `"path":
+    ".specify/extensions/code-review/src/module.py"` donde el `.md`
+    fuente dice `src/module.py`: upstream antepone el directorio de
+    instalación a toda ruta relativa que reconoce, incluso dentro de un
+    bloque JSON de ejemplo. Un lector que copie el ejemplo apunta un
+    hallazgo al paquete de la extensión. *Documentada:* los ejemplos de
+    ruta en comandos de extensiones se escriben de forma que no parezcan
+    rutas del paquete (o se explican), hasta un PR a upstream.
