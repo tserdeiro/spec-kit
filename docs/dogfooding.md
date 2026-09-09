@@ -327,7 +327,8 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `git-config.yml`, bajo `auto_commit.default: false`. Un agente que
     mire solo `extensions.yml` dispararía `git.commit`, que hace
     `git add .` antes del commit acotado del propio append (entrada 24).
-    *Ronda 005:* el append nombra la clave; el PR 3 a upstream lo
+    *Ronda 005 (T010):* el append nombra la clave; el PR 3 a upstream
+    (T022) lo
     elimina de raíz.
 38. **`specify` no nombra el script determinista que ya trae.** El skill
     dice "resolvé el `spec-template` por el stack (equivalente a
@@ -364,7 +365,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     la 004 los produjeron; un junior los crearía. El mismo par
     skill/template deja al plan sin vara de brevedad: el de la 005 salió
     de 770 líneas contra 330 del de la 004 y hubo que recortarlo en
-    revisión. *Ronda 005:* el append de cierre de fase dice que el
+    revisión. *Ronda 005 (T010):* el append de cierre de fase dice que el
     template resuelto manda (solo sus secciones y archivos, en la
     densidad del precedente).
 44. **`pr.md` decía "reemplazá solo dos literales" con cuatro placeholders
@@ -442,7 +443,9 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     reemplaza, y nada dice cuál manda. Y una tarea solo de prosa mide
     ~0 líneas para el presupuesto, que cuenta ejecutables, así que su
     forecast es el tamaño del diff por convención heredada de la 004.
-    *Ronda 005 (T010):* el `tasks` reemplazado enuncia las dos.
+    *Ronda 005 (T010):* el `tasks` reemplazado enuncia las dos, y qué
+    significa `single PR` en la línea `Delivery`: un PR por tarea; el
+    apilado es topología del loop, no elección de la tarea.
 54. **Editar el ledger después de `after_tasks` deja Issues huérfanos.**
     El hook proyecta los Issues en el mismo run del comando y `push`
     nunca borra ni archiva: quitar o fusionar tareas en la revisión del
@@ -456,3 +459,12 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     del momento en que se proyecta: la constitución exige la
     sincronización revisada y la asignación de cada tarea **antes** de
     `ready-for-development`, así que los Issues deben existir en el gate.
+55. **`analyze` encontró dos promesas del log sin tarea.** Las entradas
+    37 y 43 decían "ronda 005" para cambios al append de cierre de fase
+    que ninguna tarea entregaba; el cruce spec/plan/tasks lo atrapó antes
+    del gate. *Regla:* un estado *ronda N* nombra su tarea, o no es un
+    estado. Del propio skill de `analyze`, upstream: `check-prerequisites
+    --json` devuelve `AVAILABLE_DOCS` sin `spec.md` ni `plan.md` (son
+    requeridos y se validan aparte, pero el JSON sugiere que faltan), y
+    el ejemplo de la tabla de hallazgos usa el prefijo `A` para una
+    "Duplication" cuando la regla pide la inicial de la categoría.
