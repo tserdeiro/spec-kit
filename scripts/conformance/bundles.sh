@@ -85,6 +85,18 @@ command -v git >/dev/null 2>&1 || {
   exit 4
 }
 
+# The installed scripts require Python 3.11+ (C-005), and a developer
+# machine's python3 may be older, so resolve the interpreter the same way
+# upstream's own `py` scripts do -- this repository's .venv when present,
+# else python3 on PATH -- once, for every scenario invoking an installed script.
+PYTHON="$repository_root/.venv/bin/python"
+[ -x "$PYTHON" ] || PYTHON=$(command -v python3)
+python_recent=$("$PYTHON" -c 'import sys; print(int(sys.version_info >= (3, 11)))')
+[ "$python_recent" = "1" ] || {
+  echo "conformance requires Python 3.11+ to run the installed scripts (found $("$PYTHON" -V 2>&1) at $PYTHON)" >&2
+  exit 4
+}
+
 # The role -> extension matrix, derived by hand from the bundle manifests and
 # asserted against them below, so a manifest edit that is not reflected here
 # fails loudly instead of silently weakening the test.
@@ -547,8 +559,8 @@ cat > "$task_tasks_file" <<'MD'
   - **Delivery**: single PR (~300 authored lines)
 MD
 
-[ -e "$consumer_root/.specify/presets/default/scripts" ] &&
-  fail "trunk: the retired scripts/ directory is still installed"
+[ -e "$consumer_root/.specify/presets/default/scripts/python/task_base.py" ] ||
+  fail "trunk: task_base.py is not installed"
 grep -Fq 'feature enters the **delivery base** only' "$tasks_template" &&
   grep -Fq 'the explicit non-empty `trunk:` value' "$tasks_template" &&
   grep -Fq '**draft feature PR** (`NNN-slug` → delivery base)' "$tasks_template" ||
@@ -633,7 +645,7 @@ implement_refresh=$(sed -n '/first-task-refresh:start/,/first-task-refresh:end/p
 [ -n "$pr_create" ] || fail "trunk: installed PR-create block is missing"
 [ -n "$implement_refresh" ] || fail "trunk: installed first-task refresh is missing"
 for skill in "$pr_skill" "$implement_skill"; do
-  grep -Eq 'python3|resolve-delivery-base' "$skill" &&
+  grep -Eq 'resolve-delivery-base' "$skill" &&
     fail "trunk: $skill still references the retired Python resolver"
   grep -Fq "sed -nE '/^trunk:/" "$skill" ||
     fail "trunk: $skill does not use the shell trunk resolution"
@@ -766,18 +778,17 @@ $(create_call 'default$(safe)')" ] ||
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')" ] ||
   fail "trunk: work-item PR did not validate its fallback base"
 
-# The chore and bugfix commands' own branch-creation block (never routed
-# through pr.md's pr-create case statement) resolves the same delivery
-# base the same way. The two commands carry byte-identical blocks, so
-# asserting one proves both once their equality is checked.
+# The chore and bugfix commands no longer carry their own branch-creation
+# block; both now invoke the installed task_base.py's work-item mode
+# directly (plan D2), so their identity is structural rather than
+# byte-for-byte -- one script, two callers.
 chore_skill="$consumer_root/.agents/skills/speckit-chore/SKILL.md"
 bugfix_skill="$consumer_root/.agents/skills/speckit-bugfix/SKILL.md"
-work_item_branch=$(sed -n '/work-item-branch:start/,/work-item-branch:end/p' "$chore_skill")
-bugfix_work_item_branch=$(sed -n '/work-item-branch:start/,/work-item-branch:end/p' "$bugfix_skill")
-[ -n "$work_item_branch" ] || fail "trunk: installed chore work-item-branch block is missing"
-[ -n "$bugfix_work_item_branch" ] || fail "trunk: installed bugfix work-item-branch block is missing"
-[ "$work_item_branch" = "$bugfix_work_item_branch" ] ||
-  fail "trunk: work-item branch chore and bugfix blocks are not byte-identical"
+for skill in "$chore_skill" "$bugfix_skill"; do
+  grep -Fq 'task_base.py work-item' "$skill" ||
+    fail "trunk: $skill does not invoke task_base.py work-item"
+done
+task_base_script="$consumer_root/.specify/presets/default/scripts/python/task_base.py"
 
 switch_call() {
   json_argv switch -c wor-123-short-slug "origin/$1"
@@ -787,7 +798,7 @@ run_work_item_branch() {
   local github_default="$1"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
-    sh -c "$work_item_branch")
+    "$PYTHON" "$task_base_script" work-item wor-123-short-slug)
 }
 
 # Configured trunk wins; no GitHub lookup happens.
