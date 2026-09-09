@@ -634,3 +634,12 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `.specify/scripts/bash/*.sh`.** Inofensivo (todo los invoca con
     `bash <ruta>`), pero cada regeneración ensucia el diff con un cambio
     de modo hasta restaurarlo a mano. *Documentada.*
+74. **La review excluye Markdown.** El motor deja fuera del packet todo
+    `.md` (`unsupported_ext`): en el PR de T008, cuyo entregable es el
+    comando `implement.md`, el packet incluyó 5 archivos y excluyó 37,
+    y el reviewer tuvo que leer el comando desde el worktree por
+    instrucción del orquestador. Para una distribución cuyo producto es
+    prosa que ejecuta un agente, el packet revisa el andamiaje y no el
+    producto. *Pendiente de decisión:* incluir `.md` en el alcance del
+    packet (al menos bajo `presets/` y `packages/*/commands/`), o un
+    brief fijo que mande leer los `.md` del worktree.
