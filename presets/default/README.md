@@ -92,11 +92,19 @@ a warning, never a script failure. Run it with the consumer's
 `.venv/bin/python` when it exists, else `python3` on PATH — the rule
 upstream's own `py` scripts follow.
 
+`scripts/python/pr_create.py <feature|task|work-item> [named-task]`
+resolves and prints the PR's base only — the same delivery-base rule as
+`task_base.py`, plus, for a task, the open task-PR stack's head and the
+branch-identity check against the named task or the ledger's first
+unchecked one. It never runs `gh pr create` itself; `speckit.pr` composes
+that call's title and body and runs it with the printed base. Same
+interpreter rule as `task_base.py`.
+
 ## Executable blocks
 
-Every marked block in the preset's commands — `pr-create`,
-`first-task-refresh`, `task-base`, `stack-propagate`, `budget-stop`,
-`skill-mirror`, `ignore-entries` — is POSIX shell: `set -e`, no pipeline
+Every marked block in the preset's commands — `first-task-refresh`,
+`task-base`, `stack-propagate`, `budget-stop`, `skill-mirror`,
+`ignore-entries` — is POSIX shell: `set -e`, no pipeline
 that needs `pipefail`, no arrays or other bash-isms. Conformance
 extracts and runs each one with `sh` (`dash` on Ubuntu CI); the agent
 replaces only the named literals inside it.
