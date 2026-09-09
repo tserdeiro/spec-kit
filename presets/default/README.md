@@ -118,6 +118,17 @@ fixed_branch> fix into <T### of that branch>`) and pushing it to
 without touching the branches above it; an empty chain is reported and
 exits 0. Same interpreter rule as `task_base.py`.
 
+`scripts/python/merge_root_first.py` (no argument) is the mechanical
+half of a human's explicit "yes, merge" on an open task-PR stack: self-
+derives the feature branch, runs `git worktree prune`, then walks the
+open task PRs root-first, retargeting each to the feature branch by API
+(`gh api -X PATCH .../pulls/<n> -f base=<feature-branch>`) before merging
+it (`gh pr merge <n> --merge`, never `--delete-branch` — the repository's
+auto-delete of merged branches does that cleanup instead). It prints one
+`merged #<n> <head>` line per PR, stops naming the PR number on a failing
+`gh` call, and reports `nothing to merge on <feature-branch>` on an empty
+stack. Same interpreter rule as `task_base.py`.
+
 ## Executable blocks
 
 Every marked block in the preset's commands — `first-task-refresh`,

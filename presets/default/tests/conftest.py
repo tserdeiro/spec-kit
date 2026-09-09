@@ -18,10 +18,20 @@ import json, os, sys
 argv = sys.argv[1:]
 with open(os.environ["GH_CALLS_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\\n")
+fail_on = os.environ.get("GH_FAIL_ON")
+if fail_on and fail_on in " ".join(argv):
+    sys.stderr.write(f"fake gh: forced failure on {argv}\\n")
+    sys.exit(1)
 if argv == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
     sys.stdout.write(os.environ.get("GH_DEFAULT_BRANCH", "main") + "\\n")
 elif argv == ["pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName,baseRefName,isDraft"]:
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
+elif argv == ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,baseRefName,isDraft"]:
+    sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
+elif len(argv) == 6 and argv[0:3] == ["api", "-X", "PATCH"] and argv[3].startswith("repos/") and argv[4] == "-f":
+    pass
+elif len(argv) == 4 and argv[0:2] == ["pr", "merge"] and argv[3] == "--merge":
+    pass
 else:
     sys.stderr.write(f"fake gh: unexpected argv: {argv}\\n")
     sys.exit(1)
