@@ -205,6 +205,14 @@ a new pytest suite — no procedure stays authored as inline shell.
   - **Delivery**: single PR (~120 authored lines)
   - **Completion evidence**: Pending
 
+- [ ] T027 [US2] Orphan Issues archived and restored by push in packages/spec-kit-linear
+  - **Traces**: FR-020, SC-009; outcome: `allowlist.py`'s `PUSH_MUTATIONS`/`ALLOWED_INPUTS` gain `issue.archive` (GraphQL `issueArchive`, input `id`) and `issue.unarchive` (`issueUnarchive`, input `id`), each an enumerated-input entry like the existing nine, and `issue.archive` comes out of `forbidden_operations()`; `linear_client.py`'s `PROJECT_ISSUES_QUERY` reads Issues with `includeArchived: true` and selects `archivedAt`; `build_push_plan` (`planner.py`) scans the adopted Project's Issues for the `task:<feature>:<T###>` marker directly, not only through `FeatureAdoption.tasks`, and emits `issue.archive` when the marked task id is absent from the ledger and the Issue is active, `issue.unarchive` when the task id is present and the Issue is archived, and nothing when the two already agree; an Issue with no `task:` marker is never a candidate, so a person's own Issue is never archived, unarchived, or otherwise touched; `--dry-run` previews both kinds like any operation, and the post-apply verification checks `archivedAt` the way it already checks `stateId`
+  - **Depends on**: T013
+  - **Boundaries**: `packages/spec-kit-linear/src/spec_kit_linear/{allowlist.py,planner.py}` (and `linear_client.py` only if the archived read needs it), `packages/spec-kit-linear/tests/` (fake-transport cases: removal archives, return unarchives, human Issue untouched, second push zero operations), `packages/spec-kit-linear/README.md` ("What push will never do", "Task states"); no version bump (T024)
+  - **Evidence**: `uv run pytest packages/spec-kit-linear/tests` -> green, including the four cases; `bash .specify/extensions/linear/scripts/bash/run.sh push --current --dry-run` on this feature -> 0 operations
+  - **Delivery**: single PR (~100 authored lines)
+  - **Completion evidence**: Pending
+
 ## Phase 4: User Story 3 — The four hard rules block before they run (P3)
 
 **Goal**: a non-conventional commit, a force-push, a delete-branch merge, or a protected-path write on a task branch is refused before it takes effect, naming the fix.
@@ -212,7 +220,7 @@ a new pytest suite — no procedure stays authored as inline shell.
 
 - [ ] T014 [US3] Code-review `pre_tool_use` guard in packages/spec-kit-code-review
   - **Traces**: FR-007, FR-008; outcome: `extension.yml` gains exactly one event registration — `events: pre_tool_use: {command: guard, matcher: "Bash|Edit|Write"}` (a manifest's `events.<name>` value must be a single mapping, never a list, so code-review's two guard concerns are two branches inside one subcommand, not two registrations, dogfooding entry 45); a new `commands/guard.md` (undotted, same file-stem resolution rule as T011) and shim `scripts/python/guard.py`; the `guard` subcommand in `cli.py`, dispatched on the native payload's `tool_name`: for `Bash`, reads `tool_input.command` and blocks (`exit 2`, message naming the fix) a `git commit -m` whose subject fails `^[a-z]+\([a-z0-9-]+\): .+$` (the same pattern `.github/workflows/conventions.yml` enforces server-side), any form of `git push --force`/`-f`/`--force-with-lease`, and any `gh pr merge ... --delete-branch`; for `Edit`/`Write`, reads the target path and current branch and blocks a write matching any `protected_paths` glob on a `NNN-T###-*` branch, naming the protected path — a feature branch (no `T###` segment) is exempt (matching round 004's own exemption and this round's C-006); everything else exits 0 silently (C-002's "no guard beyond these four" holds by construction)
-  - **Depends on**: T013
+  - **Depends on**: T027
   - **Boundaries**: `packages/spec-kit-code-review/extension.yml` (`events.pre_tool_use`), `packages/spec-kit-code-review/commands/guard.md` (new), `packages/spec-kit-code-review/scripts/python/guard.py` (new shim), `packages/spec-kit-code-review/src/spec_kit_code_review/cli.py` (new `guard` subcommand), `packages/spec-kit-code-review/tests/` (all four rules, both exemptions); `protected_paths` config and its defaults unchanged; no version bump (T024)
   - **Evidence**: `uv run pytest packages/spec-kit-code-review/tests` -> green, including: bad commit subject blocked with the convention named; each force-push form blocked; `--delete-branch` blocked; a protected-path write blocked on a `NNN-T###-*` branch and allowed on the feature branch; every other Bash/Edit/Write call passes through untouched
   - **Delivery**: single PR (~180 authored lines)
@@ -312,8 +320,8 @@ a new pytest suite — no procedure stays authored as inline shell.
 
 ## Dependencies and stack order
 
-- **Critical path**: T025 -> T001 -> T002 -> T003 -> T004 -> T005 -> T006 -> T007 -> T026 -> T008 -> T009 -> T010 -> T011 -> T012 -> T013 -> T014 -> T015 -> T016 -> T017 -> T018 -> T019 -> T020 -> T021 -> T022 -> T023 -> T024 (file order)
-- **Stack order**: PR 1 -> PR 2 -> … -> PR 26, each stacked on the previous one until a human merges root-first
+- **Critical path**: T025 -> T001 -> T002 -> T003 -> T004 -> T005 -> T006 -> T007 -> T026 -> T008 -> T009 -> T010 -> T011 -> T012 -> T013 -> T027 -> T014 -> T015 -> T016 -> T017 -> T018 -> T019 -> T020 -> T021 -> T022 -> T023 -> T024 (file order)
+- **Stack order**: PR 1 -> PR 2 -> … -> PR 27, each stacked on the previous one until a human merges root-first
 - **Deliberate reordering against spec priority**: User Story 4 (P4, T008–T010) is sequenced immediately after User Story 1 (P1, T001–T007) — ahead of User Stories 2 and 3 (P2/P3) — because `implement.md` must exist before the events layer's session/tool hooks are meaningful to verify end to end, and because five of the six scripts T001–T006 build have no caller until `implement.md` replaces the blocks that used to hold them. User Story 5's README task (T016) is grouped with the doctor task (T015) rather than with the documentation task (T019), since both T015 and T016 serve US5's own acceptance scenarios; T019 (docs, US6) is sequenced after T017 (hygiene, US6) because its `vision.md` autocompletion correction depends on `completions` already being gone.
 
 ## Implementation strategy

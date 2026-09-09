@@ -121,7 +121,11 @@ branch with Linear configured and read the greeting before typing
 anything; run
 `git push` or a `gh pr` action and check Linear's state immediately
 after, with no reconcile command anywhere in the transcript; read the
-next-step field of `status` across a few different states.
+next-step field of `status` across a few different states; remove a
+task from the ledger after `push` has created its Issue and confirm the
+next `push` archives it, then restore the task and confirm the
+following `push` unarchives it, with a human-created Issue in the same
+Project untouched throughout.
 
 **Acceptance scenarios**:
 
@@ -143,6 +147,11 @@ next-step field of `status` across a few different states.
 4. **Given** a branch with no Linear configuration, **When** a session
    starts, or a push or pull-request action runs, **Then** the context
    line and the reconciliation are silently absent, with no error.
+5. **Given** a task's Issue that `push` already created, **When** the
+   task disappears from the ledger, **Then** the next `push` previews
+   and, once applied, archives that Issue; when the task later returns
+   to the ledger, the following `push` likewise unarchives it; an Issue
+   a person created is never archived or unarchived by either case.
 
 ### User Story 3 - The four hard rules block before they run (Priority: P3)
 
@@ -391,6 +400,12 @@ one removes.
   round resolves move to *resuelta* as each lands; and `AGENTS.md`'s list
   of Spanish-language exceptions gains `docs/dx.md` and
   `docs/releases.md`.
+- **FR-020**: When a task disappears from a feature's ledger after
+  `push` has projected its Issue, `push` MUST archive that Issue —
+  identified by the harness's own bridge marker, never by title or
+  position — as a previewed, reversible operation, and MUST unarchive it
+  if the task returns to the ledger. It MUST NOT delete anything, and it
+  MUST NOT archive or otherwise change an Issue a person created.
 
 ### Constraints and boundaries
 
@@ -444,6 +459,10 @@ one removes.
   `completions`, and no shipped documentation mentions it.
 - **SC-008**: Three pull requests are open against upstream
   `github/spec-kit`, each matching one of FR-016 through FR-018.
+- **SC-009**: A task removed from the ledger leaves no open
+  harness-created Issue behind after the next `push`, and the archived
+  Issue is restorable: a later `push`, once the task returns, unarchives
+  it.
 
 ## Assumptions and dependencies
 

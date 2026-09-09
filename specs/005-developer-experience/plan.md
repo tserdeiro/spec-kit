@@ -88,7 +88,7 @@ manifests, `push --hook`'s config gate, `protected_paths`.
 | Boundary or interface | Owner | Change | Explicit non-goals |
 | --- | --- | --- | --- |
 | `presets/default` (`preset.yml`, `commands/`, new `scripts/python/`, new `tests/`) | this repo | eight scripts (D1); a pytest suite (D2); `implement`/`tasks` become `strategy: replace` (D3); `pr.md`/`chore.md`/`bugfix.md`/`doctor.md` prose shrinks to script-invoking steps | no new command, no new flag, no PowerShell twin for the eight scripts (C-005) |
-| `packages/spec-kit-linear` | this repo | `events:` block (D4); two new internal commands+scripts; `next_action` redesign (D6); `speckit_version` floor (D9); `completions` removed (D8) | no new config schema; `onboard`/`push`/`status`'s own behavior unchanged |
+| `packages/spec-kit-linear` | this repo | `events:` block (D4); two new internal commands+scripts; `next_action` redesign (D6); `speckit_version` floor (D9); `completions` removed (D8); orphan Issues archived and restored (D14) | no new config schema; `onboard`/`push`/`status`'s own behavior unchanged |
 | `packages/spec-kit-code-review` | this repo | `events:` block (D5); one new internal command+script; `after_implement` hook removed (D8); `completions` removed (D8); `speckit_version` floor (D9) | no new verdict value, no publish-path change; `protected_paths` reused, not changed |
 | `scripts/conformance/bundles.sh` | this repo | invokes installed scripts directly (D2); the "retired `scripts/` directory" assertion inverted | `--published` mode and CI scope unchanged |
 | `docs/vision.md`, `docs/plan.md`, `docs/dogfooding.md`, `AGENTS.md`, `README.md` | this repo | FR-019 (D10); README's four-commands opening (FR-013) | translating documents; no new sections beyond what FR-019 names |
@@ -684,6 +684,48 @@ manifests, `push --hook`'s config gate, `protected_paths`.
 - **Rationale**: A-006; matches the established release discipline.
 - **Trade-off**: none.
 
+### D14. Orphan Issues follow the ledger (linear)
+
+- **Decision**: `allowlist.py`'s `PUSH_MUTATIONS`/`ALLOWED_INPUTS` gain
+  two operation kinds, each one enumerated-input entry like the existing
+  nine: `issue.archive` (GraphQL `issueArchive`, input `id`) and
+  `issue.unarchive` (`issueUnarchive`, input `id`); `issue.archive` also
+  comes out of `forbidden_operations()`'s list — `issue.delete`,
+  `project.archive`, and `project.delete` stay forbidden, so the harness
+  still only ever archives an Issue it created, never a Project, and
+  never deletes anything.
+- `linear_client.py`'s `discover_projects`/`PROJECT_ISSUES_QUERY` adds
+  `includeArchived: true` to the `issues(...)` read and selects
+  `archivedAt`; `RemoteIssue` gains `archived_at: str | None`.
+- `build_push_plan` (`planner.py`) already resolves the adopted
+  `RemoteProject` through `_project_for`; it scans that Project's Issues
+  directly for the `task:<feature>:<T###>` marker instead of only
+  consulting `FeatureAdoption.tasks` — the seam `remote_discovery.py`'s
+  own `_TASK_MARKER_PREFIX` comment already names ("an orphaned marker
+  for a Txxx since removed from tasks.md ... still bridge-managed"), just
+  not yet acted on. Per marked Issue: `issue.archive` when its task id is
+  absent from `desired.feature.tasks` and `archived_at` is `None`;
+  `issue.unarchive` when the task id is present (the existing per-task
+  loop re-adopts it once the marker matches a desired task again) and
+  `archived_at` is set; nothing when the two already agree. An Issue
+  carrying no `task:` marker is never a candidate, so a person's own
+  Issue is archived, unarchived, or otherwise changed by neither case.
+  `--dry-run` previews both kinds like any other operation; the
+  post-apply verification re-reads the Issue and checks `archivedAt` the
+  way it already checks `stateId` for `issue.lifecycle.update`.
+- `packages/spec-kit-linear/README.md`'s "What push will never do"
+  changes from "Delete or archive anything" to "Delete anything;
+  archiving is the one reversible removal, and only of the Issues it
+  created," and its "nine operation kinds" count becomes eleven; "Task
+  states" gains a row for a task gone from the ledger.
+- **Rationale**: FR-020; dogfooding entry 54 — the constitution requires
+  every ledger task synced and assigned before `ready-for-development`,
+  so an Issue must exist at the gate, and a task removed afterward can
+  only be reconciled forward, by `push`, never by rewriting what already
+  projected.
+- **Trade-off**: one more read per push — every Feature Project's Issues
+  including the archived ones, where before only active ones were read.
+
 ## Data and migration behavior
 
 No new persisted configuration schema. New physical files: the preset's
@@ -767,6 +809,7 @@ prose rules stay authoritative underneath regardless (FR-009).
 | FR-015 (`after_implement` hook gone) | grep confirms no hook entry | `grep -n after_implement packages/spec-kit-code-review/extension.yml` (no match) |
 | FR-016, FR-017, FR-018, SC-008 (three upstream PRs) | PR URLs recorded as evidence once opened | `gh pr list --repo github/spec-kit --author @me` |
 | FR-019 (documentation) | files carry the text; `AGENTS.md` lists the two new Spanish exceptions | `git diff --check`; review |
+| FR-020, SC-009 (orphan Issues archived and restored) | unit tests with the fake GraphQL transport: task removal archives its Issue, task return unarchives it, a human-created Issue untouched, a second push zero operations | `uv run pytest packages/spec-kit-linear/tests` |
 | Regression safety | both package suites, the preset's own suite, conformance, this round's own dogfooding | `uv run pytest packages/*/tests presets/default/tests`; `bash scripts/conformance/bundles.sh` |
 
 ## Source layout
@@ -784,7 +827,10 @@ packages/spec-kit-linear/src/spec_kit_linear/cli.py                     # sessio
 packages/spec-kit-linear/src/spec_kit_linear/work_state.py              # next_action redesign (D6)
 packages/spec-kit-linear/src/spec_kit_linear/reporting.py               # next_action call sites threaded (D6)
 packages/spec-kit-linear/src/spec_kit_linear/completions.py             # removed (D8)
-packages/spec-kit-linear/{README.md,CHANGELOG.md}                       # 0.13.0
+packages/spec-kit-linear/src/spec_kit_linear/{allowlist.py,planner.py}  # issue.archive/issue.unarchive kinds; orphan-marker scan (D14)
+packages/spec-kit-linear/src/spec_kit_linear/linear_client.py           # includeArchived read, archivedAt field (D14)
+packages/spec-kit-linear/tests/                                        # removal-archives/return-unarchives/human-untouched/second-push-zero-ops fixtures (D14)
+packages/spec-kit-linear/{README.md,CHANGELOG.md}                       # 0.13.0; "What push will never do" (D14)
 packages/spec-kit-code-review/extension.yml              # events: pre_tool_use (D5); after_implement hook removed (D8); speckit_version floor (D9); completions removed (D8)
 packages/spec-kit-code-review/commands/guard.md           # new, internal (D5)
 packages/spec-kit-code-review/scripts/python/guard.py      # new shim (D5)
