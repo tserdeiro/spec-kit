@@ -506,3 +506,13 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     suite del preset sí corre junto a cualquiera de las dos (sin
     `__init__.py`, nombres de módulo únicos). *Documentada:* la fila del
     plan se lee como tres invocaciones.
+60. **`preset add` copia el directorio entero del preset.**
+    `shutil.copytree(source_dir, dest_dir)` sin `ignore`
+    (`presets/__init__.py:3874` del CLI 1.0.4): en el consumidor,
+    `.specify/presets/default/` ya lleva `LICENSE` y `README.md`, y desde
+    la regeneración de T001 llevará `scripts/python/` (buscado) y
+    `tests/` (no buscado), más cualquier `__pycache__` presente en un
+    dev-install. La suite del preset viaja inerte al consumidor.
+    *Pendiente de decisión:* sacar la suite del preset (p. ej.
+    `tests/preset/` en la raíz) cambia el layout del plan; no lo decide
+    una tarea.
