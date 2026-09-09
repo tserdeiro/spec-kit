@@ -557,9 +557,12 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     copia). En una sesión que regenera el preset, el skill que se invoca
     puede no ser el que se acaba de instalar. *Regla:* tras regenerar,
     verificar el archivo en disco antes de fiarse del skill servido, o
-    abrir sesión nueva. Aun así el mecanismo nuevo corrió bien: el PR de
-    T002 resolvió su base con `pr_create.py task T002` bajo
-    `.venv/bin/python`.
+    abrir sesión nueva; en la invocación siguiente (`/speckit-pr T003`)
+    el host ya sirvió el texto nuevo, así que la copia se refresca sola
+    con el tiempo, no con el archivo. Aun así el mecanismo nuevo corrió
+    bien: el PR de T002 resolvió su base con `pr_create.py task T002`
+    bajo `.venv/bin/python`, y desde T003 la rama, la base y el
+    presupuesto los dan los scripts instalados.
 66. **El instalador reescribe rutas relativas dentro de los comandos de
     extensiones.** En el render de `speckit-code-review-code-review`,
     en Claude y Codex, el ejemplo de `findings.json` dice `"path":
