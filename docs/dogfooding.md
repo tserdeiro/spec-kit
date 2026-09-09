@@ -394,7 +394,10 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
 47. **La conformance prohibía `scripts/` en el preset.** `bundles.sh:550`
     falla si existe `.specify/presets/default/scripts`, un resto de la
     004 (que retiró un resolver Python) que haría fallar a la 005 a mitad
-    de camino. *Resuelta (005, D2):* la aserción se invierte.
+    de camino; y `bundles.sh:636` falla si un skill menciona `python3`,
+    lo que con scripts Python dispara en cada comando. *Resuelta (005,
+    D2):* la primera aserción se invierte y la segunda se acota a
+    `resolve-delivery-base`.
 48. **Hay más bloques marcados que los ocho procedimientos del spec.**
     `first-task-refresh` y `work-item-branch` (pegado dos veces, en
     `chore.md` y `bugfix.md`) no aparecen en `dx.md` ni en el spec.
@@ -413,3 +416,15 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `push --hook` o `--apply` a mano justo después. *Resuelta (005,
     D1/D4):* `task-base.sh` termina con `push --hook` si `linear` está
     instalada.
+51. **El diseño asumió `sh` por inercia y el README había perdido a
+    Python.** Los ocho scripts y los tres handlers se planearon en POSIX
+    `sh` porque los bloques que reemplazan lo eran, mientras los dos
+    paquetes son Python, el awk de los bloques era lo difícil de
+    mantener y los payloads de los hooks son JSON. Upstream exige Python
+    3.11+ en sus prerrequisitos y nuestro README lo omitía por asumir
+    que `uv` lo cubría; el `python3` del PATH de esta Mac es 3.9.
+    *Decisión (2026-09-09):* Python 3.11+ en las dos capas, invocado con
+    la regla de upstream para su variante `py` (el `.venv` del
+    consumidor si existe, si no `python3`), sin `--python` fijo ni `uv`
+    ni `.sh` de por medio; el README recupera el prerrequisito y el
+    doctor verifica el intérprete que esa regla elige.
