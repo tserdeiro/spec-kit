@@ -69,9 +69,9 @@ provides:
 
     - type: "command"
       name: "speckit.implement"
-      file: "commands/implement-append.md"
-      description: "Appends the branch-per-task delivery loop to the core implement command"
-      strategy: "append"
+      file: "commands/implement.md"
+      description: "Deliver the feature's tasks one branch and one draft PR at a time, scripted end to end"
+      strategy: "replace"
 
     - type: "script"
       name: "task-base"

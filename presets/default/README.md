@@ -2,9 +2,9 @@
 
 The workflow templates for this distribution: `spec`, `plan`, `tasks`, and
 `checklist`, plus the workflow commands (`speckit.pr`, `speckit.bugfix`,
-`speckit.chore`, `speckit.doctor`, and the `speckit.specify`,
-`speckit.plan`, `speckit.tasks`, `speckit.analyze`, and
-`speckit.implement` appends). The `tasks` template carries the
+`speckit.chore`, `speckit.doctor`, the `speckit.implement` replacement,
+and the `speckit.specify`, `speckit.plan`, `speckit.tasks`, and
+`speckit.analyze` appends). The `tasks` template carries the
 integration-branch delivery conventions — one task in flight per
 developer, no parallel tasks; the rest trim the upstream core templates
 to what the flow needs.
@@ -139,10 +139,11 @@ it exits 2 naming exactly what is missing. Same interpreter rule as
 `scripts/python/skill_mirror.py <true|false>` closes the gap upstream's
 active-only command registration leaves: it copies each non-core skill
 whole from the default integration's directory into every other
-installed one, and appends the preset's registered layer to each of
-that integration's own core-command renders — never overwriting a core
-render with another integration's content, and never copying a core
-skill whole across integrations. A registered append that is missing or
+installed one — a core command the preset replaces is copied the same
+way, whole, since it has no integration-specific render to keep — and
+appends the preset's registered layer to each core-command render that
+keeps its own render instead, never overwriting a core render with
+another integration's content. A registered append that is missing or
 has no `## ` heading fails closed, before any write. Same interpreter
 rule as `task_base.py`.
 
@@ -154,10 +155,10 @@ covered by a broader pattern (a repository ignoring `.venv/` globally,
 say) is skipped, never duplicated. Same interpreter rule as
 `task_base.py`.
 
-## Executable blocks
+## No inline blocks
 
-Every marked block in the preset's commands — `first-task-refresh`,
-`task-base`, `stack-propagate`, `budget-stop` — is POSIX shell: `set -e`,
-no pipeline that needs `pipefail`, no arrays or other bash-isms.
-Conformance extracts and runs each one with `sh` (`dash` on Ubuntu CI);
-the agent replaces only the named literals inside it.
+The preset's commands carry no marked shell block for the agent to keep
+intact or edit by hand: `chore.md`, `bugfix.md`, `pr.md`, `doctor.md`,
+and `implement.md` each invoke one of the eight scripts above directly,
+with real argv. Conformance runs the same installed files the commands
+call, not a block extracted from prose.

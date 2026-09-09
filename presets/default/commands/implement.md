@@ -1,14 +1,10 @@
 ---
-name: speckit-implement
-description: Execute the task delivery loop — one branch and one draft pull request
-  per task, scripted end to end.
-compatibility: Requires spec-kit project structure with .specify/ directory
-metadata:
-  author: github-spec-kit
-  source: preset:default
+description: Execute the task delivery loop — one branch and one draft pull request per task, scripted end to end.
+scripts:
+  sh: scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
+  ps: scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks
+  py: scripts/python/check_prerequisites.py --json --require-tasks --include-tasks
 ---
-
-# Speckit Implement Skill
 
 # Spec Kit Implement
 
@@ -22,7 +18,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Setup
 
-1. Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` from the repository root; parse `FEATURE_DIR` and `AVAILABLE_DOCS`. Every path is absolute.
+1. Run `{SCRIPT}` from the repository root; parse `FEATURE_DIR` and `AVAILABLE_DOCS`. Every path is absolute.
 2. **Checklists, read-only** — when `FEATURE_DIR/checklists/` exists, scan each file's `- [ ]`/`- [x]` counts into a table (`Checklist | Total | Checked | Unchecked | Status`). Every checklist at 0 unchecked is `PASS`; otherwise display the table and ask whether to proceed anyway — "no" or "wait" halts, "yes" or "proceed" continues. Never edit a checklist file or its markers.
 3. **Load the artifacts** — `tasks.md` and `plan.md` (required); `data-model.md`, `contracts/`, `research.md`, `quickstart.md`, and `.specify/memory/constitution.md` when present.
 4. **Hooks, silently** — read `.specify/extensions.yml`'s `hooks.before_implement` (skip entirely, silently, on a missing file, a missing key, or invalid YAML). Among entries whose `enabled` is not explicitly `false` and whose `condition` is empty (a non-empty `condition` is left to the HookExecutor): invoke a **mandatory** hook (`optional: false`) as its own slash command — dots become hyphens, e.g. `speckit.git.commit` → `/speckit-git-commit` — and wait for it before continuing; run an **optional** hook the same way, silently, only when its own extension's configuration enables its event (check under `.specify/extensions/<extension>/`); skip every other optional hook, silently. Nothing about a hook is ever printed. The same rule governs `hooks.after_implement` — see "After hooks" below.
