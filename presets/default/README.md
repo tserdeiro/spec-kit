@@ -129,6 +129,13 @@ auto-delete of merged branches does that cleanup instead). It prints one
 `gh` call, and reports `nothing to merge on <feature-branch>` on an empty
 stack. Same interpreter rule as `task_base.py`.
 
+`scripts/python/ledger_check.py <task_id>` verifies a task's ledger entry
+before its PR is marked `ready for review`: the checkbox must be `[x]`
+and its `Completion evidence` filled — not empty, not `Pending`
+(case-insensitive), and not the template's bracketed sample text — else
+it exits 2 naming exactly what is missing. Same interpreter rule as
+`task_base.py`.
+
 ## Executable blocks
 
 Every marked block in the preset's commands — `first-task-refresh`,
