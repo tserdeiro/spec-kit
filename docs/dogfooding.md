@@ -478,3 +478,31 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `Installed 1 package` de `uv` al stream que el agente parsea, así
     que un `--json` falla igual que en la entrada 36. *Ronda 005:* la
     prosa en T002, el nombre del Project en T013, `uv run -q` en T017.
+57. **El host sustituye `$0` en el skill por el primer argumento.**
+    `/speckit-implement 005` llegó al agente con el awk de `budget-stop`
+    renderizado como `substr(005,i+1,1)` y `005 ~ /^- \[/` donde el
+    archivo fuente dice `$0`: un bloque inline con `$0` no corre tal
+    como se recibe cuando el skill lleva argumento, y `pr.md` tiene el
+    mismo `$0` en `pr-create`. El orquestador lo esquivó extrayendo los
+    bloques del archivo fuente con `sed -n '/start/,/end/p'`, que es lo
+    que hace la conformance. *Ronda 005:* los scripts (T002, T003) lo
+    eliminan por construcción y la conformance deja de extraer prosa
+    (T009).
+58. **El presupuesto cuenta líneas en blanco y docstrings.** T025
+    (forecast ~120, el harness que la entrada 30 pedía dimensionar con
+    generosidad) entró en 234/240 solo con una línea en blanco entre
+    definiciones, contra las dos del estilo de los paquetes, y dejando
+    fuera el runner `gh --json` que su outcome nombraba (pasa a T001, su
+    primer llamador). El ledger no aplicó su propia regla. *Regla:* una
+    tarea de harness o fixtures se estima al doble de lo que parece; el
+    presupuesto no se enmienda en el PR que lo roza, lo cambia el humano
+    en el ledger.
+59. **Las dos suites de paquetes no corren en una invocación.** La fila
+    de regresión del plan (`uv run pytest packages/*/tests
+    presets/default/tests`) falla antes de recolectar: ambos paquetes
+    tienen `tests/__init__.py`, así que sus `conftest.py` resuelven al
+    mismo módulo `tests.conftest` y pytest aborta por
+    `ImportPathMismatchError`. La CI lo evita con un job por suite; la
+    suite del preset sí corre junto a cualquiera de las dos (sin
+    `__init__.py`, nombres de módulo únicos). *Documentada:* la fila del
+    plan se lee como tres invocaciones.
