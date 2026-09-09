@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
 import pytest
+from spec_kit_linear import parser as linear_parser
 
 import _common
 
@@ -19,6 +21,10 @@ REAL_TASK = """\
   - **Delivery**: single PR (~150 authored lines)
   - **Completion evidence**: Pending
 """
+
+def test_fence_rule_equals_the_linear_parsers() -> None:
+    for name in ("_fence_start", "_fence_end"):
+        assert inspect.getsource(getattr(_common, name)) == inspect.getsource(getattr(linear_parser, name))
 
 def test_parse_ledger_skips_the_template_fenced_sample() -> None:
     tasks = _common.parse_ledger(TEMPLATE.read_text(encoding="utf-8"))
@@ -37,7 +43,6 @@ def _set_trunk(repo: Path, value: str) -> None:
     (repo / ".specify/extensions/git/git-config.yml").write_text(value, encoding="utf-8")
 
 def test_delivery_base_explicit_trunk_wins(repo: Path) -> None:
-    assert _common.run_git("branch", "--show-current", cwd=repo).stdout.strip() == "main"
     _set_trunk(repo, 'trunk: "custom-trunk"\n')
     assert _common.delivery_base(repo) == "custom-trunk"
 

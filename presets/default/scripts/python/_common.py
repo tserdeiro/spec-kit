@@ -26,8 +26,8 @@ class Task:
     forecast: int
     completion_evidence: str
 
+# _fence_start/_fence_end equal spec_kit_linear.parser's; a test enforces it.
 def _fence_start(line: str) -> tuple[str, int] | None:
-    # Equal to spec_kit_linear.parser's rule -- must never diverge from it.
     stripped = line.lstrip(" ")
     if len(line) - len(stripped) > 3 or not stripped:
         return None
@@ -92,7 +92,7 @@ def delivery_base(repo_root: Path) -> str:
     config = repo_root / ".specify" / "extensions" / "git" / "git-config.yml"
     try:
         text = config.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         text = ""
     trunk = next((m.group(1) for line in text.splitlines() if (m := _TRUNK_RE.match(line))), "")
     if trunk:
