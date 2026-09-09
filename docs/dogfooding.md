@@ -592,3 +592,12 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     escribió el test desde el ejemplo y atrapó su primera versión, que
     seguía la prosa. *Regla:* cuando un bloque trae ejemplo, el ejemplo
     es el contrato; la prosa se escribe para coincidir con él.
+69. **`budget-stop` mide historia commiteada; el implementador sin
+    escrituras de git no puede autoevaluarse.** El script suma `git diff
+    --numstat <base>...HEAD` (tres puntos), así que un sub-agente que
+    trabaja en el árbol sin commitear ve `0/N` aunque su diff real esté
+    al borde del stop (T007 llegó al stop exacto y recortó a mano). La
+    receta manual del brief (`git diff --numstat <base>`, dos puntos, más
+    `wc -l` de los archivos nuevos) es la única forma de medir antes del
+    commit. *Pendiente de decisión:* un modo `--worktree` del script, o
+    que el orquestador mida antes de encargar el recorte.
