@@ -54,6 +54,17 @@ def test_delivery_base_falls_back_to_the_default_branch(repo: Path, fake_gh: Pat
     _set_trunk(repo, 'trunk: ""\n')
     assert _common.delivery_base(repo) == "trunk-main"
 
+def test_run_gh_json_dies_on_a_failing_call(repo: Path, fake_gh: Path) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        _common.run_gh_json("nonsense", cwd=repo)  # the fake gh exits 1 on argv it does not know
+    assert excinfo.value.code == 2
+
+def test_run_gh_json_dies_on_invalid_json(repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_PR_LIST_JSON", "not json")
+    with pytest.raises(SystemExit) as excinfo:
+        _common.run_gh_json("pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName,baseRefName,isDraft", cwd=repo)
+    assert excinfo.value.code == 2
+
 def test_die_writes_to_stderr_and_exits_2(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
         _common.die("something went wrong")
