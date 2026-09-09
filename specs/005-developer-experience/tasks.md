@@ -1,0 +1,300 @@
+---
+description: "Dependency-ordered, traceable delivery units for feature implementation"
+---
+
+# Tasks: Developer experience
+
+**Inputs**: [spec.md](spec.md), [plan.md](plan.md)
+**Next work**: The first unchecked task is the next planned delivery unit.
+
+## Delivery strategy
+
+- **The feature branch (`005-developer-experience`) is the integration
+  branch**: every task merges into it, and the feature enters the
+  **delivery base** only once, through the feature PR, as a merge commit.
+  The delivery base is the explicit non-empty `trunk:` value, or the
+  GitHub default branch when `trunk:` is absent or empty.
+- **Closing the product phase opens the gate**: with this file complete,
+  commit the feature artifacts on the feature branch and open the
+  **draft feature PR** (`005-developer-experience` → delivery base) —
+  `/speckit.pr` on the feature branch does it with the canonical body.
+  Reviewing it is how the team approves the spec and plan before
+  implementation; the same PR, ready once every task is checked, later
+  closes the feature.
+- **One branch per task**, named `005-T###-short-slug`; its pull request
+  opens as `draft` **against the feature branch** or, while the previous
+  task's PR is ready and unmerged, against that task's branch.
+- **One task in flight, one linear stack**: every task here depends on its
+  predecessor, so each PR stacks on the previous one until a human merges
+  root-first; the ledger on the last PR shows every task checked. Marking
+  the current PR `ready for review` is what frees the developer to start
+  the next task.
+- **Starting a task means creating its branch first**: before touching any
+  code for `T###`, run `git switch -c 005-T###-short-slug` from the
+  up-to-date base — the branch is what projects the task to
+  *In Progress*.
+- A reviewed PR stays under ~400 authored executable lines and stops at
+  twice its forecast: the task returns to the human with a diagnosis
+  instead of widening its budget in the PR. Forecasts against a task with
+  git or repository fixtures run short in practice (dogfooding entry 30);
+  this ledger sizes those tasks generously rather than lowballing them.
+- Task states project to Linear from observable reality: the checkbox, the
+  task branch, and the PR's draft/ready/merged state.
+- No task modifies `specs/005-developer-experience/spec.md` (C-006); the
+  protected-path guard this round builds (FR-008) governs this round's
+  own delivery too.
+- No task installs or removes an extension in this checkout, and none
+  dev-installs into it for verification — that is a trunk chore, never a
+  feature task; the one task that needs a live install (T023) uses a
+  temporary consumer fixture outside this checkout (plan D12, AGENTS.md's
+  fixture rule).
+
+## Task block format
+
+Every task is one resumable delivery unit. Replace all sample values. Use `[US#]` in user-story phases. No parallel markers: tasks are ordered by their dependencies alone.
+
+```markdown
+- [ ] T001 [US?] Deliver a concrete outcome in exact/path.ext
+  - **Traces**: FR-001, SC-001; outcome: [observable result]
+  - **Depends on**: none | T###
+  - **Boundaries**: [files or system surfaces changed and protected]
+  - **Evidence**: `[command]` -> [expected result or required review]
+  - **Delivery**: single PR | stacked PR [N] on [T###'s PR]
+  - **Completion evidence**: [filled in the task PR's final commit, before ready for review; the merge lands it on the feature branch]
+```
+
+## Phase 1: User Story 1 — The loop's repeatable steps run as scripts, not prose the agent edits (P1)
+
+**Goal**: each of the eight named procedures exists as a dedicated Python
+script the owning command invokes, tested directly by conformance and by
+a new pytest suite — no procedure stays authored as inline shell.
+**Independent evidence**: `python3 presets/default/scripts/python/<name>.py <argv>` against fixtures for each script; `uv run pytest presets/default/tests`; `bash scripts/conformance/bundles.sh`.
+
+- [ ] T001 [US1] `task-base` script: refresh/task/work-item modes in presets/default/scripts/python/task_base.py
+  - **Traces**: FR-001, FR-002; outcome: one Python 3.11+, stdlib-only script with three modes — `refresh` (merge the delivery base into the feature branch, once per feature), `task <NNN-T###-slug>` (branch from the open task stack's top or the feature branch), `work-item <branch-name>` (branch from the delivery base) — replacing the byte-identical `first-task-refresh`, `task-base`, and `work-item-branch` blocks (dogfooding entry 48); a shared helper module beside it (fence-aware ledger parsing, `git`/`gh` argv builders) is created here and extended by later script tasks; `chore.md` and `bugfix.md` call `task_base.py work-item` instead of their own copy of the block, so the two commands invoke the same file (dogfooding entry 48's structural identity); every mode that creates a branch ends by calling `.specify/extensions/linear/scripts/bash/run.sh push --hook` when `linear` is installed (dogfooding entry 50); `implement-append.md`'s own `first-task-refresh`/`task-base` blocks are deliberately left untouched here — replacing them is T008, once the new `implement.md` exists to call this script's `refresh`/`task` modes instead
+  - **Depends on**: none
+  - **Boundaries**: `presets/default/scripts/python/{task_base.py,<shared helper>}` (new), `presets/default/preset.yml` (new `type: "script"` entry `task-base`, `strategy: "replace"`; no version bump — T024), `presets/default/commands/{chore.md,bugfix.md}` (the `work-item-branch:start/end` block replaced by the script call), `presets/default/README.md` (documents the script), `presets/default/tests/` (new; `task_base` fixtures), `scripts/conformance/bundles.sh` (the `work_item_branch`/`bugfix_work_item_branch` byte-identity assertion replaced by asserting both commands invoke `task_base.py work-item <branch>`, plan D2); `presets/default/commands/implement-append.md` untouched
+  - **Evidence**: `uv run pytest presets/default/tests` -> green, including refresh/task/work-item modes against real `git`/`gh` fixtures and the `push --hook` call when `linear` is present; `bash scripts/conformance/bundles.sh` -> passed, including the structural work-item identity check
+  - **Delivery**: single PR (~150 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T002 [US1] `pr-create` script: base resolution only in presets/default/scripts/python/pr_create.py
+  - **Traces**: FR-001, FR-002; outcome: `pr_create.py <feature|task|work-item> [named-task]` resolves and prints `base=<name>` only — the feature/work-item delivery-base rule (explicit `trunk:`, else the GitHub default) and the task case's stack-aware base plus the branch-identity check against the ledger's first unchecked task (or the named task); it deliberately does not run `gh pr create` itself, fixing the inconsistency where today's block promises "replace only two literals" while carrying two more untouched placeholders in the same `gh pr create` call (dogfooding entry 44); `pr.md` step 5 keeps composing the title/body and running `gh pr create` with the printed base
+  - **Depends on**: T001
+  - **Boundaries**: `presets/default/scripts/python/pr_create.py` (new, extends T001's shared helper), `presets/default/preset.yml` (new `type: "script"` entry `pr-create`), `presets/default/commands/pr.md` (the `pr-create:start/end` case statement replaced by the script call, `gh pr create` kept in prose), `presets/default/README.md`, `presets/default/tests/` (`pr_create` fixtures: feature, work-item, task with and without a named task, branch mismatch), `scripts/conformance/bundles.sh` (`render_pr_create` removed; the trunk/task scenarios invoke the script directly)
+  - **Evidence**: `uv run pytest presets/default/tests` -> green, including the branch-mismatch exit 2 case; `bash scripts/conformance/bundles.sh` -> passed
+  - **Delivery**: single PR (~120 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T003 [US1] `budget-stop` script in presets/default/scripts/python/budget_stop.py
+  - **Traces**: FR-001, FR-002; outcome: `budget_stop.py <task_id> <base>` is a direct translation of today's block — same forecast lookup from the task's `Delivery` line (fence-aware, absent defaults to 400), same `git diff --numstat --no-renames` summation excluding the same suffixes and lockfiles, same stop at the smaller of twice the forecast and 400, same `budget: N/M (forecast ~F)` / `error: ...` messages and exit codes; not yet wired into any command — its only caller, `implement.md`, is replaced in T008
+  - **Depends on**: T002
+  - **Boundaries**: `presets/default/scripts/python/budget_stop.py` (new, extends the shared helper's ledger-parsing function), `presets/default/preset.yml` (new `type: "script"` entry `budget-stop`), `presets/default/tests/` (`budget_stop` fixtures: under, over, no-forecast-defaults-400, forecast-whose-double-exceeds-400, fenced-sample-skipped); `presets/default/commands/implement-append.md` untouched
+  - **Evidence**: `uv run pytest presets/default/tests` -> green, matching the five cases `bundles.sh`'s current `budget` scenario already covers
+  - **Delivery**: single PR (~110 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T004 [US1] `stack-propagate` script in presets/default/scripts/python/stack_propagate.py
+  - **Traces**: FR-001, FR-002; outcome: `stack_propagate.py <fixed_branch>` is a direct translation of today's block — walks the open task-PR chain above `fixed_branch` in order, merges each with the same `merge(task): carry the T### fix into T###` subject, pushes, aborts and names the branch on a conflict (exit 2), reports "nothing stacked" (exit 0) on an empty chain; not yet wired into any command — deferred to T008
+  - **Depends on**: T003
+  - **Boundaries**: `presets/default/scripts/python/stack_propagate.py` (new), `presets/default/preset.yml` (new `type: "script"` entry `stack-propagate`), `presets/default/tests/` (`stack_propagate` fixtures: two-hop chain, conflict abort, empty chain); `presets/default/commands/implement-append.md` untouched
+  - **Evidence**: `uv run pytest presets/default/tests` -> green, matching `bundles.sh`'s current `propagate` scenario
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T005 [US1] `merge-root-first` script in presets/default/scripts/python/merge_root_first.py
+  - **Traces**: FR-001, FR-002; outcome: a new script (no direct block precedent — extracts today's prose-only "Between tasks" merge procedure) that self-derives the feature branch (`check-prerequisites.sh --paths-only`, same as T001/T003), runs `git worktree prune`, then for each open task PR root-first retargets by API (`gh api -X PATCH repos/{owner}/{repo}/pulls/<n> -f base=<feature-branch>`) and merges with `gh pr merge <n> --merge` — **never** `--delete-branch` (the guard T014 builds); the script performs the mechanical steps only — the human's "yes, merge" stays a conversation-level decision, never triggered by the script itself; not yet wired into any command — deferred to T008
+  - **Depends on**: T004
+  - **Boundaries**: `presets/default/scripts/python/merge_root_first.py` (new), `presets/default/preset.yml` (new `type: "script"` entry `merge-root-first`), `presets/default/tests/` (fixtures: root-first order over a three-PR stack, a mid-stack failure stopping before the next retarget); `presets/default/commands/implement-append.md` untouched
+  - **Evidence**: `uv run pytest presets/default/tests` -> green, including the root-first order and the no-`--delete-branch` argv assertion
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T006 [US1] `ledger-check` script in presets/default/scripts/python/ledger_check.py
+  - **Traces**: FR-001, FR-002; outcome: a new script (no direct block precedent — today's prose only asks the agent to remember this) that reuses the shared helper's fence-aware ledger parsing: `ledger_check.py <task_id>` exits 0 when the task's checkbox is `[x]` and its **Completion evidence** field is filled (not "Pending" or empty), else exits 2 naming exactly what is missing; not yet wired into any command — deferred to T008, where it becomes the gate before a task PR is marked ready for review
+  - **Depends on**: T005
+  - **Boundaries**: `presets/default/scripts/python/ledger_check.py` (new), `presets/default/preset.yml` (new `type: "script"` entry `ledger-check`), `presets/default/tests/` (fixtures: checked with evidence, unchecked, checked but "Pending", checked but empty evidence); `presets/default/commands/implement-append.md` untouched
+  - **Evidence**: `uv run pytest presets/default/tests` -> green, including all four fixture cases
+  - **Delivery**: single PR (~70 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T007 [US1] Doctor scripts: `skill-mirror` and `ignore-entries` in presets/default/scripts/python/{skill_mirror,ignore_entries}.py
+  - **Traces**: FR-001, FR-002; outcome: two direct translations of `doctor.md`'s two largest blocks (110 and 22 lines, dogfooding entry 41) — `skill_mirror.py <true|false>` (copy extension/preset skills whole across non-default integrations, append the preset's registered layer to each core command's own render, idempotent, never crossing a core skill whole) and `ignore_entries.py <true|false>` (add the installer's cache/venv directories to `.gitignore` when not already covered); `doctor.md` steps 5 and 6 call the scripts with `fix` taken from whether the user asked to fix, instead of running the inline blocks
+  - **Depends on**: T006
+  - **Boundaries**: `presets/default/scripts/python/{skill_mirror.py,ignore_entries.py}` (new), `presets/default/preset.yml` (two new `type: "script"` entries `skill-mirror`, `ignore-entries`), `presets/default/commands/doctor.md` (steps 5 and 6's `skill-mirror:start/end` and `ignore-entries:start/end` blocks replaced by the script calls), `presets/default/README.md`, `presets/default/tests/` (fixtures: two-integration mirror with and without existing appends, single-integration skip, bad-append failure closed; ignore fixture with and without `.venv/` already covered), `scripts/conformance/bundles.sh` (section 8's scenarios invoke the two scripts directly instead of extracting and rendering the blocks)
+  - **Evidence**: `uv run pytest presets/default/tests` -> green; `bash scripts/conformance/bundles.sh` -> passed including section 8; `/speckit.doctor --fix` in this repository -> `mirror: nothing to do`, `ignore: nothing to do` (this two-agent repository has nothing left to mirror or ignore)
+  - **Delivery**: single PR (~170 authored lines)
+  - **Completion evidence**: Pending
+
+## Phase 2: User Story 4 — `implement` is one procedure, not a base the round tells the agent to ignore (P4)
+
+**Goal**: the rendered `implement` command is a single coherent procedure with no upstream base a later paragraph contradicts, wired to the six scripts T001–T006 built; conformance proves the installed command carries zero shell markers.
+**Independent evidence**: manual read of the installed `speckit-implement` skill finds no "disregard the paragraph above" language; `grep -c ':start' <installed implement skill>` -> 0; `bash scripts/conformance/bundles.sh`.
+
+- [ ] T008 [US4] `implement.md` becomes an authored replacement in presets/default/commands/implement.md
+  - **Traces**: FR-001, FR-010, SC-001, SC-005; outcome: `preset.yml`'s `speckit.implement` entry changes `strategy: "append"` → `strategy: "replace"`, pointing at a new, freestanding `commands/implement.md` (replacing `implement-append.md`); the rendered command becomes this file's content alone — upstream's core `implement.md` (~222 lines) contributes nothing, closing FR-010 by construction. Content: upstream's `scripts:` frontmatter kept verbatim (resolves `{SCRIPT}`; dropping it breaks the command); the still-useful Setup/checklist-gate/artifact-loading steps kept, rewritten in this distribution's voice; upstream's generic phase-by-phase `[P]`-parallel model dropped wholesale, replaced by this repository's own loop as the sole execution model; the "Project Setup Verification" ignore-pattern step dropped outright (the doctor owns ignore entries end to end, T007); the hook-announcement boilerplate authored directly as silent behavior, never printed. The loop itself now calls: `task_base.py refresh` once per feature, `task_base.py task <branch>` per task, `budget_stop.py` before opening the PR and again before ready for review, `stack_propagate.py` when a fix lands on a branch with PRs stacked on it, `merge_root_first.py` only on an explicit human merge request, and **`ledger_check.py <task_id>` as the new gate immediately before marking the PR ready for review** — turning "the agent forgot to check the box or fill the evidence" into a script-enforced stop; PR creation and self-review stay a delegation to `/speckit.pr` and `/speckit.code-review` (unchanged call pattern, now backed by T002/T014's scripts internally)
+  - **Depends on**: T007
+  - **Boundaries**: `presets/default/preset.yml` (`speckit.implement`: `strategy: "replace"`, new `file:`), `presets/default/commands/implement.md` (new; `implement-append.md` removed), `presets/default/README.md`; `presets/default/commands/tasks-append.md`/`pr.md`/`chore.md`/`bugfix.md`/`doctor.md` untouched; no change to `pr_create.py`'s own `gh pr create` composition
+  - **Evidence**: manual review of the rendered command after `specify integration install` finds no upstream-base-vs-override contradiction (FR-010); `grep -n 'task_base.py\|budget_stop.py\|stack_propagate.py\|merge_root_first.py\|ledger_check.py' presets/default/commands/implement.md` -> all five present; conformance's full proof (zero markers, scenario conversion) is T009
+  - **Delivery**: single PR (~200 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T009 [US1] Conformance completes the direct-invocation model in scripts/conformance/bundles.sh
+  - **Traces**: FR-002, SC-001; outcome: the three scenarios that depended on `implement.md`'s now-removed blocks (`stack` for `task-base`'s embedding, `propagate` for `stack-propagate`, `budget` for `budget-stop`) are converted to invoke the installed `.py` files directly, matching T001–T003's own scenario changes; two new scenarios are added for `merge-root-first` and `ledger-check` against the same fake `git`/`gh` PATH harness; the now-fully-unused `render_*` sed-substitution helpers (`render_task_base`, `render_stack_propagate`, `render_budget_stop`, `render_fix`) are deleted entirely; the retired-scripts-directory trap (`bundles.sh:550`, a round-004 regression guard) is inverted to assert the eight files exist; the python3-mention trap (`bundles.sh:636`) is narrowed to `resolve-delivery-base` alone, its only valid target now that `implement.md`/`pr.md` legitimately invoke `python3` for the scripts; a new assertion proves SC-001 directly — the installed `speckit-implement`, `speckit-pr`, `speckit-chore`, `speckit-bugfix`, `speckit-doctor` command files carry no `# <name>:start`/`:end` marker pairs at all
+  - **Depends on**: T008
+  - **Boundaries**: `scripts/conformance/bundles.sh` only; no source changes
+  - **Evidence**: `bash scripts/conformance/bundles.sh` -> passed, including the converted `stack`/`propagate`/`budget` scenarios, the two new scenarios, the inverted and narrowed traps, and the zero-markers assertion; `grep -c ':start' <every installed command file>` -> 0 everywhere
+  - **Delivery**: single PR (~190 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T010 [US4] `tasks.md` becomes an authored replacement in presets/default/commands/tasks.md
+  - **Traces**: FR-011, SC-005; outcome: `preset.yml`'s `speckit.tasks` entry changes `strategy: "append"` → `strategy: "replace"`, pointing at a new `commands/tasks.md` (replacing `tasks-append.md`); upstream's core `tasks.md` (~219 lines) — whose own "Checklist Format" section requires `[P]` markers and parallel-execution examples, the literal contradiction FR-011 names — contributes nothing. The new file folds in this distribution's existing "one task at a time" and "phase close" rules (today's `tasks-append.md` content) directly, in this distribution's voice, rather than as an override bullet following a contradicted base; `speckit.specify`, `speckit.plan`, and `speckit.analyze` keep `strategy: "append"` (their append, `phase-close-append.md`, has no equivalent contradiction) and are not touched
+  - **Depends on**: T009
+  - **Boundaries**: `presets/default/preset.yml` (`speckit.tasks`: `strategy: "replace"`, new `file:`), `presets/default/commands/tasks.md` (new; `tasks-append.md` removed), `presets/default/README.md`; `phase-close-append.md` untouched
+  - **Evidence**: manual review of the installed `speckit-tasks` skill after `specify integration install` finds no `[P]`-marker or parallel-execution guidance and no base-vs-override contradiction
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
+
+## Phase 3: User Story 2 — Linear names what's next and reconciles on its own (P2)
+
+**Goal**: a session on a feature, task, or work-item branch gets an unprompted context line naming what to do next; `git push`/`gh pr` actions reconcile Linear automatically; every "next" field names a runnable command.
+**Independent evidence**: start a session on this feature's branch with Linear configured and read the context line before typing anything; run `git push` and check Linear's state with no reconcile command in the transcript; read `next_action`'s output across every derived state.
+
+- [ ] T011 [US2] Linear `session_start` handler in packages/spec-kit-linear
+  - **Traces**: FR-003, FR-006; outcome: `extension.yml` gains `events: session_start: {command: session-start}`; a new `commands/session-start.md` (outside `provides.commands`, `scripts: {py: scripts/python/session_start.py}`) and a three-line shim `scripts/python/session_start.py` (adds `src/` to `sys.path`, calls the `session-start` subcommand, exits with its return code — the dispatcher runs it with its own interpreter, no `run.sh`/`uv run` indirection); the `session-start` subcommand in `cli.py` runs `push --hook` then reads the current branch and calls `status --current --json` to build one context line: for a feature/task branch, the branch, the feature, the first unchecked task, every open task PR, and the next command; for a work-item branch, the issue key, its derived state, and the next command; for neither shape or no `speckit-linear.yml`, no line at all and exit 0 (FR-006). Per dogfooding entry 46, the command name stays undotted and equal to its filename (`session-start`, not `speckit.linear.session-start`) — the dispatcher's on-disk fallback resolves by file stem, never by the dotted registered-manifest path, and fails open (silently) on a mismatch
+  - **Depends on**: T010
+  - **Boundaries**: `packages/spec-kit-linear/extension.yml` (`events.session_start`), `packages/spec-kit-linear/commands/session-start.md` (new), `packages/spec-kit-linear/scripts/python/session_start.py` (new shim), `packages/spec-kit-linear/src/spec_kit_linear/cli.py` (new `session-start` subcommand), `packages/spec-kit-linear/tests/` (context-line formatter, all four branch shapes, no-config no-op); no version bump (T024); this repository's own installed `.specify/extensions/linear/` untouched (a trunk chore once published, A-002)
+  - **Evidence**: `uv run pytest packages/spec-kit-linear/tests` -> green, including a table-driven test over feature/task, work-item, neither-shape, and no-config cases
+  - **Delivery**: single PR (~110 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T012 [US2] Linear `post_tool_use` handler in packages/spec-kit-linear
+  - **Traces**: FR-005, FR-006; outcome: `extension.yml` gains `events: post_tool_use: {command: post-tool-use, matcher: "Bash"}` (the `Bash` matcher so the native hook fires only for Bash calls, not every tool); a new `commands/post-tool-use.md` and shim `scripts/python/post_tool_use.py`, same shim pattern as T011; the `post-tool-use` subcommand reads the PostToolUse payload's `tool_input.command`, and when it matches `git push` or `gh pr (create|ready|merge)`, runs `push --hook`, otherwise exits 0 silently. This mechanically replaces the reconcile-after-push/PR sentences; the reconcile-after-branch-creation case is already `task_base.py`'s own `push --hook` call (T001), since `post_tool_use` never fires on a local branch creation — between the two, no reconcile sentence survives in `implement.md` (T008) or in `chore.md`/`bugfix.md` (T001)
+  - **Depends on**: T011
+  - **Boundaries**: `packages/spec-kit-linear/extension.yml` (`events.post_tool_use`), `packages/spec-kit-linear/commands/post-tool-use.md` (new), `packages/spec-kit-linear/scripts/python/post_tool_use.py` (new shim), `packages/spec-kit-linear/src/spec_kit_linear/cli.py` (new `post-tool-use` subcommand), `packages/spec-kit-linear/tests/` (the Bash-payload matcher: `git push`, each `gh pr` verb, a non-matching command, a non-Bash tool_name); no version bump (T024)
+  - **Evidence**: `uv run pytest packages/spec-kit-linear/tests` -> green; `grep -n reconcile presets/default/commands/implement.md` -> no prose reconcile instruction (T008 already removed it; this task's own evidence is the unit tests, this grep just confirms no regression)
+  - **Delivery**: single PR (~60 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T013 [US2] `next_action` returns runnable commands in packages/spec-kit-linear
+  - **Traces**: FR-004; outcome: `work_state.py`'s `next_action` is rewritten so every non-`None` return is either a slash command or the literal "wait for the human merge" sentence: `completed`+unchecked -> `None` (merge outran local sync, nothing actionable); `review` -> `"wait for the human merge"`; `started`/source `pr` -> `f"/speckit.code-review {pr_number}"` (not a second "mark ready for review" gesture — that is the review command's own completion instruction); `started`/source `branch` -> `"/speckit.pr"`; `unstarted` (feature task only) -> `f"/speckit.implement {feature}"` (replaces `f"start: create branch {prefix}-<slug>"`, the exact manual gesture FR-004 forbids, dogfooding entry 49); the work-item `unstarted` row is removed, not reworded — a work item is listed only when a branch or PR names it, so that row was always unreachable. `next_action` gains a `pr_number` parameter (used only for the `started`/`pr` case); `github.py`'s `PullRequest`/`GH_JSON_FIELDS` gain a `number` field, threaded through `TaskWorkState`/`WorkItemState` and `build_task_rows`/`build_work_item_rows` in `reporting.py` — one more field on the existing `gh pr list` query, not a new call
+  - **Depends on**: T012
+  - **Boundaries**: `packages/spec-kit-linear/src/spec_kit_linear/{work_state.py,reporting.py,github.py,work_items.py}`, `packages/spec-kit-linear/tests/unit/{test_work_state,test_reporting,test_github,test_work_items}.py`; `next_action`'s existing contract (pure text over observable state, never adds a signal) unchanged; no version bump (T024)
+  - **Evidence**: `uv run pytest packages/spec-kit-linear/tests` -> green, including a table-driven test over every `(state, source)` pair asserting no returned string lacks a leading `/speckit.` or the literal wait-for-merge sentence, and that the work-item `unstarted` row no longer exists
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
+
+## Phase 4: User Story 3 — The four hard rules block before they run (P3)
+
+**Goal**: a non-conventional commit, a force-push, a delete-branch merge, or a protected-path write on a task branch is refused before it takes effect, naming the fix.
+**Independent evidence**: attempt each of the four actions on a task branch on an event-capable agent and confirm each is refused before it takes effect; attempt the same on an agent without event support (covered by T015's doctor check).
+
+- [ ] T014 [US3] Code-review `pre_tool_use` guard in packages/spec-kit-code-review
+  - **Traces**: FR-007, FR-008; outcome: `extension.yml` gains exactly one event registration — `events: pre_tool_use: {command: guard, matcher: "Bash|Edit|Write"}` (a manifest's `events.<name>` value must be a single mapping, never a list, so code-review's two guard concerns are two branches inside one subcommand, not two registrations, dogfooding entry 45); a new `commands/guard.md` (undotted, same file-stem resolution rule as T011) and shim `scripts/python/guard.py`; the `guard` subcommand in `cli.py`, dispatched on the native payload's `tool_name`: for `Bash`, reads `tool_input.command` and blocks (`exit 2`, message naming the fix) a `git commit -m` whose subject fails `^[a-z]+\([a-z0-9-]+\): .+$` (the same pattern `.github/workflows/conventions.yml` enforces server-side), any form of `git push --force`/`-f`/`--force-with-lease`, and any `gh pr merge ... --delete-branch`; for `Edit`/`Write`, reads the target path and current branch and blocks a write matching any `protected_paths` glob on a `NNN-T###-*` branch, naming the protected path — a feature branch (no `T###` segment) is exempt (matching round 004's own exemption and this round's C-006); everything else exits 0 silently (C-002's "no guard beyond these four" holds by construction)
+  - **Depends on**: T013
+  - **Boundaries**: `packages/spec-kit-code-review/extension.yml` (`events.pre_tool_use`), `packages/spec-kit-code-review/commands/guard.md` (new), `packages/spec-kit-code-review/scripts/python/guard.py` (new shim), `packages/spec-kit-code-review/src/spec_kit_code_review/cli.py` (new `guard` subcommand), `packages/spec-kit-code-review/tests/` (all four rules, both exemptions); `protected_paths` config and its defaults unchanged; no version bump (T024)
+  - **Evidence**: `uv run pytest packages/spec-kit-code-review/tests` -> green, including: bad commit subject blocked with the convention named; each force-push form blocked; `--delete-branch` blocked; a protected-path write blocked on a `NNN-T###-*` branch and allowed on the feature branch; every other Bash/Edit/Write call passes through untouched
+  - **Delivery**: single PR (~180 authored lines)
+  - **Completion evidence**: Pending
+
+## Phase 5: User Story 5 — One command drives onboarding, and the README opens with the day in four commands (P5)
+
+**Goal**: the doctor reports every onboarding gap in one fixed order and fixes what it can; the README leads with the day's workflow.
+**Independent evidence**: on a freshly bundle-installed, unconfigured consumer, run the doctor and read the gap list's order; run its fix mode; read the README's opening section.
+
+- [ ] T015 [US5] Doctor's fixed onboarding order and Python-interpreter check in presets/default/commands/doctor.md
+  - **Traces**: FR-009, FR-012; outcome: a new first step resolves the Python interpreter with upstream's own rule (the consumer's `.venv` python when present, else `python3` on PATH — C-005), reports its version, and names the fix (e.g. `uv python install 3.11 --default`, or activating the right venv) when it is older than 3.11 or absent — report-only, the doctor never runs the fix itself, matching the category's own carve-out; the summarization step (today's step 4) gains explicit instructions to group every reported gap into six fixed categories regardless of which sub-doctor produced the diagnostic: (1) the Python interpreter, (2) GitHub CLI authentication, (3) the Linear API key, (4) the Linear onboarding binding, (5) the review engine installation, (6) the repository's GitHub delivery settings (unchanged, still report-only); a new read-only step checks, for each key in `.specify/integration.json`'s `installed_integrations`, whether the generated dispatcher (`.specify/events.py`) exists and the integration's native hook file carries the `__speckit_event__` marker — when neither exists for an integration (Zed, today), the doctor states plainly that the guards of T014 and the Linear behaviors of T011/T012 do not run there and the prose rules stay authoritative (FR-009); nothing is written under this step, even with `--fix`
+  - **Depends on**: T014
+  - **Boundaries**: `presets/default/commands/doctor.md` only (new step 1, renumbered steps, rewritten summarization step, new wiring-check step); neither package's own `doctor` implementation changes
+  - **Evidence**: `bash scripts/conformance/bundles.sh` -> passed, including a fresh unconfigured-consumer fixture showing the six categories in order; `/speckit.doctor` in this repository reports the interpreter check passing on `.venv` (3.14.6 here) despite `python3` on PATH being 3.9 (dogfooding entry 51) and reports both integrations' events wiring as present
+  - **Delivery**: single PR (~80 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T016 [US5] README opens with the day in four commands
+  - **Traces**: FR-013; outcome: the root `README.md` (Spanish, per `AGENTS.md`'s exception) opens with the day's workflow expressed as four commands before any other content; the golden rules further down are split into two lists — what the developer does, and what the loop guarantees (scripts, events, and guards now do automatically) — replacing the single undifferentiated list
+  - **Depends on**: T015
+  - **Boundaries**: `README.md` only
+  - **Evidence**: manual review confirms the four-command opening precedes all other content and the golden-rules split
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
+
+## Phase 6: User Story 6 — Dead surface is removed, and neutralized workarounds become upstream fixes (P6)
+
+**Goal**: `completions` and the unreachable `after_implement` review hook are gone; both extensions require the events-capable CLI; three upstream pull requests are prepared; the repository's own documents record the round.
+**Independent evidence**: invoke `completions` on each extension's CLI and confirm it is gone; confirm the `after_implement` hook registry carries no review entry; find the three upstream pull requests.
+
+- [ ] T017 [US6] Remove `completions` and the `after_implement` hook from both extensions
+  - **Traces**: FR-014, FR-015; outcome: both extensions' `provides.commands` drop `speckit.<ext>.completions`; `commands/completions.md` and `src/spec_kit_<ext>/completions.py` (and its CLI wiring) deleted in both packages; each README's `completions`/"Shell completions" section removed; linear's dedicated `tests/unit/test_completions.py` deleted outright; code-review's completions coverage (embedded in `test_cli.py`/`test_manifest.py`, no dedicated file) has its completions-specific cases removed; `packages/spec-kit-code-review/extension.yml`'s `hooks.after_implement` entry (`command: speckit.code-review`, advisory review of the working tree the loop's own flow never reaches) deleted outright
+  - **Depends on**: T016
+  - **Boundaries**: `packages/spec-kit-linear/{extension.yml,commands/completions.md,src/spec_kit_linear/completions.py,src/spec_kit_linear/cli.py,README.md,tests/unit/test_completions.py}`, `packages/spec-kit-code-review/{extension.yml,commands/completions.md,src/spec_kit_code_review/completions.py,src/spec_kit_code_review/cli.py,README.md,tests/unit/{test_cli.py,test_manifest.py}}`; no version bump (T024)
+  - **Evidence**: `grep -rn completions packages/spec-kit-linear packages/spec-kit-code-review` -> no match outside CHANGELOG history; `bash .../run.sh completions` exits nonzero (unknown command) for both; `grep -n after_implement packages/spec-kit-code-review/extension.yml` -> no match; `uv run pytest packages/spec-kit-linear/tests packages/spec-kit-code-review/tests` -> green
+  - **Delivery**: single PR (~40 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T018 [US6] Manifest version floors in both extensions
+  - **Traces**: C-004; outcome: both `packages/spec-kit-linear/extension.yml` and `packages/spec-kit-code-review/extension.yml` change `requires.speckit_version` from `">=1.0.1,<1.1.0"` to `">=1.0.4,<1.1.0"` — the version where runtime events and the `event run` stdin fix ship; `presets/default/preset.yml`'s own floor is left unchanged (its `type: script` surface is a general 1.0.x primitive, not events-specific, and C-004's wording scopes the floor to "both extensions" only)
+  - **Depends on**: T017
+  - **Boundaries**: `packages/spec-kit-linear/extension.yml`, `packages/spec-kit-code-review/extension.yml` (one line each); no version bump of the packages themselves (T024)
+  - **Evidence**: `grep -n speckit_version packages/spec-kit-linear/extension.yml packages/spec-kit-code-review/extension.yml` -> both `>=1.0.4,<1.1.0`
+  - **Delivery**: single PR (~10 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T019 [US6] Documentation: vision, plan, dogfooding, and the Spanish exception in docs/vision.md, docs/plan.md, docs/dogfooding.md, AGENTS.md
+  - **Traces**: FR-019; outcome: `docs/vision.md`'s portability section gains runtime events as the mechanism layer and the explicit degradation on agents without event support; its autocompletion line is corrected to say command autocompletion is each agent's own, replacing the current wording now that `completions` (T017) is gone; `docs/plan.md` gains a round-005 entry matching the existing "Maintenance (2026-09-08)" entry's style; `docs/dogfooding.md`'s section J entries this round resolves are confirmed at their final *resuelta*/*documentada*/*regla* wording now that the code they describe exists (most were already annotated during the plan phase; this task is the final pass, not a fresh audit); `AGENTS.md`'s Spanish-language-exception sentence gains `docs/dx.md` and `docs/releases.md`
+  - **Depends on**: T018
+  - **Boundaries**: `docs/vision.md`, `docs/plan.md`, `docs/dogfooding.md`, `AGENTS.md`; no code
+  - **Evidence**: `git diff --check` -> clean; the round entry in `docs/plan.md` cites `specs/005-developer-experience/`; `grep -n 'docs/dx.md' AGENTS.md` -> present
+  - **Delivery**: single PR (~60 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T020 [US6] Upstream PR 1: cross-integration command registration and `init --force` preservation
+  - **Traces**: FR-016, SC-008; outcome: a patch prepared against the pinned `v1.0.4` tree (this repository does not fork or vendor upstream, Constitution I) that registers extension and preset commands across every installed integration instead of only the default one, and preserves `installed_integrations` across `init --force` — the root cause of this distribution's `skill-mirror` workaround (T007) and of the `init --force` regression dogfooding recorded; opening the PR against `github/spec-kit` is a human, credentialed act outside this task's own scope — the task prepares the patch and hands it off; the URL is recorded once opened
+  - **Depends on**: T019
+  - **Boundaries**: a scratch checkout of the pinned upstream tag (outside `.specify/`, never this repository's own vendored payload); no change to this repository's installed extensions or presets
+  - **Evidence**: `gh pr list --repo github/spec-kit --author @me` -> lists this PR once opened
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T021 [US6] Upstream PR 2: remove `git add .` from `auto-commit.sh`
+  - **Traces**: FR-017, SC-008; outcome: a patch prepared against the pinned `v1.0.4` tree that removes the blanket `git add .` from `auto-commit.sh`, the root cause this distribution's scoped phase-close commits neutralize locally; same human-handoff and URL-recording rule as T020
+  - **Depends on**: T020
+  - **Boundaries**: a scratch checkout of the pinned upstream tag; no change to this repository's own installed assets
+  - **Evidence**: `gh pr list --repo github/spec-kit --author @me` -> lists this PR once opened
+  - **Delivery**: single PR (~10 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T022 [US6] Upstream PR 3: stop registering `git.commit` hooks when `auto_commit.default` is `false`
+  - **Traces**: FR-018, SC-008; outcome: a patch prepared against the pinned `v1.0.4` tree that stops registering the sixteen `git.commit` hooks in a fresh `extensions.yml` when the git extension's own `auto_commit.default` is `false` — the root cause dogfooding entry 37 records ("the append's own hook-silence rule exists only because this bug is not fixed upstream yet"); until this merges and is consumed here, the sixteen hooks stay registered and silenced by the phase-close rules exactly as today (spec edge case, A-004); same human-handoff and URL-recording rule as T020
+  - **Depends on**: T021
+  - **Boundaries**: a scratch checkout of the pinned upstream tag; no change to this repository's own `.specify/extensions.yml`
+  - **Evidence**: `gh pr list --repo github/spec-kit --author @me` -> lists this PR once opened
+  - **Delivery**: single PR (~40 authored lines)
+  - **Completion evidence**: Pending
+
+## Final phase: Cross-cutting verification and release
+
+- [ ] T023 Live cross-agent verification in a temporary consumer repository
+  - **Traces**: A-002; plan D12; outcome: a fresh fixture outside this checkout (`git init`, `specify init --here --force`, matching `bundles.sh`'s own `new_consumer` pattern), with `specify extension add packages/spec-kit-linear --dev`, `specify extension add packages/spec-kit-code-review --dev`, and `specify preset add --dev presets/default` against this round's own in-progress code, then `specify integration install claude --force` and `specify integration install codex --force`; verifies, on both agents: the `session_start` handler's stdout (T011) surfaces as context at session start; the `pre_tool_use` guard (T014) blocks a force-push attempt and a protected-path write with exit 2 on both; the `post_tool_use` handler (T012) reconciles after a `git push`. Cursor's own verification (app-maker, once published) stays out of this task per A-002's release-lag note
+  - **Depends on**: T022
+  - **Boundaries**: the temporary fixture only, never this checkout's own `.specify/extensions/{linear,code-review}` (those stay the vendored, published payloads until a separate trunk chore upgrades them)
+  - **Evidence**: this task's own session transcript, recorded as the Completion evidence, showing the context line on both agents and both blocked attempts on both agents
+  - **Delivery**: single PR (evidence only, ~50 authored lines for the fixture setup script)
+  - **Completion evidence**: Pending
+
+- [ ] T024 Release preparation: `publish.sh --bump preset=0.10.0 linear=0.13.0 code-review=0.5.0 bundles=0.16.0`
+  - **Traces**: plan D13; A-006; outcome: manifests, bundle pins, changelog headings, and `uv.lock` bumped coherently by the script; the changelog skeletons (`- TODO`) it writes for `linear` and `code-review` are replaced with this round's real bullets in the same task; publication stays human, from `main`, after the feature merges
+  - **Depends on**: T023
+  - **Boundaries**: the files `--bump` writes (`packages/*/extension.yml`, `packages/*/pyproject.toml`, `packages/*/CHANGELOG.md`, `presets/default/{preset.yml,README.md}`, `bundles/*/bundle.yml`, `uv.lock`); no script changes
+  - **Evidence**: `bash scripts/conformance/bundles.sh` -> passed on the bumped tree; `uv run pytest packages/spec-kit-linear/tests packages/spec-kit-code-review/tests presets/default/tests` -> green; `bash scripts/conformance/bundles.sh --published` -> fails only with the expected parity lines before publication
+  - **Delivery**: single PR (generated bump, ~20 authored lines)
+  - **Completion evidence**: Pending
+
+## Dependencies and stack order
+
+- **Critical path**: T001 -> T002 -> T003 -> T004 -> T005 -> T006 -> T007 -> T008 -> T009 -> T010 -> T011 -> T012 -> T013 -> T014 -> T015 -> T016 -> T017 -> T018 -> T019 -> T020 -> T021 -> T022 -> T023 -> T024 (file order)
+- **Stack order**: PR 1 -> PR 2 -> … -> PR 24, each stacked on the previous one until a human merges root-first
+- **Deliberate reordering against spec priority**: User Story 4 (P4, T008–T010) is sequenced immediately after User Story 1 (P1, T001–T007) — ahead of User Stories 2 and 3 (P2/P3) — because `implement.md` must exist before the events layer's session/tool hooks are meaningful to verify end to end, and because five of the six scripts T001–T006 build have no caller until `implement.md` replaces the blocks that used to hold them. User Story 5's README task (T016) is grouped with the doctor task (T015) rather than with the documentation task (T019), since both T015 and T016 serve US5's own acceptance scenarios; T019 (docs, US6) is sequenced after T017 (hygiene, US6) because its `vision.md` autocompletion correction depends on `completions` already being gone.
+
+## Implementation strategy
+
+**MVP**: T001–T009 — the eight scripts, the shared helper, and a coherent `implement.md` that calls them (US1 + the `implement` half of US4). This is the largest, most foundational slice: every later phase's automation (Linear's events, the guard) is verified against a loop that already runs on scripts instead of inline shell. Each later phase lands an independently testable story; T023 proves the events layer on real agents before T024 closes the round with the version bump.
