@@ -100,6 +100,15 @@ unchecked one. It never runs `gh pr create` itself; `speckit.pr` composes
 that call's title and body and runs it with the printed base. Same
 interpreter rule as `task_base.py`.
 
+`scripts/python/budget_stop.py <task_id> <base>` stops a task before its
+authored executable lines pass the review budget — same rules as the
+`budget-stop` block it will replace: the forecast comes from the task's
+`Delivery` line (fence-aware; absent or without a `~N` marker defaults to
+400), the sum is `git diff --numstat --no-renames <base>...HEAD` excluding
+binary rows, the four lockfiles, and eleven doc/asset suffixes, and the
+stop is the smaller of twice the forecast and 400. Same interpreter rule
+as `task_base.py`.
+
 ## Executable blocks
 
 Every marked block in the preset's commands — `first-task-refresh`,
