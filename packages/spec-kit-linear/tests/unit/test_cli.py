@@ -1051,8 +1051,23 @@ class CommandSurfaceTests(CliTestCase):
                 self.assertEqual(raised.exception.code, 2)
 
 
-def _task_row(task: str, *, local_complete: bool, derived_state: str | None = None, state_source: str | None = None, next: str | None = None) -> dict[str, object]:
-    return {"task": task, "local_complete": local_complete, "derived_state": derived_state, "state_source": state_source, "next": next}
+def _task_row(
+    task: str,
+    *,
+    local_complete: bool,
+    derived_state: str | None = None,
+    state_source: str | None = None,
+    next: str | None = None,
+    pr_number: int | None = None,
+) -> dict[str, object]:
+    return {
+        "task": task,
+        "local_complete": local_complete,
+        "derived_state": derived_state,
+        "state_source": state_source,
+        "pr_number": pr_number,
+        "next": next,
+    }
 
 
 class SessionStartContextFormatterTests(unittest.TestCase):
@@ -1061,17 +1076,17 @@ class SessionStartContextFormatterTests(unittest.TestCase):
     def test_feature_branch_without_open_prs(self) -> None:
         tasks = [
             _task_row("T001", local_complete=True, derived_state="completed", state_source="checkbox"),
-            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="open the draft PR"),
+            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="/speckit.pr"),
         ]
 
         line = _format_feature_context("005-T002-thing", "005", tasks)
 
-        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T002 (unchecked); next: open the draft PR")
+        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T002 (unchecked); next: /speckit.pr")
 
     def test_feature_branch_with_open_prs(self) -> None:
         tasks = [
-            _task_row("T001", local_complete=False, derived_state="review", state_source="pr", next="await the final review and the human merge"),
-            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="open the draft PR"),
+            _task_row("T001", local_complete=False, derived_state="review", state_source="pr", next="wait for the human merge"),
+            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="/speckit.pr"),
         ]
 
         line = _format_feature_context("005-T001-thing", "005", tasks)
@@ -1079,7 +1094,7 @@ class SessionStartContextFormatterTests(unittest.TestCase):
         self.assertEqual(
             line,
             "Linear: 005 on 005-T001-thing — next T001 (unchecked); open task PRs: T001 (review); "
-            "next: await the final review and the human merge",
+            "next: wait for the human merge",
         )
 
     def test_a_merged_task_pr_is_excluded_from_open_task_prs(self) -> None:
@@ -1096,10 +1111,100 @@ class SessionStartContextFormatterTests(unittest.TestCase):
 
         self.assertEqual(line, "Linear: 005 on 005-developer-experience")
 
-    def test_work_item_branch(self) -> None:
-        row = {"identifier": "WOR-123", "derived_state": "started", "next": "open the draft PR"}
+    def test_an_all_checked_stack_still_in_review_names_the_pr_number_and_the_wait_sentence(self) -> None:
+        """The reported finding: checking a task before its PR is ready for review
+        used to leave `next` empty because it was read only from the first
+        unchecked task. With every task checked, `next` must fall back to the
+        open PR's own next action, and the PR clause must name its number."""
 
-        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (started) — next: open the draft PR")
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="review",
+                state_source="pr",
+                next="wait for the human merge",
+                pr_number=101,
+            )
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (review, #101); "
+            "next: wait for the human merge",
+        )
+
+    def test_a_checked_task_with_a_still_draft_pr_names_the_code_review_command(self) -> None:
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="started",
+                state_source="pr",
+                next="/speckit.code-review 101",
+                pr_number=101,
+            )
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (started, #101); "
+            "next: /speckit.code-review 101",
+        )
+
+    def test_an_unchecked_task_already_merged_yields_the_first_open_prs_next(self) -> None:
+        # A checkbox lagging a merge derives `completed` with no next of its
+        # own (next_action's documented edge); the open PR's next still lands.
+        tasks = [
+            _task_row("T001", local_complete=False, derived_state="completed", state_source="pr", next=None, pr_number=100),
+            _task_row("T002", local_complete=True, derived_state="review", state_source="pr", next="wait for the human merge", pr_number=101),
+        ]
+
+        line = _format_feature_context("005-T002-thing", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T001 (unchecked); open task PRs: T002 (review, #101); next: wait for the human merge")
+
+    def test_a_checked_task_in_review_alongside_an_unchecked_task_prefers_the_unchecked_next(self) -> None:
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="review",
+                state_source="pr",
+                next="wait for the human merge",
+                pr_number=101,
+            ),
+            _task_row("T002", local_complete=False, derived_state="unstarted", state_source="none", next="/speckit.implement 005"),
+        ]
+
+        line = _format_feature_context("005-T002-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T002-thing — next T002 (unchecked); open task PRs: T001 (review, #101); "
+            "next: /speckit.implement 005",
+        )
+
+    def test_an_open_task_pr_with_an_unknown_number_omits_the_hash(self) -> None:
+        tasks = [
+            _task_row("T001", local_complete=True, derived_state="review", state_source="pr", next="wait for the human merge")
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (review); next: wait for the human merge",
+        )
+
+    def test_work_item_branch(self) -> None:
+        row = {"identifier": "WOR-123", "derived_state": "started", "next": "/speckit.pr"}
+
+        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (started) — next: /speckit.pr")
 
     def test_work_item_branch_with_no_next_omits_the_clause(self) -> None:
         row = {"identifier": "WOR-123", "derived_state": "completed", "next": None}
@@ -1151,7 +1256,7 @@ class SessionStartTests(CliTestCase):
         self.assertEqual(code, 0)
         lines = output.splitlines()
         self.assertEqual(len(lines), 1)
-        self.assertEqual(lines[0], "Linear: 001 on 001-T001-parse-artifacts — next T001 (unchecked); next: open the draft PR")
+        self.assertEqual(lines[0], "Linear: 001 on 001-T001-parse-artifacts — next T001 (unchecked); next: /speckit.pr")
         # `push --current --hook`'s own reconcile ran first.
         self.assertEqual(client.mutations, ["project.create", "issue.create", "issue.create", "issue.create"])
 
@@ -1163,7 +1268,7 @@ class SessionStartTests(CliTestCase):
                     code, output = self._run("wor-123-fix-crash")
 
         self.assertEqual(code, 0)
-        self.assertEqual(output, "Linear: WOR-123 (started) — next: open the draft PR\n")
+        self.assertEqual(output, "Linear: WOR-123 (started) — next: /speckit.pr\n")
 
     def test_a_work_item_branch_with_no_feature_directory_still_prints_one_line(self) -> None:
         shutil.rmtree(self.fixture_root / "specs")
@@ -1175,7 +1280,7 @@ class SessionStartTests(CliTestCase):
                     code, output = self._run("wor-123-fix-crash")
 
         self.assertEqual(code, 0)
-        self.assertEqual(output, "Linear: WOR-123 (started) — next: open the draft PR\n")
+        self.assertEqual(output, "Linear: WOR-123 (started) — next: /speckit.pr\n")
 
 
 def _bash_payload(command: str) -> str:

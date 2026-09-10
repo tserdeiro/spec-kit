@@ -1236,9 +1236,11 @@ def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
 def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, object]]) -> str:
     """FR-003's context line for a feature or task branch, from `status`'s own task rows.
 
-    Every field a `PullRequest` cannot yet name (its own `#<n>`, D6/T013) is
-    left out rather than guessed at; the open-PR clause names the task and
-    its derived state only.
+    The open-PR clause names each pull request's own `#<n>` when the row
+    carries it (D6/T013). The next command is the first unchecked task's
+    `next`, else the first open task PR's: a stack fully checked but still
+    in review or draft names the wait sentence or the review command, never
+    nothing (FR-004).
     """
 
     first_unchecked = next((task for task in tasks if not task["local_complete"]), None)
@@ -1247,9 +1249,16 @@ def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, obj
     if first_unchecked is not None:
         segments[0] += f" — next {first_unchecked['task']} (unchecked)"
     if open_prs:
-        pr_text = ", ".join(f"{task['task']} ({task['derived_state']})" for task in open_prs)
+        pr_text = ", ".join(
+            f"{task['task']} ({task['derived_state']}, #{task['pr_number']})"
+            if task.get("pr_number") is not None
+            else f"{task['task']} ({task['derived_state']})"
+            for task in open_prs
+        )
         segments.append(f"open task PRs: {pr_text}")
     next_command = first_unchecked.get("next") if first_unchecked is not None else None
+    if not next_command and open_prs:
+        next_command = open_prs[0].get("next")
     if next_command:
         segments.append(f"next: {next_command}")
     return "; ".join(segments)

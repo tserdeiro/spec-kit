@@ -23,14 +23,26 @@ from spec_kit_linear.work_state import (
 )
 
 
-def _pull_request(head_branch: str, *, draft: bool = False, state: str = "OPEN") -> PullRequest:
-    return PullRequest(head_branch=head_branch, is_draft=draft, state=state)
+def _pull_request(head_branch: str, *, draft: bool = False, state: str = "OPEN", number: int | None = None) -> PullRequest:
+    return PullRequest(head_branch=head_branch, is_draft=draft, state=state, number=number)
 
 
 def _derive(**overrides: object):
     arguments: dict[str, object] = {"completed": False, "branches": (), "pull_requests": ()}
     arguments.update(overrides)
     return derive_task_state("001", "T004", **arguments)  # type: ignore[arg-type]
+
+
+class PullRequestNumberThreadingTests(unittest.TestCase):
+    """The observed PR's number reaches the task state (D6): the fact `/speckit.code-review <n>` needs."""
+
+    def test_a_pull_request_carries_its_number_into_the_task_state(self) -> None:
+        derived = _derive(pull_requests=(_pull_request("001-T004-parse", draft=True, number=42),))
+
+        self.assertEqual((derived.source, derived.pr_number), (SOURCE_PULL_REQUEST, 42))
+
+    def test_a_branch_alone_carries_no_number(self) -> None:
+        self.assertIsNone(_derive(branches=("001-T004-parse",)).pr_number)
 
 
 class BranchConventionTests(unittest.TestCase):
@@ -161,13 +173,17 @@ class PullRequestScanTests(unittest.TestCase):
         return scan, run
 
     def test_a_successful_scan_reads_every_pull_request_in_one_call(self) -> None:
-        payload = '[{"headRefName": "001-T001-work", "isDraft": true, "state": "OPEN"}, {"headRefName": "001-T002", "isDraft": false, "state": "MERGED"}]'
+        payload = (
+            '[{"number": 12, "headRefName": "001-T001-work", "isDraft": true, "state": "OPEN"}, '
+            '{"number": 13, "headRefName": "001-T002", "isDraft": false, "state": "MERGED"}]'
+        )
 
         scan, run = self._scan(stdout=payload)
 
         self.assertTrue(scan.available)
         self.assertEqual(scan.diagnostics, ())
         self.assertEqual([item.head_branch for item in scan.pull_requests], ["001-T001-work", "001-T002"])
+        self.assertEqual([item.number for item in scan.pull_requests], [12, 13])
         self.assertTrue(scan.pull_requests[0].is_draft)
         self.assertTrue(scan.pull_requests[1].is_merged)
         self.assertEqual(run.call_count, 1)
@@ -189,7 +205,13 @@ class PullRequestScanTests(unittest.TestCase):
         self.assertEqual([item.code for item in scan.diagnostics], ["github_cli_unavailable"])
 
     def test_malformed_gh_output_degrades_instead_of_being_half_read(self) -> None:
-        for payload in ("not json at all", '{"headRefName": "001-T001"}', '[{"headRefName": 7, "isDraft": false, "state": "OPEN"}]', '[{"isDraft": false}]'):
+        for payload in (
+            "not json at all",
+            '{"headRefName": "001-T001"}',
+            '[{"headRefName": 7, "isDraft": false, "state": "OPEN"}]',
+            '[{"isDraft": false}]',
+            '[{"headRefName": "001-T001", "isDraft": false, "state": "OPEN"}]',  # no "number" at all
+        ):
             with self.subTest(payload=payload):
                 scan, _run = self._scan(stdout=payload)
 
@@ -203,27 +225,35 @@ if __name__ == "__main__":
 
 
 class NextActionTests(unittest.TestCase):
-    """FR-001: one suggested action per derived state, and nothing else."""
+    """FR-004: every next_action result is a runnable command, or nothing."""
 
     def test_the_whole_map(self) -> None:
         from spec_kit_linear.work_state import next_action
 
         cases = [
-            (("completed", "checkbox"), {"checked": True}, None),
-            (("completed", "pr"), {"checked": False},
-             "record completion evidence and check the box in tasks.md"),
-            (("completed", "pr"), {}, None),  # work item: no checkbox
-            (("review", "pr"), {}, "await the final review and the human merge"),
-            (("started", "pr"), {},
-             "self-review (/speckit.code-review), then mark ready for review"),
-            (("started", "branch"), {}, "open the draft PR"),
-            (("unstarted", "none"), {"feature": "001", "task": "T004"},
-             "start: create branch 001-T004-<slug>"),
-            (("unstarted", "none"), {}, "start: create branch NNN-T###-<slug>"),
+            (("completed", "checkbox"), {}, None),
+            (("completed", "pr"), {}, None),  # a merge that outran the local sync, or a work item
+            (("review", "pr"), {}, "wait for the human merge"),
+            (("started", "pr"), {"pr_number": 42}, "/speckit.code-review 42"),
+            (("started", "branch"), {}, "/speckit.pr"),
+            (("unstarted", "none"), {"feature": "001"}, "/speckit.implement 001"),
         ]
         for (state, source), kwargs, expected in cases:
             with self.subTest(state=state, source=source, **kwargs):
                 self.assertEqual(next_action(state, source, **kwargs), expected)
+
+    def test_every_non_none_result_is_a_command_or_the_wait_sentence(self) -> None:
+        """FR-004: never a manual gesture the agent has to translate itself."""
+        from spec_kit_linear.work_state import next_action
+
+        states = ("completed", "review", "started", "unstarted")
+        sources = ("checkbox", "pr", "branch", "none")
+        for state in states:
+            for source in sources:
+                with self.subTest(state=state, source=source):
+                    result = next_action(state, source, feature="001", pr_number=7)
+                    if result is not None:
+                        self.assertTrue(result.startswith("/speckit.") or result == "wait for the human merge", result)
 
     def test_it_never_suggests_for_the_unknown(self) -> None:
         from spec_kit_linear.work_state import next_action

@@ -30,8 +30,8 @@ LIFECYCLE_CONFIG = {
 }
 
 
-def _pull_request(head_branch: str, *, draft: bool = False, state: str = "OPEN") -> PullRequest:
-    return PullRequest(head_branch=head_branch, is_draft=draft, state=state)
+def _pull_request(head_branch: str, *, draft: bool = False, state: str = "OPEN", number: int | None = None) -> PullRequest:
+    return PullRequest(head_branch=head_branch, is_draft=draft, state=state, number=number)
 
 
 def _remote(identifier: str, *, state_id: str | None = None) -> RemoteWorkItem:
@@ -116,6 +116,16 @@ class WorkItemDerivationTests(unittest.TestCase):
 
         self.assertEqual([item.identifier for item in derived], ["WOR-4", "WOR-30", "WOR-120"])
         self.assertEqual(issue_numbers(derived), (4, 30, 120))
+
+    def test_a_pull_request_observation_carries_its_own_number(self) -> None:
+        derived = derive_work_items("WOR", pull_requests=(_pull_request("wor-12-fix", draft=True, number=42),))
+
+        self.assertEqual(derived[0].pr_number, 42)
+
+    def test_a_branch_alone_carries_no_pull_request_number(self) -> None:
+        derived = derive_work_items("WOR", branches=("wor-7-chore",))
+
+        self.assertIsNone(derived[0].pr_number)
 
 
 class WorkItemPlanTests(unittest.TestCase):
