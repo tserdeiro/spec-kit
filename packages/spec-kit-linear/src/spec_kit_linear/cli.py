@@ -1219,6 +1219,9 @@ def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
     except Exception:
         pass
 
+    # A work item can only resolve `--current` through `.specify/feature.json`,
+    # which is often absent; a feature/task branch resolves it through its own
+    # name, so only the former takes the feature-independent selector.
     hook_args = argparse.Namespace(
         root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
         dry_run=False, apply=False, hook=True,
