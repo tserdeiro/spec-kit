@@ -824,9 +824,21 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     0.10.0 sin una nota de release en ningún sitio, y los bundles
     igual. Además, los Boundaries de T024 nombran
     `presets/default/README.md` entre lo que `--bump` escribe, pero solo
-    el camino de publicación lo reescribe (las URLs de descarga). *Regla:*
+    el camino de publicación lo reescribe (las URLs de descarga), y
+    omiten `packages/*/src/*/__init__.py`, que el bump sí escribe
+    (review de #113). *Regla:*
     la fila de Evidence de una tarea de bump se copia de lo que el
     script imprime, no de la memoria del plan. *Pendiente de decisión:*
     un `CHANGELOG.md` del preset que el bump también esqueletice (un
     cambio de script, fuera de T024), o las notas de la ronda en
     `docs/releases.md`.
+92. **Los bundles admiten un CLI que sus extensiones rechazan.** T018
+    subió el piso de las dos extensiones a `>=1.0.4` (C-004 lo acota a
+    "ambas extensiones") y dejó `>=1.0.1` en el preset y en los tres
+    bundles; con el bump de T024 cada bundle fija linear 0.13.0 y
+    code-review 0.5.0, así que un consumidor con 1.0.1–1.0.3 pasa la
+    comprobación del bundle y falla en la de la extensión — antes de la
+    ronda los pisos coincidían. La review de #113 lo confirmó.
+    *Pendiente de decisión:* que el piso de un bundle sea el máximo de
+    los de sus componentes (una línea por bundle y C-004 enmendada),
+    idealmente en la chore de publicación.
