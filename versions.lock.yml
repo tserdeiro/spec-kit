@@ -24,26 +24,26 @@ extensions:
 
   linear:
     id: linear
-    version: 0.12.0
+    version: 0.13.0
     provenance: first-party-monorepo
     path: packages/spec-kit-linear
-    tag: spec-kit-linear/v0.12.0
-    commit: b071b44fa306132aa45eeb5210268231689a2f04
-    subtree_archive_sha256: a61c436d4913ee51fb99ff53b50c6517d31bbc4a313808431a0c0936654abf92
-    release_zip_sha256: f1ccadb94ecf3c3403933da47d5f517cbceec338c702f4d0c4bbf8fdc9bbbcdc
-    manifest_sha256: fbc150f4cdf83e31669e85b6681e440b4325a33be88bea765b664cd9de462683
+    tag: spec-kit-linear/v0.13.0
+    commit: 5398d69e2416f1d09b58d4c0d3f126f64492f1f1
+    subtree_archive_sha256: eb18fb6157625a53c11691a4cd45a583b04b5e2d4f8fb914d69a71dcb5d66f76
+    release_zip_sha256: 0cd8c0ebd527250bf5f1baf177e9f45ad7516d4adb7444a38e27eba0070f2073
+    manifest_sha256: 8f4d1a5ec08cc7fdc117b337db138a03c43b4f289ca8ddb071f558cf54e3935e
     conformance_evidence: validation/linear-stage5-acceptance.md
 
   code-review:
     id: code-review
-    version: 0.4.0
+    version: 0.5.0
     provenance: first-party-monorepo
     path: packages/spec-kit-code-review
-    tag: spec-kit-code-review/v0.4.0
-    commit: b071b44fa306132aa45eeb5210268231689a2f04
-    subtree_archive_sha256: a83891db515920b0dbf72edf724f71407d24560da560fde2333ddd21e5529985
-    release_zip_sha256: 4d030a1d72837926612a772f99dffaebedbff058b0856cbdd907de265ac9c4fe
-    manifest_sha256: 03af338493759a64db4c0cf260ae7156c60505cc2f5aa90e18f941fee9530fc8
+    tag: spec-kit-code-review/v0.5.0
+    commit: 5398d69e2416f1d09b58d4c0d3f126f64492f1f1
+    subtree_archive_sha256: 706a05adc77677ae01fa884e9f44ab9efc4baaf583c7a0f4d9653ec1920116f6
+    release_zip_sha256: 1b1527d34fe4996b4c830178be86f10808381c3aa9a5ab2d73832f4b866577db
+    manifest_sha256: b6206268c2929168daeaaee6ef2eb35e9080726fb9ce414d302da6f5a4eccfa3
     conformance_evidence: validation/code-review-acceptance.md
     external_tools:
       open_code_review:
