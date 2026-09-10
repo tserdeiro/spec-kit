@@ -1327,10 +1327,13 @@ def run_session_start(args: argparse.Namespace) -> int:
 # and the step continues. Each step is read the way a shell starts a process
 # -- leading `NAME=value` assignments and one bare wrapper word skipped -- so
 # the executable must be exactly `git` or `gh`; global options are skipped
-# up to the subcommand. A heredoc body (`<<DELIM`/`<<-DELIM` up to the `DELIM` line) is
-# message text, never a step. Unbalanced quoting (`ValueError`) is "no
-# match". Known gap: a quoted argument that is only punctuation (`-m ";"`)
-# still reads as a separator, since shlex does not say what was quoted.
+# up to the subcommand. `#` comments and heredocs (the `<<DELIM` operator,
+# body and terminator line) are removed from the text first (`_shell_text`),
+# so prose is never tokenized: an apostrophe in a commit message would
+# otherwise unbalance shlex's quotes and turn a real push into "no match".
+# Unbalanced quoting (`ValueError`) is "no match". Known gap: a quoted
+# argument that is only punctuation (`-m ";"`) still reads as a separator,
+# since shlex does not say what was quoted.
 _STEP_PUNCTUATION = "();<>|&\n"
 _ASSIGNMENT_RE = re.compile(r"[A-Za-z_]\w*=")
 _WRAPPER_WORDS = frozenset({"env", "command", "exec", "nohup", "time"})
@@ -1339,40 +1342,97 @@ _GH_VALUE_OPTIONS = frozenset({"-R", "--repo", "--hostname"})
 _GH_RECONCILE_SUBCOMMANDS = frozenset({"create", "ready", "merge"})
 
 
+_HEREDOC_WORD_END = frozenset(" \t\r\n;&|()<>")
+
+
+def _heredoc_operator(command: str, index: int) -> tuple[str, bool, int]:
+    """Parse the ``<<`` operator whose ``<<`` ends at ``index``: the delimiter
+    (quotes stripped), whether it was ``<<-``, and the index past it."""
+
+    dashed = command.startswith("-", index)
+    index += dashed
+    while index < len(command) and command[index] in " \t":
+        index += 1
+    if index < len(command) and command[index] in "'\"":
+        close = command.find(command[index], index + 1)
+        if close < 0:
+            return "", dashed, index
+        return command[index + 1 : close], dashed, close + 1
+    if command.startswith("\\", index):
+        index += 1
+    start = index
+    while index < len(command) and command[index] not in _HEREDOC_WORD_END:
+        index += 1
+    return command[start:index], dashed, index
+
+
+def _skip_heredoc_bodies(command: str, index: int, pending: list[tuple[str, bool]]) -> int:
+    """Index past the bodies (and terminator lines) of ``pending`` heredocs starting at ``index``."""
+
+    for delimiter, dashed in pending:
+        while index < len(command):
+            end = command.find("\n", index)
+            line = command[index:] if end < 0 else command[index:end]
+            index = len(command) if end < 0 else end + 1
+            if (line.lstrip("\t") if dashed else line) == delimiter:
+                break
+    return index
+
+
+def _shell_text(command: str) -> str:
+    """``command`` as shlex should see it: ``#`` comments (a ``#`` starting a word
+    outside quotes, up to its newline) and every heredoc -- operator, body,
+    terminator line -- removed, so prose is never tokenized."""
+
+    out: list[str] = []
+    quote: str | None = None
+    pending: list[tuple[str, bool]] = []  # heredocs opened on the current line, in order
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if quote is None:
+            if character == "\\" and index + 1 < len(command):
+                out.append(command[index : index + 2]); index += 2; continue
+            if character in "'\"":
+                quote = character
+            elif character == "#" and (index == 0 or command[index - 1] in " \t\n;&|("):
+                end = command.find("\n", index)
+                index = len(command) if end < 0 else end
+                continue
+            elif command.startswith("<<", index) and not command.startswith("<<<", index):
+                delimiter, dashed, index = _heredoc_operator(command, index + 2)
+                if delimiter:
+                    pending.append((delimiter, dashed))
+                continue
+            elif character == "\n" and pending:
+                out.append(character)
+                index = _skip_heredoc_bodies(command, index + 1, pending)
+                pending = []
+                continue
+        elif character == "\\" and quote == '"' and index + 1 < len(command):
+            out.append(command[index : index + 2]); index += 2; continue
+        elif character == quote:
+            quote = None
+        out.append(character); index += 1
+    return "".join(out)
+
+
 def _command_steps(command: str) -> list[list[str]]:
-    """Tokenize ``command`` and split it into argv-shaped steps.
+    """Tokenize ``command`` (comments and heredocs removed) into argv-shaped steps.
 
     Raises ``ValueError`` on unbalanced quoting; the caller treats that as
     "no match" rather than letting it propagate.
     """
 
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=_STEP_PUNCTUATION)
+    lexer = shlex.shlex(_shell_text(command), posix=True, punctuation_chars=_STEP_PUNCTUATION)
     lexer.whitespace_split = True
     lexer.whitespace = " \t\r"
     lexer.commenters = ""
     steps: list[list[str]] = [[]]
-    delimiters: list[str] = []  # heredocs opened on the current line, in order
-    expect_delimiter = skipping_body = False
     for token in lexer:
-        if skipping_body:
-            if token == delimiters[0]:
-                delimiters.pop(0)
-                skipping_body = bool(delimiters)
-            continue
-        if expect_delimiter:
-            # `<<-DELIM` tokenizes as `<<` then `-DELIM`: the dash is the operator's.
-            delimiters.append(token[1:] if token.startswith("-") else token)
-            expect_delimiter = False
-            continue
         if token and all(character in _STEP_PUNCTUATION for character in token):
-            if "<<" in token:
-                expect_delimiter = True  # `<<DELIM`: the next word names the body's end
-                continue
             if "<" in token or ">" in token:
                 continue  # a redirection (e.g. `2>&1`, `>out.log`), never a new step
-            if token == "\n" and delimiters:
-                skipping_body = True  # the heredoc body starts on the next line
-                continue
             steps.append([])
             continue
         steps[-1].append(token)

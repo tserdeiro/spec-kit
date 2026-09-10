@@ -1217,6 +1217,8 @@ _RECONCILING_STDIN = [
         "time env FOO=1 git push",
         "git commit -F - <<'EOF'\nnot a push\nEOF\ngit push",
         "cat <<-'EOF'\n\tnot a push\n\tEOF\ngit push",
+        "git commit -F - <<'EOF'\nfix(x): don't crash\nEOF\ngit push",
+        "cat <<A <<B\nit's\nA\nwon't\nB\ngit push origin HEAD",
         'git -C "a b" push origin HEAD',
         "git status # note\ngit push",
         "env FOO=1 gh pr ready 1",
@@ -1238,6 +1240,8 @@ _SILENT_STDIN = [
         'git push "unterminated',
         "git commit -F - <<'EOF'\ngit push\nEOF",
         "cat <<A <<B\ngit push\nA\ngh pr ready\nB",
+        "git commit -F - <<'EOF'\nfix(x): don't crash\nEOF",
+        "cat <<EOF | tee x\ngit push\nEOF",
     )
 ] + [
     json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "x"}}),
