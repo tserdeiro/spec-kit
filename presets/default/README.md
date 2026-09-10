@@ -146,11 +146,18 @@ skill whole across integrations. A registered append that is missing or
 has no `## ` heading fails closed, before any write. Same interpreter
 rule as `task_base.py`.
 
+`scripts/python/ignore_entries.py <true|false>` adds the installer's
+cache directories (extension, preset, and integration catalogs) and the
+extension payload virtual environments to `.gitignore` when
+`git check-ignore` does not already cover them — an entry already
+covered by a broader pattern (a repository ignoring `.venv/` globally,
+say) is skipped, never duplicated. Same interpreter rule as
+`task_base.py`.
+
 ## Executable blocks
 
 Every marked block in the preset's commands — `first-task-refresh`,
-`task-base`, `stack-propagate`, `budget-stop`, `ignore-entries` — is
-POSIX shell: `set -e`, no pipeline that needs `pipefail`, no arrays or
-other bash-isms. Conformance extracts and runs each one with `sh`
-(`dash` on Ubuntu CI); the agent replaces only the named literals
-inside it.
+`task-base`, `stack-propagate`, `budget-stop` — is POSIX shell: `set -e`,
+no pipeline that needs `pipefail`, no arrays or other bash-isms.
+Conformance extracts and runs each one with `sh` (`dash` on Ubuntu CI);
+the agent replaces only the named literals inside it.

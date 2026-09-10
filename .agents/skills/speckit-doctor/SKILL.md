@@ -102,32 +102,13 @@ own append text ever reaches it. Re-run after `bundle update` or
 
 The installer's cache directories (extension, preset, and integration
 catalogs) and the extension payload virtual environments are rarely in
-a fresh consumer's ignore file. Run this block, replacing only the
-`fix` literal:
+a fresh consumer's ignore file. Run `ignore_entries.py` — with the
+consumer's `.venv/bin/python` when it exists, else `python3` on PATH, the
+rule upstream's own `py` scripts follow. Its one argument replaces
+`<true|false>`: `true` when the user asked to fix, else `false`:
 
 ```bash
-# ignore-entries:start
-set -e
-fix="<true|false>"
-acted=false
-for entry in ".specify/extensions/.cache/" ".specify/presets/.cache/" ".specify/integrations/.cache/" ".specify/extensions/*/.venv/"; do
-  probe=$(printf '%s' "$entry" | sed 's/\*/x/')
-  git check-ignore -q "$probe" && continue
-  acted=true
-  if [ "$fix" = "true" ]; then
-    if [ ! -f .gitignore ]; then
-      printf '# tserdeiro/spec-kit installer state\n' > .gitignore
-    elif ! grep -q '# tserdeiro/spec-kit installer state' .gitignore; then
-      printf '\n# tserdeiro/spec-kit installer state\n' >> .gitignore
-    fi
-    printf '%s\n' "$entry" >> .gitignore
-    echo "ignore: added $entry to .gitignore"
-  else
-    echo "ignore: $entry is not covered by .gitignore -- run with --fix"
-  fi
-done
-[ "$acted" = "true" ] || echo "ignore: nothing to do"
-# ignore-entries:end
+python3 .specify/presets/default/scripts/python/ignore_entries.py <true|false>
 ```
 
 `check-ignore` honors broader patterns already in the ignore file, so a

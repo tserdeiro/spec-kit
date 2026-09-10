@@ -601,3 +601,16 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `wc -l` de los archivos nuevos) es la única forma de medir antes del
     commit. *Pendiente de decisión:* un modo `--worktree` del script, o
     que el orquestador mida antes de encargar el recorte.
+70. **T026 paró en 91/80: el forecast contaba el bloque, no la tarea.**
+    El ledger estimó ~40 líneas para las 22 del bloque `ignore-entries`,
+    pero la tarea entrega script (42), tests (38), entrada de preset
+    (6) y conversión de conformance (5): el mínimo de cualquier script
+    de esta ronda ronda las 90 líneas contadas, y T006, la más chica
+    antes, dio 116. El humano decidió abrir el PR tal cual como
+    excepción, sin tocar el forecast, porque enmendarlo por la regla del
+    loop exige un commit en la rama de feature y un merge hacia la rama
+    de tarea mientras el stack sigue sin mergear: en un flujo apilado la
+    enmienda cuesta más que el exceso. *Regla:* el forecast de una tarea
+    de script se estima por su entregable completo (script + tests +
+    manifiesto + conformance), nunca por el tamaño de lo que reemplaza;
+    y una excepción explícita del humano en el PR vale como enmienda.

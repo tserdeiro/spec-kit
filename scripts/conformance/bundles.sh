@@ -1102,13 +1102,11 @@ echo "ok: budget"
 #    stands in for a real `specify` install.
 # --------------------------------------------------------------------------
 
-doctor_skill="$consumer_root/.agents/skills/speckit-doctor/SKILL.md"
-ignore_entries=$(sed -n '/ignore-entries:start/,/ignore-entries:end/p' "$doctor_skill")
-[ -n "$ignore_entries" ] || fail "doctor: installed ignore-entries block is missing"
 skill_mirror_script="$consumer_root/.specify/presets/default/scripts/python/skill_mirror.py"
 [ -e "$skill_mirror_script" ] || fail "doctor: skill_mirror.py is not installed"
+ignore_entries_script="$consumer_root/.specify/presets/default/scripts/python/ignore_entries.py"
+[ -e "$ignore_entries_script" ] || fail "doctor: ignore_entries.py is not installed"
 
-render_fix() { printf '%s\n' "$1" | sed "s@<true|false>@$2@"; }
 dir_checksum() { (cd "$1" && find . -type f | sort && find . -type f | sort | xargs cat) | shasum -a 256 | awk '{print $1}'; }
 render() { mkdir -p "$mirror_root/.claude/skills/$1"; cat > "$mirror_root/.claude/skills/$1/SKILL.md"; }
 init_options() { # $1 root, $2 ai key, $3 JSON array body (indented lines)
@@ -1244,7 +1242,7 @@ git -C "$ignore_root" init --quiet
 printf '.venv/\n' > "$ignore_root/.gitignore"
 
 before=$(shasum -a 256 < "$ignore_root/.gitignore")
-ignore_report=$(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" false)") ||
+ignore_report=$(cd "$ignore_root" && "$PYTHON" "$ignore_entries_script" false) ||
   fail "ignore: fix=false run failed"
 [ "$(shasum -a 256 < "$ignore_root/.gitignore")" = "$before" ] || fail "ignore: fix=false changed .gitignore"
 printf '%s\n' "$ignore_report" | grep -Fq '.specify/extensions/.cache/' &&
@@ -1254,13 +1252,13 @@ printf '%s\n' "$ignore_report" | grep -Fq '.specify/extensions/.cache/' &&
 printf '%s\n' "$ignore_report" | grep -Fq '.venv/' &&
   fail "ignore: fix=false reported the entry the fixture .gitignore already covers"
 
-(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" true)") ||
+(cd "$ignore_root" && "$PYTHON" "$ignore_entries_script" true) ||
   fail "ignore: fix=true run failed"
 [ "$(cat "$ignore_root/.gitignore")" = "$(printf '.venv/\n\n# tserdeiro/spec-kit installer state\n.specify/extensions/.cache/\n.specify/presets/.cache/\n.specify/integrations/.cache/')" ] ||
   fail "ignore: fix=true did not append exactly the three missing entries"
 
 mid=$(shasum -a 256 < "$ignore_root/.gitignore")
-second=$(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" true)") ||
+second=$(cd "$ignore_root" && "$PYTHON" "$ignore_entries_script" true) ||
   fail "ignore: second fix=true run failed"
 [ "$second" = "ignore: nothing to do" ] || fail "ignore: second fix=true run was not a clean no-op: $second"
 [ "$(shasum -a 256 < "$ignore_root/.gitignore")" = "$mid" ] || fail "ignore: second fix=true run changed .gitignore"
