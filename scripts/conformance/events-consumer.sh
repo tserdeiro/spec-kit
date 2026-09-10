@@ -14,6 +14,7 @@ cd "$consumer_root"
 git init --quiet
 git -c user.email=t023@example.invalid -c user.name=t023-fixture commit --quiet --allow-empty -m "chore: initial commit"
 specify init --here --force --ignore-agent-tools --integration claude >/dev/null
+# Codex first: extension add wires every installed integration (dogfooding entry 85); install --force would be a no-op.
 specify integration install codex >/dev/null
 specify extension add "$repository_root/packages/spec-kit-linear" --dev >/dev/null
 specify extension add "$repository_root/packages/spec-kit-code-review" --dev >/dev/null
@@ -37,10 +38,15 @@ rc=0; stems_ok linear || rc=1; stems_ok code-review || rc=1
 [ "$rc" -eq 0 ] || fail "doctor: an events command has no matching commands/*.md stem"
 echo "ok: doctor-stems"
 
-# Linear read-only: lifecycle disabled, so push --hook no-ops; status's query-only reads still render.
-{ cat "$repository_root/speckit-linear.yml"; printf '\nhooks:\n  lifecycle_enabled: false\n  auto_apply: false\n'; } > speckit-linear.yml
-cp "$repository_root/.speckit-linear.env" .speckit-linear.env
-echo '/.speckit-linear.env' >> .gitignore
+# Linear read-only when the developer's local files exist (lifecycle disabled, so push --hook no-ops; status's
+# query-only reads still render the line); without them the handler stays silent (T011), and so must this probe.
+expected=""
+if [ -f "$repository_root/speckit-linear.yml" ] && [ -f "$repository_root/.speckit-linear.env" ]; then
+  { cat "$repository_root/speckit-linear.yml"; printf '\nhooks:\n  lifecycle_enabled: false\n  auto_apply: false\n'; } > speckit-linear.yml
+  cp "$repository_root/.speckit-linear.env" .speckit-linear.env
+  echo '/.speckit-linear.env' >> .gitignore
+  expected="Linear: 001 on 001-T001-probe — next T001 (unchecked); next: /speckit.pr"
+fi
 
 mkdir -p specs/001-events
 printf '# Events probe\n' > specs/001-events/spec.md
@@ -51,13 +57,14 @@ git switch -c 001-T001-probe --quiet
 
 # A fresh consumer has no .venv, so the dispatcher's own interpreter rule (C-005) resolves to python3 here too.
 agent_py=.venv/bin/python; [ -x "$agent_py" ] || agent_py=python3
+# Payloads use Claude Code's hook fields (tool_name/tool_input); Codex's hooks are rendered Claude-compatible by
+# upstream and assumed to send the same fields -- its live run is what confirms them.
 dispatch() { "$agent_py" .specify/events.py "$1" "$2" 60; }
 err="$consumer_root/.guard.err"
 
-line=$(printf '{}' | dispatch session-start session_start)
-[ "$line" = "Linear: 001 on 001-T001-probe — next T001 (unchecked); next: /speckit.pr" ] ||
-  fail "session_start: unexpected context line: $line"
-echo "ok: session_start"
+line=$(printf '{}' | dispatch session-start session_start) || fail "session_start: dispatcher exit $?"
+[ "$line" = "$expected" ] || fail "session_start: expected '$expected', got '$line'"
+echo "ok: session_start${expected:+ (Linear read-only)}"
 
 rc=0
 printf '{"tool_name":"Bash","tool_input":{"command":"git push --force origin HEAD"}}' |
@@ -84,9 +91,10 @@ printf '{"tool_name":"Bash","tool_input":{"command":"git status"}}' | dispatch g
 [ "$rc" -eq 0 ] || fail "guard: an ordinary command was blocked"
 echo "ok: guard-allow"
 
+# The handler never prints (FR-005/FR-006): this proves the routing and the exit contract; the reconcile is T012's tests.
 rc=0
 out=$(printf '{"tool_name":"Bash","tool_input":{"command":"git push origin HEAD"}}' | dispatch post-tool-use post_tool_use) || rc=$?
 [ "$rc" -eq 0 ] && [ -z "$out" ] || fail "post_tool_use: expected a silent no-op, got exit=$rc stdout=$out"
-echo "ok: post_tool_use"
+echo "ok: post_tool_use (silent by contract)"
 
 echo "events conformance passed"
