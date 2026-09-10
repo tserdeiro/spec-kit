@@ -327,8 +327,8 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `git-config.yml`, bajo `auto_commit.default: false`. Un agente que
     mire solo `extensions.yml` dispararía `git.commit`, que hace
     `git add .` antes del commit acotado del propio append (entrada 24).
-    *Ronda 005 (T010):* el append nombra la clave; el PR 3 a upstream
-    (T022) lo
+    *Resuelta en T010 (PR #98):* el append nombra la clave; el PR 3 a
+    upstream (T022) lo
     elimina de raíz.
 38. **`specify` no nombra el script determinista que ya trae.** El skill
     dice "resolvé el `spec-template` por el stack (equivalente a
@@ -365,7 +365,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     la 004 los produjeron; un junior los crearía. El mismo par
     skill/template deja al plan sin vara de brevedad: el de la 005 salió
     de 770 líneas contra 330 del de la 004 y hubo que recortarlo en
-    revisión. *Ronda 005 (T010):* el append de cierre de fase dice que el
+    revisión. *Resuelta en T010 (PR #98):* el append de cierre de fase dice que el
     template resuelto manda (solo sus secciones y archivos, en la
     densidad del precedente).
 44. **`pr.md` decía "reemplazá solo dos literales" con cuatro placeholders
@@ -390,7 +390,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `session-start.md` no coinciden, y el dispatcher devuelve exit 0 sin
     decir nada, así que el evento nunca dispara. *Regla (005, D4):*
     handlers sin puntos e iguales a su archivo, con un comentario en
-    `events:`; *ronda 005:* el doctor verifica el cableado por
+    `events:`; *Resuelta en T015 (PR #104):* el doctor verifica el cableado por
     integración (FR-009).
 47. **La conformance prohibía `scripts/` en el preset.** `bundles.sh:550`
     falla si existe `.specify/presets/default/scripts`, un resto de la
@@ -435,7 +435,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     de `push` solo carga su doc; nada dice que un hook corre
     `push --current --hook` (y `--current` es redundante con
     `feature.json`). El implementador lo dedujo del README de la
-    extensión. *Ronda 005 (T011):* `commands/push.md` lo enuncia.
+    extensión. *Resuelta en T011 (PR #99):* `commands/push.md` lo enuncia.
 53. **Dos reglas del ledger que solo existían como precedente.** El
     template core ordena las fases por prioridad de historia y el append
     por dependencias, y chocan: la US4 va antes que la US2 y la US3
@@ -443,7 +443,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     reemplaza, y nada dice cuál manda. Y una tarea solo de prosa mide
     ~0 líneas para el presupuesto, que cuenta ejecutables, así que su
     forecast es el tamaño del diff por convención heredada de la 004.
-    *Ronda 005 (T010):* el `tasks` reemplazado enuncia las dos, y qué
+    *Resuelta en T010 (PR #98):* el `tasks` reemplazado enuncia las dos, y qué
     significa `single PR` en la línea `Delivery`: un PR por tarea; el
     apilado es topología del loop, no elección de la tarea.
 54. **Editar el ledger después de `after_tasks` deja Issues huérfanos.**
@@ -451,7 +451,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     nunca borra ni archiva: quitar o fusionar tareas en la revisión del
     gate dejaría Issues en Todo para siempre, así que la revisión solo
     agrega tareas con IDs nuevos (T025 y T026 acá; T015 en la 004).
-    *Ronda 005 (FR-020, T027; decidido en el gate, 2026-09-09):* `push`
+    *Resuelta en T027 (PR #102; decidido en el gate, 2026-09-09):* `push`
     archiva los Issues que él mismo creó cuando su tarea desaparece del
     ledger y los restaura si vuelve, como operaciones previsualizadas y
     reversibles; nunca borra ni toca Issues creados por personas. Es la
@@ -476,7 +476,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `Feature 005` (el nombre lo conoce la proyección). Y cada
     invocación por `run.sh` antepone `Uninstalled 1 package` /
     `Installed 1 package` de `uv` al stream que el agente parsea, así
-    que un `--json` falla igual que en la entrada 36. *Ronda 005:* la
+    que un `--json` falla igual que en la entrada 36. *Resuelta:* la
     prosa en T002, el nombre del Project en T013, `uv run -q` en T017.
 57. **El host sustituye `$0` en el skill por el primer argumento.**
     `/speckit-implement 005` llegó al agente con el awk de `budget-stop`
@@ -485,7 +485,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     como se recibe cuando el skill lleva argumento, y `pr.md` tiene el
     mismo `$0` en `pr-create`. El orquestador lo esquivó extrayendo los
     bloques del archivo fuente con `sed -n '/start/,/end/p'`, que es lo
-    que hace la conformance. *Ronda 005:* los scripts (T002, T003) lo
+    que hace la conformance. *Resuelta:* los scripts (T002, T003) lo
     eliminan por construcción y la conformance deja de extraer prosa
     (T009).
 58. **El presupuesto cuenta líneas en blanco y docstrings.** T025
@@ -620,8 +620,8 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     sin loop, y `specify integration install claude --force` re-renderizó
     los core de Claude desde upstream (y registró los comandos de
     extensión para Claude, que el registro no tenía) sin aplicar el
-    reemplazo. El espejo del doctor solo trataba `append`. *Ronda 005
-    (T008):* `skill_mirror.py` copia entero, como un skill de extensión,
+    reemplazo. El espejo del doctor solo trataba `append`. *Resuelta en
+    T008 (PR #96):* `skill_mirror.py` copia entero, como un skill de extensión,
     todo core que el preset reemplaza. *Pendiente:* la composición para
     todas las integraciones instaladas es el PR 1 a upstream (T020).
 72. **Un frontmatter YAML inválido falla en silencio.** Una
@@ -658,7 +658,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     dispatcher registra un aviso que ningún agente ve y devuelve 0; el
     evento simplemente no dispara. La regla de la entrada 46 no tiene
     diagnóstico: solo la verificación en vivo (T023) lo atraparía.
-    *Ronda 005 (T015):* el chequeo de cableado del doctor compara cada
+    *Resuelta en T015 (PR #104):* el chequeo de cableado del doctor compara cada
     `events.<evento>.command` del manifest con los stems de
     `commands/*.md` de la extensión instalada y nombra el desajuste.
 77. **D4 dice `push --hook` y `status --current --json`.** El plan
