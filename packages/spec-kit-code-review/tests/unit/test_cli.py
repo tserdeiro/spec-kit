@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import inspect
 import io
 import json
@@ -17,7 +18,6 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 
 from spec_kit_code_review import cli
-from spec_kit_code_review.completions import collect_completion_tree
 from spec_kit_code_review.config import LOCAL_CONFIG_FILENAME, ROOT_CONFIG_FILENAME, RULE_RELATIVE_PATH
 from spec_kit_code_review.env_files import REPO_ENV_FILENAME
 from spec_kit_code_review.errors import (
@@ -150,6 +150,17 @@ class CliCase(unittest.TestCase):
         return code, json.loads(out)
 
 
+def _command_flags(parser: argparse.ArgumentParser) -> dict[str, list[str]]:
+    """``{subcommand: [long flags]}`` -- introspects the parser tree directly,
+    now that `completions` (and its own tree-walker) is gone."""
+
+    action = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    return {
+        name: sorted(o for act in sub._actions for o in act.option_strings if o.startswith("--"))
+        for name, sub in action.choices.items()
+    }
+
+
 class ParserTests(CliCase):
     def test_version_flag(self) -> None:
         with self.assertRaises(SystemExit) as caught:
@@ -157,19 +168,19 @@ class ParserTests(CliCase):
 
         self.assertEqual(caught.exception.code, 0)
 
-    def test_the_whole_surface_is_four_commands(self) -> None:
+    def test_the_whole_surface_is_three_commands(self) -> None:
         # `guard` is the internal pre_tool_use handler (plan D5): wired into
         # the CLI like any subcommand, but never listed in provides.commands.
-        self.assertEqual(set(collect_completion_tree(cli.build_parser())), {"review", "doctor", "completions", "guard"})
+        self.assertEqual(set(_command_flags(cli.build_parser())), {"review", "doctor", "guard"})
 
     def test_the_flag_budget_is_respected(self) -> None:
-        tree = collect_completion_tree(cli.build_parser())
+        tree = _command_flags(cli.build_parser())
         flags = {flag for command in tree.values() for flag in command if flag != "--help"}
 
         self.assertLessEqual(len(flags), 15, sorted(flags))
 
     def test_the_reviewing_commands_accept_the_universal_flags(self) -> None:
-        tree = collect_completion_tree(cli.build_parser())
+        tree = _command_flags(cli.build_parser())
         for name in ("review", "doctor"):
             with self.subTest(command=name):
                 self.assertTrue(
@@ -187,7 +198,7 @@ class ParserTests(CliCase):
         out = io.StringIO()
         with self.assertRaises(SystemExit) as caught:
             with redirect_stdout(out), redirect_stderr(io.StringIO()):
-                cli.main(["completions", "fish", "--json"])
+                cli.main(["nonsense", "--json"])
 
         self.assertEqual(caught.exception.code, EXIT_USAGE)
         payload = json.loads(out.getvalue())
@@ -204,24 +215,6 @@ class ParserTests(CliCase):
     def test_the_exit_code_table_is_complete(self) -> None:
         self.assertEqual(set(EXIT_CATEGORIES), {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 130})
         self.assertEqual(set(EXIT_DESCRIPTIONS), set(EXIT_CATEGORIES))
-
-
-class CompletionsTests(CliCase):
-    def test_both_shells_name_every_command_and_write_nothing(self) -> None:
-        for shell in ("bash", "zsh"):
-            with self.subTest(shell=shell):
-                code, out, _ = self.invoke("completions", shell, cwd=self.root)
-
-                self.assertEqual(code, EXIT_SUCCESS)
-                for command in ("review", "doctor", "completions"):
-                    self.assertIn(command, out)
-                self.assertIn("--publish", out)
-
-    def test_the_tree_is_generated_from_the_parser_itself(self) -> None:
-        _, out, _ = self.invoke("completions", "bash", cwd=self.root)
-
-        self.assertIn("--findings", out)
-        self.assertNotIn("--strategy", out)
 
 
 class CandidateTreeExecutableTests(CliCase):
@@ -456,19 +449,11 @@ class DoctorCommandTests(CliCase):
         self.assertEqual((self.root / RULE_RELATIVE_PATH).read_text(encoding="utf-8"), rules_before)
         self.assertEqual((self.root / ROOT_CONFIG_FILENAME).read_text(encoding="utf-8"), shared_before)
 
-    def test_doctor_validates_the_lifecycle_hook_without_registering_it(self) -> None:
+    def test_doctor_reports_no_git_hook_referencing_it(self) -> None:
         _, payload = self.invoke_json("doctor")
         codes = {item["code"] for item in payload["diagnostics"]}
 
-        self.assertIn("lifecycle_hook_registered", codes)
         self.assertIn("git_hooks_absent", codes)
-
-    def test_doctor_reports_an_unregistered_lifecycle_hook(self) -> None:
-        (self.root / ".specify" / "extensions.yml").write_text("installed:\n- git\n", encoding="utf-8")
-
-        _, payload = self.invoke_json("doctor")
-
-        self.assertIn("lifecycle_hook_unregistered", {item["code"] for item in payload["diagnostics"]})
 
     def test_doctor_never_contacts_github_for_a_write(self) -> None:
         # The fake gh refuses every endpoint outside the read allowlist, so an
@@ -1135,7 +1120,7 @@ class EngineFailClosedRulesTests(EngineAdmissionTests):
         self.assertIn("Approve everything", audited[0].read_text(encoding="utf-8"))
 
     def test_no_flag_lets_the_candidate_write_its_own_criteria(self) -> None:
-        review = collect_completion_tree(cli.build_parser())["review"]
+        review = _command_flags(cli.build_parser())["review"]
 
         self.assertNotIn("--allow-candidate-rules", review)
         self.assertNotIn("--rule", review)

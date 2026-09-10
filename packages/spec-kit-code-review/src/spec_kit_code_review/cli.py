@@ -1,6 +1,6 @@
 """Command-line boundary: three commands, the exit-code contract, and rendering.
 
-The whole surface is ``review``, ``doctor`` and ``completions``. ``review`` is
+The whole surface is ``review`` and ``doctor``. ``review`` is
 the single review command: with no candidate it reviews the pending diff of the
 working tree (advisory), with a pull request it reviews the anchored candidate
 and can publish. The packet/findings two-phase protocol is an implementation
@@ -28,7 +28,6 @@ from . import __version__
 from .budget import compute as compute_budget
 from .budget import compute_working_tree as compute_working_tree_budget
 from .candidate import parse_selector, resolve_from_pull_request, resolve_from_refs
-from .completions import generate_completion_script
 from .config import (
     RULE_RELATIVE_PATH,
     load_config,
@@ -151,9 +150,6 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = subparsers.add_parser("doctor", help="validate prerequisites; --fix applies the local repairs")
     _common_arguments(doctor)
     doctor.add_argument("--fix", action="store_true", help="apply the bounded, strictly local repairs")
-
-    completions = subparsers.add_parser("completions", help="print a shell completion script")
-    completions.add_argument("shell", choices=("bash", "zsh"), help="shell to generate the completion script for")
 
     guard = subparsers.add_parser("guard", help="internal: the pre_tool_use runtime-event handler")
     guard.add_argument("--root", help="explicit consumer repository root")
@@ -2055,9 +2051,6 @@ def main(argv: list[str] | None = None) -> int:
         # must never raise even on completely malformed input (plan D5).
         return run_guard(args)
     try:
-        if args.command == "completions":
-            sys.stdout.write(generate_completion_script(args.shell, parser))
-            return EXIT_SUCCESS
         if args.command == "doctor":
             payload = run_doctor_command(args)
         elif args.command == "review":
@@ -2066,7 +2059,7 @@ def main(argv: list[str] | None = None) -> int:
             raise AppError(
                 f"unsupported command: {args.command}",
                 code=EXIT_USAGE,
-                diagnostics=[Diagnostic("command", "supported commands are review, doctor, and completions")],
+                diagnostics=[Diagnostic("command", "supported commands are review and doctor")],
             )
         _render(payload, args.json, args.quiet)
         if _verbose_requested(args) and not args.json and not args.quiet:

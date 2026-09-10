@@ -16,7 +16,6 @@ bash "$CR" review --base main --head feature
 bash "$CR" review --findings <session>/findings.json --session <session> [--publish]
 
 bash "$CR" doctor [--fix]
-bash "$CR" completions bash|zsh
 ```
 
 Universal flags: `--help`, `--json`, `--quiet`, `--verbose`, `--config PATH`,
