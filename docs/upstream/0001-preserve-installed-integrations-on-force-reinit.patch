@@ -1,4 +1,4 @@
-From 71f4f6ef539084bf5e768450210e0371c2784ba0 Mon Sep 17 00:00:00 2001
+From c9f4336043998d804633807fc472836d73c1fa37 Mon Sep 17 00:00:00 2001
 From: tserdeiro <tserdeiro@gmail.com>
 Date: Thu, 10 Sep 2026 05:08:11 -0300
 Subject: [PATCH] fix(init): preserve installed_integrations across --force
@@ -13,22 +13,21 @@ re-initialized (for example, after an upstream version bump), leaving
 its skill files on disk but no longer tracked in integration.json.
 
 Read the existing state before overwriting it and keep every previously
-installed key. Under --force, also re-register each preserved key's
-extension and preset commands alongside the integration actually being
-reinitialized: leaving them out meant the other integrations stayed
-composed from whatever they had before the reinit, silently drifting
-from the extensions and presets a consumer has since enabled or updated.
+installed key and its settings. Only the re-initialized integration is
+re-registered, as before: a non-active integration keeps what it had,
+the way install and upgrade of a non-active integration already behave
+(#2948).
 
 Single-integration projects are unaffected -- with only one key
 installed, the preserved list and the freshly (re)initialized key are
 the same, matching current behavior exactly.
 ---
- src/specify_cli/commands/init.py | 25 +++++++++++--
+ src/specify_cli/commands/init.py | 17 +++++++--
  tests/integrations/test_cli.py   | 61 ++++++++++++++++++++++++++++++++
- 2 files changed, 84 insertions(+), 2 deletions(-)
+ 2 files changed, 76 insertions(+), 2 deletions(-)
 
 diff --git a/src/specify_cli/commands/init.py b/src/specify_cli/commands/init.py
-index 2f686e2..b920254 100644
+index 2f686e2..970393c 100644
 --- a/src/specify_cli/commands/init.py
 +++ b/src/specify_cli/commands/init.py
 @@ -390,6 +390,7 @@ def register(app: typer.Typer) -> None:
@@ -39,12 +38,15 @@ index 2f686e2..b920254 100644
  
          show_banner()
  
-@@ -697,6 +698,15 @@ def register(app: typer.Typer) -> None:
+@@ -697,6 +698,18 @@ def register(app: typer.Typer) -> None:
                  )
                  manifest.save()
  
 +                # A re-init must not orphan integrations installed earlier:
-+                # collect them before they are overwritten below.
++                # collect them before they are overwritten below. Their own
++                # extension and preset registration is not redone here -- a
++                # non-active integration keeps whatever it had, as install
++                # and upgrade of a non-active integration already do (#2948).
 +                existing_state = _read_integration_json(project_path)
 +                other_installed_keys = [
 +                    key
@@ -55,21 +57,8 @@ index 2f686e2..b920254 100644
                  if force:
                      from ..integrations._helpers import (
                          _register_extensions_for_agent,
-@@ -720,9 +730,20 @@ def register(app: typer.Typer) -> None:
-                             " may need re-registration."
-                         ),
+@@ -722,7 +735,7 @@ def register(app: typer.Typer) -> None:
                      )
-+                    # Re-initializing one integration must not silently stop
-+                    # composing extensions/presets for the others.
-+                    for other_key in other_installed_keys:
-+                        _register_extensions_for_agent(
-+                            project_path, other_key, force=True,
-+                            continuing="Installed extensions may need re-registration.",
-+                        )
-+                        _register_presets_for_agent(
-+                            project_path, other_key,
-+                            continuing="Installed presets may need re-registration.",
-+                        )
  
                  integration_settings = _with_integration_setting(
 -                    {},
@@ -77,7 +66,7 @@ index 2f686e2..b920254 100644
                      resolved_integration.key,
                      resolved_integration,
                      script_type=selected_script,
-@@ -733,7 +754,7 @@ def register(app: typer.Typer) -> None:
+@@ -733,7 +746,7 @@ def register(app: typer.Typer) -> None:
                  _write_integration_json(
                      project_path,
                      resolved_integration.key,
@@ -87,7 +76,7 @@ index 2f686e2..b920254 100644
                  )
  
 diff --git a/tests/integrations/test_cli.py b/tests/integrations/test_cli.py
-index 640d12a..cfe2ddb 100644
+index 640d12a..eda9d4d 100644
 --- a/tests/integrations/test_cli.py
 +++ b/tests/integrations/test_cli.py
 @@ -1252,6 +1252,67 @@ class TestInitIntegrationFlag:
@@ -95,9 +84,9 @@ index 640d12a..cfe2ddb 100644
          )
  
 +    def test_init_here_force_preserves_other_installed_integrations(self, tmp_path):
-+        """installed_integrations and their settings must survive --force,
-+        and re-registration must reach every installed key, not just the
-+        one being re-initialized."""
++        """installed_integrations and their settings must survive --force;
++        only the re-initialized key is re-registered (a non-active
++        integration is left alone, as in install and upgrade, #2948)."""
 +        from unittest.mock import MagicMock, patch
 +
 +        from typer.testing import CliRunner
@@ -143,8 +132,8 @@ index 640d12a..cfe2ddb 100644
 +
 +        assert result.exit_code == 0, result.output
 +        registered = {call.args[1] for call in mock_extensions.call_args_list}
-+        assert registered == {"claude", "codex"}, (
-+            f"init --here --force must re-register every installed integration: {registered}"
++        assert registered == {"claude"}, (
++            f"init --here --force re-registers only the re-initialized integration: {registered}"
 +        )
 +
 +        state = json.loads((project / ".specify" / "integration.json").read_text())

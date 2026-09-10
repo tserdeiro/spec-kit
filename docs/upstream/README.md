@@ -9,10 +9,12 @@ forks or vendors upstream (`AGENTS.md`). These files are the hand-off.
 
 ## Patches this round prepares
 
-1. `0001-preserve-installed-integrations-on-force-reinit.patch` — register
-   extension and preset commands for every previously installed
-   integration, and preserve `installed_integrations` and each key's
-   `integration_settings`, across `specify init --here --force` (T020).
+1. `0001-preserve-installed-integrations-on-force-reinit.patch` — preserve
+   `installed_integrations` and each key's `integration_settings` across
+   `specify init --here --force` (T020). Only the re-initialized
+   integration is re-registered: a non-active one is left alone, the way
+   upstream's `install`/`upgrade` already treat it (issue #2948), so this
+   distribution's doctor mirror stays the answer for the second agent.
 2. Remove `git add .` from `auto-commit.sh` (T021). **Pending**: prepared
    once T021 lands.
 3. Stop registering the sixteen `git.commit` hooks when the git
