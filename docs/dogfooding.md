@@ -674,3 +674,14 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     que el brief que pide "factorizar, no copiar" paga más que copiar.
     T012 cerró en 118/120 recortando docstrings y tests. *Pendiente de
     decisión (67):* contar líneas netas.
+79. **El packet de review trunca el ledger y todo veredicto pasa a
+    `inconclusive`.** Desde #100, el cierre devuelve `inconclusive` con
+    la causa "`tasks.md`: N bytes no cupieron en el packet": el ledger de
+    la 005 ya pasa los 55 KB con las evidencias de completitud, y el
+    packet lo incluye entero como artefacto SDD. El veredicto deja de
+    distinguir "sin hallazgos" de "no revisado", y el orquestador leyó
+    mal la causa dos veces hasta mirar el JSON. *Regla:* la evidencia
+    del ledger toma el veredicto y sus `causes` del JSON del cierre, no
+    del resumen del reviewer. *Pendiente de decisión:* que el packet
+    incluya solo el bloque de la tarea revisada (y la estrategia de
+    entrega), no el ledger entero.

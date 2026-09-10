@@ -124,6 +124,7 @@ listened for, so a missed webhook cannot desynchronize anything.
 | `[x]` in `tasks.md` (no live PR) | `completed` | `completed_state_id` | — |
 | A branch | `started` | `started_state_id` | `/speckit.pr` |
 | Nothing | `unstarted` | `open_state_id` | `/speckit.implement <feature>` |
+| Gone from `tasks.md` (Issue archived, restored if the task returns) | — | — | — |
 
 The first row that applies wins: the box is checked inside the task PR
 before `ready for review`, so an observable PR is always the fresher
@@ -222,13 +223,14 @@ overrides that destination — and only the destination.
 
 ## What push will never do
 
-Delete or archive anything; create sub-issues or checklists; assign anyone
+Delete anything; archiving is the one reversible removal, and only of the
+Issues it created; create sub-issues or checklists; assign anyone
 (assignment is native Linear: the UI or the official Linear MCP acting as
 the human); touch a project lead, project members, or human comments;
 rewrite content outside its own `<!-- speckit-linear:... -->` managed
 block; create a bug or chore Issue, or change anything about one except
 its workflow state; or touch any file under `specs/`. The complete write
-surface is nine operation kinds with an enumerated input field list each
+surface is eleven operation kinds with an enumerated input field list each
 — see [`src/spec_kit_linear/allowlist.py`](src/spec_kit_linear/allowlist.py).
 
 ## Exit codes

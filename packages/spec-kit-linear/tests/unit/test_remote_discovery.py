@@ -6,11 +6,11 @@ import unittest
 from spec_kit_linear.config import load_config, repository_binding
 from spec_kit_linear.credentials import Credentials
 from spec_kit_linear.errors import AppError
-from spec_kit_linear.linear_client import LinearClient
+from spec_kit_linear.linear_client import LinearClient, RemoteIssue, RemoteProject
 from spec_kit_linear.parser import parse_feature
 from spec_kit_linear.planner import build_push_plan
 from spec_kit_linear.projection import project_feature
-from spec_kit_linear.remote_discovery import discover_and_adopt
+from spec_kit_linear.remote_discovery import _unmanaged_issues, discover_and_adopt
 from spec_kit_linear.reporting import status_report
 from tests.support.fixtures import copy_consumer_fixture
 from tests.support.linear_transport import MemoryResponse, ScriptedOpener
@@ -318,6 +318,13 @@ class RemoteDiscoveryTests(unittest.TestCase):
         self.assertNotIn("issue-bug-report", serialized)
         for operation in plan["operations"]:
             self.assertNotEqual(operation["target"], "WOR-99")
+
+    def test_archived_unmarked_issue_is_excluded_from_unmanaged_issues(self) -> None:
+        # includeArchived now feeds this reader too; it must filter them out.
+        active = RemoteIssue("i1", "WOR-1", "Bug", "", "t", "p1", None, None, ())
+        archived = RemoteIssue("i2", "WOR-2", "Old bug", "", "t", "p1", None, None, (), archived_at="2026-01-01T00:00:00.000Z")
+        project = RemoteProject("p1", "Proj", "", "t", (), (), (active, archived))
+        self.assertEqual([issue.identifier for issue in _unmanaged_issues(project)], ["WOR-1"])
 
     def test_duplicate_marker_is_a_fail_closed_identity_error(self) -> None:
         project = {
