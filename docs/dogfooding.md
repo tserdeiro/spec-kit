@@ -786,7 +786,12 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     donde existan `claude` autenticado y `codex`. *Regla:* una tarea de
     verificación en vivo declara en su contrato qué agentes están
     instalados y autenticados en la máquina que la ejecuta antes de
-    prometer transcripts "en ambos agentes".
+    prometer transcripts "en ambos agentes". *Resuelta a medias el mismo
+    día:* tras el login del humano, los tres prompts a Claude Code
+    (2.1.236, `--model haiku`) dieron la línea de contexto
+    (`SessionStart:startup hook success: Linear: …`), el force push
+    bloqueado y la escritura protegida bloqueada — en la evidencia de
+    T023; Codex sigue pendiente de una máquina con el binario.
 89. **Un handler silencioso por contrato no se puede verificar desde
     fuera.** `post-tool-use` nunca imprime y siempre sale 0 (FR-005,
     FR-006), y `_reconcile_hook` descarta el payload de `push --hook`:
