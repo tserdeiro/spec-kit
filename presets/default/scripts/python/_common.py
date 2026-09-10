@@ -134,6 +134,33 @@ def run_gh_json(*args: str, cwd: Path | None = None) -> Any:
     except json.JSONDecodeError as error:
         die(f"gh {' '.join(args)} returned invalid JSON: {error}")
 
+_TASK_PR_LIMIT = 1000
+
+def open_task_prs(repo_root: Path, feature_number: str, fields: str) -> list[dict[str, Any]]:
+    """The feature's open task PRs (heads `<feature_number>-T…`), from the whole repository.
+
+    `gh` paginates up to `--limit`; a saturated result may be truncated, and
+    acting on a partial stack yields a wrong base, an empty propagation, or
+    a false "nothing to merge", so that case dies instead.
+    """
+    prs = run_gh_json("pr", "list", "--state", "open", "--limit", str(_TASK_PR_LIMIT), "--json", fields, cwd=repo_root)
+    if len(prs) >= _TASK_PR_LIMIT:
+        die(f"gh pr list hit its {_TASK_PR_LIMIT}-PR limit; the result may be truncated")
+    return [pr for pr in prs if pr["headRefName"].startswith(f"{feature_number}-T")]
+
+def reconcile_linear(repo_root: Path) -> None:
+    """Reconcile Linear after work `post_tool_use` cannot see: `push --hook`
+    when the extension is installed, a silent no-op without it, and a
+    warning -- never a failure of the calling script -- if that call fails.
+    """
+    run_sh = repo_root / ".specify" / "extensions" / "linear" / "scripts" / "bash" / "run.sh"
+    if not run_sh.is_file():
+        return
+    result = subprocess.run(["bash", str(run_sh), "push", "--hook"], cwd=repo_root, text=True, capture_output=True)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        print(f"warning: linear reconcile failed: {detail}", file=sys.stderr)
+
 def die(message: str) -> NoReturn:
     """Today's shell diagnostic, unchanged: "error: ..." on stderr, exit 2."""
     print(f"error: {message}", file=sys.stderr)

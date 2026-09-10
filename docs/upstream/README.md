@@ -27,24 +27,26 @@ forks or vendors upstream (`AGENTS.md`). These files are the hand-off.
    directory can be resolved — never an untracked file outside those
    paths.
 3. `0003-gate-git-commit-hooks-on-auto-commit-config.patch` — give each of
-   the sixteen optional `git.commit` hooks a `condition:
-   "config.auto_commit.<event>.enabled == 'true'"` (T022), the grammar
-   `HookExecutor._evaluate_condition` already supports. The hooks stay
-   registered — enabling an event later needs no reinstall — but
-   `should_execute_hook` now gates each one on its own key instead of
-   the always-true default. **Open it only as the first half of the
-   fix, or bundled with the second**: current core command templates do
-   not evaluate a hook's `condition` — they skip any hook that has one
-   (`docs/reference/extensions.md`) and nothing in `src/specify_cli`
-   calls `should_execute_hook` in production — so on its own this
-   stops all sixteen from being offered, including for a project that
-   has already enabled an event's auto-commit today; the second half is
-   the templates (or the dispatcher) evaluating the condition before
-   offering the hook. The expression honors only the per-event key, not
-   `auto_commit.default`'s "enable for all" shorthand (the grammar has
-   no disjunction), and a mistyped condition degrades silently to
-   never. It closes the no-op prompt dogfooding entry 25 names; it does
-   not yet deliver a live per-event prompt through the stock templates.
+   the sixteen optional `git.commit` hooks a composite `condition`: the
+   enabled per-event key when present; the shared `auto_commit.default`
+   applies only when the whole event section is absent (T022) — the same fallback
+   `auto_commit.py`'s `_parse_auto_commit_config` already implements by
+   hand. Expressing that needs disjunction, so
+   `HookExecutor._evaluate_condition` now composes its five atom forms
+   (`config.<path>`/`env.<VAR>` with `is set`, `is not set`, `==`, `!=`)
+   with `and`, `or`, `not`, and parentheses. All ten
+   `templates/commands/*.md` files (twenty `before_`/`after_` hook
+   blocks) evaluate a hook's `condition` the same way, replacing the old
+   instruction to skip any hook that has one, and
+   `docs/reference/extensions.md` documents the same rule. The two
+   mandatory hooks (`git.initialize`, `git.feature`) are untouched; they
+   carry no `auto_commit` key to gate on. Tests cover the grammar
+   (composition, precedence, malformed shapes) and prove
+   `should_execute_hook` agrees with `_parse_auto_commit_config` across
+   default true/false and explicit per-event overrides. Remaining limit:
+   a mistyped condition still degrades silently to never. It closes the
+   no-op prompt dogfooding entry 25 names, now with a live
+   per-event-or-default prompt through the stock templates.
 
 ## Opening a patch upstream
 

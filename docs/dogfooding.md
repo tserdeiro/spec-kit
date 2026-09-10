@@ -866,7 +866,45 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Regla:* una desviación de alcance que cambia el contrato de un script
     trae su escenario de conformance en el mismo PR o se vuelve tarea
     propia en el ledger.
-94. **Un fix de prosa del doctor viajó sin regenerar sus renders.** El
+94. **Una auditoría externa reprodujo siete defectos en una ronda dada por
+    cerrada.** Codex auditó el candidato de #113 (`740a9b9`) con once
+    hallazgos; siete eran reales y el orquestador los reprodujo contra el
+    código: (1) `issueArchive`/`issueUnarchive` seleccionaban `issue { id }`
+    y el payload real de Linear (`IssueArchivePayload`) se llama `entity`
+    — los mocks fabricaban el mismo campo, la suite pasaba y ninguna Issue
+    se archivó jamás (T027); (2) el guard dejaba pasar `+refspec`, `-vf`,
+    `;` pegado, saltos de línea, `-am`, `-m"…"`, `-F` y
+    `--delete-branch=true`, y además bloqueaba el heredoc
+    `$(cat <<'EOF' …)` con subject válido, la forma que Claude Code usa por
+    defecto (T014); (3) `other/../specs/…/spec.md` eludía `protected_paths`
+    (T014); (4) el matcher de reconcile no veía `git -C . push` ni
+    `gh --repo … pr ready` (T012), y `merge_root_first.py` y
+    `stack_propagate.py` no reconciliaban al terminar; (5) la línea de
+    `session_start` perdía NEXT con la pila entera `[x]` en review y no
+    nombraba los PR (T013); (6) `implement.md` corría prerequisites antes
+    de seleccionar la feature nombrada (T008); (7) `--limit 100` sin
+    paginar en los cuatro scripts que leen la pila. Otros dos eran
+    decisiones ya registradas (81, y 92, ahora resuelta: piso `>=1.0.4` en
+    los tres bundles), uno el parche 0003 incompleto por diseño (su README
+    lo decía; ahora lleva la segunda mitad: los templates evalúan
+    `condition`), y uno la evidencia de SC-002 (diez sesiones headless
+    corridas después: 10/10 con la línea). *Regla:* un mock que fabrica la
+    respuesta del proveedor no prueba el contrato — la selección GraphQL se
+    fija en el test contra el esquema real —, y un guard se prueba con la
+    lista de formas equivalentes del comando (clusters, `=valor`,
+    separadores pegados, redirecciones, heredoc), no con los flags que se
+    le ocurrieron al implementador. *Resueltas* en los PR de origen (#96,
+    #100, #101, #102, #103, #111) y en #113 lo transversal, propagadas con
+    la receta de `stack_propagate.py`; los presupuestos de T012, T013,
+    T014 y T027 quedaron por encima de su tope tras el fix, por decisión
+    humana. *Pendiente:* la mitad viva de T023 en Codex y la reconciliación
+    observada contra un proyecto de prueba en Linear siguen sin correr.
+95. **`specify integration install` no tiene `--ignore-agent-tools`.**
+    Solo `init` lo tiene; una fixture que instala una segunda integración
+    en una máquina sin su binario depende de que el instalador no lo
+    exija (hoy no lo hace). Superficie inconsistente de upstream;
+    anotada, sin parche.
+96. **Un fix de prosa del doctor viajó sin regenerar sus renders.** El
     commit `1672876` (T023: el marcador TOML de Codex en el paso 6 de
     `doctor.md`) no corrió la receta de regeneración, así que
     `.claude/skills/speckit-doctor/SKILL.md` y
@@ -876,8 +914,3 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Resuelta de paso en T028.* *Pendiente de decisión:* una aserción en
     `bundles.sh` o en CI de que cada `commands/*.md` del preset coincide
     con sus renders instalados.
-95. **`specify integration install` no tiene `--ignore-agent-tools`.**
-    Solo `init` lo tiene; una fixture que instala una segunda integración
-    en una máquina sin su binario depende de que el instalador no lo
-    exija (hoy no lo hace). Superficie inconsistente de upstream;
-    anotada, sin parche.

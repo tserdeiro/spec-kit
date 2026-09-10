@@ -22,6 +22,7 @@
   `>=1.0.1`), the floor where runtime events ship.
 - The `uv run` launcher now runs quietly (`-q`), so a `--json`
   invocation's output is no longer prefixed by uv's own sync chatter.
+- The guard tokenizes glued separators and bare newlines, reads a commit message however it is given (`-m`, `--message`, `-F`/`--file`, a heredoc, the `$(cat <<'EOF' …)` form it used to block), treats `+refspec` and short clusters as force, and reads `--delete-branch=<bool>` and clusters; a protected path is normalized (`..`, `.`, symlinks) before the glob.
 
 ## 0.4.0
 

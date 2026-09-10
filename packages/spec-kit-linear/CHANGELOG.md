@@ -27,6 +27,9 @@
   `>=1.0.1`), the floor where runtime events ship.
 - The `uv run` launcher now runs quietly (`-q`), so a `--json`
   invocation's output is no longer prefixed by uv's own sync chatter.
+- `issueArchive`/`issueUnarchive` select `entity { id }`, the archive payload's real field; the previous `issue { id }` selection failed Linear's validation, so no Issue was ever archived or restored.
+- The `post_tool_use` matcher accepts leading global options (`git -C`, `-c`, `gh --repo`, `-R`), `VAR=value` prefixes, and every command separator.
+- The session line names each open PR's `#<n>` and keeps a NEXT once every task is checked; task rows carry `pr_number`.
 
 ## 0.12.0
 

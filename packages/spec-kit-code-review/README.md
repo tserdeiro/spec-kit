@@ -62,8 +62,10 @@ Configured on an agent with runtime-event support (Claude Code, Codex,
 Cursor), this extension also runs as a `pre_tool_use` handler and blocks,
 before it takes effect (exit 2, the fix on stderr):
 
-- a `git commit -m` whose subject does not follow `type(scope): subject`;
-- any form of `git push --force`;
+- a `git commit` whose subject — however the message is given (`-m`,
+  `--message`, `-F`/`--file`, or a heredoc) — does not follow
+  `type(scope): subject`;
+- any form of `git push --force`, including a `+refspec` or `--mirror`;
 - a `gh pr merge` carrying `--delete-branch`;
 - an `Edit`/`Write` to a `protected_paths` glob while on a task branch
   (`NNN-T###-...`); a feature branch is exempt.
