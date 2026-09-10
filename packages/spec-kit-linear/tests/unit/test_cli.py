@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, main, run_post_tool_use, run_session_start
+from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, _is_reconcile_command, main, run_post_tool_use, run_session_start
 from spec_kit_linear.config import ROOT_CONFIG_FILENAME, load_config, repository_binding
 from spec_kit_linear.errors import Diagnostic
 from spec_kit_linear.github import PullRequest, PullRequestScan
@@ -1313,7 +1313,11 @@ def _bash_payload(command: str) -> str:
 # The payload matcher table (dogfooding-style, D4/T012): every stdin this
 # handler must reconcile on, and every one it must silently ignore. Includes
 # leading global options on both `git` and `gh` (with an attached `=value`,
-# a separate value token, or no value at all).
+# a separate value token, or no value at all), plus the quoting, comment,
+# redirection, subshell, and wrapper-word cases a tokenizer must get right
+# where a plain regex cannot (it cannot see shell quoting: a quoted value
+# with a space defeats it, and shell metacharacters sitting inside a quoted
+# argument produce a spurious match).
 _RECONCILING_STDIN = [
     _bash_payload(c)
     for c in (
@@ -1338,6 +1342,21 @@ _RECONCILING_STDIN = [
         "git push 2>&1 | tail -1",
         "GIT_TRACE=1 git push",
         "cd x && GH_TOKEN=t GH_HOST=h gh pr merge 1",
+        "time env FOO=1 git push",
+        "git commit -F - <<'EOF'\nnot a push\nEOF\ngit push",
+        "cat <<-'EOF'\n\tnot a push\n\tEOF\ngit push",
+        "git commit -F - <<'EOF'\nfix(x): don't crash\nEOF\ngit push",
+        "cat <<A <<B\nit's\nA\nwon't\nB\ngit push origin HEAD",
+        "cat <<< val\ngit push origin HEAD",
+        "cat <; git push origin HEAD",
+        "(git status)#note\ngit push",
+        'git -C "a b" push origin HEAD',
+        r"git -C \; push origin HEAD",
+        "git status # note\ngit push",
+        "git \\\npush origin HEAD",
+        "env FOO=1 gh pr ready 1",
+        "cd x && git push 2>&1 | tail -1",
+        "(cd x && git push)",
     )
 ]
 _SILENT_STDIN = [
@@ -1349,6 +1368,14 @@ _SILENT_STDIN = [
         "gh pr view",
         "gh pr list",
         "echo git push",
+        'echo "a;git push origin HEAD"',
+        r"echo \; git push origin HEAD",
+        "git commit -m 'x; gh pr ready'",
+        'git push "unterminated',
+        "git commit -F - <<'EOF'\ngit push\nEOF",
+        "cat <<A <<B\ngit push\nA\ngh pr ready\nB",
+        "git commit -F - <<'EOF'\nfix(x): don't crash\nEOF",
+        "cat <<EOF | tee x\ngit push\nEOF",
     )
 ] + [
     json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "x"}}),
@@ -1365,6 +1392,14 @@ class PostToolUseTests(CliTestCase):
         with patch("spec_kit_linear.cli.run_push") as run_push, patch("sys.stdin", StringIO(stdin_text)), redirect_stdout(output):
             code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
         return code, output.getvalue(), run_push
+
+    def test_quoted_punctuation_only_argument_is_not_a_command_separator(self) -> None:
+        self.assertFalse(_is_reconcile_command('git commit -m ";" git push'))
+
+    def test_shell_continuations_and_quote_escape_semantics(self) -> None:
+        self.assertTrue(_is_reconcile_command("git \\\npush origin HEAD"))
+        self.assertFalse(_is_reconcile_command("git '\\\npush' origin HEAD"))
+        self.assertTrue(_is_reconcile_command('git -C "\\;" push origin HEAD'))
 
     def test_matching_bash_commands_reconcile(self) -> None:
         for stdin_text in _RECONCILING_STDIN:

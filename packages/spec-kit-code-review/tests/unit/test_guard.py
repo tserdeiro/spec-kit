@@ -174,6 +174,13 @@ class ForcePushTests(GuardTestCase):
         self.assertEqual(code, 2)
         self.assertIn("--force", stderr)
 
+    def test_a_mirror_push_is_a_force_push(self) -> None:
+        """`--mirror` forces every ref under `refs/` (git-push(1))."""
+
+        code, stderr = self._run(_bash("git push --mirror origin"))
+        self.assertEqual(code, 2)
+        self.assertIn("--force", stderr)
+
     def test_a_semicolon_glued_to_the_previous_word_still_separates_steps(self) -> None:
         code, stderr = self._run(_bash("true;git push --force origin HEAD"))
         self.assertEqual(code, 2)
@@ -202,6 +209,127 @@ class ForcePushTests(GuardTestCase):
 
     def test_a_similarly_named_subcommand_never_matches(self) -> None:
         self.assertEqual(self._run(_bash("git pushd")), (0, ""))
+
+
+class ChainParsingTests(GuardTestCase):
+    """Second-audit finding: `#` must not swallow a newline, a leading
+    environment assignment or wrapper word must not hide the real
+    executable, and a quoted `#` must stay inside its token."""
+
+    def test_stacked_wrappers_and_every_wrapper_word_are_seen_through(self) -> None:
+        for command in ("time env git push --force origin HEAD", "nohup git push -f", "exec git push -f", "command git push -f",
+                        "FOO=1 time BAR=2 env git push -f", 'time env git commit -m "bad subject"', "time env gh pr merge 1 -d"):
+            with self.subTest(command=command):
+                self.assertEqual(self._run(_bash(command))[0], 2)
+
+    def test_a_leading_redirection_does_not_hide_the_executable(self) -> None:
+        self.assertEqual(self._run(_bash("2>&1 git push --force origin HEAD"))[0], 2)
+
+    def test_an_all_assignment_or_empty_command_is_allowed(self) -> None:
+        for command in ("FOO=1", "", "   ", "FOO=1 time"):
+            with self.subTest(command=command):
+                self.assertEqual(self._run(_bash(command)), (0, ""))
+
+    def test_a_heredoc_body_is_never_read_as_commands(self) -> None:
+        self.assertEqual(self._run(_bash("git commit -F - <<'EOF'\nfeat(x): ok\n\ngit push --force origin HEAD\nEOF")), (0, ""))
+        self.assertEqual(self._run(_bash("cat <<A <<B\ngit push -f\nA\ngh pr merge 1 -d\nB\ngit status")), (0, ""))
+        self.assertEqual(self._run(_bash("cat <<'EOF'\nnot a push\nEOF\ngit push -f"))[0], 2)
+
+    def test_a_quoted_heredoc_commit_body_can_contain_command_prose(self) -> None:
+        command = "git commit -m \"$(cat <<'EOF'\nfeat(x): valid\n\ngit push --force origin HEAD\nEOF\n)\""
+        self.assertEqual(self._run(_bash(command)), (0, ""))
+
+    def test_comment_prose_is_never_read_as_flags(self) -> None:
+        for command in ("git push origin HEAD # remember: never --force", "git push origin HEAD # use -f if needed",
+                        "gh pr merge 1 --merge # do not -d it", 'git commit # -m "not real"', "git commit -m 'feat(x): #12' # ok"):
+            with self.subTest(command=command):
+                self.assertEqual(self._run(_bash(command)), (0, ""))
+        self.assertEqual(self._run(_bash("echo a#b && git push -f"))[0], 2)  # a `#` inside a word is not a comment
+        self.assertEqual(self._run(_bash("git push origin '#' -f"))[0], 2)  # nor a quoted one
+
+    def test_a_heredoc_body_with_an_odd_quote_never_hides_what_follows(self) -> None:
+        # `don't` unbalances shlex's quotes when the body is tokenized; it never is.
+        for command, fix in (("git commit -F - <<'EOF'\nfix(x): don't crash\nEOF\ngit push --force origin HEAD", "--force"),
+                             ("git commit -F - <<'EOF'\nfix(x): don't crash\nEOF\ngh pr merge 1 --delete-branch", "--delete-branch"),
+                             ("cat <<'EOF'\nit's a test\nEOF\ngit push --force origin HEAD", "--force")):
+            with self.subTest(command=command):
+                code, stderr = self._run(_bash(command))
+                self.assertEqual(code, 2)
+                self.assertIn(fix, stderr)
+        self.assertEqual(self._run(_bash("git commit -F - <<'EOF'\nfix(x): don't crash\nEOF")), (0, ""))
+
+    def test_a_dash_heredoc_body_loses_its_leading_tabs(self) -> None:
+        self.assertEqual(self._run(_bash("git commit -F - <<-'EOF'\n\tfeat(x): ok\n\tEOF")), (0, ""))
+        code, stderr = self._run(_bash("git commit -F - <<-'EOF'\n\tbad subject\n\tEOF"))
+        self.assertEqual(code, 2)
+        self.assertIn("`bad subject`", stderr)
+        code, stderr = self._run(_bash("git commit -F - <<-'EOF'\n\tfeat(x): ok\n\tEOF\ngit push --force origin HEAD"))
+        self.assertEqual(code, 2)
+        self.assertIn("--force", stderr)
+
+    def test_a_here_string_is_not_a_heredoc(self) -> None:
+        self.assertEqual(self._run(_bash("cat <<< \"it's\" && git push -f"))[0], 2)
+        for command in ("cat <<< val\ngit push --force origin HEAD", 'cat <<< "val"\ngit push --force origin HEAD',
+                        'diff <<< "$a" <<< "$b"\ngh pr merge 1 -d'):
+            with self.subTest(command=command):
+                self.assertEqual(self._run(_bash(command))[0], 2)
+
+    def test_a_separator_glued_to_a_redirection_still_separates(self) -> None:
+        self.assertEqual(self._run(_bash("cat <; git push --force origin HEAD"))[0], 2)
+        self.assertEqual(self._run(_bash("(git status)#comment\ngit push -f"))[0], 2)
+        self.assertEqual(self._run(_bash("git push origin HEAD &>/dev/null")), (0, ""))
+
+    def test_a_command_naming_neither_git_nor_gh_is_never_tokenized(self) -> None:
+        self.assertEqual(self._run(_bash("echo it's fine")), (0, ""))
+        self.assertEqual(self._run(_bash("gitk --all")), (0, ""))
+
+    def test_a_dash_heredoc_ends_at_its_own_delimiter(self) -> None:
+        self.assertEqual(self._run(_bash("git commit -F - <<-'EOF'\nfeat(x): ok\n\tEOF\ngit push --force origin HEAD"))[0], 2)
+        self.assertEqual(self._run(_bash("cat <<-EOF\n\tgit push -f\n\tEOF\ngit status")), (0, ""))
+
+    def test_a_hash_comment_does_not_swallow_the_following_step(self) -> None:
+        code, stderr = self._run(_bash("git status # inspect\ngit push --force origin HEAD"))
+        self.assertEqual(code, 2)
+        self.assertIn("--force", stderr)
+
+    def test_a_hash_comment_does_not_hide_an_otherwise_fine_push(self) -> None:
+        self.assertEqual(self._run(_bash("git status # inspect\ngit push origin HEAD")), (0, ""))
+
+    def test_a_quoted_hash_stays_inside_its_token(self) -> None:
+        self.assertEqual(self._run(_bash('git commit -m "feat(x): #12"')), (0, ""))
+
+    def test_a_leading_environment_assignment_does_not_hide_a_force_push(self) -> None:
+        code, stderr = self._run(_bash("GIT_TRACE=1 git push --force origin HEAD"))
+        self.assertEqual(code, 2)
+        self.assertIn("--force", stderr)
+
+    def test_a_leading_environment_assignment_does_not_hide_a_delete_branch_merge(self) -> None:
+        code, stderr = self._run(_bash("FOO=1 gh pr merge 1 -d"))
+        self.assertEqual(code, 2)
+        self.assertIn("--delete-branch", stderr)
+
+    def test_quoted_or_escaped_punctuation_is_an_argument_not_a_separator(self) -> None:
+        self.assertEqual(self._run(_bash('echo ";" git push --force origin HEAD')), (0, ""))
+        self.assertEqual(self._run(_bash("echo ';' git push --force origin HEAD")), (0, ""))
+        self.assertEqual(self._run(_bash(r"echo \; git push --force origin HEAD")), (0, ""))
+
+        for command in ('git -C ";" push --force origin HEAD', "git -C ';' push --force origin HEAD", r"git -C \; push --force origin HEAD"):
+            with self.subTest(command=command):
+                code, stderr = self._run(_bash(command))
+                self.assertEqual(code, 2)
+                self.assertIn("--force", stderr)
+
+    def test_backslash_newline_continues_a_push_command(self) -> None:
+        for command in ("git \\\npush --force origin HEAD", "git push \\\n--force origin HEAD"):
+            with self.subTest(command=command):
+                code, stderr = self._run(_bash(command))
+                self.assertEqual(code, 2)
+                self.assertIn("--force", stderr)
+
+    def test_a_wrapper_word_and_its_own_assignment_do_not_hide_a_bad_subject(self) -> None:
+        code, stderr = self._run(_bash('env GIT_TRACE=1 git commit -m "bad subject"'))
+        self.assertEqual(code, 2)
+        self.assertIn("type(scope): subject", stderr)
 
 
 class DeleteBranchMergeTests(GuardTestCase):
