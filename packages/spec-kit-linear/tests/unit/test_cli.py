@@ -1288,9 +1288,46 @@ def _bash_payload(command: str) -> str:
 
 
 # The payload matcher table (dogfooding-style, D4/T012): every stdin this
-# handler must reconcile on, and every one it must silently ignore.
-_RECONCILING_STDIN = [_bash_payload(c) for c in ("git push origin HEAD", "git push -u origin x", "gh pr create", "gh pr ready", "gh pr merge", "git commit -m 'fix(x): y' && git push")]
-_SILENT_STDIN = [_bash_payload(c) for c in ("gh pr view 99", "git pushd /tmp")] + [
+# handler must reconcile on, and every one it must silently ignore. Includes
+# leading global options on both `git` and `gh` (with an attached `=value`,
+# a separate value token, or no value at all).
+_RECONCILING_STDIN = [
+    _bash_payload(c)
+    for c in (
+        "git push origin HEAD",
+        "git push -u origin x",
+        "gh pr create",
+        "gh pr ready",
+        "gh pr merge",
+        "git commit -m 'fix(x): y' && git push",
+        "git -C . push origin HEAD",
+        "git -c core.x=y push",
+        "git --git-dir=/x push",
+        "git --no-pager push",
+        "gh --repo o/r pr ready 1",
+        "gh -R o/r pr merge 1",
+        "gh --hostname h pr create",
+        "git commit -m 'fix(x): y' && git -C x push",
+        "git fetch; git push",
+        "git fetch || git push",
+        "git status\ngit push origin HEAD",
+        "(cd sub && git push)",
+        "git push 2>&1 | tail -1",
+        "GIT_TRACE=1 git push",
+        "cd x && GH_TOKEN=t GH_HOST=h gh pr merge 1",
+    )
+]
+_SILENT_STDIN = [
+    _bash_payload(c)
+    for c in (
+        "gh pr view 99",
+        "git pushd /tmp",
+        "gitk push",
+        "gh pr view",
+        "gh pr list",
+        "echo git push",
+    )
+] + [
     json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "x"}}),
     "{not json",
     "",

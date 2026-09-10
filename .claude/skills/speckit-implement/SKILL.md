@@ -22,10 +22,11 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Setup
 
-1. Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` from the repository root; parse `FEATURE_DIR` and `AVAILABLE_DOCS`. Every path is absolute.
-2. **Checklists, read-only** — when `FEATURE_DIR/checklists/` exists, scan each file's `- [ ]`/`- [x]` counts into a table (`Checklist | Total | Checked | Unchecked | Status`). Every checklist at 0 unchecked is `PASS`; otherwise display the table and ask whether to proceed anyway — "no" or "wait" halts, "yes" or "proceed" continues. Never edit a checklist file or its markers.
-3. **Load the artifacts** — `tasks.md` and `plan.md` (required); `data-model.md`, `contracts/`, `research.md`, `quickstart.md`, and `.specify/memory/constitution.md` when present.
-4. **Hooks, silently** — read `.specify/extensions.yml`'s `hooks.before_implement` (skip entirely, silently, on a missing file, a missing key, or invalid YAML). Among entries whose `enabled` is not explicitly `false` and whose `condition` is empty (a non-empty `condition` is left to the HookExecutor): invoke a **mandatory** hook (`optional: false`) as its own slash command — dots become hyphens, e.g. `speckit.git.commit` → `/speckit-git-commit` — and wait for it before continuing; run an **optional** hook the same way, silently, only when its own extension's configuration enables its event (check under `.specify/extensions/<extension>/`); skip every other optional hook, silently. Nothing about a hook is ever printed. The same rule governs `hooks.after_implement` — see "After hooks" below.
+1. If the user named a feature (`/speckit.implement 003` or `003-checkout-flow`), resolve it to exactly one `specs/<dir>/` directory (a unique prefix is enough; stop and list the candidates if it is ambiguous or matches nothing) and `export SPECIFY_FEATURE_DIRECTORY=specs/<dir>` in every shell where this feature's scripts run. Upstream persists that choice to `.specify/feature.json`, so later runs without an argument continue it; without an argument, the active feature applies as-is.
+2. Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` from the repository root; parse `FEATURE_DIR` and `AVAILABLE_DOCS`. Every path is absolute.
+3. **Checklists, read-only** — when `FEATURE_DIR/checklists/` exists, scan each file's `- [ ]`/`- [x]` counts into a table (`Checklist | Total | Checked | Unchecked | Status`). Every checklist at 0 unchecked is `PASS`; otherwise display the table and ask whether to proceed anyway — "no" or "wait" halts, "yes" or "proceed" continues. Never edit a checklist file or its markers.
+4. **Load the artifacts** — `tasks.md` and `plan.md` (required); `data-model.md`, `contracts/`, `research.md`, `quickstart.md`, and `.specify/memory/constitution.md` when present.
+5. **Hooks, silently** — read `.specify/extensions.yml`'s `hooks.before_implement` (skip entirely, silently, on a missing file, a missing key, or invalid YAML). Among entries whose `enabled` is not explicitly `false` and whose `condition` is empty (a non-empty `condition` is left to the HookExecutor): invoke a **mandatory** hook (`optional: false`) as its own slash command — dots become hyphens, e.g. `speckit.git.commit` → `/speckit-git-commit` — and wait for it before continuing; run an **optional** hook the same way, silently, only when its own extension's configuration enables its event (check under `.specify/extensions/<extension>/`); skip every other optional hook, silently. Nothing about a hook is ever printed. The same rule governs `hooks.after_implement` — see "After hooks" below.
 
 ## The delivery loop
 
@@ -37,9 +38,7 @@ This distribution delivers **one branch and one draft PR per task**; wrap every 
 
 Run every script below with the consumer's `.venv/bin/python` when it exists, else `python3` on PATH — the rule upstream's own `py` scripts follow.
 
-## 0. Feature selection and the gate
-
-If the user named a feature (`/speckit.implement 003` or `003-checkout-flow`), resolve it to exactly one `specs/<dir>/` directory (a unique prefix is enough; stop and list the candidates if it is ambiguous or matches nothing) and `export SPECIFY_FEATURE_DIRECTORY=specs/<dir>` in every shell where this feature's scripts run. Upstream persists that choice to `.specify/feature.json`, so later runs without an argument continue it; without an argument, the active feature applies as-is.
+## 0. The gate
 
 Verify the **feature gate** — the draft feature PR on the feature branch (`NNN-slug`), the spec-review gate a human merge later closes:
 
@@ -136,7 +135,7 @@ Undoing a delivered change is a ledger task the human adds, delivered through th
 
 ## After hooks
 
-Run `.specify/extensions.yml`'s `hooks.after_implement` by Setup step 4's own rule, once this run has nothing left to deliver — silently, mandatory hooks awaited, eligible optional hooks run quietly, every other one skipped.
+Run `.specify/extensions.yml`'s `hooks.after_implement` by Setup step 5's own rule, once this run has nothing left to deliver — silently, mandatory hooks awaited, eligible optional hooks run quietly, every other one skipped.
 
 ## Completion report
 
