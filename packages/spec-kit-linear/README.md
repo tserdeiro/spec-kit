@@ -23,7 +23,6 @@ sanitized diagnostics.
 | `push` | Projects the current feature state. Preview by default, `--apply` writes. Idempotent. |
 | `status` | Reports the local feature state and its Linear projection. Never writes. |
 | `doctor` | Diagnoses prerequisites, with `--fix` for the mechanical ones. |
-| `completions` | Prints a bash or zsh completion script. |
 
 Flags, in full:
 
@@ -265,12 +264,3 @@ announces a non-production endpoint on every invocation. It pins the endpoint
 override to a loopback destination and refuses to run if the effective
 endpoint would be production, so credentials on a machine cannot change what
 conformance touches.
-
-## Shell completions
-
-```bash
-eval "$(spec-kit-linear completions bash)"   # or: zsh
-```
-
-The script is generated from the argparse tree itself, so it can never drift
-from the real command surface.

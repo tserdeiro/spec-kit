@@ -685,3 +685,13 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     del resumen del reviewer. *Pendiente de decisión:* que el packet
     incluya solo el bloque de la tarea revisada (y la estrategia de
     entrega), no el ledger entero.
+80. **Borrar un hook tiene un dependiente que nadie nombró.** Al quitar
+    `hooks.after_implement` del manifest de code-review (T017), el
+    `doctor.py` del paquete seguía validando que ese hook estuviera
+    registrado en `.specify/extensions.yml` del consumidor: sin el
+    borrado, cada doctor habría avisado `lifecycle_hook_unregistered`
+    para siempre, con un remedio imposible. El implementador lo quitó
+    fuera de los Boundaries y lo anotó. *Regla:* los Boundaries de una
+    tarea que borra un hook, evento o comando nombran también el código
+    de salud que valida su registro (doctor, conformance, tests de
+    superficie).

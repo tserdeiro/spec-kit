@@ -1025,26 +1025,49 @@ class WorkItemTests(WorkStateTests):
         self.assertNotIn("Work items", text)
 
 
+def _command_flags(parser) -> dict[str, list[str]]:
+    """``{subcommand: [long flags]}`` -- introspects the parser tree directly,
+    now that `completions` (and its own tree-walker) is gone."""
+
+    import argparse
+
+    action = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    return {
+        name: sorted(o for act in sub._actions for o in act.option_strings if o.startswith("--"))
+        for name, sub in action.choices.items()
+    }
+
+
+class LauncherTests(unittest.TestCase):
+    """Both launchers run uv quietly, so a parsed `--json` starts with the JSON (dogfooding entry 56)."""
+
+    def test_both_launchers_pass_q_to_uv(self) -> None:
+        package_root = Path(__file__).resolve().parents[2]
+        for launcher in ("scripts/bash/run.sh", "scripts/powershell/run.ps1"):
+            with self.subTest(launcher=launcher):
+                text = (package_root / launcher).read_text(encoding="utf-8")
+                self.assertIn("uv run --frozen --offline --project", text)
+                self.assertIn(" -q python -m spec_kit_linear.cli", text)
+
+
 class CommandSurfaceTests(CliTestCase):
-    def test_only_seven_commands_exist(self) -> None:
+    def test_only_six_commands_exist(self) -> None:
         from spec_kit_linear.cli import build_parser
-        from spec_kit_linear.completions import collect_completion_tree
 
-        tree = collect_completion_tree(build_parser())
+        tree = _command_flags(build_parser())
 
-        self.assertEqual(set(tree), {"onboard", "push", "status", "doctor", "completions", "session-start", "post-tool-use"})
+        self.assertEqual(set(tree), {"onboard", "push", "status", "doctor", "session-start", "post-tool-use"})
 
     def test_the_whole_package_exposes_at_most_fifteen_user_flags(self) -> None:
         from spec_kit_linear.cli import build_parser
-        from spec_kit_linear.completions import collect_completion_tree
 
-        tree = collect_completion_tree(build_parser())
+        tree = _command_flags(build_parser())
         flags = {flag for flags in tree.values() for flag in flags if flag != "--help"}
 
         self.assertLessEqual(len(flags), 15, sorted(flags))
 
     def test_removed_commands_are_rejected(self) -> None:
-        for command in ("install", "seed", "pull", "propose", "start", "upgrade"):
+        for command in ("install", "seed", "pull", "propose", "start", "upgrade", "completions"):
             with self.subTest(command=command):
                 with self.assertRaises(SystemExit) as raised:
                     main([command, "--root", str(self.fixture_root)])

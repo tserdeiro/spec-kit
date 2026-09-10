@@ -1,4 +1,4 @@
-"""Command-line boundary: onboard, push, status, doctor, completions."""
+"""Command-line boundary: onboard, push, status, doctor."""
 
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import __version__
-from .completions import generate_completion_script
 from .config import (
     ROOT_CONFIG_FILENAME,
     SLUG_RE,
@@ -126,9 +125,6 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="report the local feature state and its Linear projection; never writes")
     _common_arguments(status)
     _feature_arguments(status)
-
-    completions = subparsers.add_parser("completions", help="print a bash or zsh completion script to stdout")
-    completions.add_argument("shell", choices=("bash", "zsh"), help="shell to generate the completion script for")
 
     session_start = subparsers.add_parser("session-start", help="internal: the session_start runtime-event handler")
     session_start.add_argument("--root", help="explicit consumer repository root")
@@ -1548,12 +1544,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     parser.json_requested = "--json" in (argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(argv)
-    if args.command == "completions":
-        # Raw shell text on stdout, not the JSON result shape every other
-        # command uses: this is local developer sugar, not an agent-facing
-        # command, so it deliberately bypasses --json/--quiet.
-        sys.stdout.write(generate_completion_script(args.shell, parser))
-        return EXIT_SUCCESS
     if args.command == "session-start":
         # Its own contract (one plain line or nothing, always exit 0) does not
         # fit the JSON/error result shape every other command renders below.
@@ -1602,7 +1592,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"unsupported command: {args.command}",
                 code=EXIT_USAGE,
                 category="usage",
-                diagnostics=[Diagnostic("command", "supported commands are onboard, push, status, doctor, and completions")],
+                diagnostics=[Diagnostic("command", "supported commands are onboard, push, status, and doctor")],
             )
         _attach_endpoint_field(payload, args.command, endpoint)
         if args.json or args.quiet:

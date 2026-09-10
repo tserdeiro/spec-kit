@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Acceptance for the review surface, through the *installed* extension: the
-# extension installs into a real Spec Kit consumer, `doctor` and `completions`
-# behave, an advisory review of the working tree runs, and an anchored review
+# extension installs into a real Spec Kit consumer, `doctor` behaves, an
+# advisory review of the working tree runs, and an anchored review
 # opens a session, writes a packet, takes findings back and closes -- withdrawing
 # the temporary worktree and leaving the operator's checkout untouched.
 #
@@ -74,7 +74,6 @@ test -f "$installed_root/extension.yml"
 test -f "$installed_root/uv.lock"
 test -f "$installed_root/commands/code-review.md"
 test -f "$installed_root/commands/doctor.md"
-test -f "$installed_root/commands/completions.md"
 test -x "$installed_root/scripts/bash/run.sh"
 test -f "$consumer_root/.specify/extensions/.registry"
 
@@ -131,7 +130,7 @@ json() {
   python3 -c 'import json,sys; print(json.load(sys.stdin)'"$1"')'
 }
 
-# -- doctor and completions ---------------------------------------------------
+# -- doctor ---------------------------------------------------------------
 
 run doctor --root "$consumer_root" --fix --json >/dev/null
 test -f "$consumer_root/speckit-code-review.yml"
@@ -153,14 +152,8 @@ if echo "$install_command" | grep -q "npm install -g"; then
   exit 1
 fi
 
-for shell in bash zsh; do
-  script=$(run completions "$shell")
-  echo "$script" | grep -q "review"
-  echo "$script" | grep -q -- "--publish"
-done
-
 # Commands that no longer exist stay gone.
-for command in run local install status rules upgrade; do
+for command in run local install status rules upgrade completions; do
   set +e
   run "$command" --root "$consumer_root" >/dev/null 2>&1
   status=$?

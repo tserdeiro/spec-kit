@@ -33,22 +33,11 @@ provides:
     - name: speckit.code-review.doctor
       file: commands/doctor.md
       description: Validate git, ocr, gh, configuration, and rules; --fix applies the local repairs
-    - name: speckit.code-review.completions
-      file: commands/completions.md
-      description: Print a bash or zsh completion script for the review CLI
 
 events:
   pre_tool_use:
     command: guard
     matcher: "Bash|Edit|Write"
-
-hooks:
-  after_implement:
-    command: speckit.code-review
-    optional: true
-    priority: 30
-    prompt: Review the pending diff before opening a pull request?
-    description: Advisory review of the working tree before a pull request exists
 
 tags:
   - code-review
