@@ -44,6 +44,15 @@ with zero Issues even before `tasks.md` exists; `after_tasks` adds the
 Issues once the ledger does. Every later state transition is Linear's
 native GitHub integration's job; `push` remains the idempotent reconciler.
 
+## Session start
+
+Configured, this extension also runs as a `session_start` runtime-event
+handler (Claude Code, Codex, Cursor): every session on a feature, task, or
+work-item branch reconciles Linear (`push --current --hook`) and prints one
+context line naming the branch's state and the next command, before the
+agent does anything else. Silent, exit `0`, on any other branch shape or
+without configuration.
+
 ## Getting started
 
 ```bash

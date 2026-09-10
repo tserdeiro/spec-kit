@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from spec_kit_linear.cli import main
+from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, main, run_session_start
 from spec_kit_linear.config import ROOT_CONFIG_FILENAME, load_config, repository_binding
 from spec_kit_linear.errors import Diagnostic
 from spec_kit_linear.github import PullRequest, PullRequestScan
@@ -1026,13 +1026,13 @@ class WorkItemTests(WorkStateTests):
 
 
 class CommandSurfaceTests(CliTestCase):
-    def test_only_five_commands_exist(self) -> None:
+    def test_only_six_commands_exist(self) -> None:
         from spec_kit_linear.cli import build_parser
         from spec_kit_linear.completions import collect_completion_tree
 
         tree = collect_completion_tree(build_parser())
 
-        self.assertEqual(set(tree), {"onboard", "push", "status", "doctor", "completions"})
+        self.assertEqual(set(tree), {"onboard", "push", "status", "doctor", "completions", "session-start"})
 
     def test_the_whole_package_exposes_at_most_fifteen_user_flags(self) -> None:
         from spec_kit_linear.cli import build_parser
@@ -1049,6 +1049,114 @@ class CommandSurfaceTests(CliTestCase):
                 with self.assertRaises(SystemExit) as raised:
                     main([command, "--root", str(self.fixture_root)])
                 self.assertEqual(raised.exception.code, 2)
+
+
+def _task_row(task: str, *, local_complete: bool, derived_state: str | None = None, state_source: str | None = None, next: str | None = None) -> dict[str, object]:
+    return {"task": task, "local_complete": local_complete, "derived_state": derived_state, "state_source": state_source, "next": next}
+
+
+class SessionStartContextFormatterTests(unittest.TestCase):
+    """FR-003's context-line formatter, table-driven over both branch shapes."""
+
+    def test_feature_branch_without_open_prs(self) -> None:
+        tasks = [
+            _task_row("T001", local_complete=True, derived_state="completed", state_source="checkbox"),
+            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="open the draft PR"),
+        ]
+
+        line = _format_feature_context("005-T002-thing", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T002 (unchecked); next: open the draft PR")
+
+    def test_feature_branch_with_open_prs(self) -> None:
+        tasks = [
+            _task_row("T001", local_complete=False, derived_state="review", state_source="pr", next="await the final review and the human merge"),
+            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="open the draft PR"),
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing — next T001 (unchecked); open task PRs: T001 (review); "
+            "next: await the final review and the human merge",
+        )
+
+    def test_feature_branch_with_nothing_unchecked_omits_the_task_and_command(self) -> None:
+        tasks = [_task_row("T001", local_complete=True, derived_state="completed", state_source="checkbox")]
+
+        line = _format_feature_context("005-developer-experience", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-developer-experience")
+
+    def test_work_item_branch(self) -> None:
+        row = {"identifier": "WOR-123", "derived_state": "started", "next": "open the draft PR"}
+
+        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (started) — next: open the draft PR")
+
+    def test_work_item_branch_with_no_next_omits_the_clause(self) -> None:
+        row = {"identifier": "WOR-123", "derived_state": "completed", "next": None}
+
+        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (completed)")
+
+
+class SessionStartTests(CliTestCase):
+    """The `session-start` subcommand's own exit-0 contract: no live Linear, no live `gh`."""
+
+    def _run(self, branch: str) -> tuple[int, str]:
+        with patch("spec_kit_linear.cli._current_branch", return_value=branch):
+            output = StringIO()
+            with redirect_stdout(output):
+                code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+        return code, output.getvalue()
+
+    def test_a_branch_matching_neither_shape_prints_nothing(self) -> None:
+        with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
+            code, output = self._run("main")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "")
+
+    def test_no_configuration_prints_nothing_and_never_raises(self) -> None:
+        (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
+
+        code, output = self._run("001-T001-parse-artifacts")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "")
+
+    def test_an_unexpected_failure_still_exits_zero_with_no_output(self) -> None:
+        output = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", side_effect=RuntimeError("boom")):
+            with redirect_stdout(output):
+                code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output.getvalue(), "")
+
+    def test_a_feature_branch_reconciles_and_prints_one_line(self) -> None:
+        client = _ApplyingClient()
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            with patch("spec_kit_linear.cli.known_branches", return_value=("001-T001-parse-artifacts",)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                    code, output = self._run("001-T001-parse-artifacts")
+
+        self.assertEqual(code, 0)
+        lines = output.splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], "Linear: 001 on 001-T001-parse-artifacts — next T001 (unchecked); next: open the draft PR")
+        # `push --current --hook`'s own reconcile ran first.
+        self.assertEqual(client.mutations, ["project.create", "issue.create", "issue.create", "issue.create"])
+
+    def test_a_work_item_branch_prints_one_line(self) -> None:
+        client = _WorkItemClient((_matching_remote_project(self._desired()),), work_items=(_remote_work_item("WOR-123"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                    code, output = self._run("wor-123-fix-crash")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "Linear: WOR-123 (started) — next: open the draft PR\n")
 
 
 if __name__ == "__main__":

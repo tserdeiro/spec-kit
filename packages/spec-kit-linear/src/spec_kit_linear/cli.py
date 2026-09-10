@@ -29,7 +29,7 @@ from .config import (
     validate_config,
 )
 from .credentials import load_credentials
-from .discovery import has_feature_directories, select_features
+from .discovery import FEATURE_RE, has_feature_directories, select_features
 from .domain import DesiredState
 from .endpoint import (
     ALWAYS_ANNOUNCE_COMMANDS,
@@ -54,7 +54,7 @@ from .reconciler import apply_plan
 from .remote_discovery import RemoteDiscovery, discover_and_adopt
 from .reporting import render_status_table, render_work_item_table, status_report
 from .view_discovery import conventional_view_name, resolve_shared_views_by_name
-from .work_items import WorkItemState, derive_work_items, issue_numbers
+from .work_items import WorkItemState, derive_work_items, issue_key_pattern, issue_numbers
 from .work_state import TaskWorkState, derive_task_states
 
 
@@ -127,6 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     completions = subparsers.add_parser("completions", help="print a bash or zsh completion script to stdout")
     completions.add_argument("shell", choices=("bash", "zsh"), help="shell to generate the completion script for")
+
+    session_start = subparsers.add_parser("session-start", help="internal: the session_start runtime-event handler")
+    session_start.add_argument("--root", help="explicit consumer repository root")
     return parser
 
 
@@ -1183,6 +1186,120 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def _current_branch(root: Path) -> str | None:
+    """The current branch name, or `None` outside Git, or on a detached HEAD."""
+
+    result = subprocess.run(
+        ["git", "-C", str(root), "symbolic-ref", "--short", "-q", "HEAD"],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    return branch or None
+
+
+def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, object]]) -> str:
+    """FR-003's context line for a feature or task branch, from `status`'s own task rows.
+
+    Every field a `PullRequest` cannot yet name (its own `#<n>`, D6/T013) is
+    left out rather than guessed at; the open-PR clause names the task and
+    its derived state only.
+    """
+
+    first_unchecked = next((task for task in tasks if not task["local_complete"]), None)
+    open_prs = [task for task in tasks if task.get("state_source") == "pr" and task.get("derived_state") != "completed"]
+    segments = [f"Linear: {feature} on {branch}"]
+    if first_unchecked is not None:
+        segments[0] += f" — next {first_unchecked['task']} (unchecked)"
+    if open_prs:
+        pr_text = ", ".join(f"{task['task']} ({task['derived_state']})" for task in open_prs)
+        segments.append(f"open task PRs: {pr_text}")
+    next_command = first_unchecked.get("next") if first_unchecked is not None else None
+    if next_command:
+        segments.append(f"next: {next_command}")
+    return "; ".join(segments)
+
+
+def _format_work_item_context(row: Mapping[str, object]) -> str:
+    """FR-003's context line for a work-item branch, from `status`'s own work-item row."""
+
+    line = f"Linear: {row['identifier']} ({row['derived_state']})"
+    if row.get("next"):
+        line += f" — next: {row['next']}"
+    return line
+
+
+def _session_start_context_line(root: Path) -> str | None:
+    """FR-003's context line for the current branch's shape, or `None`.
+
+    A feature/task branch (`NNN-...`) and a work-item branch (`<team
+    key>-<number>...`) are the only two recognized shapes; anything else, or a
+    configuration `status` cannot load, yields no line -- every exception here
+    is treated identically by the caller (FR-006).
+    """
+
+    branch = _current_branch(root)
+    if not branch:
+        return None
+    feature_match = FEATURE_RE.fullmatch(branch)
+    work_item_identifier = None
+    if feature_match is None:
+        config, _shared_path = load_config(root, None)
+        _team_id, team_key = team_binding(config)
+        match = issue_key_pattern(team_key).fullmatch(branch)
+        if match is None:
+            return None
+        work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}"
+
+    # `--current` resolves the same feature `push --current --hook` just
+    # reconciled (dogfooding entry 52); work items are feature-independent,
+    # so which feature (if any) it names never affects that lookup below.
+    status_args = argparse.Namespace(root=str(root), config=None, feature=None, current=True, all_features=False)
+    status = run_status(status_args)["status"]
+
+    if work_item_identifier is not None:
+        row = next((item for item in status["work_items"] if item["identifier"] == work_item_identifier), None)
+        return _format_work_item_context(row) if row is not None else None
+
+    task_row = next((item for item in status["task_rows"] if item["feature"] == feature_match.group(1)), None)
+    return _format_feature_context(branch, feature_match.group(1), task_row["tasks"]) if task_row is not None else None
+
+
+def run_session_start(args: argparse.Namespace) -> int:
+    """The `session_start` event handler (plan D4): reconcile, then one context line.
+
+    Never raises and never exits nonzero: a session must not be blocked,
+    slowed down, or spammed by tracking. Every failure -- no configuration, an
+    unrecognized branch shape, a Linear or `gh` error -- degrades to silence
+    (FR-006); diagnostics are discarded, never surfaced.
+    """
+
+    try:
+        root = _root_from_args(getattr(args, "root", None))
+    except AppError:
+        return EXIT_SUCCESS
+
+    hook_args = argparse.Namespace(
+        root=str(root), config=None, feature=None, current=True, all_features=False,
+        dry_run=False, apply=False, hook=True,
+    )
+    try:
+        run_push(hook_args)
+    except Exception:
+        pass
+
+    try:
+        line = _session_start_context_line(root)
+    except Exception:
+        line = None
+    if line:
+        sys.stdout.write(line + "\n")
+    return EXIT_SUCCESS
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     parser.json_requested = "--json" in (argv if argv is not None else sys.argv[1:])
@@ -1193,6 +1310,10 @@ def main(argv: list[str] | None = None) -> int:
         # command, so it deliberately bypasses --json/--quiet.
         sys.stdout.write(generate_completion_script(args.shell, parser))
         return EXIT_SUCCESS
+    if args.command == "session-start":
+        # Its own contract (one plain line or nothing, always exit 0) does not
+        # fit the JSON/error result shape every other command renders below.
+        return run_session_start(args)
     endpoint = DEFAULT_ENDPOINT
     _begin_invocation(endpoint)
     try:

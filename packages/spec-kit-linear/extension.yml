@@ -35,6 +35,10 @@ provides:
       file: commands/doctor.md
       description: Diagnose local and remote prerequisites, with --fix for the mechanical ones
 
+events:
+  session_start:
+    command: session-start
+
 hooks:
   after_plan:
     command: speckit.linear.push
