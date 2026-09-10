@@ -725,3 +725,15 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `.patch` completo (cabeceras, contexto, variantes y tests de
     upstream), nunca por la línea que cambia; y su presupuesto real es
     el que acepte el mantenedor, no el de este loop.
+84. **El campo `condition` de los hooks existe, se evalúa en el
+    ejecutor y ningún template lo lee.** Al preparar el parche de T022:
+    `HookExecutor.should_execute_hook`/`_evaluate_condition` (v1.0.4)
+    entienden `config.<clave> == 'valor'` contra la config de la
+    extensión y tienen tests, pero ningún comando core los invoca — los
+    templates saltan todo hook con `condition` no vacía sin evaluarla
+    (`docs/reference/extensions.md` lo dice en una línea). Un
+    `condition:` en cualquier manifest significa hoy "nunca se ofrece".
+    El parche 3 igual cierra la entrada 25 (los dieciséis prompts
+    inútiles) y deja la puerta viva para el ejecutor; un prompt real por
+    evento habilitado necesitaría que los templates evalúen la
+    expresión. *Documentada;* el caveat viaja en el commit del parche.
