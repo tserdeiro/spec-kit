@@ -66,6 +66,7 @@ def test_conflict_on_the_first_hop_aborts_before_the_second(feature_repo: Path, 
     _commit(feature_repo, "conflict.txt", "from the fix\n")
     _git_out(feature_repo, "push", "-q", "origin", "003-T001-x")
     monkeypatch.setenv("GH_PR_LIST_JSON", _CHAIN_PRS)
+    calls = install_fake_linear(feature_repo)
     with pytest.raises(SystemExit) as excinfo:
         stack_propagate.propagate(feature_repo, "003-T001-x")
     assert excinfo.value.code == 2
@@ -73,6 +74,30 @@ def test_conflict_on_the_first_hop_aborts_before_the_second(feature_repo: Path, 
     assert _git_out(feature_repo, "branch", "--show-current") == "003-T002-y"
     subject = _git_out(feature_repo, "log", "origin/003-T003-z", "-1", "--format=%s")
     assert subject != "merge(task): carry the T001 fix into T003"
+    assert not calls.exists()  # nothing was pushed: nothing to reconcile
+
+def test_a_conflict_on_the_second_hop_still_reconciles_the_first_push(feature_repo: Path, fake_gh: Path,
+                                                                        monkeypatch: pytest.MonkeyPatch,
+                                                                        capsys: pytest.CaptureFixture[str]) -> None:
+    _commit(feature_repo, "conflict.txt", "base\n")
+    _git_out(feature_repo, "push", "-q", "origin", "003-feature")
+    _push_branch(feature_repo, "003-T001-x")
+    _push_branch(feature_repo, "003-T002-y", "origin/003-T001-x")
+    _push_branch(feature_repo, "003-T003-z", "origin/003-T002-y")
+    _git_out(feature_repo, "switch", "-q", "003-T003-z")
+    _commit(feature_repo, "conflict.txt", "from T003\n")
+    _git_out(feature_repo, "push", "-q", "origin", "003-T003-z")
+    _git_out(feature_repo, "switch", "-q", "003-T001-x")
+    _commit(feature_repo, "conflict.txt", "from the fix\n")
+    _git_out(feature_repo, "push", "-q", "origin", "003-T001-x")
+    monkeypatch.setenv("GH_PR_LIST_JSON", _CHAIN_PRS)
+    calls = install_fake_linear(feature_repo)
+    with pytest.raises(SystemExit) as excinfo:
+        stack_propagate.propagate(feature_repo, "003-T001-x")
+    assert excinfo.value.code == 2
+    assert capsys.readouterr().err == "error: merge conflict carrying the fix into 003-T003-z\n"
+    assert _git_out(feature_repo, "log", "origin/003-T002-y", "-1", "--format=%s") == "merge(task): carry the T001 fix into T002"
+    assert calls.read_text(encoding="utf-8") == "push --hook\n"  # T002 was pushed: reconciled once
 
 def test_empty_chain_reports_and_exits_0_without_touching_git(feature_repo: Path, fake_gh: Path,
                                                                  monkeypatch: pytest.MonkeyPatch,

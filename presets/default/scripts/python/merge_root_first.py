@@ -11,10 +11,11 @@ retarget can close the PR above instead of reopening it onto the new
 base -- the repository's auto-delete of merged branches does that
 cleanup on its own schedule. The script performs the mechanical steps
 only; the human's "yes, merge" stays a conversation-level decision.
-Merging at least one PR ends by reconciling Linear (push --hook) when
-the extension is installed, same rule as task_base.py; a failing
-reconcile is a warning, never a failure of this script, and an empty
-stack reconciles nothing.
+Every PR merged is reconciled into Linear (push --hook) when the
+extension is installed, same rule as task_base.py -- also when a later
+merge fails, since the merges already made are real; a failing reconcile
+is a warning, never a failure of this script, and an empty stack
+reconciles nothing.
 """
 
 from __future__ import annotations
@@ -54,13 +55,18 @@ def merge_root_first(repo_root: Path) -> int:
     if not order:
         print(f"nothing to merge on {feature_branch}")
         return 0
-    for pr in order:
-        number = pr["number"]
-        _gh(repo_root, number, "api", "-X", "PATCH", f"repos/{{owner}}/{{repo}}/pulls/{number}",
-            "-f", f"base={feature_branch}")
-        _gh(repo_root, number, "pr", "merge", str(number), "--merge")
-        print(f"merged #{number} {pr['headRefName']}")
-    reconcile_linear(repo_root)
+    merged = 0
+    try:
+        for pr in order:
+            number = pr["number"]
+            _gh(repo_root, number, "api", "-X", "PATCH", f"repos/{{owner}}/{{repo}}/pulls/{number}",
+                "-f", f"base={feature_branch}")
+            _gh(repo_root, number, "pr", "merge", str(number), "--merge")
+            merged += 1
+            print(f"merged #{number} {pr['headRefName']}")
+    finally:
+        if merged:
+            reconcile_linear(repo_root)
     return 0
 
 def main(argv: list[str]) -> int:

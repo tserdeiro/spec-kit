@@ -74,6 +74,18 @@ def test_reconciles_linear_once_after_merging(feature_repo: Path, fake_gh: Path,
     assert merge_root_first.merge_root_first(feature_repo) == 0
     assert calls.read_text(encoding="utf-8").strip() == "push --hook"
 
+def test_a_mid_stack_failure_still_reconciles_the_merges_made(feature_repo: Path, fake_gh: Path,
+                                                               monkeypatch: pytest.MonkeyPatch,
+                                                               capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("GH_PR_LIST_JSON", _STACK_PRS)
+    monkeypatch.setenv("GH_FAIL_ON", "pr merge 2 --merge")
+    calls = install_fake_linear(feature_repo)
+    with pytest.raises(SystemExit) as excinfo:
+        merge_root_first.merge_root_first(feature_repo)
+    assert excinfo.value.code == 2
+    assert capsys.readouterr().err.startswith("error: #2:")
+    assert calls.read_text(encoding="utf-8") == "push --hook\n"  # #1 was merged: reconciled once
+
 def test_reconcile_not_called_on_the_empty_stack(feature_repo: Path, fake_gh: Path,
                                                    monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GH_PR_LIST_JSON", "[]")

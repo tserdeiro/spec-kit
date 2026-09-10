@@ -5,10 +5,11 @@ Direct translation of today's stack-propagate shell block: walks the
 feature's open task-PR chain above ``fixed_branch``, in stack order,
 merging each with a "carry the fix" subject and pushing it; a conflict
 aborts and names the branch, an empty chain is reported without
-touching git. Pushing at least one branch ends by reconciling Linear
-(push --hook) when the extension is installed, same rule as
-task_base.py; a failing reconcile is a warning, never a failure of
-this script, and an empty chain reconciles nothing.
+touching git. Every branch pushed is reconciled into Linear (push
+--hook) when the extension is installed, same rule as task_base.py --
+also when a later hop conflicts, since the pushes already made are
+real; a failing reconcile is a warning, never a failure of this script,
+and an empty chain reconciles nothing.
 """
 
 from __future__ import annotations
@@ -43,19 +44,24 @@ def propagate(repo_root: Path, fixed_branch: str) -> int:
     if current is None:
         print(f"nothing stacked on {fixed_branch}")
         return 0
-    while current is not None:
-        current_task = _task_id(current)
-        _git(repo_root, "switch", current)
-        subject = f"merge(task): carry the {fixed_task} fix into {current_task}"
-        merge = run_git("merge", "--no-ff", "-m", subject, previous, cwd=repo_root)
-        if merge.returncode != 0:
-            run_git("merge", "--abort", cwd=repo_root)
-            die(f"merge conflict carrying the fix into {current}")
-        _git(repo_root, "push", "origin", current)
-        previous = current
-        current = _child(feature_prs, previous)
-    _git(repo_root, "switch", fixed_branch)
-    reconcile_linear(repo_root)
+    pushed = 0
+    try:
+        while current is not None:
+            current_task = _task_id(current)
+            _git(repo_root, "switch", current)
+            subject = f"merge(task): carry the {fixed_task} fix into {current_task}"
+            merge = run_git("merge", "--no-ff", "-m", subject, previous, cwd=repo_root)
+            if merge.returncode != 0:
+                run_git("merge", "--abort", cwd=repo_root)
+                die(f"merge conflict carrying the fix into {current}")
+            _git(repo_root, "push", "origin", current)
+            pushed += 1
+            previous = current
+            current = _child(feature_prs, previous)
+        _git(repo_root, "switch", fixed_branch)
+    finally:
+        if pushed:
+            reconcile_linear(repo_root)
     return 0
 
 def main(argv: list[str]) -> int:
