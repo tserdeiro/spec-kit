@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0
+
+- A `pre_tool_use` guard blocks, before it takes effect — even behind a
+  leading global option (`git -C`, `git -c`, `gh --repo`, …): a
+  `git commit -m` whose subject doesn't follow `type(scope): subject`;
+  any form of `git push --force`; a `gh pr merge` carrying
+  `--delete-branch`; and an `Edit`/`Write` to a `protected_paths` glob
+  on a task branch (a feature branch is exempt) — the same glob rule the
+  existing pull-request finding already used.
+- The skill now names the finding categories the close accepts
+  (`correctness`, `security`, `contract`, `delivery`, `tests`,
+  `maintainability`, `style`); any other value refuses the whole
+  findings file, as it always did.
+- The `after_implement` advisory-review hook is gone — it never fired in
+  this distribution's own loop, which always has a pull request by the
+  time review happens.
+- The `completions` command is gone.
+- The manifest now requires specify-cli `>=1.0.4,<1.1.0` (up from
+  `>=1.0.1`), the floor where runtime events ship.
+- The `uv run` launcher now runs quietly (`-q`), so a `--json`
+  invocation's output is no longer prefixed by uv's own sync chatter.
+
 ## 0.4.0
 
 - A task pull request (base branch `NNN-…`) that touches a `protected_paths`
