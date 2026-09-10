@@ -1879,7 +1879,9 @@ def _authenticated_user(context: CommandContext, diagnostics: list[Diagnostic]) 
 
 # The same pattern `.github/workflows/conventions.yml` enforces server-side.
 _COMMIT_SUBJECT_RE = re.compile(r"^[a-z]+\([a-z0-9-]+\): .+$")
-_FORCE_LONG_RE = re.compile(r"^--force(?:-with-lease|-if-includes)?(?:=.*)?$")
+# `--force`/`--force-with-lease[=...]`/`--force-if-includes`, or `--mirror` --
+# which pushes and so forces every ref under `refs/` (git-push(1)).
+_FORCE_LONG_RE = re.compile(r"^--(?:force(?:-with-lease|-if-includes)?(?:=.*)?|mirror)$")
 # `gh pr merge`'s and `git commit`'s value-taking short flags -- a cluster stops
 # scanning at one of these, so a glued value is never misread as `-d`/`-m`/`-F`.
 _GH_MERGE_VALUE_FLAGS = frozenset({"R", "b", "F", "t", "A"})
@@ -1890,13 +1892,21 @@ _COMMIT_VALUE_FLAGS = frozenset({"c", "C", "t"})
 # run carrying `<` or `>` is a redirection (`2>&1`, `>/dev/null`, `<<EOF`): it
 # is dropped without ending the step; every other run separates steps.
 _CHAIN_PUNCTUATION = "();<>|&\n"
-_REDIRECTION_CHARACTERS = frozenset("<>")
+# Preserve punctuation that was quoted or escaped until after ``shlex`` has
+# split the command.  Otherwise ``echo ";"`` looks like a command separator,
+# while ``git -C ";" push`` loses the option value and hides the push.
+_QUOTED_PUNCTUATION = {character: chr(0xE000 + index) for index, character in enumerate(_CHAIN_PUNCTUATION)}
+_QUOTED_PUNCTUATION_RESTORE = {value: key for key, value in _QUOTED_PUNCTUATION.items()}
+# The redirection operators a punctuation run may carry; whatever is left after
+# removing them (`;`, `&&`, `|`, `()`, a newline) is what separates steps, so
+# `2>&1` and `&>x` never split and `<;` still does.
+_REDIRECTION_RE = re.compile(r"<<<|<<|>>|>&|&>|<&|<>|>|<")
 # The spellings Cobra's bool flags accept as false (`strconv.ParseBool`).
 _FALSE_SPELLINGS = frozenset({"0", "f", "false"})
 # `-m`/`-F`'s value as a `$(cat <<'DELIM' ... DELIM)` substitution, or a plain
 # `<<DELIM ... DELIM` redirection for `-F -`: the subject is the first
 # non-blank line of the body, not the literal text of the outer argument.
-_HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1\r?\n(.*?)\r?\n[ \t]*\2(?=\r?\n|\Z)", re.DOTALL)
+_HEREDOC_RE = re.compile(r"<<(-?)[ \t]*(['\"]?)(\w+)\2\r?\n(.*?)\r?\n[ \t]*\3(?=\r?\n|\Z)", re.DOTALL)
 # The numeric-prefix task-branch shape `stack_propagate.py`/`pr_create.py` already match.
 _TASK_BRANCH_RE = re.compile(r"^[0-9]+-T[0-9]{3}-")
 
@@ -1907,15 +1917,114 @@ _GUARD_ALLOWED = 0
 _GUARD_BLOCKED = 2
 
 
+_HEREDOC_WORD_END = frozenset(" \t\r\n;&|()<>")
+
+
+def _heredoc_operator(command: str, index: int) -> tuple[str, bool, int]:
+    """Parse the ``<<`` operator whose ``<<`` ends at ``index``: the delimiter
+    (quotes stripped), whether it was ``<<-``, and the index past it."""
+
+    dashed = command.startswith("-", index)
+    index += dashed
+    while index < len(command) and command[index] in " \t":
+        index += 1
+    if index < len(command) and command[index] in "'\"":
+        close = command.find(command[index], index + 1)
+        if close < 0:
+            return "", dashed, index
+        return command[index + 1 : close], dashed, close + 1
+    if command.startswith("\\", index):
+        index += 1
+    start = index
+    while index < len(command) and command[index] not in _HEREDOC_WORD_END:
+        index += 1
+    return command[start:index], dashed, index
+
+
+def _skip_heredoc_bodies(command: str, index: int, pending: list[tuple[str, bool]]) -> int:
+    """Index past the bodies (and terminator lines) of ``pending`` heredocs starting at ``index``."""
+
+    for delimiter, dashed in pending:
+        while index < len(command):
+            end = command.find("\n", index)
+            line = command[index:] if end < 0 else command[index:end]
+            index = len(command) if end < 0 else end + 1
+            if (line.lstrip("\t") if dashed else line) == delimiter:
+                break
+    return index
+
+
+def _shell_text(command: str) -> str:
+    """``command`` as shlex should see it: a ``#`` comment (a ``#`` starting a word
+    outside quotes, up to its newline) and every heredoc -- the ``<<DELIM``
+    operator, its body, and its terminator line -- removed, so prose is never
+    tokenized: an apostrophe in a commit message would otherwise unbalance
+    shlex's quotes for the whole command, and comment text would read as flags."""
+
+    out: list[str] = []
+    quote: str | None = None
+    pending: list[tuple[str, bool]] = []  # heredocs opened on the current line, in order
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if quote is None:
+            if character == "\\" and index + 1 < len(command):
+                escaped = command[index + 1]
+                if escaped == "\n":
+                    index += 2
+                    continue
+                out.append(_QUOTED_PUNCTUATION.get(escaped, "\\" + escaped)); index += 2; continue
+            if character in "'\"":
+                quote = character
+            elif character == "#" and (index == 0 or command[index - 1] in " \t\n;&|()"):
+                end = command.find("\n", index)
+                index = len(command) if end < 0 else end
+                continue
+            elif command.startswith("<<<", index):
+                out.append("<<<"); index += 3; continue  # a here-string: a word follows, never a body
+            elif command.startswith("<<", index):
+                delimiter, dashed, index = _heredoc_operator(command, index + 2)
+                if delimiter:
+                    pending.append((delimiter, dashed))
+                continue
+            elif character == "\n" and pending:
+                out.append(character)
+                index = _skip_heredoc_bodies(command, index + 1, pending)
+                pending = []
+                continue
+        elif character == "\\" and quote == '"' and index + 1 < len(command):
+            escaped = command[index + 1]
+            if escaped == "\n":
+                index += 2
+                continue
+            # Keep the pair for shlex to interpret: Bash preserves the slash
+            # before punctuation such as `;` inside double quotes, while shlex
+            # still needs it before `$`, `` ` ``, `"`, and `\\`.
+            out.append("\\" + escaped)
+            index += 2
+            continue
+        elif character == quote:
+            quote = None
+        out.append(
+            _QUOTED_PUNCTUATION.get(character, character)
+            if quote is not None and character != "\n"
+            else character
+        ); index += 1
+    return "".join(out)
+
+
 def _split_chain(command: str) -> list[list[str]]:
     """``command`` as one token list per step -- ``&&``/``||``/``;``/``|``, a
     subshell's parentheses, or a bare newline all separate steps, even glued to
-    a word (``true;git``); a redirection (``2>&1``) is dropped, never a separator."""
+    a word (``true;git``); a redirection (``2>&1``) is dropped, never a separator;
+    ``#`` comments and heredocs are removed first (``_shell_text``) so prose is
+    never tokenized, while a ``#`` inside a word (``#123``) stays."""
 
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=_CHAIN_PUNCTUATION)
+        lexer = shlex.shlex(_shell_text(command), posix=True, punctuation_chars=_CHAIN_PUNCTUATION)
         lexer.whitespace_split = True
         lexer.whitespace = " \t\r"
+        lexer.commenters = ""
         tokens = list(lexer)
     except ValueError:
         return []
@@ -1923,12 +2032,12 @@ def _split_chain(command: str) -> list[list[str]]:
     current: list[str] = []
     for token in tokens:
         if token and all(character in _CHAIN_PUNCTUATION for character in token):
-            if _REDIRECTION_CHARACTERS.isdisjoint(token):
+            if _REDIRECTION_RE.sub("", token):
                 if current:
                     steps.append(current)
                 current = []
         else:
-            current.append(token)
+            current.append("".join(_QUOTED_PUNCTUATION_RESTORE.get(character, character) for character in token))
     if current:
         steps.append(current)
     return steps
@@ -1968,10 +2077,14 @@ def _commit_source(step: list[str]) -> tuple[str, str] | None:
 
 
 def _heredoc_body(text: str) -> str | None:
-    """The body of the first ``<<DELIM ... DELIM`` heredoc in ``text``, or ``None``."""
+    """The body of the first ``<<DELIM ... DELIM`` heredoc in ``text``, or ``None``;
+    a ``<<-`` body loses the leading tabs the shell strips."""
 
     match = _HEREDOC_RE.search(text)
-    return match.group(3) if match else None
+    if match is None:
+        return None
+    body = match.group(4)
+    return re.sub(r"(?m)^\t+", "", body) if match.group(1) else body  # `<<-` strips leading tabs
 
 
 def _first_nonblank_line(text: str) -> str:
@@ -2016,12 +2129,34 @@ def _commit_subject(step: list[str], command: str, root: Path) -> str | None:
 
 _GIT_VALUE_FLAGS = frozenset({"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix"})
 _GH_VALUE_FLAGS = frozenset({"-R", "--repo", "--hostname"})
+# A shell prefix assignment (`GIT_TRACE=1 git push ...`): the executable is
+# whatever follows, not the assignment itself.
+_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# Bare wrapper words that run their argument as-is, so the guard should look
+# past them to the command they run (`env GIT_TRACE=1 git push ...`). A
+# wrapper's own options (`sudo -u`, `env -i`) and a leading redirection with a
+# non-numeric target (`>/dev/null git push`) are out of scope: the prose rules
+# stay authoritative there, this guard is the accidental-violation net.
+_STEP_WRAPPERS = frozenset({"env", "command", "exec", "nohup", "time"})
 
 
-def _subcommand_index(step: list[str], value_flags: frozenset[str]) -> int:
-    """Index in ``step`` of the subcommand, past ``step[0]`` and any leading global options."""
+def _executable_index(step: list[str]) -> int:
+    """Index in ``step`` of the executable actually run -- past leading
+    ``NAME=value`` assignments and wrapper words from ``_STEP_WRAPPERS``, in any
+    order, and past the bare digits a leading ``2>&1`` leaves behind."""
 
-    index = 1
+    index = 0
+    while index < len(step) and (
+        _ASSIGNMENT_RE.match(step[index]) or step[index] in _STEP_WRAPPERS or step[index].isdigit()
+    ):
+        index += 1
+    return index
+
+
+def _subcommand_index(step: list[str], start: int, value_flags: frozenset[str]) -> int:
+    """Index in ``step`` of the subcommand, past the executable at ``start`` and any leading global options."""
+
+    index = start + 1
     while index < len(step) and step[index].startswith("-"):
         index += 2 if step[index] in value_flags else 1
     return index
@@ -2029,7 +2164,8 @@ def _subcommand_index(step: list[str], value_flags: frozenset[str]) -> int:
 
 def _push_is_force(step: list[str], index: int) -> bool:
     """Whether the ``git push`` step's arguments past ``index`` force the update:
-    ``--force``/``-f`` alone or bundled (``-vf``), or a ``+refspec`` (git-push(1))."""
+    ``--force``/``-f`` alone or bundled (``-vf``), a ``+refspec``, or ``--mirror``
+    (git-push(1))."""
 
     for token in step[index + 1 :]:
         if token.startswith("+"):
@@ -2070,15 +2206,26 @@ def _requests_branch_deletion(step: list[str], index: int) -> bool:
     return requested
 
 
+# Tokenizing is the expensive part (shlex is superlinear on one long quoted
+# token); a command that never names `git` or `gh` skips it entirely.
+_GIT_OR_GH_RE = re.compile(r"\b(?:git|gh)\b")
+
+
 def _bash_violation(command: str, root: Path) -> str | None:
     """The fix message for the first of FR-007's three Bash rules ``command``
     breaks, or ``None``. ``root`` resolves a relative ``-F``/``--file`` path."""
 
+    if not _GIT_OR_GH_RE.search(command):
+        return None
     for step in _split_chain(command):
         if len(step) < 2:
             continue
-        if step[0] == "git":
-            index = _subcommand_index(step, _GIT_VALUE_FLAGS)
+        program_index = _executable_index(step)
+        if program_index >= len(step):
+            continue
+        program = step[program_index]
+        if program == "git":
+            index = _subcommand_index(step, program_index, _GIT_VALUE_FLAGS)
             if index < len(step) and step[index] == "commit":
                 subject = _commit_subject(step, command, root)
                 if subject is None:
@@ -2087,8 +2234,8 @@ def _bash_violation(command: str, root: Path) -> str | None:
                     return f"blocked commit: subject `{subject}` does not match type(scope): subject; use type(scope): subject"
             elif index < len(step) and step[index] == "push" and _push_is_force(step, index):
                 return "blocked push: a force push is never allowed; push without --force"
-        elif step[0] == "gh":
-            index = _subcommand_index(step, _GH_VALUE_FLAGS)
+        elif program == "gh":
+            index = _subcommand_index(step, program_index, _GH_VALUE_FLAGS)
             if step[index : index + 2] == ["pr", "merge"] and _requests_branch_deletion(step, index):
                 return "blocked merge: merge without --delete-branch: the repository deletes merged branches itself"
     return None
