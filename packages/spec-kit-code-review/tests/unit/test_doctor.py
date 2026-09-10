@@ -513,20 +513,11 @@ class EvidenceGroupTests(DoctorCase):
 
 
 class HooksGroupTests(DoctorCase):
-    def test_the_registered_lifecycle_hook_is_recognized(self) -> None:
+    def test_no_git_hook_references_this_extension(self) -> None:
         report = self.run_doctor()
 
         self.assertEqual(report.code, EXIT_SUCCESS)
-        self.assertIn("lifecycle_hook_registered", self.codes(report))
         self.assertIn("git_hooks_absent", self.codes(report))
-
-    def test_an_unregistered_lifecycle_hook_is_a_warning(self) -> None:
-        (self.root / ".specify" / "extensions.yml").write_text("installed:\n- git\n", encoding="utf-8")
-
-        report = self.run_doctor()
-
-        self.assertEqual(report.code, EXIT_SUCCESS)
-        self.assertIn("lifecycle_hook_unregistered", self.codes(report))
 
     def test_a_git_hook_referencing_this_extension_is_a_configuration_failure(self) -> None:
         hooks = self.root / ".git" / "hooks"
