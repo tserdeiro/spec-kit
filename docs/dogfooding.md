@@ -798,3 +798,16 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     decisión:* un canal observable (una línea en stderr bajo una
     variable de depuración) si el doctor o una fixture han de probar
     que un hook corrió.
+90. **Una categoría inventada rechaza el archivo de hallazgos entero.**
+    El skill de review enumera las severidades pero no las categorías
+    (solo el ejemplo `correctness`; el packet sí las lista, en su
+    sección de reglas), y el reviewer fresco de #112 inventó cinco
+    (`reproducibility`, `test-coverage`, `contract-fidelity`,
+    `process`, `consistency`). El cierre rechaza todo el archivo con
+    `findings_field_enum` — asimétrico con una ruta o un rango
+    inexistentes, que se descartan hallazgo por hallazgo con un
+    diagnóstico. El orquestador normalizó las categorías y volvió a
+    cerrar. *Resuelta en T023:* el skill y el README nombran el enum.
+    *Pendiente de decisión:* que el cierre normalice o descarte la
+    categoría inválida como hace con la ruta, en vez de rechazar el
+    archivo.
