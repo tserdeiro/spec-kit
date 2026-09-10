@@ -15,8 +15,14 @@ forks or vendors upstream (`AGENTS.md`). These files are the hand-off.
    integration is re-registered: a non-active one is left alone, the way
    upstream's `install`/`upgrade` already treat it (issue #2948), so this
    distribution's doctor mirror stays the answer for the second agent.
-2. Remove `git add .` from `auto-commit.sh` (T021). **Pending**: prepared
-   once T021 lands.
+2. `0002-scope-auto-commit-git-add.patch` — replace `auto-commit.sh`'s (and
+   its PowerShell and Python twins') blanket `git add .` with a scoped
+   stage (T021): `.specify/memory/` for `after_constitution`, the active
+   feature's directory (`specs/<feature>/`, resolved via
+   `SPECIFY_FEATURE_DIRECTORY` or `.specify/feature.json`) for every other
+   event, and a tracked-only `git add -u` fallback when no feature
+   directory can be resolved — never an untracked file outside those
+   paths.
 3. Stop registering the sixteen `git.commit` hooks when the git
    extension's `auto_commit.default` is `false` (T022). **Pending**:
    prepared once T022 lands.

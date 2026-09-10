@@ -1,0 +1,972 @@
+From c47de0f2ad8db843a5933ede56d1f2cb93948023 Mon Sep 17 00:00:00 2001
+From: tserdeiro <tserdeiro@gmail.com>
+Date: Thu, 10 Sep 2026 05:54:04 -0300
+Subject: [PATCH] fix(git): scope auto-commit's git add to what the command
+ produced
+
+auto-commit.sh (and its PowerShell and Python twins) stage the working
+tree with a blanket `git add .` before committing. This sweeps in every
+untracked file anywhere in the project, not just what the triggering
+command actually produced -- an in-progress edit in an unrelated file,
+directory, or feature gets swept into the same auto-commit.
+
+Stage only the directory the event's own command is responsible for:
+.specify/memory/ for after_constitution, and the active feature's
+directory (specs/<feature>/) for every other event, resolved the same
+way every other script resolves it (SPECIFY_FEATURE_DIRECTORY, else
+.specify/feature.json). When no feature directory can be resolved -- no
+active feature yet, or the core scripts aren't installed -- fall back to
+`git add -u`, so an in-progress edit to an already-tracked file still
+commits without ever adding a new untracked file outside a known scope.
+The existing "no changes to commit" check keeps its whole-repo reach; a
+new check after staging catches the case where that broader check finds
+pending changes but the event's own scope holds none, skipping cleanly
+instead of committing an empty index.
+
+Existing tests that exercised the blanket `add .` behavior now write
+their fixture's changed file under a resolvable feature directory; new
+tests cover all three staging paths -- the feature directory, the
+constitution directory, and the tracked-only fallback -- each proving an
+unrelated untracked file elsewhere in the tree is never staged.
+---
+ extensions/git/scripts/bash/auto-commit.sh    |  49 +++-
+ .../git/scripts/powershell/auto-commit.ps1    |  67 ++++-
+ extensions/git/scripts/python/auto_commit.py  | 106 +++++++-
+ tests/extensions/git/test_git_extension.py    | 246 ++++++++++++++----
+ .../git/test_git_extension_python_parity.py   |  36 ++-
+ 5 files changed, 441 insertions(+), 63 deletions(-)
+
+diff --git a/extensions/git/scripts/bash/auto-commit.sh b/extensions/git/scripts/bash/auto-commit.sh
+index 17fec66..6f7b9bf 100755
+--- a/extensions/git/scripts/bash/auto-commit.sh
++++ b/extensions/git/scripts/bash/auto-commit.sh
+@@ -72,6 +72,24 @@ _find_project_root() {
+ REPO_ROOT=$(_find_project_root "$SCRIPT_DIR") || REPO_ROOT="$(pwd)"
+ cd "$REPO_ROOT"
+ 
++# Source common.sh for get_feature_paths, so the scoped `git add` below can
++# resolve the active feature's directory. Search locations in priority
++# order, mirroring create-new-feature-branch.sh:
++#  1. .specify/scripts/bash/common.sh (installed project)
++#  2. scripts/bash/common.sh (source checkout fallback)
++# Its absence just means the tracked-only fallback below applies -- never a
++# hard error, the same tolerance this script already gives a missing config
++# file or a non-git directory.
++for _common_candidate in \
++    "$REPO_ROOT/.specify/scripts/bash/common.sh" \
++    "$REPO_ROOT/scripts/bash/common.sh"
++do
++    if [ -f "$_common_candidate" ]; then
++        source "$_common_candidate"
++        break
++    fi
++done
++
+ # Check if git is available
+ if ! command -v git >/dev/null 2>&1; then
+     echo "[specify] Warning: Git not found; skipped auto-commit" >&2
+@@ -204,8 +222,35 @@ if [ -z "$_commit_msg" ]; then
+     _commit_msg="[Spec Kit] Auto-commit ${_phase} ${_command_name}"
+ fi
+ 
+-# Stage and commit
+-_git_out=$(git add . 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
++# Stage only what this event's command produced -- never `git add .`, which
++# sweeps in every untracked file in the tree regardless of which command ran.
++#
++# Scope, by event:
++#   after_constitution   -> .specify/memory/, the constitution's own directory
++#   every other event    -> the active feature's directory, resolved the same
++#                           way every other script resolves it
++#                           (get_feature_paths: SPECIFY_FEATURE_DIRECTORY,
++#                           else .specify/feature.json)
++#   unresolvable feature -> tracked files only (git add -u), so an
++#                           in-progress edit still commits without ever
++#                           adding an untracked file outside a known scope
++if [ "$EVENT_NAME" = "after_constitution" ]; then
++    _git_out=$(git add -- "$REPO_ROOT/.specify/memory" 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
++elif type get_feature_paths >/dev/null 2>&1 && _paths_output=$(get_feature_paths --no-persist 2>/dev/null); then
++    eval "$_paths_output"
++    _git_out=$(git add -- "$FEATURE_DIR" 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
++else
++    _git_out=$(git add -u 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
++fi
++
++# The event's own scope may hold nothing even though something elsewhere in
++# the tree is dirty (the pre-check above looks at the whole repo); skip
++# cleanly rather than trying to commit an empty index.
++if git diff --cached --quiet 2>/dev/null; then
++    echo "[specify] No changes to commit after $EVENT_NAME" >&2
++    exit 0
++fi
++
+ _git_out=$(git commit -q -m "$_commit_msg" 2>&1) || { echo "[specify] Error: git commit failed: $_git_out" >&2; exit 1; }
+ 
+ echo "[OK] Changes committed ${_phase} ${_command_name}" >&2
+diff --git a/extensions/git/scripts/powershell/auto-commit.ps1 b/extensions/git/scripts/powershell/auto-commit.ps1
+index d27b484..2d10e21 100644
+--- a/extensions/git/scripts/powershell/auto-commit.ps1
++++ b/extensions/git/scripts/powershell/auto-commit.ps1
+@@ -63,6 +63,24 @@ $repoRoot = Find-ProjectRoot -StartDir $PSScriptRoot
+ if (-not $repoRoot) { $repoRoot = Get-Location }
+ Set-Location $repoRoot
+ 
++# Source common.ps1 for Get-FeaturePathsEnv, so the scoped `git add` below can
++# resolve the active feature's directory. Search locations in priority
++# order, mirroring create-new-feature-branch.ps1:
++#  1. .specify/scripts/powershell/common.ps1 (installed project)
++#  2. scripts/powershell/common.ps1 (source checkout fallback)
++# Its absence just means the tracked-only fallback below applies -- never a
++# hard error, the same tolerance this script already gives a missing config
++# file or a non-git directory.
++foreach ($_commonCandidate in @(
++    (Join-Path $repoRoot ".specify/scripts/powershell/common.ps1"),
++    (Join-Path $repoRoot "scripts/powershell/common.ps1")
++)) {
++    if (Test-Path $_commonCandidate) {
++        . $_commonCandidate
++        break
++    }
++}
++
+ # Check if git is available
+ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+     Write-Warning "[specify] Warning: Git not found; skipped auto-commit"
+@@ -210,14 +228,59 @@ if (-not $commitMsg) {
+     $commitMsg = "[Spec Kit] Auto-commit $phase $commandName"
+ }
+ 
+-# Stage and commit
++# Stage only what this event's command produced -- never `git add .`, which
++# sweeps in every untracked file in the tree regardless of which command ran.
++#
++# Scope, by event:
++#   after_constitution   -> .specify/memory/, the constitution's own directory
++#   every other event    -> the active feature's directory, resolved the same
++#                           way every other script resolves it
++#                           (Get-FeaturePathsEnv: SPECIFY_FEATURE_DIRECTORY,
++#                           else .specify/feature.json)
++#   unresolvable feature -> tracked files only (git add -u), so an
++#                           in-progress edit still commits without ever
++#                           adding an untracked file outside a known scope
++#
+ # Relax ErrorActionPreference so CRLF warnings on stderr do not terminate,
+ # while still allowing redirected error output to be captured for diagnostics.
+ $savedEAP = $ErrorActionPreference
+ $ErrorActionPreference = 'Continue'
+ try {
+-    $out = git add . 2>&1 | Out-String
++    if ($EventName -eq 'after_constitution') {
++        $out = git add -- (Join-Path $repoRoot '.specify/memory') 2>&1 | Out-String
++    } elseif ((Get-Command Get-FeaturePathsEnv -ErrorAction SilentlyContinue) -and
++              ($featurePaths = Get-FeaturePathsEnv -NoPersist -ReturnNullOnError)) {
++        $out = git add -- $featurePaths.FEATURE_DIR 2>&1 | Out-String
++    } else {
++        $out = git add -u 2>&1 | Out-String
++    }
+     if ($LASTEXITCODE -ne 0) { throw "git add failed: $out" }
++} catch {
++    Write-Warning "[specify] Error: $_"
++    exit 1
++} finally {
++    $ErrorActionPreference = $savedEAP
++}
++
++# The event's own scope may hold nothing even though something elsewhere in
++# the tree is dirty (the pre-check above looks at the whole repo); skip
++# cleanly rather than trying to commit an empty index.
++$savedEAP = $ErrorActionPreference
++$ErrorActionPreference = 'Continue'
++try {
++    git diff --cached --quiet 2>$null
++    $nothingStaged = ($LASTEXITCODE -eq 0)
++} finally {
++    $ErrorActionPreference = $savedEAP
++}
++if ($nothingStaged) {
++    Write-Host "[specify] No changes to commit after $EventName" -ForegroundColor DarkGray
++    exit 0
++}
++
++$savedEAP = $ErrorActionPreference
++$ErrorActionPreference = 'Continue'
++try {
+     $out = git commit -q -m $commitMsg 2>&1 | Out-String
+     if ($LASTEXITCODE -ne 0) { throw "git commit failed: $out" }
+ } catch {
+diff --git a/extensions/git/scripts/python/auto_commit.py b/extensions/git/scripts/python/auto_commit.py
+index c669289..3acd161 100644
+--- a/extensions/git/scripts/python/auto_commit.py
++++ b/extensions/git/scripts/python/auto_commit.py
+@@ -11,6 +11,9 @@ Usage: auto_commit.py <event_name>
+ 
+ from __future__ import annotations
+ 
++import contextlib
++import importlib.util
++import io
+ import re
+ import shutil
+ import subprocess
+@@ -28,6 +31,80 @@ def _find_project_root(start: Path) -> Path | None:
+         current = current.parent
+ 
+ 
++def _load_core_common(project_root: Path | None):
++    """Load the core common.py from the project's installed scripts.
++
++    Search locations in priority order, mirroring the bash/PowerShell twins:
++     1. .specify/scripts/python/common.py (installed project)
++     2. scripts/python/common.py (source checkout fallback)
++    Returns the loaded module, or None when neither is present.
++    """
++    if project_root is None:
++        return None
++    for relative in (".specify/scripts/python/common.py", "scripts/python/common.py"):
++        candidate = project_root / relative
++        if candidate.is_file():
++            spec = importlib.util.spec_from_file_location("speckit_core_common", candidate)
++            if spec is None or spec.loader is None:
++                continue
++            module = importlib.util.module_from_spec(spec)
++            sys.modules[spec.name] = module
++            spec.loader.exec_module(module)
++            return module
++    return None
++
++
++def _resolve_feature_dir(repo_root: Path, script_file: Path) -> Path | None:
++    """Best-effort: the active feature's directory, or None when it can't be
++    resolved (no core common.py, no SPECIFY_FEATURE_DIRECTORY, no readable
++    .specify/feature.json) -- never raises, so the caller can fall back to
++    staging tracked files only. Its own "not found" diagnostic is
++    intentionally suppressed here: an unresolvable feature is this
++    function's normal, silent fallback signal, not an error to report.
++    """
++    common = _load_core_common(repo_root)
++    if common is None:
++        return None
++    with contextlib.redirect_stderr(io.StringIO()):
++        try:
++            return common.get_feature_paths(no_persist=True, script_file=script_file).feature_dir
++        except SystemExit:
++            return None
++
++
++def _stage_event_scope(event_name: str, repo_root: Path, script_file: Path) -> str | None:
++    """Stage only what this event's command produced -- never `git add .`,
++    which sweeps in every untracked file in the tree regardless of which
++    command ran.
++
++    Scope, by event:
++      after_constitution   -> .specify/memory/, the constitution's own
++                              directory
++      every other event    -> the active feature's directory, resolved the
++                              same way every other script resolves it
++                              (get_feature_paths: SPECIFY_FEATURE_DIRECTORY,
++                              else .specify/feature.json)
++      unresolvable feature -> tracked files only (git add -u), so an
++                              in-progress edit still commits without ever
++                              adding an untracked file outside a known scope
++
++    Returns None on success, or the combined stdout+stderr of a failed
++    ``git add`` on failure.
++    """
++    if event_name == "after_constitution":
++        add_args = ["add", "--", str(repo_root / ".specify" / "memory")]
++    else:
++        feature_dir = _resolve_feature_dir(repo_root, script_file)
++        add_args = ["add", "--", str(feature_dir)] if feature_dir else ["add", "-u"]
++
++    result = subprocess.run(
++        ["git", *add_args], cwd=repo_root, capture_output=True, text=True
++    )
++    if result.returncode != 0:
++        return (result.stdout + result.stderr).strip()
++    return None
++
++
+ def _value_after_colon(line: str) -> str:
+     return re.sub(r"^[^:]*:\s*", "", line)
+ 
+@@ -176,16 +253,25 @@ def main(argv: list[str]) -> int:
+     if not commit_msg:
+         commit_msg = f"[Spec Kit] Auto-commit {phase} {command_name}"
+ 
+-    steps = [
+-        (["git", "add", "."], "git add"),
+-        (["git", "commit", "-q", "-m", commit_msg], "git commit"),
+-    ]
+-    for cmd, label in steps:
+-        result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)
+-        if result.returncode != 0:
+-            output = (result.stdout + result.stderr).strip()
+-            print(f"[specify] Error: {label} failed: {output}", file=sys.stderr)
+-            return 1
++    add_error = _stage_event_scope(event_name, repo_root, Path(__file__).resolve())
++    if add_error is not None:
++        print(f"[specify] Error: git add failed: {add_error}", file=sys.stderr)
++        return 1
++
++    # The event's own scope may hold nothing even though something elsewhere
++    # in the tree is dirty (the pre-check above looks at the whole repo);
++    # skip cleanly rather than trying to commit an empty index.
++    if _quiet("diff", "--cached", "--quiet"):
++        print(f"[specify] No changes to commit after {event_name}", file=sys.stderr)
++        return 0
++
++    result = subprocess.run(
++        ["git", "commit", "-q", "-m", commit_msg], cwd=repo_root, capture_output=True, text=True
++    )
++    if result.returncode != 0:
++        output = (result.stdout + result.stderr).strip()
++        print(f"[specify] Error: git commit failed: {output}", file=sys.stderr)
++        return 1
+ 
+     print(f"[OK] Changes committed {phase} {command_name}", file=sys.stderr)
+     return 0
+diff --git a/tests/extensions/git/test_git_extension.py b/tests/extensions/git/test_git_extension.py
+index f6be51c..9d70499 100644
+--- a/tests/extensions/git/test_git_extension.py
++++ b/tests/extensions/git/test_git_extension.py
+@@ -89,6 +89,22 @@ def _write_config(project: Path, content: str) -> Path:
+     return config_path
+ 
+ 
++def _setup_project_with_feature(tmp_path: Path, *, git: bool = True) -> Path:
++    """_setup_project, plus a resolvable active feature directory.
++
++    auto-commit's scoped `git add` (issue: a blanket `git add .` sweeps in
++    every untracked file, not just what the running command produced) needs
++    .specify/feature.json to resolve a feature directory; tests that expect
++    a *new* file to be committed must create it under this directory.
++    """
++    project = _setup_project(tmp_path, git=git)
++    (project / "specs" / "001-test").mkdir(parents=True)
++    (project / ".specify" / "feature.json").write_text(
++        '{"feature_directory": "specs/001-test"}\n', encoding="utf-8"
++    )
++    return project
++
++
+ def _add_sibling_worktree(project: Path, path: Path, branch: str) -> None:
+     """Add a sibling worktree so `git branch -a` marks it with `+`."""
+     subprocess.run(
+@@ -1039,7 +1055,7 @@ class TestAutoCommitBash:
+ 
+     def test_enabled_per_command(self, tmp_path: Path):
+         """auto-commit.sh commits when per-command key is enabled."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+@@ -1048,7 +1064,6 @@ class TestAutoCommitBash:
+             '    message: "test commit after specify"\n'
+         ))
+         # Create a file to commit
+-        (project / "specs" / "001-test" / "spec.md").parent.mkdir(parents=True)
+         (project / "specs" / "001-test" / "spec.md").write_text("test spec")
+ 
+         result = _run_bash("auto-commit.sh", project, "after_specify")
+@@ -1062,7 +1077,7 @@ class TestAutoCommitBash:
+ 
+     def test_custom_message(self, tmp_path: Path):
+         """auto-commit.sh uses the per-command message."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+@@ -1070,7 +1085,7 @@ class TestAutoCommitBash:
+             "    enabled: true\n"
+             '    message: "[Project] Plan complete"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+ 
+         result = _run_bash("auto-commit.sh", project, "after_plan")
+         assert result.returncode == 0
+@@ -1083,9 +1098,9 @@ class TestAutoCommitBash:
+ 
+     def test_default_true_with_no_event_key(self, tmp_path: Path):
+         """auto-commit.sh uses default: true when event key is absent."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, "auto_commit:\n  default: true\n")
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+ 
+         result = _run_bash("auto-commit.sh", project, "after_tasks")
+         assert result.returncode == 0
+@@ -1140,28 +1155,28 @@ class TestAutoCommitBash:
+ 
+     def test_success_message_uses_ok_prefix(self, tmp_path: Path):
+         """auto-commit.sh success message uses [OK] (not Unicode)."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+             "  after_specify:\n"
+             "    enabled: true\n"
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_bash("auto-commit.sh", project, "after_specify")
+         assert result.returncode == 0
+         assert "[OK] Changes committed" in result.stderr
+ 
+     def test_success_message_no_unicode_checkmark(self, tmp_path: Path):
+         """auto-commit.sh must not use Unicode checkmark in output."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+             "  after_plan:\n"
+             "    enabled: true\n"
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_bash("auto-commit.sh", project, "after_plan")
+         assert result.returncode == 0
+         assert "\u2713" not in result.stderr, "Must not use Unicode checkmark"
+@@ -1173,7 +1188,7 @@ class TestAutoCommitBashCommitStyle:
+ 
+     def test_fixed_is_default_when_commit_style_absent(self, tmp_path: Path):
+         """Omitting commit_style preserves the fixed/static message behavior."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+@@ -1181,7 +1196,7 @@ class TestAutoCommitBashCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_bash("auto-commit.sh", project, "after_specify")
+         assert result.returncode == 0
+         log = subprocess.run(
+@@ -1193,7 +1208,7 @@ class TestAutoCommitBashCommitStyle:
+     def test_explicit_fixed_style_uses_configured_message(self, tmp_path: Path):
+         """commit_style: fixed (explicit) still uses the configured static message,
+         not just the absent-key default."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: fixed\n"
+             "auto_commit:\n"
+@@ -1202,7 +1217,7 @@ class TestAutoCommitBashCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_bash(
+             "auto-commit.sh", project, "after_specify", "feat: this should be ignored"
+         )
+@@ -1217,7 +1232,7 @@ class TestAutoCommitBashCommitStyle:
+     def test_conventional_message_file_used(self, tmp_path: Path):
+         """--message-file reads the generated message from a file instead of argv,
+         avoiding shell interpolation of agent-controlled content."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional\n"
+             "auto_commit:\n"
+@@ -1226,7 +1241,7 @@ class TestAutoCommitBashCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         # Write the message file inside the worktree (as an agent invoking
+         # this from a working directory tool naturally would) to exercise
+         # the exclusion-from-staging behavior below.
+@@ -1245,7 +1260,7 @@ class TestAutoCommitBashCommitStyle:
+     def test_message_file_not_staged_or_left_behind(self, tmp_path: Path):
+         """--message-file written inside the worktree must never be staged or
+         committed itself, and must be removed once its content is consumed."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional\n"
+             "auto_commit:\n"
+@@ -1253,7 +1268,7 @@ class TestAutoCommitBashCommitStyle:
+             "  after_specify:\n"
+             "    enabled: true\n"
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         msg_file = project / "commit-msg.txt"
+         msg_file.write_text("feat: real change\n")
+         result = _run_bash(
+@@ -1323,7 +1338,7 @@ class TestAutoCommitBashCommitStyle:
+ 
+     def test_conventional_uses_generated_message(self, tmp_path: Path):
+         """commit_style: conventional uses the generated_message argument as the commit message."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional\n"
+             "auto_commit:\n"
+@@ -1332,7 +1347,7 @@ class TestAutoCommitBashCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_bash(
+             "auto-commit.sh", project, "after_specify", "feat: add OAuth specification"
+         )
+@@ -1386,7 +1401,7 @@ class TestAutoCommitBashCommitStyle:
+ 
+     def test_conventional_with_trailing_inline_comment(self, tmp_path: Path):
+         """commit_style value with a trailing YAML inline comment is still recognized."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional  # team standard\n"
+             "auto_commit:\n"
+@@ -1395,7 +1410,7 @@ class TestAutoCommitBashCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_bash(
+             "auto-commit.sh", project, "after_specify", "feat: add OAuth specification"
+         )
+@@ -1410,7 +1425,7 @@ class TestAutoCommitBashCommitStyle:
+     def test_unknown_commit_style_defaults_to_fixed(self, tmp_path: Path):
+         """An unrecognized commit_style value falls back to 'fixed' with a warning,
+         instead of silently mis-parsing or crashing."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventonal\n"
+             "auto_commit:\n"
+@@ -1419,7 +1434,7 @@ class TestAutoCommitBashCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_bash("auto-commit.sh", project, "after_specify")
+         assert result.returncode == 0
+         assert "unknown commit_style" in result.stderr.lower()
+@@ -1432,7 +1447,7 @@ class TestAutoCommitBashCommitStyle:
+     def test_duplicate_commit_style_lines_use_first_match(self, tmp_path: Path):
+         """A config with multiple `commit_style:` lines (e.g. from a bad merge) uses only
+         the first match instead of concatenating values into an unrecognized style."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional\n"
+             "commit_style: fixed\n"
+@@ -1442,7 +1457,7 @@ class TestAutoCommitBashCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_bash(
+             "auto-commit.sh", project, "after_specify", "feat: add OAuth specification"
+         )
+@@ -1467,7 +1482,7 @@ class TestAutoCommitPowerShell:
+ 
+     def test_enabled_per_command(self, tmp_path: Path):
+         """auto-commit.ps1 commits when per-command key is enabled."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+@@ -1475,7 +1490,6 @@ class TestAutoCommitPowerShell:
+             "    enabled: true\n"
+             '    message: "ps commit"\n'
+         ))
+-        (project / "specs" / "001-test").mkdir(parents=True)
+         (project / "specs" / "001-test" / "spec.md").write_text("test")
+ 
+         result = _run_pwsh("auto-commit.ps1", project, "after_specify")
+@@ -1489,28 +1503,28 @@ class TestAutoCommitPowerShell:
+ 
+     def test_success_message_uses_ok_prefix(self, tmp_path: Path):
+         """auto-commit.ps1 success message uses [OK] (not Unicode)."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+             "  after_specify:\n"
+             "    enabled: true\n"
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_pwsh("auto-commit.ps1", project, "after_specify")
+         assert result.returncode == 0
+         assert "[OK] Changes committed" in result.stdout
+ 
+     def test_success_message_no_unicode_checkmark(self, tmp_path: Path):
+         """auto-commit.ps1 must not use Unicode checkmark in output."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+             "  after_plan:\n"
+             "    enabled: true\n"
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_pwsh("auto-commit.ps1", project, "after_plan")
+         assert result.returncode == 0
+         assert "\u2713" not in result.stdout, "Must not use Unicode checkmark"
+@@ -1522,7 +1536,7 @@ class TestAutoCommitPowerShellCommitStyle:
+ 
+     def test_fixed_is_default_when_commit_style_absent(self, tmp_path: Path):
+         """Omitting commit_style preserves the fixed/static message behavior."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+@@ -1530,7 +1544,7 @@ class TestAutoCommitPowerShellCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_pwsh("auto-commit.ps1", project, "after_specify")
+         assert result.returncode == 0
+         log = subprocess.run(
+@@ -1542,7 +1556,7 @@ class TestAutoCommitPowerShellCommitStyle:
+     def test_explicit_fixed_style_uses_configured_message(self, tmp_path: Path):
+         """commit_style: fixed (explicit) still uses the configured static message,
+         not just the absent-key default."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: fixed\n"
+             "auto_commit:\n"
+@@ -1551,7 +1565,7 @@ class TestAutoCommitPowerShellCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_pwsh(
+             "auto-commit.ps1", project, "after_specify", "feat: this should be ignored"
+         )
+@@ -1566,7 +1580,7 @@ class TestAutoCommitPowerShellCommitStyle:
+     def test_conventional_message_file_used(self, tmp_path: Path):
+         """-MessageFile reads the generated message from a file instead of argv,
+         avoiding shell interpolation of agent-controlled content."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional\n"
+             "auto_commit:\n"
+@@ -1575,7 +1589,7 @@ class TestAutoCommitPowerShellCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         msg_file = project / "commit-msg.txt"
+         msg_file.write_text("feat: add $(dangerous) `injection` test\n")
+         result = _run_pwsh(
+@@ -1591,7 +1605,7 @@ class TestAutoCommitPowerShellCommitStyle:
+     def test_message_file_not_staged_or_left_behind(self, tmp_path: Path):
+         """-MessageFile written inside the worktree must never be staged or
+         committed itself, and must be removed once its content is consumed."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional\n"
+             "auto_commit:\n"
+@@ -1599,7 +1613,7 @@ class TestAutoCommitPowerShellCommitStyle:
+             "  after_specify:\n"
+             "    enabled: true\n"
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         msg_file = project / "commit-msg.txt"
+         msg_file.write_text("feat: real change\n")
+         result = _run_pwsh(
+@@ -1669,7 +1683,7 @@ class TestAutoCommitPowerShellCommitStyle:
+ 
+     def test_conventional_uses_generated_message(self, tmp_path: Path):
+         """commit_style: conventional uses the generated_message argument as the commit message."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional\n"
+             "auto_commit:\n"
+@@ -1678,7 +1692,7 @@ class TestAutoCommitPowerShellCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_pwsh(
+             "auto-commit.ps1", project, "after_specify", "feat: add OAuth specification"
+         )
+@@ -1736,7 +1750,7 @@ class TestAutoCommitPowerShellCommitStyle:
+ 
+     def test_conventional_with_trailing_inline_comment(self, tmp_path: Path):
+         """commit_style value with a trailing YAML inline comment is still recognized."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventional  # team standard\n"
+             "auto_commit:\n"
+@@ -1745,7 +1759,7 @@ class TestAutoCommitPowerShellCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_pwsh(
+             "auto-commit.ps1", project, "after_specify", "feat: add OAuth specification"
+         )
+@@ -1760,7 +1774,7 @@ class TestAutoCommitPowerShellCommitStyle:
+     def test_unknown_commit_style_defaults_to_fixed(self, tmp_path: Path):
+         """An unrecognized commit_style value falls back to 'fixed' with a warning,
+         instead of silently mis-parsing or crashing."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "commit_style: conventonal\n"
+             "auto_commit:\n"
+@@ -1769,7 +1783,7 @@ class TestAutoCommitPowerShellCommitStyle:
+             "    enabled: true\n"
+             '    message: "[Spec Kit] Add specification"\n'
+         ))
+-        (project / "new-file.txt").write_text("content")
++        (project / "specs" / "001-test" / "new-file.txt").write_text("content")
+         result = _run_pwsh("auto-commit.ps1", project, "after_specify")
+         assert result.returncode == 0
+         combined = (result.stdout or "") + (result.stderr or "")
+@@ -1852,7 +1866,7 @@ class TestAutoCommitPowerShellCRLF:
+ 
+     def test_custom_message_not_corrupted_by_crlf(self, tmp_path: Path):
+         """Commit message is the configured value, not a CRLF warning."""
+-        project = _setup_project(tmp_path)
++        project = _setup_project_with_feature(tmp_path)
+         _write_config(project, (
+             "auto_commit:\n"
+             "  default: false\n"
+@@ -1864,7 +1878,7 @@ class TestAutoCommitPowerShellCRLF:
+             ["git", "config", "core.autocrlf", "true"],
+             cwd=project, check=True,
+         )
+-        (project / "plan.txt").write_bytes(b"plan\ncontent\n")
++        (project / "specs" / "001-test" / "plan.txt").write_bytes(b"plan\ncontent\n")
+ 
+         result = _run_pwsh("auto-commit.ps1", project, "after_plan")
+         assert result.returncode == 0
+@@ -1931,6 +1945,142 @@ class TestAutoCommitPowerShellCRLF:
+         assert log.stdout.strip().count("\n") == 0  # only the seed commit
+ 
+ 
++# ── Scoped staging tests (never `git add .`) ─────────────────────────────────
++
++
++@requires_bash
++class TestAutoCommitScopeBash:
++    """auto-commit.sh stages only what the event's command produced -- never
++    a blanket `git add .`, which would sweep in every untracked file in the
++    tree regardless of which command ran."""
++
++    def test_feature_scope_excludes_unrelated_untracked_file(self, tmp_path: Path):
++        """A resolvable feature directory is staged; an unrelated untracked
++        file elsewhere in the tree is not."""
++        project = _setup_project_with_feature(tmp_path)
++        _write_config(project, (
++            "auto_commit:\n"
++            "  default: false\n"
++            "  after_specify:\n"
++            "    enabled: true\n"
++        ))
++        (project / "specs" / "001-test" / "spec.md").write_text("in scope")
++        (project / "unrelated.txt").write_text("out of scope")
++
++        result = _run_bash("auto-commit.sh", project, "after_specify")
++        assert result.returncode == 0
++
++        show = subprocess.run(
++            ["git", "show", "--stat", "--oneline", "HEAD"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert "spec.md" in show.stdout
++        assert "unrelated.txt" not in show.stdout
++        status = subprocess.run(
++            ["git", "status", "--porcelain", "--", "unrelated.txt"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert status.stdout.strip() == "?? unrelated.txt"
++
++    def test_constitution_scope_stages_only_memory_dir(self, tmp_path: Path):
++        """after_constitution stages .specify/memory/ only, never the rest
++        of the tree."""
++        project = _setup_project(tmp_path)
++        _write_config(project, (
++            "auto_commit:\n"
++            "  default: false\n"
++            "  after_constitution:\n"
++            "    enabled: true\n"
++        ))
++        memory_dir = project / ".specify" / "memory"
++        memory_dir.mkdir(parents=True, exist_ok=True)
++        (memory_dir / "constitution.md").write_text("principles")
++        (project / "unrelated.txt").write_text("out of scope")
++
++        result = _run_bash("auto-commit.sh", project, "after_constitution")
++        assert result.returncode == 0
++
++        show = subprocess.run(
++            ["git", "show", "--stat", "--oneline", "HEAD"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert "constitution.md" in show.stdout
++        assert "unrelated.txt" not in show.stdout
++        status = subprocess.run(
++            ["git", "status", "--porcelain", "--", "unrelated.txt"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert status.stdout.strip() == "?? unrelated.txt"
++
++    def test_unresolvable_feature_stages_tracked_files_only(self, tmp_path: Path):
++        """With no feature.json (and no SPECIFY_FEATURE_DIRECTORY), a
++        modified tracked file is still committed (`git add -u`), but a new
++        untracked file elsewhere is not."""
++        project = _setup_project(tmp_path)
++        _write_config(project, (
++            "auto_commit:\n"
++            "  default: false\n"
++            "  after_specify:\n"
++            "    enabled: true\n"
++        ))
++        tracked = project / "tracked.txt"
++        tracked.write_text("v1")
++        subprocess.run(["git", "add", "tracked.txt"], cwd=project, check=True)
++        subprocess.run(
++            ["git", "commit", "-q", "-m", "seed tracked"],
++            cwd=project, check=True, env={**os.environ, **_GIT_ENV},
++        )
++        tracked.write_text("v2")
++        (project / "unrelated.txt").write_text("out of scope")
++
++        result = _run_bash("auto-commit.sh", project, "after_specify")
++        assert result.returncode == 0
++
++        show = subprocess.run(
++            ["git", "show", "--stat", "--oneline", "HEAD"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert "tracked.txt" in show.stdout
++        assert "unrelated.txt" not in show.stdout
++        status = subprocess.run(
++            ["git", "status", "--porcelain", "--", "unrelated.txt"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert status.stdout.strip() == "?? unrelated.txt"
++
++
++@pytest.mark.skipif(not HAS_PWSH, reason="pwsh not available")
++class TestAutoCommitScopePowerShell:
++    """PowerShell twin of TestAutoCommitScopeBash's main scenario, proving
++    the three script variants stay in parity on scoped staging."""
++
++    def test_feature_scope_excludes_unrelated_untracked_file(self, tmp_path: Path):
++        project = _setup_project_with_feature(tmp_path)
++        _write_config(project, (
++            "auto_commit:\n"
++            "  default: false\n"
++            "  after_specify:\n"
++            "    enabled: true\n"
++        ))
++        (project / "specs" / "001-test" / "spec.md").write_text("in scope")
++        (project / "unrelated.txt").write_text("out of scope")
++
++        result = _run_pwsh("auto-commit.ps1", project, "after_specify")
++        assert result.returncode == 0
++
++        show = subprocess.run(
++            ["git", "show", "--stat", "--oneline", "HEAD"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert "spec.md" in show.stdout
++        assert "unrelated.txt" not in show.stdout
++        status = subprocess.run(
++            ["git", "status", "--porcelain", "--", "unrelated.txt"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert status.stdout.strip() == "?? unrelated.txt"
++
++
+ # ── git-common.sh Tests ──────────────────────────────────────────────────────
+ 
+ 
+diff --git a/tests/extensions/git/test_git_extension_python_parity.py b/tests/extensions/git/test_git_extension_python_parity.py
+index faeef00..a742f3a 100644
+--- a/tests/extensions/git/test_git_extension_python_parity.py
++++ b/tests/extensions/git/test_git_extension_python_parity.py
+@@ -466,7 +466,15 @@ class TestInitializeRepoParity:
+ @requires_bash
+ class TestAutoCommitParity:
+     def _dirty(self, proj: Path) -> None:
+-        (proj / "change.txt").write_text("dirty\n", encoding="utf-8")
++        """Write a change inside a resolvable feature directory
++        (specs/001-test/), so the scoped `git add` in auto-commit's staging
++        logic has something in scope to pick up."""
++        feature_dir = proj / "specs" / "001-test"
++        feature_dir.mkdir(parents=True, exist_ok=True)
++        (proj / ".specify" / "feature.json").write_text(
++            '{"feature_directory": "specs/001-test"}\n', encoding="utf-8"
++        )
++        (feature_dir / "change.txt").write_text("dirty\n", encoding="utf-8")
+ 
+     def _last_message(self, proj: Path) -> str:
+         return subprocess.run(
+@@ -632,6 +640,32 @@ class TestAutoCommitParity:
+         _assert_parity(b, p)
+         assert "Not a Git repository" in p.stderr
+ 
++    def test_feature_scope_excludes_unrelated_untracked_file(self, tmp_path: Path):
++        """The scoped `git add` commits the active feature's directory but
++        never an unrelated untracked file elsewhere in the tree -- never a
++        blanket `git add .`."""
++        bash_proj, py_proj = _twin_projects(tmp_path)
++        config = "auto_commit:\n  default: false\n  after_specify:\n    enabled: true\n"
++        for proj in (bash_proj, py_proj):
++            _write_config(proj, config)
++            self._dirty(proj)  # specs/001-test/change.txt -- in scope
++            (proj / "unrelated.txt").write_text("out of scope\n", encoding="utf-8")
++        b = _run_bash("auto-commit.sh", bash_proj, "after_specify")
++        p = _run_py("auto-commit", py_proj, "after_specify")
++        _assert_parity(b, p)
++        for proj in (bash_proj, py_proj):
++            show = subprocess.run(
++                ["git", "show", "--stat", "--oneline", "HEAD"],
++                cwd=proj, capture_output=True, text=True,
++            )
++            assert "change.txt" in show.stdout
++            assert "unrelated.txt" not in show.stdout
++            status = subprocess.run(
++                ["git", "status", "--porcelain", "--", "unrelated.txt"],
++                cwd=proj, capture_output=True, text=True,
++            )
++            assert status.stdout.strip() == "?? unrelated.txt"
++
+ 
+ class TestGitCommonPython:
+     """Unit tests for git_common.py (imported directly)."""
+-- 
+2.50.1 (Apple Git-155)
+
