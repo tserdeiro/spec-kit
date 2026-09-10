@@ -666,3 +666,11 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     ledger de T011, `push.md` y la entrada 52 dicen `--current` en las
     dos. El implementador siguió a la mayoría. *Documentada:* el plan
     describe la intención; el ledger es el contrato (entrada 61).
+78. **Extraer una función compartida cuesta el doble contra el
+    presupuesto.** T012 movió el reconcile de `run_session_start` a
+    `_reconcile_hook` para compartirlo con el handler nuevo: `numstat`
+    cuenta el cuerpo entero como agregado en su lugar nuevo y no
+    descuenta las mismas líneas borradas en el viejo (entrada 67), así
+    que el brief que pide "factorizar, no copiar" paga más que copiar.
+    T012 cerró en 118/120 recortando docstrings y tests. *Pendiente de
+    decisión (67):* contar líneas netas.
