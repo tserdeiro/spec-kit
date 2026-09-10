@@ -239,13 +239,13 @@ a new pytest suite — no procedure stays authored as inline shell.
   - **Delivery**: single PR (~80 authored lines)
   - **Completion evidence**: PR #104 (base `005-T014-code-review-guard`, ready for review 2026-09-10); the doctor executed read-only in this repository from the rendered skill -> interpreter `.venv/bin/python` 3.14.6 while `python3` on PATH is 3.9.6 (entry 51), both doctors pass, `deleteBranchOnMerge=true`/`mergeCommitAllowed=true`, no gap in the six categories, both integrations' events wiring absent (the installed extensions predate the events, A-002; no `.specify/events.py`, no marker) with the source manifests' handler stems matching, mirror and ignore entries nothing to do; T023's fixture shows the wiring present; `bash scripts/conformance/bundles.sh` -> conformance passed; the two renders identical, zero markers; budget 0/160 (forecast ~80) (a prose task, entry 53); fresh review closed `inconclusive (0 blocking; the packet truncated the ledger (dogfooding entry 79))` with 1 major (the wiring fix named `install --force`, a no-op on an installed key; it is `specify integration upgrade <key>` followed by the doctor's `--fix`) and 3 minor (category 1's remediation source, the mixed-state wording, the hook file of other integrations), all fixed in da70a1c
 
-- [ ] T016 [US5] README opens with the day in four commands
+- [x] T016 [US5] README opens with the day in four commands
   - **Traces**: FR-013, SC-006; outcome: the root `README.md` (Spanish, per `AGENTS.md`'s exception) opens with the day's workflow expressed as four commands before any other content; the golden rules further down are split into two lists — what the developer does, and what the loop guarantees (scripts, events, and guards now do automatically) — replacing the single undifferentiated list
   - **Depends on**: T015
   - **Boundaries**: `README.md` only
   - **Evidence**: manual review confirms the four-command opening precedes all other content and the golden-rules split
   - **Delivery**: single PR (~90 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #105 (base `005-T015-doctor-onboarding`, ready for review 2026-09-10); manual review: the four-command opening (`/speckit.linear.status`, `/speckit.implement <feature>`, `/speckit.code-review <n> --publish`, `/speckit.doctor`) precedes every other section, the golden rules split into what the developer does (three bullets) and what the loop guarantees (collapsed, nine bullets), "Primeros pasos" closes with one doctor-driven step, "Actualizar" names `specify integration upgrade <agente>` then `/speckit.doctor --fix`; budget 0/180 (forecast ~90) (a prose task, entry 53); fresh review closed `inconclusive (0 blocking; the packet truncated the ledger (dogfooding entry 79))` with 2 major — the orchestrator's own consistency pass had turned the add-an-agent recipe into `upgrade` (restored to `install … --force` in 982758d) and credited `implement` with all eight scripts (it runs five; fixed in 0e6159a)
 
 ## Phase 6: User Story 6 — Dead surface is removed, and neutralized workarounds become upstream fixes (P6)
 
