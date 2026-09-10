@@ -1,0 +1,163 @@
+From 71f4f6ef539084bf5e768450210e0371c2784ba0 Mon Sep 17 00:00:00 2001
+From: tserdeiro <tserdeiro@gmail.com>
+Date: Thu, 10 Sep 2026 05:08:11 -0300
+Subject: [PATCH] fix(init): preserve installed_integrations across --force
+ reinit
+
+`specify init --here --force` always wrote a single-element
+installed_integrations list -- the integration being (re)initialized --
+discarding every other integration a project had installed, and its
+integration_settings with it. A project with two installed agents lost
+the second one's registration the next time the project was
+re-initialized (for example, after an upstream version bump), leaving
+its skill files on disk but no longer tracked in integration.json.
+
+Read the existing state before overwriting it and keep every previously
+installed key. Under --force, also re-register each preserved key's
+extension and preset commands alongside the integration actually being
+reinitialized: leaving them out meant the other integrations stayed
+composed from whatever they had before the reinit, silently drifting
+from the extensions and presets a consumer has since enabled or updated.
+
+Single-integration projects are unaffected -- with only one key
+installed, the preserved list and the freshly (re)initialized key are
+the same, matching current behavior exactly.
+---
+ src/specify_cli/commands/init.py | 25 +++++++++++--
+ tests/integrations/test_cli.py   | 61 ++++++++++++++++++++++++++++++++
+ 2 files changed, 84 insertions(+), 2 deletions(-)
+
+diff --git a/src/specify_cli/commands/init.py b/src/specify_cli/commands/init.py
+index 2f686e2..b920254 100644
+--- a/src/specify_cli/commands/init.py
++++ b/src/specify_cli/commands/init.py
+@@ -390,6 +390,7 @@ def register(app: typer.Typer) -> None:
+             _parse_integration_options,
+             _write_integration_json,
+         )
++        from ..integrations._helpers import _read_integration_json
+ 
+         show_banner()
+ 
+@@ -697,6 +698,15 @@ def register(app: typer.Typer) -> None:
+                 )
+                 manifest.save()
+ 
++                # A re-init must not orphan integrations installed earlier:
++                # collect them before they are overwritten below.
++                existing_state = _read_integration_json(project_path)
++                other_installed_keys = [
++                    key
++                    for key in existing_state.get("installed_integrations", [])
++                    if key != resolved_integration.key
++                ]
++
+                 if force:
+                     from ..integrations._helpers import (
+                         _register_extensions_for_agent,
+@@ -720,9 +730,20 @@ def register(app: typer.Typer) -> None:
+                             " may need re-registration."
+                         ),
+                     )
++                    # Re-initializing one integration must not silently stop
++                    # composing extensions/presets for the others.
++                    for other_key in other_installed_keys:
++                        _register_extensions_for_agent(
++                            project_path, other_key, force=True,
++                            continuing="Installed extensions may need re-registration.",
++                        )
++                        _register_presets_for_agent(
++                            project_path, other_key,
++                            continuing="Installed presets may need re-registration.",
++                        )
+ 
+                 integration_settings = _with_integration_setting(
+-                    {},
++                    existing_state,
+                     resolved_integration.key,
+                     resolved_integration,
+                     script_type=selected_script,
+@@ -733,7 +754,7 @@ def register(app: typer.Typer) -> None:
+                 _write_integration_json(
+                     project_path,
+                     resolved_integration.key,
+-                    [resolved_integration.key],
++                    [resolved_integration.key, *other_installed_keys],
+                     integration_settings,
+                 )
+ 
+diff --git a/tests/integrations/test_cli.py b/tests/integrations/test_cli.py
+index 640d12a..cfe2ddb 100644
+--- a/tests/integrations/test_cli.py
++++ b/tests/integrations/test_cli.py
+@@ -1252,6 +1252,67 @@ class TestInitIntegrationFlag:
+             "_register_extensions_for_agent was not called during init --here --force"
+         )
+ 
++    def test_init_here_force_preserves_other_installed_integrations(self, tmp_path):
++        """installed_integrations and their settings must survive --force,
++        and re-registration must reach every installed key, not just the
++        one being re-initialized."""
++        from unittest.mock import MagicMock, patch
++
++        from typer.testing import CliRunner
++
++        from specify_cli import app
++
++        project = tmp_path / "force-multi-integration"
++        project.mkdir()
++
++        old_cwd = os.getcwd()
++        try:
++            os.chdir(project)
++            runner = CliRunner()
++
++            result = runner.invoke(app, [
++                "init", "--here", "--force",
++                "--integration", "claude",
++                "--script", "sh",
++                "--ignore-agent-tools",
++            ], catch_exceptions=False)
++            assert result.exit_code == 0, result.output
++
++            result = runner.invoke(
++                app,
++                ["integration", "install", "codex", "--script", "sh"],
++                catch_exceptions=False,
++            )
++            assert result.exit_code == 0, result.output
++
++            mock_extensions = MagicMock()
++            with patch(
++                "specify_cli.integrations._helpers._register_extensions_for_agent",
++                mock_extensions,
++            ):
++                result = runner.invoke(app, [
++                    "init", "--here", "--force",
++                    "--integration", "claude",
++                    "--script", "sh",
++                    "--ignore-agent-tools",
++                ], catch_exceptions=False)
++        finally:
++            os.chdir(old_cwd)
++
++        assert result.exit_code == 0, result.output
++        registered = {call.args[1] for call in mock_extensions.call_args_list}
++        assert registered == {"claude", "codex"}, (
++            f"init --here --force must re-register every installed integration: {registered}"
++        )
++
++        state = json.loads((project / ".specify" / "integration.json").read_text())
++        assert sorted(state["installed_integrations"]) == ["claude", "codex"], (
++            f"init --here --force must preserve installed_integrations: {state['installed_integrations']}"
++        )
++        assert "codex" in state.get("integration_settings", {}), (
++            "init --here --force dropped codex's integration_settings"
++        )
++
+     def test_init_here_without_force_does_not_reapply_presets(self, tmp_path):
+         """Without --force (fresh project), _register_presets_for_agent should NOT be called."""
+         from unittest.mock import MagicMock, patch
+-- 
+2.50.1 (Apple Git-155)
+
