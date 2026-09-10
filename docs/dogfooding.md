@@ -816,3 +816,17 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Pendiente de decisión:* que el cierre normalice o descarte la
     categoría inválida como hace con la ruta, en vez de rechazar el
     archivo.
+91. **El preset no tiene dónde contar su versión, y el bump escribe
+    menos de lo que el ledger dice.** `publish.sh --bump` deja el
+    esqueleto de changelog (`- TODO`) solo a los dos paquetes; el
+    preset — el componente más grande de esta ronda (ocho scripts, los
+    `replace` de `implement` y `tasks`, el doctor) — pasa de 0.9.0 a
+    0.10.0 sin una nota de release en ningún sitio, y los bundles
+    igual. Además, los Boundaries de T024 nombran
+    `presets/default/README.md` entre lo que `--bump` escribe, pero solo
+    el camino de publicación lo reescribe (las URLs de descarga). *Regla:*
+    la fila de Evidence de una tarea de bump se copia de lo que el
+    script imprime, no de la memoria del plan. *Pendiente de decisión:*
+    un `CHANGELOG.md` del preset que el bump también esqueletice (un
+    cambio de script, fuera de T024), o las notas de la ronda en
+    `docs/releases.md`.
