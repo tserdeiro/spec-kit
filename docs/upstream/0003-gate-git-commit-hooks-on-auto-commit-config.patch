@@ -17,7 +17,7 @@ evaluated it.
 
 Give each git.commit hook the condition it needs to respect at run
 time: condition: "config.auto_commit.<event>.enabled == 'true' or
-(config.auto_commit.<event>.enabled is not set and
+(config.auto_commit.<event> is not set and
 config.auto_commit.default == 'true')" -- the per-event key when it is
 set, else the shared default, exactly the resolution
 auto_commit.py's _parse_auto_commit_config already implements by hand.
@@ -104,97 +104,97 @@ index c92322d..7d9c5ee 100644
      optional: true
      prompt: "Commit outstanding changes before clarification?"
      description: "Auto-commit before spec clarification"
-+    condition: "config.auto_commit.before_clarify.enabled == 'true' or (config.auto_commit.before_clarify.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.before_clarify.enabled == 'true' or (config.auto_commit.before_clarify is not set and config.auto_commit.default == 'true')"
    before_plan:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before planning?"
      description: "Auto-commit before implementation planning"
-+    condition: "config.auto_commit.before_plan.enabled == 'true' or (config.auto_commit.before_plan.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.before_plan.enabled == 'true' or (config.auto_commit.before_plan is not set and config.auto_commit.default == 'true')"
    before_tasks:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before task generation?"
      description: "Auto-commit before task generation"
-+    condition: "config.auto_commit.before_tasks.enabled == 'true' or (config.auto_commit.before_tasks.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.before_tasks.enabled == 'true' or (config.auto_commit.before_tasks is not set and config.auto_commit.default == 'true')"
    before_implement:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before implementation?"
      description: "Auto-commit before implementation"
-+    condition: "config.auto_commit.before_implement.enabled == 'true' or (config.auto_commit.before_implement.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.before_implement.enabled == 'true' or (config.auto_commit.before_implement is not set and config.auto_commit.default == 'true')"
    before_checklist:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before checklist?"
      description: "Auto-commit before checklist generation"
-+    condition: "config.auto_commit.before_checklist.enabled == 'true' or (config.auto_commit.before_checklist.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.before_checklist.enabled == 'true' or (config.auto_commit.before_checklist is not set and config.auto_commit.default == 'true')"
    before_analyze:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before analysis?"
      description: "Auto-commit before analysis"
-+    condition: "config.auto_commit.before_analyze.enabled == 'true' or (config.auto_commit.before_analyze.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.before_analyze.enabled == 'true' or (config.auto_commit.before_analyze is not set and config.auto_commit.default == 'true')"
    before_taskstoissues:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before issue sync?"
      description: "Auto-commit before tasks-to-issues conversion"
-+    condition: "config.auto_commit.before_taskstoissues.enabled == 'true' or (config.auto_commit.before_taskstoissues.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.before_taskstoissues.enabled == 'true' or (config.auto_commit.before_taskstoissues is not set and config.auto_commit.default == 'true')"
    after_constitution:
      command: speckit.git.commit
      optional: true
      prompt: "Commit constitution changes?"
      description: "Auto-commit after constitution update"
-+    condition: "config.auto_commit.after_constitution.enabled == 'true' or (config.auto_commit.after_constitution.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_constitution.enabled == 'true' or (config.auto_commit.after_constitution is not set and config.auto_commit.default == 'true')"
    after_specify:
      command: speckit.git.commit
      optional: true
      prompt: "Commit specification changes?"
      description: "Auto-commit after specification"
-+    condition: "config.auto_commit.after_specify.enabled == 'true' or (config.auto_commit.after_specify.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_specify.enabled == 'true' or (config.auto_commit.after_specify is not set and config.auto_commit.default == 'true')"
    after_clarify:
      command: speckit.git.commit
      optional: true
      prompt: "Commit clarification changes?"
      description: "Auto-commit after spec clarification"
-+    condition: "config.auto_commit.after_clarify.enabled == 'true' or (config.auto_commit.after_clarify.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_clarify.enabled == 'true' or (config.auto_commit.after_clarify is not set and config.auto_commit.default == 'true')"
    after_plan:
      command: speckit.git.commit
      optional: true
      prompt: "Commit plan changes?"
      description: "Auto-commit after implementation planning"
-+    condition: "config.auto_commit.after_plan.enabled == 'true' or (config.auto_commit.after_plan.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_plan.enabled == 'true' or (config.auto_commit.after_plan is not set and config.auto_commit.default == 'true')"
    after_tasks:
      command: speckit.git.commit
      optional: true
      prompt: "Commit task changes?"
      description: "Auto-commit after task generation"
-+    condition: "config.auto_commit.after_tasks.enabled == 'true' or (config.auto_commit.after_tasks.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_tasks.enabled == 'true' or (config.auto_commit.after_tasks is not set and config.auto_commit.default == 'true')"
    after_implement:
      command: speckit.git.commit
      optional: true
      prompt: "Commit implementation changes?"
      description: "Auto-commit after implementation"
-+    condition: "config.auto_commit.after_implement.enabled == 'true' or (config.auto_commit.after_implement.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_implement.enabled == 'true' or (config.auto_commit.after_implement is not set and config.auto_commit.default == 'true')"
    after_checklist:
      command: speckit.git.commit
      optional: true
      prompt: "Commit checklist changes?"
      description: "Auto-commit after checklist generation"
-+    condition: "config.auto_commit.after_checklist.enabled == 'true' or (config.auto_commit.after_checklist.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_checklist.enabled == 'true' or (config.auto_commit.after_checklist is not set and config.auto_commit.default == 'true')"
    after_analyze:
      command: speckit.git.commit
      optional: true
      prompt: "Commit analysis results?"
      description: "Auto-commit after analysis"
-+    condition: "config.auto_commit.after_analyze.enabled == 'true' or (config.auto_commit.after_analyze.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_analyze.enabled == 'true' or (config.auto_commit.after_analyze is not set and config.auto_commit.default == 'true')"
    after_taskstoissues:
      command: speckit.git.commit
      optional: true
      prompt: "Commit after syncing issues?"
      description: "Auto-commit after tasks-to-issues conversion"
-+    condition: "config.auto_commit.after_taskstoissues.enabled == 'true' or (config.auto_commit.after_taskstoissues.enabled is not set and config.auto_commit.default == 'true')"
++    condition: "config.auto_commit.after_taskstoissues.enabled == 'true' or (config.auto_commit.after_taskstoissues is not set and config.auto_commit.default == 'true')"
  
  tags:
    - "git"
@@ -221,13 +221,13 @@ index 3968e4f..150290d 100644
 +    r"config\.([a-z0-9_.]+)\s+is\s+(?:(not)\s+)?set", re.IGNORECASE
 +)
 +_CONFIG_CMP_RE = re.compile(
-+    r'config\.([a-z0-9_.]+)\s*(==|!=)\s*["\']([^"\']+)["\']', re.IGNORECASE
++    r"config\.([a-z0-9_.]+)\s*(==|!=)\s*([\"'])([^\"']+)\3", re.IGNORECASE
 +)
 +_ENV_IS_SET_RE = re.compile(
 +    r"env\.([A-Z0-9_]+)\s+is\s+(?:(not)\s+)?set", re.IGNORECASE
 +)
 +_ENV_CMP_RE = re.compile(
-+    r'env\.([A-Z0-9_]+)\s*(==|!=)\s*["\']([^"\']+)["\']', re.IGNORECASE
++    r"env\.([A-Z0-9_]+)\s*(==|!=)\s*([\"'])([^\"']+)\3", re.IGNORECASE
 +)
 +_ATOM_PATTERNS = (_CONFIG_IS_SET_RE, _CONFIG_CMP_RE, _ENV_IS_SET_RE, _ENV_CMP_RE)
 +
@@ -456,7 +456,7 @@ index 3968e4f..150290d 100644
 -            operator = match.group(2)
 -            expected_value = match.group(3)
 +        if match := _CONFIG_CMP_RE.fullmatch(atom):
-+            key_path, operator, expected_value = match.groups()
++            key_path, operator, _quote, expected_value = match.groups()
  
              if not extension_id:
                  return False
@@ -483,7 +483,7 @@ index 3968e4f..150290d 100644
 -            operator = match.group(2)
 -            expected_value = match.group(3)
 +        if match := _ENV_CMP_RE.fullmatch(atom):
-+            var_name, operator, expected_value = match.groups()
++            var_name, operator, _quote, expected_value = match.groups()
 +            var_name = var_name.upper()
  
              actual_value = os.environ.get(var_name, "")
@@ -897,7 +897,7 @@ index f6be51c..f28955f 100644
  def _add_sibling_worktree(project: Path, path: Path, branch: str) -> None:
      """Add a sibling worktree so `git branch -a` marks it with `+`."""
      subprocess.run(
-@@ -180,6 +201,38 @@ class TestGitExtensionManifest:
+@@ -180,6 +201,39 @@ class TestGitExtensionManifest:
              cmd_path = EXT_DIR / cmd["file"]
              assert cmd_path.is_file(), f"Missing command file: {cmd['file']}"
  
@@ -909,7 +909,8 @@ index f6be51c..f28955f 100644
 +        `auto_commit.default` ships `false` (config-template.yml), so a
 +        fresh project must not surface all sixteen `git.commit` hooks as
 +        always-executable. Each carries a composite `condition`: the
-+        per-event key when it is set, else the shared default — the two
++        enabled per-event key when present; the shared default applies only
++        when the whole event section is absent — the two
 +        mechanisms are proven to agree in
 +        TestGitCommitHookAgreesWithAutoCommitScript below. Flipping either
 +        key later needs no reinstall: `HookExecutor` evaluates `condition`
@@ -926,7 +927,7 @@ index f6be51c..f28955f 100644
 +        for event in git_commit_events:
 +            assert m.hooks[event]["condition"] == (
 +                f"config.auto_commit.{event}.enabled == 'true' or "
-+                f"(config.auto_commit.{event}.enabled is not set and "
++                f"(config.auto_commit.{event} is not set and "
 +                f"config.auto_commit.default == 'true')"
 +            )
 +
@@ -961,7 +962,7 @@ index f6be51c..f28955f 100644
 +        entry = next(e for e in entries if e["command"] == "speckit.git.commit")
 +        assert entry["condition"] == (
 +            "config.auto_commit.before_plan.enabled == 'true' or "
-+            "(config.auto_commit.before_plan.enabled is not set and "
++            "(config.auto_commit.before_plan is not set and "
 +            "config.auto_commit.default == 'true')"
 +        )
 +
@@ -980,7 +981,7 @@ index f6be51c..f28955f 100644
      def test_install_copies_scripts(self, tmp_path: Path):
          """Extension install copies script files."""
          from specify_cli.extensions import ExtensionManager
-@@ -222,6 +312,76 @@ class TestGitExtensionInstall:
+@@ -222,6 +312,82 @@ class TestGitExtensionInstall:
          assert (path / "extension.yml").is_file()
  
  
@@ -995,14 +996,15 @@ index f6be51c..f28955f 100644
 +    falling back to `auto_commit.default` only when the event's own section
 +    is entirely absent from git-config.yml -- an explicit `enabled: false`
 +    always wins over the default. The `condition` grammar's `<event>.enabled
-+    == 'true' or (<event>.enabled is not set and default == 'true')` encodes
++    == 'true' or (<event> is not set and default == 'true')` encodes
 +    that identical rule through `HookExecutor`. Before the composite
 +    grammar, the condition only ever checked the per-event key, so a project
 +    that turned auto-commit on solely via `auto_commit.default: true` had
 +    every hook announced as never-executable even though the script itself
 +    would have committed.
 +
-+    These four configs -- default true/false with no per-event section, and
++    These five configs -- default true/false with no per-event section,
++    an existing event section without `enabled`, and
 +    each default explicitly overridden the other way -- exercise every
 +    branch of that resolution and pin that both mechanisms agree on all of
 +    them.
@@ -1020,6 +1022,11 @@ index f6be51c..f28955f 100644
 +                "auto_commit:\n  default: false\n",
 +                False,
 +                id="default-false-no-per-event-section",
++            ),
++            pytest.param(
++                "auto_commit:\n  default: true\n  before_plan:\n    message: only-message\n",
++                False,
++                id="default-true-existing-event-without-enabled",
 +            ),
 +            pytest.param(
 +                "auto_commit:\n  default: true\n  before_plan:\n    enabled: false\n",
@@ -1177,7 +1184,7 @@ new file mode 100644
 index 0000000..29f67f6
 --- /dev/null
 +++ b/tests/test_hook_condition_grammar.py
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,260 @@
 +"""Grammar tests for `HookExecutor._evaluate_condition`'s composite conditions.
 +
 +`_evaluate_condition` composes its five atom forms -- `config.<path>` /
@@ -1344,7 +1351,8 @@ index 0000000..29f67f6
 +
 +    def test_composite_matches_auto_commit_fallback_shape(self, tmp_path: Path, monkeypatch):
 +        # The exact composite shape used to gate the sixteen git.commit
-+        # hooks: the per-event key wins when it is set, otherwise fall back
++        # hooks: an enabled per-event key wins; the shared default applies
++        # only when the whole event section is absent.
 +        # to a default. No config.* value is configured for "git" here, so
 +        # both config.*.enabled atoms are "not set" and the result reduces
 +        # to whatever the env-backed stand-in for the default says.
@@ -1352,7 +1360,7 @@ index 0000000..29f67f6
 +        monkeypatch.setenv("DEFAULT_TRUE", "true")
 +        condition = (
 +            "config.auto_commit.before_plan.enabled == 'true' or "
-+            "(config.auto_commit.before_plan.enabled is not set and "
++            "(config.auto_commit.before_plan is not set and "
 +            "env.DEFAULT_TRUE == 'true')"
 +        )
 +        assert executor._evaluate_condition(condition, "git") is True
@@ -1439,4 +1447,3 @@ index 0000000..29f67f6
 +        assert _ev(executor, condition) is False
 -- 
 2.50.1 (Apple Git-155)
-

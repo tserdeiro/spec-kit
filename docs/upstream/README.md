@@ -28,8 +28,8 @@ forks or vendors upstream (`AGENTS.md`). These files are the hand-off.
    paths.
 3. `0003-gate-git-commit-hooks-on-auto-commit-config.patch` — give each of
    the sixteen optional `git.commit` hooks a composite `condition`: the
-   per-event `auto_commit.<event>.enabled` key when it is set, else
-   `auto_commit.default` (T022) — the same fallback
+   enabled per-event key when present; the shared `auto_commit.default`
+   applies only when the whole event section is absent (T022) — the same fallback
    `auto_commit.py`'s `_parse_auto_commit_config` already implements by
    hand. Expressing that needs disjunction, so
    `HookExecutor._evaluate_condition` now composes its five atom forms
