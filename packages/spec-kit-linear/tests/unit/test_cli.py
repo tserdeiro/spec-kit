@@ -1216,6 +1216,7 @@ _RECONCILING_STDIN = [
         "cd x && GH_TOKEN=t GH_HOST=h gh pr merge 1",
         "time env FOO=1 git push",
         "git commit -F - <<'EOF'\nnot a push\nEOF\ngit push",
+        "cat <<-'EOF'\n\tnot a push\n\tEOF\ngit push",
         'git -C "a b" push origin HEAD',
         "git status # note\ngit push",
         "env FOO=1 gh pr ready 1",

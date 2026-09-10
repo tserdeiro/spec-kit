@@ -1327,7 +1327,7 @@ def run_session_start(args: argparse.Namespace) -> int:
 # and the step continues. Each step is read the way a shell starts a process
 # -- leading `NAME=value` assignments and one bare wrapper word skipped -- so
 # the executable must be exactly `git` or `gh`; global options are skipped
-# up to the subcommand. A heredoc body (`<<DELIM` up to the `DELIM` line) is
+# up to the subcommand. A heredoc body (`<<DELIM`/`<<-DELIM` up to the `DELIM` line) is
 # message text, never a step. Unbalanced quoting (`ValueError`) is "no
 # match". Known gap: a quoted argument that is only punctuation (`-m ";"`)
 # still reads as a separator, since shlex does not say what was quoted.
@@ -1360,7 +1360,8 @@ def _command_steps(command: str) -> list[list[str]]:
                 skipping_body = bool(delimiters)
             continue
         if expect_delimiter:
-            delimiters.append(token)
+            # `<<-DELIM` tokenizes as `<<` then `-DELIM`: the dash is the operator's.
+            delimiters.append(token[1:] if token.startswith("-") else token)
             expect_delimiter = False
             continue
         if token and all(character in _STEP_PUNCTUATION for character in token):
