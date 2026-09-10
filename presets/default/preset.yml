@@ -97,6 +97,12 @@ provides:
       description: "Carry a fix on a branch through every open task PR stacked on it"
       strategy: "replace"
 
+    - type: "script"
+      name: "merge-root-first"
+      file: "scripts/python/merge_root_first.py"
+      description: "Retarget and merge every open task PR onto the feature branch, root-first, on explicit human request"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"
