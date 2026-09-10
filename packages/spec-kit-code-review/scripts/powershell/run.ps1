@@ -8,5 +8,5 @@ if (-not (Test-Path (Join-Path $extensionRoot "pyproject.toml"))) {
 }
 
 $env:PYTHONPATH = "$(Join-Path $extensionRoot 'src')$([IO.Path]::PathSeparator)$env:PYTHONPATH"
-& uv run --frozen --offline --project $extensionRoot python -m spec_kit_code_review.cli @args
+& uv run --frozen --offline --project $extensionRoot -q python -m spec_kit_code_review.cli @args
 exit $LASTEXITCODE
