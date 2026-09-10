@@ -140,14 +140,15 @@ Dos extensiones first-party, más las oficiales de upstream (`git`, `bug`):
   mapeo PR→estado del team para la integración nativa — jamás pisa nada
   existente distinto, y persiste la API key que recibió inline), `push`
   (`--dry-run`/`--apply`, la reconciliación), `status`, `doctor --fix`,
-  `completions`. Núcleo del flujo, no un opcional. Requiere en el team los
+  y sus dos handlers de eventos (`session_start`, `post_tool_use`).
+  Núcleo del flujo, no un opcional. Requiere en el team los
   estados *In Progress* e *In Review* (los resuelve por nombre; sin
   *In Review*, degrada con aviso). Convive con la integración nativa
   GitHub↔Linear (links por branch o magic words, transiciones en tiempo
   real, configurada por equipo): esa integración adelanta estados; `push`
   sigue siendo la reconciliación idempotente que manda.
 - **Code review**: `/speckit.code-review` (el comando único) + `doctor
-  --fix` + `completions`. Envuelve [Open Code Review](https://github.com/alibaba/open-code-review)
+  --fix` + el guard `pre_tool_use`. Envuelve [Open Code Review](https://github.com/alibaba/open-code-review)
   en modo delegación, fail-closed, con el pin del motor viajando dentro de
   la propia extensión para que cualquier consumidor lo verifique.
 

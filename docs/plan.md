@@ -66,7 +66,8 @@ taskstoissues).
   to write, idempotent): Project at plan, Issues at tasks, task/PR/review
   states through delivery, and work-item states for Issue-key branches
   (bugs and chores).
-- `status`, `doctor` (with `--fix`), `completions`.
+- `status`, `doctor` (with `--fix`); the internal `session-start` and
+  `post-tool-use` runtime-event handlers, never user commands.
 
 `spec-kit-code-review` extension:
 
@@ -79,7 +80,8 @@ taskstoissues).
   Delegates to pinned OCR; fails closed.
 - `doctor` (with `--fix`) — environment diagnosis; `--fix` installs the
   pinned engine into the distribution's data root and verifies its digest
-  against the pin the extension ships. `completions`.
+  against the pin the extension ships; the internal `guard` runtime-event
+  handler, never a user command.
 
 Anything not listed is out of surface. Flags follow the same rule: a
 command exposes only what its step needs.
