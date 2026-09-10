@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -130,6 +131,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     session_start = subparsers.add_parser("session-start", help="internal: the session_start runtime-event handler")
     session_start.add_argument("--root", help="explicit consumer repository root")
+
+    post_tool_use = subparsers.add_parser("post-tool-use", help="internal: the post_tool_use runtime-event handler")
+    post_tool_use.add_argument("--root", help="explicit consumer repository root")
     return parser
 
 
@@ -1202,6 +1206,30 @@ def _current_branch(root: Path) -> str | None:
     return branch or None
 
 
+def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
+    """Resolve the branch shape and run `push --hook`; shared by both event handlers (D4, FR-006)."""
+    branch = work_item_identifier = None
+    try:
+        branch = _current_branch(root)
+        if branch and not FEATURE_RE.fullmatch(branch):
+            config, _shared_path = load_config(root, None)
+            _team_id, team_key = team_binding(config)
+            match = issue_key_pattern(team_key).fullmatch(branch)
+            work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
+    except Exception:
+        pass
+
+    hook_args = argparse.Namespace(
+        root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
+        dry_run=False, apply=False, hook=True,
+    )
+    try:
+        run_push(hook_args)
+    except Exception:
+        pass
+    return branch, work_item_identifier
+
+
 def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, object]]) -> str:
     """FR-003's context line for a feature or task branch, from `status`'s own task rows.
 
@@ -1274,28 +1302,7 @@ def run_session_start(args: argparse.Namespace) -> int:
     except AppError:
         return EXIT_SUCCESS
 
-    branch = work_item_identifier = None
-    try:
-        branch = _current_branch(root)
-        if branch and not FEATURE_RE.fullmatch(branch):
-            config, _shared_path = load_config(root, None)
-            _team_id, team_key = team_binding(config)
-            match = issue_key_pattern(team_key).fullmatch(branch)
-            work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
-    except Exception:
-        pass
-
-    # A work item can only resolve `--current` through `.specify/feature.json`,
-    # which is often absent; a feature/task branch still resolves it through
-    # its own name, so only the former needs the feature-independent selector.
-    hook_args = argparse.Namespace(
-        root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
-        dry_run=False, apply=False, hook=True,
-    )
-    try:
-        run_push(hook_args)
-    except Exception:
-        pass
+    branch, work_item_identifier = _reconcile_hook(root)
 
     try:
         line = _session_start_context_line(root, branch, work_item_identifier)
@@ -1303,6 +1310,37 @@ def run_session_start(args: argparse.Namespace) -> int:
         line = None
     if line:
         sys.stdout.write(line + "\n")
+    return EXIT_SUCCESS
+
+
+# Word-boundaried so `git pushd`/`gh pr view` never match; `re.search`
+# since the loop chains commands with `&&`, anywhere in the string.
+_RECONCILE_COMMAND_RE = re.compile(r"\bgit\s+push\b|\bgh\s+pr\s+(?:create|ready|merge)\b")
+
+
+def run_post_tool_use(args: argparse.Namespace) -> int:
+    """The `post_tool_use` event handler (D4): reconcile after `git push`/`gh pr`, else no-op.
+
+    Never raises, never prints, always exits 0 (FR-005, FR-006).
+    """
+    try:
+        payload = json.loads(sys.stdin.read() or "null")
+    except Exception:
+        payload = None
+    command = None
+    if isinstance(payload, Mapping) and payload.get("tool_name") == "Bash":
+        tool_input = payload.get("tool_input")
+        if isinstance(tool_input, Mapping):
+            value = tool_input.get("command")
+            command = value if isinstance(value, str) else None
+    if not command or not _RECONCILE_COMMAND_RE.search(command):
+        return EXIT_SUCCESS
+
+    try:
+        root = _root_from_args(getattr(args, "root", None))
+    except AppError:
+        return EXIT_SUCCESS
+    _reconcile_hook(root)
     return EXIT_SUCCESS
 
 
@@ -1320,6 +1358,9 @@ def main(argv: list[str] | None = None) -> int:
         # Its own contract (one plain line or nothing, always exit 0) does not
         # fit the JSON/error result shape every other command renders below.
         return run_session_start(args)
+    if args.command == "post-tool-use":
+        # Same always-exit-0, no-JSON contract as `session-start`.
+        return run_post_tool_use(args)
     endpoint = DEFAULT_ENDPOINT
     _begin_invocation(endpoint)
     try:

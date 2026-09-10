@@ -9,9 +9,9 @@ from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, main, run_session_start
+from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, main, run_post_tool_use, run_session_start
 from spec_kit_linear.config import ROOT_CONFIG_FILENAME, load_config, repository_binding
 from spec_kit_linear.errors import Diagnostic
 from spec_kit_linear.github import PullRequest, PullRequestScan
@@ -1026,13 +1026,13 @@ class WorkItemTests(WorkStateTests):
 
 
 class CommandSurfaceTests(CliTestCase):
-    def test_only_six_commands_exist(self) -> None:
+    def test_only_seven_commands_exist(self) -> None:
         from spec_kit_linear.cli import build_parser
         from spec_kit_linear.completions import collect_completion_tree
 
         tree = collect_completion_tree(build_parser())
 
-        self.assertEqual(set(tree), {"onboard", "push", "status", "doctor", "completions", "session-start"})
+        self.assertEqual(set(tree), {"onboard", "push", "status", "doctor", "completions", "session-start", "post-tool-use"})
 
     def test_the_whole_package_exposes_at_most_fifteen_user_flags(self) -> None:
         from spec_kit_linear.cli import build_parser
@@ -1176,6 +1176,44 @@ class SessionStartTests(CliTestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(output, "Linear: WOR-123 (started) — next: open the draft PR\n")
+
+
+def _bash_payload(command: str) -> str:
+    return json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"command": command}})
+
+
+# The payload matcher table (dogfooding-style, D4/T012): every stdin this
+# handler must reconcile on, and every one it must silently ignore.
+_RECONCILING_STDIN = [_bash_payload(c) for c in ("git push origin HEAD", "git push -u origin x", "gh pr create", "gh pr ready", "gh pr merge", "git commit -m 'fix(x): y' && git push")]
+_SILENT_STDIN = [_bash_payload(c) for c in ("gh pr view 99", "git pushd /tmp")] + [
+    json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "x"}}),
+    "{not json",
+    "",
+]
+
+
+class PostToolUseTests(CliTestCase):
+    """The `post-tool-use` subcommand's payload matcher: exit 0, no stdout, ever."""
+
+    def _run(self, stdin_text: str) -> tuple[int, str, MagicMock]:
+        output = StringIO()
+        with patch("spec_kit_linear.cli.run_push") as run_push, patch("sys.stdin", StringIO(stdin_text)), redirect_stdout(output):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        return code, output.getvalue(), run_push
+
+    def test_matching_bash_commands_reconcile(self) -> None:
+        for stdin_text in _RECONCILING_STDIN:
+            with self.subTest(stdin_text=stdin_text):
+                code, output, run_push = self._run(stdin_text)
+                self.assertEqual((code, output), (0, ""))
+                run_push.assert_called_once()
+
+    def test_non_matching_or_malformed_input_never_reconciles(self) -> None:
+        for stdin_text in _SILENT_STDIN:
+            with self.subTest(stdin_text=stdin_text):
+                code, output, run_push = self._run(stdin_text)
+                self.assertEqual((code, output), (0, ""))
+                run_push.assert_not_called()
 
 
 if __name__ == "__main__":

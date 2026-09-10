@@ -53,6 +53,13 @@ only on a feature/task branch) and prints one context line naming the
 branch's state and the next command, before the agent does anything else.
 Silent, exit `0`, on any other branch shape or without configuration.
 
+## Post tool use
+
+The same extension also handles `post_tool_use` (matcher `Bash`): after a
+`git push` or a `gh pr create`/`ready`/`merge`, it reconciles Linear the same
+way (`push --hook`); every other command, a non-Bash tool, or a malformed
+payload is a silent no-op, exit `0`.
+
 ## Getting started
 
 ```bash
