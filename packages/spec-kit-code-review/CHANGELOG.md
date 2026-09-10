@@ -4,9 +4,10 @@
 
 - A `pre_tool_use` guard blocks, before it takes effect — even behind a
   leading global option (`git -C`, `git -c`, `gh --repo`, …): a
-  `git commit -m` whose subject doesn't follow `type(scope): subject`;
-  any form of `git push --force`; a `gh pr merge` carrying
-  `--delete-branch`; and an `Edit`/`Write` to a `protected_paths` glob
+  `git commit -m`/`--message` whose subject doesn't follow
+  `type(scope): subject`; any form of `git push --force`; a
+  `gh pr merge` carrying `--delete-branch`/`-d`; and an `Edit`/`Write`
+  to a `protected_paths` glob
   on a task branch (a feature branch is exempt) — the same glob rule the
   existing pull-request finding already used.
 - The skill now names the finding categories the close accepts
