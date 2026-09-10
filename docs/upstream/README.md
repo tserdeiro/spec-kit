@@ -26,9 +26,27 @@ forks or vendors upstream (`AGENTS.md`). These files are the hand-off.
    event; and a tracked-only `git add -u` fallback when no feature
    directory can be resolved — never an untracked file outside those
    paths.
-3. Stop registering the sixteen `git.commit` hooks when the git
-   extension's `auto_commit.default` is `false` (T022). **Pending**:
-   prepared once T022 lands.
+3. `0003-gate-git-commit-hooks-on-auto-commit-config.patch` — give each of
+   the sixteen optional `git.commit` hooks a composite `condition`: the
+   enabled per-event key when present; the shared `auto_commit.default`
+   applies only when the whole event section is absent (T022) — the same fallback
+   `auto_commit.py`'s `_parse_auto_commit_config` already implements by
+   hand. Expressing that needs disjunction, so
+   `HookExecutor._evaluate_condition` now composes its five atom forms
+   (`config.<path>`/`env.<VAR>` with `is set`, `is not set`, `==`, `!=`)
+   with `and`, `or`, `not`, and parentheses. All ten
+   `templates/commands/*.md` files (twenty `before_`/`after_` hook
+   blocks) evaluate a hook's `condition` the same way, replacing the old
+   instruction to skip any hook that has one, and
+   `docs/reference/extensions.md` documents the same rule. The two
+   mandatory hooks (`git.initialize`, `git.feature`) are untouched; they
+   carry no `auto_commit` key to gate on. Tests cover the grammar
+   (composition, precedence, malformed shapes) and prove
+   `should_execute_hook` agrees with `_parse_auto_commit_config` across
+   default true/false and explicit per-event overrides. Remaining limit:
+   a mistyped condition still degrades silently to never. It closes the
+   no-op prompt dogfooding entry 25 names, now with a live
+   per-event-or-default prompt through the stock templates.
 
 ## Opening a patch upstream
 
