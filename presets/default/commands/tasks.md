@@ -1,14 +1,19 @@
 ---
-name: speckit-tasks
-description: Generate an actionable, dependency-ordered tasks.md for the feature based
-  on available design artifacts.
-compatibility: Requires spec-kit project structure with .specify/ directory
-metadata:
-  author: github-spec-kit
-  source: preset:default
+description: Generate an actionable, dependency-ordered tasks.md for the feature based on available design artifacts.
+handoffs:
+  - label: Analyze For Consistency
+    agent: speckit.analyze
+    prompt: Run a project analysis for consistency
+    send: true
+  - label: Implement Project
+    agent: speckit.implement
+    prompt: Start the implementation in phases
+    send: true
+scripts:
+  sh: scripts/bash/setup-tasks.sh --json
+  ps: scripts/powershell/setup-tasks.ps1 -Json
+  py: scripts/python/setup_tasks.py --json
 ---
-
-# Speckit Tasks Skill
 
 # Spec Kit Tasks
 
@@ -22,7 +27,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Setup
 
-1. Run `.specify/scripts/bash/setup-tasks.sh --json` from the repository root; parse `FEATURE_DIR`, `TASKS_TEMPLATE_CONTENT` (or `TASKS_TEMPLATE`, when an older setup script omits the content field), and `AVAILABLE_DOCS`. Every path is absolute.
+1. Run `{SCRIPT}` from the repository root; parse `FEATURE_DIR`, `TASKS_TEMPLATE_CONTENT` (or `TASKS_TEMPLATE`, when an older setup script omits the content field), and `AVAILABLE_DOCS`. Every path is absolute.
 2. **Load the artifacts** — `plan.md` and `spec.md` from `FEATURE_DIR` (required); `data-model.md`, `contracts/`, `research.md`, and `quickstart.md` when `AVAILABLE_DOCS` lists them; `.specify/memory/constitution.md` when present.
 3. **Load the template** — `TASKS_TEMPLATE_CONTENT`, or the file `TASKS_TEMPLATE` names.
 4. **Hooks, silently** — read `.specify/extensions.yml`'s `hooks.before_tasks` (skip entirely, silently, on a missing file, a missing key, or invalid YAML). Among entries whose `enabled` is not explicitly `false` and whose `condition` is empty (a non-empty `condition` is left to the HookExecutor): invoke a **mandatory** hook (`optional: false`) as its own slash command — dots become hyphens, e.g. `speckit.git.commit` → `/speckit-git-commit` — and wait for it before continuing; run an **optional** hook the same way, silently, only when its own extension enables its event — for `git.commit`, that gate is `auto_commit.<event>.enabled: true` in `.specify/extensions/git/git-config.yml`, regardless of `auto_commit.default`; skip every other optional hook, silently. Nothing about a hook is ever printed. The same rule governs `hooks.after_tasks` — see Completion below.

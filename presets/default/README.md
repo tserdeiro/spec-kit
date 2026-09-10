@@ -2,9 +2,9 @@
 
 The workflow templates for this distribution: `spec`, `plan`, `tasks`, and
 `checklist`, plus the workflow commands (`speckit.pr`, `speckit.bugfix`,
-`speckit.chore`, `speckit.doctor`, the `speckit.implement` replacement,
-and the `speckit.specify`, `speckit.plan`, `speckit.tasks`, and
-`speckit.analyze` appends). The `tasks` template carries the
+`speckit.chore`, `speckit.doctor`, the `speckit.implement` and
+`speckit.tasks` replacements, and the `speckit.specify`, `speckit.plan`,
+and `speckit.analyze` appends). The `tasks` template carries the
 integration-branch delivery conventions — one task in flight per
 developer, no parallel tasks; the rest trim the upstream core templates
 to what the flow needs.

@@ -63,9 +63,9 @@ provides:
 
     - type: "command"
       name: "speckit.tasks"
-      file: "commands/tasks-append.md"
-      description: "Appends the one-task-at-a-time rule and the phase-close rules to the core tasks command"
-      strategy: "append"
+      file: "commands/tasks.md"
+      description: "Generate the feature's dependency-ordered tasks.md as a single authored replacement of the core command"
+      strategy: "replace"
 
     - type: "command"
       name: "speckit.implement"
