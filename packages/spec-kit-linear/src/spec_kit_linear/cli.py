@@ -1335,6 +1335,10 @@ def run_session_start(args: argparse.Namespace) -> int:
 # argument that is only punctuation (`-m ";"`) still reads as a separator,
 # since shlex does not say what was quoted.
 _STEP_PUNCTUATION = "();<>|&\n"
+# The redirection operators a punctuation run may carry; whatever is left after
+# removing them (`;`, `&&`, `|`, `()`, a newline) separates steps, so `2>&1`
+# and `&>x` never split and `<;` still does.
+_REDIRECTION_RE = re.compile(r"<<<|<<|>>|>&|&>|<&|<>|>|<")
 _ASSIGNMENT_RE = re.compile(r"[A-Za-z_]\w*=")
 _WRAPPER_WORDS = frozenset({"env", "command", "exec", "nohup", "time"})
 _GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"})
@@ -1395,11 +1399,13 @@ def _shell_text(command: str) -> str:
                 out.append(command[index : index + 2]); index += 2; continue
             if character in "'\"":
                 quote = character
-            elif character == "#" and (index == 0 or command[index - 1] in " \t\n;&|("):
+            elif character == "#" and (index == 0 or command[index - 1] in " \t\n;&|()"):
                 end = command.find("\n", index)
                 index = len(command) if end < 0 else end
                 continue
-            elif command.startswith("<<", index) and not command.startswith("<<<", index):
+            elif command.startswith("<<<", index):
+                out.append("<<<"); index += 3; continue  # a here-string: a word follows, never a body
+            elif command.startswith("<<", index):
                 delimiter, dashed, index = _heredoc_operator(command, index + 2)
                 if delimiter:
                     pending.append((delimiter, dashed))
@@ -1431,10 +1437,9 @@ def _command_steps(command: str) -> list[list[str]]:
     steps: list[list[str]] = [[]]
     for token in lexer:
         if token and all(character in _STEP_PUNCTUATION for character in token):
-            if "<" in token or ">" in token:
-                continue  # a redirection (e.g. `2>&1`, `>out.log`), never a new step
-            steps.append([])
-            continue
+            if _REDIRECTION_RE.sub("", token):
+                steps.append([])
+            continue  # a bare redirection (`2>&1`, `>out.log`) never starts a step
         steps[-1].append(token)
     return steps
 
