@@ -787,3 +787,14 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     verificación en vivo declara en su contrato qué agentes están
     instalados y autenticados en la máquina que la ejecuta antes de
     prometer transcripts "en ambos agentes".
+89. **Un handler silencioso por contrato no se puede verificar desde
+    fuera.** `post-tool-use` nunca imprime y siempre sale 0 (FR-005,
+    FR-006), y `_reconcile_hook` descarta el payload de `push --hook`:
+    la sonda de la fixture de T023 no distingue "reconcilió" de "no
+    era un push" — ambos dan exit 0 y stdout vacío, como señaló la
+    review de #112. La fixture prueba el enrutado y el contrato de
+    salida; que el reconcile ocurre lo prueban los tests de T012 y, en
+    vivo, el estado de Linear tras un push real. *Pendiente de
+    decisión:* un canal observable (una línea en stderr bajo una
+    variable de depuración) si el doctor o una fixture han de probar
+    que un hook corrió.
