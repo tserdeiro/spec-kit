@@ -37,6 +37,11 @@ provides:
       file: commands/completions.md
       description: Print a bash or zsh completion script for the review CLI
 
+events:
+  pre_tool_use:
+    command: guard
+    matcher: "Bash|Edit|Write"
+
 hooks:
   after_implement:
     command: speckit.code-review

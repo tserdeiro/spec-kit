@@ -14,7 +14,7 @@ from spec_kit_code_review.doctor import RULE_TEMPLATE
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = PACKAGE_ROOT / "extension.yml"
 COMMAND_NAMESPACE = "speckit.code-review"
-IMPLEMENTED_COMMANDS = {"review", "doctor", "completions"}
+IMPLEMENTED_COMMANDS = {"review", "doctor", "completions", "guard"}
 
 
 def _manifest_text() -> str:

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import secrets
+import shlex
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -76,7 +78,7 @@ from .session import (
 from .lockfile import SELF_PIN_FILENAME, first_line, lock_path, platform_key, version_matches_pin
 from .ocr import ADAPTER_VERSION, Ocr, verify_scope_against_git, write_minimal_config
 from .anchors import load_hunks
-from .contract import protected_path_findings
+from .contract import matches_protected_path, protected_path_findings
 from .findings import load_document, normalize as normalize_findings, render_markdown as render_findings_markdown
 from .packet import assemble as assemble_packet
 from .packet import digest_of as packet_digest
@@ -152,6 +154,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     completions = subparsers.add_parser("completions", help="print a shell completion script")
     completions.add_argument("shell", choices=("bash", "zsh"), help="shell to generate the completion script for")
+
+    guard = subparsers.add_parser("guard", help="internal: the pre_tool_use runtime-event handler")
+    guard.add_argument("--root", help="explicit consumer repository root")
     return parser
 
 
@@ -1870,6 +1875,148 @@ def _authenticated_user(context: CommandContext, diagnostics: list[Diagnostic]) 
     return client.authenticated_user()
 
 
+# -- pre_tool_use guard (plan D5): the four hard rules, nothing else --------
+
+# The same pattern `.github/workflows/conventions.yml` enforces server-side.
+_COMMIT_SUBJECT_RE = re.compile(r"^[a-z]+\([a-z0-9-]+\): .+$")
+_FORCE_FLAG_RE = re.compile(r"^(-f|--force|--force-with-lease(?:=.*)?|--force-if-includes)$")
+_DELETE_BRANCH_FLAGS = ("--delete-branch", "-d")
+_CHAIN_OPERATORS = frozenset({"&&", "||", ";", "|"})
+# The numeric-prefix task-branch shape `stack_propagate.py`/`pr_create.py` already match.
+_TASK_BRANCH_RE = re.compile(r"^[0-9]+-T[0-9]{3}-")
+
+# Claude Code's own pre_tool_use protocol -- a contract separate from the
+# exit-code table above: 0 lets the tool call through, 2 blocks it and shows
+# stderr to the agent as the reason.
+_GUARD_ALLOWED = 0
+_GUARD_BLOCKED = 2
+
+
+def _split_chain(command: str) -> list[list[str]]:
+    """``command`` as one token list per ``&&``/``||``/``;``/``|``-separated step."""
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return []
+    steps: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in _CHAIN_OPERATORS:
+            if current:
+                steps.append(current)
+            current = []
+        else:
+            current.append(token)
+    if current:
+        steps.append(current)
+    return steps
+
+
+def _commit_message(step: list[str]) -> str | None:
+    """The value of a ``git commit`` step's ``-m``/``--message``, or ``None`` when absent."""
+
+    for index, token in enumerate(step):
+        if token in ("-m", "--message") and index + 1 < len(step):
+            return step[index + 1]
+        if token.startswith("--message="):
+            return token[len("--message=") :]
+    return None
+
+
+def _bash_violation(command: str) -> str | None:
+    """The fix message for the first of the three Bash rules ``command`` breaks (FR-007)."""
+
+    for step in _split_chain(command):
+        if len(step) < 2:
+            continue
+        if step[0] == "git" and step[1] == "commit":
+            message = _commit_message(step)
+            if message is None:
+                continue
+            subject = message.splitlines()[0] if message else ""
+            if not _COMMIT_SUBJECT_RE.match(subject):
+                return f"blocked commit: subject `{subject}` does not match type(scope): subject; use type(scope): subject"
+        elif step[0] == "git" and step[1] == "push":
+            if any(_FORCE_FLAG_RE.match(token) for token in step[2:]):
+                return "blocked push: a force push is never allowed; push without --force"
+        elif len(step) >= 3 and step[0] == "gh" and step[1] == "pr" and step[2] == "merge":
+            if any(token in _DELETE_BRANCH_FLAGS for token in step[3:]):
+                return "blocked merge: merge without --delete-branch: the repository deletes merged branches itself"
+    return None
+
+
+def _current_branch(root: Path) -> str | None:
+    """The checked-out branch at ``root``, or ``None`` on any failure or detached HEAD."""
+
+    try:
+        result = run_command(["git", "-C", str(root), "symbolic-ref", "--quiet", "--short", "HEAD"], timeout=5)
+    except Exception:
+        return None
+    return result.stdout.strip() if result.ok else None
+
+
+def _repository_relative(file_path: str, root: Path) -> str:
+    """``file_path`` relative to ``root``; unchanged when it already is or lies outside it."""
+
+    path = Path(file_path)
+    if not path.is_absolute():
+        return path.as_posix()
+    try:
+        return path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _write_violation(root: Path, file_path: str) -> str | None:
+    """The fix message for FR-008's protected-path rule, or ``None`` off a task branch."""
+
+    branch = _current_branch(root)
+    if not branch or not _TASK_BRANCH_RE.match(branch.rsplit("/", 1)[-1]):
+        return None
+    protected_paths = load_config(root).values.get("protected_paths") or []
+    relative = _repository_relative(file_path, root)
+    pattern = matches_protected_path(relative, protected_paths)
+    if pattern is None:
+        return None
+    return f"blocked write: `{relative}` matches the protected path `{pattern}`; a task branch never edits a protected path"
+
+
+def run_guard(args: argparse.Namespace) -> int:
+    """The `pre_tool_use` event handler (plan D5): the four hard rules, nothing else.
+
+    Never raises: a malformed payload, an unknown tool, a configuration
+    failure, or any other internal error all degrade to a silent
+    pass-through (C-002) -- a guard that blocks by accident is worse than one
+    that misses a case the server-side conventions check still enforces.
+    """
+
+    try:
+        payload = json.loads(sys.stdin.read() or "null")
+        if not isinstance(payload, Mapping):
+            return _GUARD_ALLOWED
+        tool_input = payload.get("tool_input")
+        tool_input = tool_input if isinstance(tool_input, Mapping) else {}
+        tool_name = payload.get("tool_name")
+        message: str | None = None
+        if tool_name == "Bash":
+            command = tool_input.get("command")
+            if isinstance(command, str):
+                message = _bash_violation(command)
+        elif tool_name in ("Edit", "Write"):
+            file_path = tool_input.get("file_path")
+            if isinstance(file_path, str):
+                root = Path(getattr(args, "root", None) or Path.cwd())
+                message = _write_violation(root, file_path)
+    except Exception:
+        return _GUARD_ALLOWED
+
+    if message is None:
+        return _GUARD_ALLOWED
+    sys.stderr.write(message + "\n")
+    return _GUARD_BLOCKED
+
+
 # -- entry point ------------------------------------------------------------
 
 
@@ -1887,6 +2034,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     _ArgumentParser.json_requested = "--json" in (argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(argv)
+    if args.command == "guard":
+        # Its own contract -- a one-line stderr message and exit 2, or a
+        # silent exit 0 -- does not fit the JSON/error shape below, and it
+        # must never raise even on completely malformed input (plan D5).
+        return run_guard(args)
     try:
         if args.command == "completions":
             sys.stdout.write(generate_completion_script(args.shell, parser))

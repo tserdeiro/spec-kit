@@ -157,8 +157,10 @@ class ParserTests(CliCase):
 
         self.assertEqual(caught.exception.code, 0)
 
-    def test_the_whole_surface_is_three_commands(self) -> None:
-        self.assertEqual(set(collect_completion_tree(cli.build_parser())), {"review", "doctor", "completions"})
+    def test_the_whole_surface_is_four_commands(self) -> None:
+        # `guard` is the internal pre_tool_use handler (plan D5): wired into
+        # the CLI like any subcommand, but never listed in provides.commands.
+        self.assertEqual(set(collect_completion_tree(cli.build_parser())), {"review", "doctor", "completions", "guard"})
 
     def test_the_flag_budget_is_respected(self) -> None:
         tree = collect_completion_tree(cli.build_parser())
