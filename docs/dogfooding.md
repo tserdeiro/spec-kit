@@ -714,3 +714,14 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     lee el parche desde el worktree y lo aplica en un clon propio.
     *Resuelta en T020:* `docs/upstream/*.patch -whitespace` en
     `.gitattributes`. *Pendiente (74):* el alcance del packet.
+83. **Un parche a upstream se mide entero y su forecast era el de una
+    línea.** T021 (quitar `git add .` de `auto-commit`) estaba estimada
+    en ~10 líneas como si fuera un borrado; el `.patch` real trae tres
+    variantes del script en paridad, cuatro tests nuevos y la reescritura
+    de dieciséis fixtures que codificaban el bug: 972 líneas contra el
+    techo de 400. El humano abrió el PR como excepción (entrada 70). El
+    de T020 dio 152 solo porque se acotó a `init --force` tras la
+    review. *Regla:* una tarea de parche a upstream se estima por el
+    `.patch` completo (cabeceras, contexto, variantes y tests de
+    upstream), nunca por la línea que cambia; y su presupuesto real es
+    el que acepte el mantenedor, no el de este loop.
