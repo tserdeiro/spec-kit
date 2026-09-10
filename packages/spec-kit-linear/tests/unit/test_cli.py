@@ -1074,8 +1074,23 @@ class CommandSurfaceTests(CliTestCase):
                 self.assertEqual(raised.exception.code, 2)
 
 
-def _task_row(task: str, *, local_complete: bool, derived_state: str | None = None, state_source: str | None = None, next: str | None = None) -> dict[str, object]:
-    return {"task": task, "local_complete": local_complete, "derived_state": derived_state, "state_source": state_source, "next": next}
+def _task_row(
+    task: str,
+    *,
+    local_complete: bool,
+    derived_state: str | None = None,
+    state_source: str | None = None,
+    next: str | None = None,
+    pr_number: int | None = None,
+) -> dict[str, object]:
+    return {
+        "task": task,
+        "local_complete": local_complete,
+        "derived_state": derived_state,
+        "state_source": state_source,
+        "pr_number": pr_number,
+        "next": next,
+    }
 
 
 class SessionStartContextFormatterTests(unittest.TestCase):
@@ -1118,6 +1133,96 @@ class SessionStartContextFormatterTests(unittest.TestCase):
         line = _format_feature_context("005-developer-experience", "005", tasks)
 
         self.assertEqual(line, "Linear: 005 on 005-developer-experience")
+
+    def test_an_all_checked_stack_still_in_review_names_the_pr_number_and_the_wait_sentence(self) -> None:
+        """The reported finding: checking a task before its PR is ready for review
+        used to leave `next` empty because it was read only from the first
+        unchecked task. With every task checked, `next` must fall back to the
+        open PR's own next action, and the PR clause must name its number."""
+
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="review",
+                state_source="pr",
+                next="wait for the human merge",
+                pr_number=101,
+            )
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (review, #101); "
+            "next: wait for the human merge",
+        )
+
+    def test_a_checked_task_with_a_still_draft_pr_names_the_code_review_command(self) -> None:
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="started",
+                state_source="pr",
+                next="/speckit.code-review 101",
+                pr_number=101,
+            )
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (started, #101); "
+            "next: /speckit.code-review 101",
+        )
+
+    def test_an_unchecked_task_already_merged_yields_the_first_open_prs_next(self) -> None:
+        # A checkbox lagging a merge derives `completed` with no next of its
+        # own (next_action's documented edge); the open PR's next still lands.
+        tasks = [
+            _task_row("T001", local_complete=False, derived_state="completed", state_source="pr", next=None, pr_number=100),
+            _task_row("T002", local_complete=True, derived_state="review", state_source="pr", next="wait for the human merge", pr_number=101),
+        ]
+
+        line = _format_feature_context("005-T002-thing", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T001 (unchecked); open task PRs: T002 (review, #101); next: wait for the human merge")
+
+    def test_a_checked_task_in_review_alongside_an_unchecked_task_prefers_the_unchecked_next(self) -> None:
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="review",
+                state_source="pr",
+                next="wait for the human merge",
+                pr_number=101,
+            ),
+            _task_row("T002", local_complete=False, derived_state="unstarted", state_source="none", next="/speckit.implement 005"),
+        ]
+
+        line = _format_feature_context("005-T002-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T002-thing — next T002 (unchecked); open task PRs: T001 (review, #101); "
+            "next: /speckit.implement 005",
+        )
+
+    def test_an_open_task_pr_with_an_unknown_number_omits_the_hash(self) -> None:
+        tasks = [
+            _task_row("T001", local_complete=True, derived_state="review", state_source="pr", next="wait for the human merge")
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (review); next: wait for the human merge",
+        )
 
     def test_work_item_branch(self) -> None:
         row = {"identifier": "WOR-123", "derived_state": "started", "next": "/speckit.pr"}
@@ -1206,9 +1311,46 @@ def _bash_payload(command: str) -> str:
 
 
 # The payload matcher table (dogfooding-style, D4/T012): every stdin this
-# handler must reconcile on, and every one it must silently ignore.
-_RECONCILING_STDIN = [_bash_payload(c) for c in ("git push origin HEAD", "git push -u origin x", "gh pr create", "gh pr ready", "gh pr merge", "git commit -m 'fix(x): y' && git push")]
-_SILENT_STDIN = [_bash_payload(c) for c in ("gh pr view 99", "git pushd /tmp")] + [
+# handler must reconcile on, and every one it must silently ignore. Includes
+# leading global options on both `git` and `gh` (with an attached `=value`,
+# a separate value token, or no value at all).
+_RECONCILING_STDIN = [
+    _bash_payload(c)
+    for c in (
+        "git push origin HEAD",
+        "git push -u origin x",
+        "gh pr create",
+        "gh pr ready",
+        "gh pr merge",
+        "git commit -m 'fix(x): y' && git push",
+        "git -C . push origin HEAD",
+        "git -c core.x=y push",
+        "git --git-dir=/x push",
+        "git --no-pager push",
+        "gh --repo o/r pr ready 1",
+        "gh -R o/r pr merge 1",
+        "gh --hostname h pr create",
+        "git commit -m 'fix(x): y' && git -C x push",
+        "git fetch; git push",
+        "git fetch || git push",
+        "git status\ngit push origin HEAD",
+        "(cd sub && git push)",
+        "git push 2>&1 | tail -1",
+        "GIT_TRACE=1 git push",
+        "cd x && GH_TOKEN=t GH_HOST=h gh pr merge 1",
+    )
+]
+_SILENT_STDIN = [
+    _bash_payload(c)
+    for c in (
+        "gh pr view 99",
+        "git pushd /tmp",
+        "gitk push",
+        "gh pr view",
+        "gh pr list",
+        "echo git push",
+    )
+] + [
     json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "x"}}),
     "{not json",
     "",

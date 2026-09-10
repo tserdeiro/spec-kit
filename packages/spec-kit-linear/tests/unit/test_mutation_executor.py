@@ -18,10 +18,18 @@ class _CapturingClient:
         if operation_kind in {"project.update", "project.create"}:
             return {"projectUpdate" if operation_kind == "project.update" else "projectCreate": {"success": True, "project": {"id": "project-1"}}}
         if operation_kind == "issue.archive":
-            return {"issueArchive": {"success": True, "issue": {"id": "issue-1"}}}
+            return {"issueArchive": {"success": True, "entity": {"id": "issue-1"}}}
         if operation_kind == "issue.unarchive":
-            return {"issueUnarchive": {"success": True, "issue": {"id": "issue-1"}}}
+            return {"issueUnarchive": {"success": True, "entity": {"id": "issue-1"}}}
         return {"issueCreate" if operation_kind == "issue.create" else "issueUpdate": {"success": True, "issue": {"id": "issue-1"}}}
+
+
+class _FixedResponseClient:
+    def __init__(self, response: dict[str, object]) -> None:
+        self._response = response
+
+    def mutation(self, document: str, variables: dict[str, object], *, operation_kind: str) -> dict[str, object]:
+        return self._response
 
 
 class MutationExecutorContractTests(unittest.TestCase):
@@ -83,8 +91,18 @@ class MutationExecutorContractTests(unittest.TestCase):
                 self.assertEqual(operation_kind, kind)
                 self.assertIn(operation_name, document)
                 self.assertIn("$id: String!", document)
+                self.assertIn("entity { id }", document)
+                self.assertNotIn("issue {", document)
                 self.assertNotIn("input", document)
                 self.assertEqual(variables, {"id": "issue-1"})
+
+    def test_issue_archive_ignores_a_response_shaped_around_the_wrong_key(self) -> None:
+        # IssueArchivePayload has no `issue` field; a response naming its
+        # object `issue` instead of `entity` must not yield an id, proving
+        # the executor reads the real field rather than a lucky mock.
+        client = _FixedResponseClient({"issueArchive": {"success": True, "issue": {"id": "issue-1"}}})
+        result = LinearMutationExecutor(client).execute({"kind": "issue.archive", "input": {}, "preconditions": {"id": "issue-1"}})
+        self.assertEqual(result, {})
 
     def test_kinds_outside_the_allowlist_are_refused(self) -> None:
         for kind, input_values in (
