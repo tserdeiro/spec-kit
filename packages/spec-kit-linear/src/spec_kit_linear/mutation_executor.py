@@ -82,6 +82,8 @@ def _document(operation_name: str, result_key: str, input_type: str | None, need
         arguments = "id: $id, labelId: $labelId"
         variables = "$id: String!, $labelId: String!"
     elif argument_style == "id":
+        if not needs_id:
+            raise AssertionError("id-argument mutations require a reviewed remote target")
         arguments = "id: $id"
         variables = "$id: String!"
     else:

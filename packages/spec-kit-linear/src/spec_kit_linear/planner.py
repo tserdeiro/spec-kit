@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 
 from .allowlist import assert_allowed, forbidden_operations
-from .bridge import block_bounded, marker_present, merge_managed_block
+from .bridge import block_bounded, marker_identities, marker_present, merge_managed_block
 from .domain import DesiredState, DesiredTask
 from .errors import AppError, Diagnostic
 from .linear_client import RemoteWorkItem
@@ -377,17 +377,19 @@ def _marked_task_issues(project: object, feature_identifier: str) -> list[tuple[
     Scans Issue descriptions directly instead of ``FeatureAdoption.tasks``,
     which is built by iterating desired tasks and so can never surface a
     marker whose task left ``tasks.md`` -- the orphaned-marker seam
-    ``remote_discovery._TASK_MARKER_PREFIX``'s own comment names.
+    ``remote_discovery._TASK_MARKER_PREFIX``'s own comment names. Reuses bridge.py's marker grammar instead of a second regex.
     """
 
     if project is None:
         return []
-    pattern = re.compile(rf"<!-- speckit-linear:task:{re.escape(feature_identifier)}:(?P<task>[^ >\n]+?)(?: hash:[0-9a-f]{{12}})? -->")
-    return [
-        (f"task:{feature_identifier}:{match.group('task')}", issue)
-        for issue in project.issues
-        if (match := pattern.search(issue.description)) is not None
-    ]
+    prefix = f"task:{feature_identifier}:"
+    result: list[tuple[str, object]] = []
+    for issue in project.issues:
+        for identity in marker_identities(issue.description):
+            if identity.startswith(prefix) and identity != prefix:
+                result.append((identity, issue))
+                break
+    return result
 
 
 def _issue_for(adoption: FeatureAdoption, project: object, desired: DesiredTask):

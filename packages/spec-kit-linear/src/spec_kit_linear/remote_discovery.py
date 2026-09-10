@@ -202,7 +202,7 @@ def _unmanaged_issues(project: RemoteProject | None) -> tuple[UnmanagedIssue, ..
             url=issue.url,
         )
         for issue in project.issues
-        if _TASK_MARKER_PREFIX not in issue.description
+        if _TASK_MARKER_PREFIX not in issue.description and issue.archived_at is None
     ]
     return tuple(sorted(unmanaged, key=lambda item: item.identifier))
 

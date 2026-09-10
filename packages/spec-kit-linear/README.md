@@ -124,7 +124,7 @@ listened for, so a missed webhook cannot desynchronize anything.
 | `[x]` in `tasks.md` (no live PR) | `completed` | `completed_state_id` | — |
 | A branch | `started` | `started_state_id` | `/speckit.pr` |
 | Nothing | `unstarted` | `open_state_id` | `/speckit.implement <feature>` |
-| Gone from `tasks.md` | — | Issue archived, restored if the task returns | — |
+| Gone from `tasks.md` (Issue archived, restored if the task returns) | — | — | — |
 
 The first row that applies wins: the box is checked inside the task PR
 before `ready for review`, so an observable PR is always the fresher
