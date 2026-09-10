@@ -28,7 +28,7 @@ class ManifestTests(unittest.TestCase):
         self.assertIn('schema_version: "1.0"', text)
         self.assertIn("id: code-review", text)
         self.assertIn(f'version: "{__version__}"', text)
-        self.assertIn('speckit_version: ">=1.0.1,<1.1.0"', text)
+        self.assertIn('speckit_version: ">=1.0.4,<1.1.0"', text)
 
     def test_the_doctor_derives_its_gate_from_this_manifest(self) -> None:
         # One source of truth: the doctor reads requires.speckit_version
