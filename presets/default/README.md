@@ -62,8 +62,8 @@ exceeded it.
 The loop never merges: a run ends with every task PR `ready for review`
 and its fresh review closed. The human merges root-first; only on an
 explicit request does the agent act — `git worktree prune`, then, for
-each PR root-first, retargets its base to the feature branch by API
-(`gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -f base=<feature-branch>`)
+each PR root-first, checks its current remote base, retargets only when
+needed by API (`gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -f base=<feature-branch>`),
 and merges it with `gh pr merge <n> --merge`. Never `--delete-branch`:
 it closes the PR stacked above before GitHub retargets it, and the
 repository's auto-delete of merged branches does the cleanup instead. A
@@ -124,12 +124,13 @@ interpreter rule as `task_base.py`.
 `scripts/python/merge_root_first.py` (no argument) is the mechanical
 half of a human's explicit "yes, merge" on an open task-PR stack: self-
 derives the feature branch, runs `git worktree prune`, then walks the
-open task PRs root-first, retargeting each to the feature branch by API
-(`gh api -X PATCH .../pulls/<n> -f base=<feature-branch>`) before merging
-it (`gh pr merge <n> --merge`, never `--delete-branch` — the repository's
+open task PRs root-first, checks each remote base and retargets it only
+when needed by API (`gh api -X PATCH .../pulls/<n> -f base=<feature-branch>`)
+before merging it (`gh pr merge <n> --merge`, never `--delete-branch` — the repository's
 auto-delete of merged branches does that cleanup instead). It prints one
 `merged #<n> <head>` line per PR, stops naming the PR number on a failing
-`gh` call, and reports `nothing to merge on <feature-branch>` on an empty
+`gh` call; a failed PATCH continues only when a follow-up base read confirms
+the feature branch. It reports `nothing to merge on <feature-branch>` on an empty
 stack. Every PR merged is reconciled into Linear (same rule as
 `task_base.py`), also when a later merge fails; an empty stack
 reconciles nothing. Same interpreter

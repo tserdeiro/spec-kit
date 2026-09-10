@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "pyt
 
 _FAKE_GH = '''#!/usr/bin/env python3
 import json, os, sys
+from pathlib import Path
 
 argv = sys.argv[1:]
 with open(os.environ["GH_CALLS_LOG"], "a", encoding="utf-8") as log:
@@ -29,7 +30,32 @@ elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "hea
 elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "number,headRefName,baseRefName,isDraft"]:
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
 elif len(argv) == 6 and argv[0:3] == ["api", "-X", "PATCH"] and argv[3].startswith("repos/") and argv[4] == "-f":
-    pass
+    number = argv[3].rsplit("/", 1)[-1]
+    if os.environ.get("GH_PATCH_FAIL") == number:
+        sys.stderr.write(f"fake gh: forced PATCH failure for #{number}\\n")
+        sys.exit(1)
+elif len(argv) == 4 and argv[0] == "api" and argv[1].startswith("repos/") and argv[2] == "--jq" and argv[3] == ".base.ref":
+    number = argv[1].rsplit("/", 1)[-1]
+    if os.environ.get("GH_BASE_FAIL") == number:
+        sys.stderr.write(f"fake gh: forced base read failure for #{number}\\n")
+        sys.exit(1)
+    state_path = os.environ.get("GH_BASE_STATE")
+    sequences = json.loads(Path(state_path).read_text()) if state_path else {}
+    if number in sequences and sequences[number]:
+        value = sequences[number].pop(0)
+        if state_path:
+            Path(state_path).write_text(json.dumps(sequences))
+        if value == "__FAIL__":
+            sys.stderr.write(f"fake gh: forced base read failure for #{number}\\n")
+            sys.exit(1)
+        sys.stdout.write(f"{value}\\n")
+    else:
+        prs = json.loads(os.environ.get("GH_PR_LIST_JSON", "[]"))
+        pr = next((item for item in prs if str(item["number"]) == number), None)
+        if pr is None:
+            sys.stderr.write(f"fake gh: unknown pull request #{number}\\n")
+            sys.exit(1)
+        sys.stdout.write(f"{pr['baseRefName']}\\n")
 elif len(argv) == 4 and argv[0:2] == ["pr", "merge"] and argv[3] == "--merge":
     pass
 else:

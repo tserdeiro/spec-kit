@@ -607,8 +607,21 @@ elif args[:2] == ["pr", "list"]:
             pr["number"] = i
         prs.append(pr)
     sys.stdout.write(json.dumps(prs))
+elif len(args) == 4 and args[0] == "api" and args[1].startswith("repos/") and args[2] == "--jq" and args[3] == ".base.ref":
+    number = int(args[1].rsplit("/", 1)[-1])
+    rows = os.environ.get("GH_PR_LIST", "").splitlines()
+    head, base, _ = rows[number - 1].split(" ")
+    if os.environ.get("RACE_PR") == str(number):
+        marker = os.path.join(os.environ["RACE_STATE_DIR"], str(number))
+        if not os.path.exists(marker):
+            open(marker, "w").close()
+        else:
+            base = os.environ.get("GH_RACE_BASE", "003-feature")
+    sys.stdout.write(base + "\n")
 elif args[:2] == ["api", "-X"]:
-    pass
+    if os.environ.get("RACE_PR") == args[3].rsplit("/", 1)[-1]:
+        print("A pull request already exists for base branch", file=sys.stderr)
+        raise SystemExit(1)
 elif args[:2] == ["pr", "merge"]:
     if os.environ.get("FAIL_PR_MERGE") == args[2]:
         print(f"forced merge failure for #{args[2]}", file=sys.stderr)
@@ -1350,6 +1363,8 @@ run_merge_root_first() {
   local pr_list="$1" fail_pr_merge="${2:-}"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_PR_LIST="$pr_list" FAIL_PR_MERGE="$fail_pr_merge" REAL_GIT="$real_git" \
+    RACE_PR="${RACE_PR:-}" GH_RACE_BASE="${GH_RACE_BASE:-003-feature}" \
+    RACE_STATE_DIR="$consumer_root/.conformance/race" \
     PATH="$fake_bin:$PATH" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
     "$PYTHON" "$merge_root_first_script")
 }
@@ -1364,10 +1379,12 @@ output=$(run_merge_root_first "$merge_root_first_pr_list") ||
 merged #3 003-T002-b
 merged #1 003-T003-c' ] || fail "merge-root-first: wrong merge order or output: $output"
 [ "$(cat "$gh_calls")" = "$merge_list_call
-$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/2' -f base=003-feature)
+$(json_argv api 'repos/{owner}/{repo}/pulls/2' --jq .base.ref)
 $(json_argv pr merge 2 --merge)
+$(json_argv api 'repos/{owner}/{repo}/pulls/3' --jq .base.ref)
 $(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/3' -f base=003-feature)
 $(json_argv pr merge 3 --merge)
+$(json_argv api 'repos/{owner}/{repo}/pulls/1' --jq .base.ref)
 $(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/1' -f base=003-feature)
 $(json_argv pr merge 1 --merge)" ] ||
   fail "merge-root-first: incorrect gh argv sequence"
@@ -1375,6 +1392,28 @@ $(json_argv pr merge 1 --merge)" ] ||
   fail "merge-root-first: incorrect git argv"
 grep -Fq -- '--delete-branch' "$gh_calls" &&
   fail "merge-root-first: requested branch deletion"
+
+# GitHub can retarget the next PR between the read and PATCH; a failed PATCH
+# is accepted only after the follow-up read proves the feature base.
+reset_command_logs
+mkdir -p "$consumer_root/.conformance/race"
+RACE_PR=3 output=$(run_merge_root_first "$merge_root_first_pr_list") ||
+  fail "merge-root-first: verified retarget race failed"
+[ "$output" = 'merged #2 003-T001-a
+merged #3 003-T002-b
+merged #1 003-T003-c' ] || fail "merge-root-first: race output was wrong: $output"
+unset RACE_PR
+
+# If the follow-up read still reports another base, the PATCH error remains
+# fatal and the PR is never merged.
+reset_command_logs
+rm -f "$consumer_root/.conformance/race/3"
+race_status=0
+RACE_PR=3 GH_RACE_BASE=003-other output=$(run_merge_root_first "$merge_root_first_pr_list") || race_status=$?
+[ "$race_status" -eq 2 ] || fail "merge-root-first: unverified retarget race exited $race_status"
+unset RACE_PR GH_RACE_BASE
+grep -Fq "$(json_argv pr merge 3 --merge)" "$gh_calls" &&
+  fail "merge-root-first: unverified retarget race merged the PR"
 
 # A mid-stack failure (the second PR's merge) stops before the next PR's
 # retarget: #1's PATCH/merge never happen.
@@ -1384,8 +1423,9 @@ run_merge_root_first "$merge_root_first_pr_list" 3 >/dev/null 2>&1 || merge_stat
 [ "$merge_status" -eq 2 ] ||
   fail "merge-root-first: forced merge failure exited $merge_status, expected 2"
 [ "$(cat "$gh_calls")" = "$merge_list_call
-$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/2' -f base=003-feature)
+$(json_argv api 'repos/{owner}/{repo}/pulls/2' --jq .base.ref)
 $(json_argv pr merge 2 --merge)
+$(json_argv api 'repos/{owner}/{repo}/pulls/3' --jq .base.ref)
 $(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/3' -f base=003-feature)
 $(json_argv pr merge 3 --merge)" ] ||
   fail "merge-root-first: forced merge failure did not stop before the next retarget"
