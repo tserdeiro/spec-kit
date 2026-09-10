@@ -914,3 +914,24 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Resuelta de paso en T028.* *Pendiente de decisión:* una aserción en
     `bundles.sh` o en CI de que cada `commands/*.md` del preset coincide
     con sus renders instalados.
+97. **El cierre de la segunda auditoría necesita revisar los escapes, no
+    solo sumar tests verdes.** El candidato local reúne los fixes de T012,
+    T014, T022 y T024, más T028. La revisión independiente encontró que un
+    `;` citado o escapado se confundía con un separador y que una
+    continuación `\` + salto de línea ocultaba el push; ambos analizadores
+    conservan ahora esos argumentos. Quince comparaciones contra Bash con
+    Git simulado coinciden. El parche 0003 respeta `auto_commit.default`
+    solo cuando falta la sección del evento y rechaza comillas discordantes.
+    Verificación local: Linear 447 passed / 252 subtests; guard 66 passed /
+    61 subtests; preset 64 passed; upstream 690 passed / 48 skipped
+    (`pwsh` ausente); conformance de bundles y eventos en verde. La suite
+    amplia de code-review más preset pasó con 919 tests antes del último
+    ajuste de escapes, verificado después con guard y preset completos.
+    Los commits `3491608` (T012), `2764eb0` (T014) y `f48c198` (T022)
+    incorporan las correcciones en sus ramas de origen; `226e25d` lleva
+    la propagación hasta T028 (#114), con autorización humana.
+    Las entradas 94 de ambas ramas colisionaban: se conserva 94 para la
+    primera auditoría y la de regeneración de T028 pasa a 96. *Pendiente:*
+    PRs upstream y decisión de alcance de FR-016; runtime vivo de Codex y reconciliación observada
+    en un proyecto de prueba de Linear. Ninguna prueba de dispatcher se
+    presenta como ejecución real del agente.
