@@ -643,3 +643,13 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     producto. *Pendiente de decisión:* incluir `.md` en el alcance del
     packet (al menos bajo `presets/` y `packages/*/commands/`), o un
     brief fijo que mande leer los `.md` del worktree.
+75. **Las cifras de evidencia escritas a mano se desfasan.** Dos
+    `major` de review (T026, T010) por el mismo motivo: el body del PR
+    citaba una entrada del log aún no pusheada, o un `budget: N/M`
+    tipeado antes de correr el script. El body lo compone el agente en
+    prosa mientras los scripts ya imprimen la cifra exacta. *Regla:* el
+    body toma la línea de `budget_stop.py` y la base de `pr_create.py`
+    tal cual las imprimen, nunca reescritas; y toda referencia al log se
+    commitea y pushea antes de abrir la sesión de review, que ancla el
+    head. *Pendiente:* que `speckit.pr` rellene la fila de convergencia
+    con la salida de los scripts.
