@@ -1,0 +1,224 @@
+From 1c898948ff154ea4ec4c0f844873424c439059db Mon Sep 17 00:00:00 2001
+From: tserdeiro <tserdeiro@gmail.com>
+Date: Thu, 10 Sep 2026 07:56:08 -0300
+Subject: [PATCH] fix(git): gate optional commit hooks on their own auto_commit
+ key
+
+A fresh project registers all sixteen optional git.commit hooks
+unconditionally in .specify/extensions.yml. auto_commit.default ships
+false and every event's own auto_commit.<event>.enabled ships false
+too (config-template.yml), so every one of those hooks is still
+announced by core commands as if it might do something -- agreeing to
+run the announced /speckit.git.commit is a no-op, since the command
+itself checks the same disabled config before deciding not to commit.
+
+Give each git.commit hook the condition it already needs to respect at
+run time: condition: "config.auto_commit.<event>.enabled == 'true'",
+using HookExecutor's existing config.<path> == 'value' grammar.
+HookExecutor.should_execute_hook already evaluates this correctly
+against the extension's own git-config.yml, live -- turning an event's
+auto-commit on later needs no reinstall, since nothing about the
+registered hook entry itself has to change. The two mandatory hooks
+(git.initialize, git.feature) are untouched; they carry no auto_commit
+key to gate on.
+
+Current core command templates do not evaluate hook conditions --
+docs/reference/extensions.md already documents this: a hook with a
+non-empty condition is treated as not executable, with no prompt
+printed, regardless of what the expression would evaluate to. So the
+practical effect of this change today is that none of the sixteen
+hooks print a prompt through the stock templates, whether or not their
+event is enabled; a consumer that wants the live, per-event behavior
+needs to evaluate the condition itself before deciding whether to
+offer the hook, the same way HookExecutor already does.
+
+Tests: the manifest declares the expected condition on every git.commit
+entry and none on the two mandatory hooks; installing the extension
+writes the condition into the registered before_plan entry, and
+should_execute_hook is false under the shipped git-config.yml and true
+once auto_commit.before_plan.enabled is set to true in it.
+---
+ extensions/git/extension.yml               | 16 ++++++
+ tests/extensions/git/test_git_extension.py | 57 ++++++++++++++++++++++
+ 2 files changed, 73 insertions(+)
+
+diff --git a/extensions/git/extension.yml b/extensions/git/extension.yml
+index c92322d..ee90fa0 100644
+--- a/extensions/git/extension.yml
++++ b/extensions/git/extension.yml
+@@ -53,81 +53,97 @@ hooks:
+     optional: true
+     prompt: "Commit outstanding changes before clarification?"
+     description: "Auto-commit before spec clarification"
++    condition: "config.auto_commit.before_clarify.enabled == 'true'"
+   before_plan:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit outstanding changes before planning?"
+     description: "Auto-commit before implementation planning"
++    condition: "config.auto_commit.before_plan.enabled == 'true'"
+   before_tasks:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit outstanding changes before task generation?"
+     description: "Auto-commit before task generation"
++    condition: "config.auto_commit.before_tasks.enabled == 'true'"
+   before_implement:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit outstanding changes before implementation?"
+     description: "Auto-commit before implementation"
++    condition: "config.auto_commit.before_implement.enabled == 'true'"
+   before_checklist:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit outstanding changes before checklist?"
+     description: "Auto-commit before checklist generation"
++    condition: "config.auto_commit.before_checklist.enabled == 'true'"
+   before_analyze:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit outstanding changes before analysis?"
+     description: "Auto-commit before analysis"
++    condition: "config.auto_commit.before_analyze.enabled == 'true'"
+   before_taskstoissues:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit outstanding changes before issue sync?"
+     description: "Auto-commit before tasks-to-issues conversion"
++    condition: "config.auto_commit.before_taskstoissues.enabled == 'true'"
+   after_constitution:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit constitution changes?"
+     description: "Auto-commit after constitution update"
++    condition: "config.auto_commit.after_constitution.enabled == 'true'"
+   after_specify:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit specification changes?"
+     description: "Auto-commit after specification"
++    condition: "config.auto_commit.after_specify.enabled == 'true'"
+   after_clarify:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit clarification changes?"
+     description: "Auto-commit after spec clarification"
++    condition: "config.auto_commit.after_clarify.enabled == 'true'"
+   after_plan:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit plan changes?"
+     description: "Auto-commit after implementation planning"
++    condition: "config.auto_commit.after_plan.enabled == 'true'"
+   after_tasks:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit task changes?"
+     description: "Auto-commit after task generation"
++    condition: "config.auto_commit.after_tasks.enabled == 'true'"
+   after_implement:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit implementation changes?"
+     description: "Auto-commit after implementation"
++    condition: "config.auto_commit.after_implement.enabled == 'true'"
+   after_checklist:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit checklist changes?"
+     description: "Auto-commit after checklist generation"
++    condition: "config.auto_commit.after_checklist.enabled == 'true'"
+   after_analyze:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit analysis results?"
+     description: "Auto-commit after analysis"
++    condition: "config.auto_commit.after_analyze.enabled == 'true'"
+   after_taskstoissues:
+     command: speckit.git.commit
+     optional: true
+     prompt: "Commit after syncing issues?"
+     description: "Auto-commit after tasks-to-issues conversion"
++    condition: "config.auto_commit.after_taskstoissues.enabled == 'true'"
+ 
+ tags:
+   - "git"
+diff --git a/tests/extensions/git/test_git_extension.py b/tests/extensions/git/test_git_extension.py
+index f6be51c..5b43445 100644
+--- a/tests/extensions/git/test_git_extension.py
++++ b/tests/extensions/git/test_git_extension.py
+@@ -180,6 +180,30 @@ class TestGitExtensionManifest:
+             cmd_path = EXT_DIR / cmd["file"]
+             assert cmd_path.is_file(), f"Missing command file: {cmd['file']}"
+ 
++    def test_manifest_git_commit_hooks_declare_auto_commit_condition(self):
++        """Every optional `git.commit` hook gates on its own auto_commit key.
++
++        `auto_commit.default` ships `false` (config-template.yml), so a
++        fresh project must not surface all sixteen `git.commit` hooks as
++        always-executable. Each carries `condition:
++        "config.auto_commit.<event>.enabled == 'true'"`, evaluated by
++        `HookExecutor` against `git-config.yml` at run time — flipping the
++        event's own key later needs no reinstall. The two mandatory hooks
++        (`git.initialize`, `git.feature`) are untouched.
++        """
++        from specify_cli.extensions import ExtensionManifest
++
++        m = ExtensionManifest(EXT_DIR / "extension.yml")
++        git_commit_events = [
++            name for name, hook in m.hooks.items() if hook.get("command") == "speckit.git.commit"
++        ]
++        assert len(git_commit_events) == 16
++        for event in git_commit_events:
++            assert m.hooks[event]["condition"] == f"config.auto_commit.{event}.enabled == 'true'"
++
++        assert "condition" not in m.hooks["before_constitution"]
++        assert "condition" not in m.hooks["before_specify"]
++
+ 
+ # ── Install Tests ────────────────────────────────────────────────────────────
+ 
+@@ -195,6 +219,39 @@ class TestGitExtensionInstall:
+         assert manifest.id == "git"
+         assert manager.registry.is_installed("git")
+ 
++    def test_install_condition_gates_git_commit_on_auto_commit_enabled(self, tmp_path: Path):
++        """Registration writes the condition; HookExecutor gates on it live.
++
++        Before this, a fresh `extensions.yml` registered `git.commit` for
++        every event even though `auto_commit.default` ships `false`, so the
++        announced command was a no-op. This proves the fix: `should_execute_hook`
++        is False for `before_plan` under the shipped `git-config.yml`, and
++        True once `auto_commit.before_plan.enabled` is set, without
++        touching `extensions.yml` again.
++        """
++        from specify_cli.extensions import ExtensionManager, HookExecutor
++
++        (tmp_path / ".specify").mkdir()
++        manager = ExtensionManager(tmp_path)
++        manager.install_from_directory(EXT_DIR, "0.5.0", register_commands=False)
++
++        executor = HookExecutor(tmp_path)
++        entries = executor.get_project_config()["hooks"]["before_plan"]
++        entry = next(e for e in entries if e["command"] == "speckit.git.commit")
++        assert entry["condition"] == "config.auto_commit.before_plan.enabled == 'true'"
++
++        shipped_config = (EXT_DIR / "config-template.yml").read_text(encoding="utf-8")
++        _write_config(tmp_path, shipped_config)
++        assert executor.should_execute_hook(entry) is False
++
++        enabled_config = shipped_config.replace(
++            "  before_plan:\n    enabled: false",
++            "  before_plan:\n    enabled: true",
++        )
++        assert enabled_config != shipped_config, "fixture did not match the shipped template"
++        _write_config(tmp_path, enabled_config)
++        assert executor.should_execute_hook(entry) is True
++
+     def test_install_copies_scripts(self, tmp_path: Path):
+         """Extension install copies script files."""
+         from specify_cli.extensions import ExtensionManager
+-- 
+2.50.1 (Apple Git-155)
+

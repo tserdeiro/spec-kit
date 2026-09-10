@@ -26,9 +26,20 @@ forks or vendors upstream (`AGENTS.md`). These files are the hand-off.
    event; and a tracked-only `git add -u` fallback when no feature
    directory can be resolved — never an untracked file outside those
    paths.
-3. Stop registering the sixteen `git.commit` hooks when the git
-   extension's `auto_commit.default` is `false` (T022). **Pending**:
-   prepared once T022 lands.
+3. `0003-gate-git-commit-hooks-on-auto-commit-config.patch` — give each of
+   the sixteen optional `git.commit` hooks a `condition:
+   "config.auto_commit.<event>.enabled == 'true'"` (T022), the grammar
+   `HookExecutor._evaluate_condition` already supports. The hooks stay
+   registered — enabling an event later needs no reinstall — but
+   `should_execute_hook` now gates each one on its own key instead of
+   the always-true default. Caveat carried in the patch itself: current
+   core command templates don't evaluate a hook's `condition` at all —
+   they skip any hook that has one (`docs/reference/extensions.md`) — so
+   until a template (or another `HookExecutor`-aware consumer) actually
+   reads the expression, this stops all sixteen from prompting
+   regardless of whether their event is enabled. It still closes the
+   no-op prompt dogfooding entry 25 names; it does not yet deliver a
+   live per-event prompt through the stock templates.
 
 ## Opening a patch upstream
 
