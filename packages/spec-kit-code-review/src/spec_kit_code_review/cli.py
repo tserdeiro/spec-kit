@@ -1924,24 +1924,39 @@ def _commit_message(step: list[str]) -> str | None:
     return None
 
 
+_GIT_VALUE_FLAGS = frozenset({"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix"})
+_GH_VALUE_FLAGS = frozenset({"-R", "--repo", "--hostname"})
+
+
+def _subcommand_index(step: list[str], value_flags: frozenset[str]) -> int:
+    """Index in ``step`` of the subcommand, past ``step[0]`` and any leading global options."""
+
+    index = 1
+    while index < len(step) and step[index].startswith("-"):
+        index += 2 if step[index] in value_flags else 1
+    return index
+
+
 def _bash_violation(command: str) -> str | None:
     """The fix message for the first of the three Bash rules ``command`` breaks (FR-007)."""
 
     for step in _split_chain(command):
         if len(step) < 2:
             continue
-        if step[0] == "git" and step[1] == "commit":
-            message = _commit_message(step)
-            if message is None:
-                continue
-            subject = message.splitlines()[0] if message else ""
-            if not _COMMIT_SUBJECT_RE.match(subject):
-                return f"blocked commit: subject `{subject}` does not match type(scope): subject; use type(scope): subject"
-        elif step[0] == "git" and step[1] == "push":
-            if any(_FORCE_FLAG_RE.match(token) for token in step[2:]):
+        if step[0] == "git":
+            index = _subcommand_index(step, _GIT_VALUE_FLAGS)
+            if index < len(step) and step[index] == "commit":
+                message = _commit_message(step)
+                if message is None:
+                    continue
+                subject = message.splitlines()[0] if message else ""
+                if not _COMMIT_SUBJECT_RE.match(subject):
+                    return f"blocked commit: subject `{subject}` does not match type(scope): subject; use type(scope): subject"
+            elif index < len(step) and step[index] == "push" and any(_FORCE_FLAG_RE.match(token) for token in step[index + 1 :]):
                 return "blocked push: a force push is never allowed; push without --force"
-        elif len(step) >= 3 and step[0] == "gh" and step[1] == "pr" and step[2] == "merge":
-            if any(token in _DELETE_BRANCH_FLAGS for token in step[3:]):
+        elif step[0] == "gh":
+            index = _subcommand_index(step, _GH_VALUE_FLAGS)
+            if step[index : index + 2] == ["pr", "merge"] and any(token in _DELETE_BRANCH_FLAGS for token in step[index + 2 :]):
                 return "blocked merge: merge without --delete-branch: the repository deletes merged branches itself"
     return None
 

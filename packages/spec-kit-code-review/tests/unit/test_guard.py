@@ -63,6 +63,11 @@ class CommitSubjectTests(GuardTestCase):
         self.assertEqual(code, 2)
         self.assertIn("type(scope): subject", stderr)
 
+    def test_a_leading_global_option_does_not_hide_a_bad_subject(self) -> None:
+        code, stderr = self._run(_bash('git -c core.pager=cat commit -m "bad subject"'))
+        self.assertEqual(code, 2)
+        self.assertIn("type(scope): subject", stderr)
+
 
 class ForcePushTests(GuardTestCase):
     """FR-007's second rule: no form of `git push --force`."""
@@ -77,6 +82,11 @@ class ForcePushTests(GuardTestCase):
     def test_a_plain_push_is_allowed(self) -> None:
         self.assertEqual(self._run(_bash("git push origin HEAD")), (0, ""))
 
+    def test_a_leading_global_option_does_not_hide_a_force_push(self) -> None:
+        code, stderr = self._run(_bash("git -C . push --force"))
+        self.assertEqual(code, 2)
+        self.assertIn("--force", stderr)
+
 
 class DeleteBranchMergeTests(GuardTestCase):
     """FR-007's third rule: no `gh pr merge ... --delete-branch`."""
@@ -90,6 +100,16 @@ class DeleteBranchMergeTests(GuardTestCase):
 
     def test_a_plain_merge_is_allowed(self) -> None:
         self.assertEqual(self._run(_bash("gh pr merge 1 --merge")), (0, ""))
+
+    def test_a_leading_global_option_does_not_hide_a_delete_branch_merge(self) -> None:
+        code, stderr = self._run(_bash("gh --repo owner/repo pr merge 1 --merge --delete-branch"))
+        self.assertEqual(code, 2)
+        self.assertIn("--delete-branch", stderr)
+
+    def test_a_lone_global_option_triggers_nothing(self) -> None:
+        for command in ("git -C . status", "gh --repo o/r pr view 1"):
+            with self.subTest(command=command):
+                self.assertEqual(self._run(_bash(command)), (0, ""))
 
 
 class ProtectedPathTests(GuardTestCase):
