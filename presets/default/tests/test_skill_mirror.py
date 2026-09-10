@@ -174,3 +174,16 @@ def test_unsupported_strategy_fails_closed(tmp_path: Path, capsys: pytest.Captur
         "the mirror composes only append and replace\n"
     )
     assert _snapshot(tmp_path) == before
+
+
+def test_an_append_without_file_is_named(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """An append entry with no file is a broken registration, not an
+    unsupported strategy: the diagnostic says which, and nothing is written."""
+    _fixture(tmp_path)
+    preset_yml = tmp_path / ".specify/presets/default/preset.yml"
+    with preset_yml.open("a", encoding="utf-8") as handle:
+        handle.write('    - type: "command"\n      name: "speckit.checklist"\n      strategy: "append"\n')
+    before = _snapshot(tmp_path)
+    assert skill_mirror.mirror_skills(tmp_path, True) == 2
+    assert capsys.readouterr().err == "mirror: speckit-checklist registers an append with no file\n"
+    assert _snapshot(tmp_path) == before

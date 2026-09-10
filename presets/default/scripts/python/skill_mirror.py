@@ -31,7 +31,8 @@ def _registered_appends(repo_root: Path) -> tuple[dict[str, Path], set[str], dic
     """speckit-x name -> its registered append file (relative to
     repo_root), first match wins; the set of speckit-x names registered
     strategy "replace" (copied whole, like an extension skill); and the
-    names registered any other strategy, with that strategy -- across
+    names the mirror cannot compose, with the reason (an append with
+    no file, or a strategy other than append and replace) -- across
     every installed preset's preset.yml, a direct translation of the
     block's own awk state machine over that YAML shape, one flush per
     "- type:" list entry."""
@@ -50,8 +51,10 @@ def _registered_appends(repo_root: Path) -> tuple[dict[str, Path], set[str], dic
                         appends.setdefault(skill, preset_dir / file)
                     elif strategy == "replace":
                         replaced.add(skill)
+                    elif strategy == "append":
+                        unsupported.setdefault(skill, "an append with no file")
                     else:
-                        unsupported.setdefault(skill, strategy)
+                        unsupported.setdefault(skill, f'command strategy "{strategy}" -- the mirror composes only append and replace')
                 kind = "command" if '"command"' in line else ""
                 name, file, strategy = "", "", ""
                 continue
@@ -84,9 +87,8 @@ def mirror_skills(repo_root: Path, fix: bool) -> int:
 
     appends, replaced, unsupported = _registered_appends(repo_root)
     if unsupported:
-        for name, strategy in sorted(unsupported.items()):
-            print(f'mirror: {name} registers command strategy "{strategy}" -- '
-                  "the mirror composes only append and replace", file=sys.stderr)
+        for name, reason in sorted(unsupported.items()):
+            print(f"mirror: {name} registers {reason}", file=sys.stderr)
         return 2
     integrations_dir = repo_root / ".specify/integrations"
     default_dir = _skills_dir(_manifest_skills(integrations_dir / f"{default_ai}.manifest.json"))
