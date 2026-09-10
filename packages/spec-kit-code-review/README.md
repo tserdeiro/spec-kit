@@ -52,6 +52,10 @@ findings path outside that session is a usage error.
 }
 ```
 
+Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories:
+`correctness`, `security`, `contract`, `delivery`, `tests`,
+`maintainability`, `style` — any other value refuses the whole file.
+
 ## Guards
 
 Configured on an agent with runtime-event support (Claude Code, Codex,
