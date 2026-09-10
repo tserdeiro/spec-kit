@@ -275,7 +275,7 @@ el trío `/speckit.bug.*`.
 
 | Origen | Comandos |
 | --- | --- |
-| preset `default` | `/speckit.pr`, `.bugfix`, `.chore`, `.doctor` (conduce el onboarding en seis categorías, verifica el cableado de eventos, espeja skills entre agentes y agrega al `.gitignore` las cachés del instalador) — más los reemplazos de `.implement` (el loop de entrega, sobre ocho scripts) y `.tasks` (el ledger sin `[P]`), y los appends en `.specify`, `.plan` y `.analyze` (fases silenciosas y commiteadas) |
+| preset `default` | `/speckit.pr`, `.bugfix`, `.chore`, `.doctor` (conduce el onboarding en seis categorías, verifica el cableado de eventos, espeja skills entre agentes y agrega al `.gitignore` las cachés del instalador) — más los reemplazos de `.implement` (el loop de entrega, sobre los scripts del preset) y `.tasks` (el ledger sin `[P]`), y los appends en `.specify`, `.plan` y `.analyze` (fases silenciosas y commiteadas) |
 | extensión `linear` | `onboard`, `push` (`--dry-run` / `--apply`), `status`, `doctor --fix`, `completions` |
 | extensión `code-review` | `speckit.code-review` (`--publish`), `doctor --fix`, `completions` — bloquea con un finding automático el PR de tarea que toque `spec.md` o la constitución (`protected_paths`) |
 
