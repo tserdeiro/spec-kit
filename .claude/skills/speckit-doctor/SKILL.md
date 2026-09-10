@@ -88,8 +88,9 @@ installation, (6) the repository's GitHub delivery settings.
   `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`.
 - **Anything failed** → one short list, ordered by the six categories
   above and skipping any with nothing to report; one bullet per blocking
-  problem, carrying its doctor's own remediation **verbatim** or the exact
-  GitHub remediation from step 4. End with the single next action: usually
+  problem, carrying its doctor's own remediation **verbatim**, step 1's
+  interpreter fix, or the exact GitHub remediation from step 4. End with
+  the single next action: usually
   re-running this command with `--fix`, or the one manual step a
   report-only category names.
 - **Nothing failed but GitHub could not be verified** → say the checks that
@@ -106,18 +107,19 @@ Warnings that block nothing go in one final line, not in the list.
 
 Read-only; nothing here is ever written, even with `--fix`.
 
-For each key in `.specify/integration.json`'s `installed_integrations`:
-
-- Report whether `.specify/events.py` exists, and whether that
-  integration's own native hook file (`.claude/settings.json` for
-  claude, `.codex/config.toml` for codex, `.cursor/hooks.json` for
-  cursor, the CLI's own file for any other integration) carries the
-  `__speckit_event__` marker.
-- When neither is there — an integration with no native hook file at all
-  (Zed, today), or one installed before the extensions declared events —
-  state plainly that the code-review guard and the Linear session-start
-  and tool-use handlers do not run there, and that the prose rules stay
-  authoritative.
+Report once whether `.specify/events.py`, the dispatcher every wired
+integration shares, exists. Then, for each key in
+`.specify/integration.json`'s `installed_integrations`, report whether
+that integration's own native hook file carries the `__speckit_event__`
+marker: `.claude/settings.json` for claude, `.codex/config.toml` for
+codex, `.cursor/hooks.json` for cursor; for any other integration, the
+hook file its `specify integration upgrade` writes — when you cannot
+name it, report that integration's wiring as unverified. An integration
+whose hook file carries no marker is unwired whatever the dispatcher's
+state — one with no hook file at all (Zed, today), or one wired before
+the extensions declared events: state plainly that the code-review
+guard and the Linear session-start and tool-use handlers do not run
+there, and that the prose rules stay authoritative.
 
 For each installed extension declaring `events:` under
 `.specify/extensions/<id>/extension.yml`, check that every
@@ -126,9 +128,12 @@ extension's `commands/` directory — a mismatch resolves to nothing at
 the dispatcher, silently, so the event simply never fires — and name any
 mismatch you find.
 
-The fix for a gap this step finds is never run here: it is
-`specify integration install <key> --force`, once the extension itself
-has been upgraded to declare events.
+The fix for a gap this step finds is never run here: once the extension
+itself declares events, it is `specify integration upgrade <key>` — an
+`install` of a key already installed changes nothing; `--force` when the
+upgrade reports locally modified files, which the mirrored appends are —
+followed by this doctor with `--fix`, so step 7 restores the preset layer
+the upgrade re-rendered.
 
 ## 7. Mirror the skills across installed agents
 
