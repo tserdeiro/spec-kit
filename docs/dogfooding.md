@@ -695,3 +695,22 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     tarea que borra un hook, evento o comando nombran también el código
     de salud que valida su registro (doctor, conformance, tests de
     superficie).
+81. **El registro "solo en la integración activa" es diseño de upstream,
+    no un bug.** Al preparar el parche de T020, la docstring de
+    `_register_extensions_for_agent` (`integrations/_helpers.py`, v1.0.4)
+    y sus tests citan el issue #2948: instalar una segunda integración
+    "deliberadamente" no registra extensiones ni presets hasta que se la
+    selecciona. La mitad de FR-016 que pedía registrar en todas las
+    integraciones instaladas iba contra ese diseño; el parche se acotó a
+    `init --force`, que sí era una regresión (entrada 35), y el espejo
+    del doctor deja de ser un rodeo para ser la decisión de esta
+    distribución. *Documentada:* las entradas 17 y 29 quedan resueltas
+    por el espejo, no por upstream.
+82. **Un `.patch` tropieza con `git diff --check` y no entra al packet.**
+    La salida de `format-patch` lleva por diseño espacios finales (líneas
+    de contexto vacías, la firma `-- `), así que el chequeo de whitespace
+    la marca siempre; y el motor de review lo excluye como extensión no
+    soportada, igual que al Markdown (entrada 74), de modo que el reviewer
+    lee el parche desde el worktree y lo aplica en un clon propio.
+    *Resuelta en T020:* `docs/upstream/*.patch -whitespace` en
+    `.gitattributes`. *Pendiente (74):* el alcance del packet.
