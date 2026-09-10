@@ -56,9 +56,7 @@ def build_task_rows(
                     "next": next_action(
                         derived.state,
                         derived.source,
-                        checked=task.completed,
                         feature=desired.feature.identifier,
-                        task=_task_code(task.identity),
                         pr_number=derived.pr_number,
                     )
                     if derived is not None

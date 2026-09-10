@@ -166,9 +166,7 @@ def next_action(
     state: str,
     source: str,
     *,
-    checked: bool | None = None,
     feature: str | None = None,
-    task: str | None = None,
     pr_number: int | None = None,
 ) -> str | None:
     """The next runnable command for a derived state (FR-004, D6).
@@ -179,16 +177,14 @@ def next_action(
     "wait for the human merge" sentence — never a manual gesture to
     translate, which is what this used to return for an unstarted task
     (`"start: create branch ..."`, the exact gesture FR-004 forbids).
-    ``checked`` and ``task`` apply to feature tasks only (`tasks.md` is
-    their durable record; a work item has no checkbox and no ``Txxx`` id);
-    ``pr_number`` applies to the `started`/`pr` case alone, task or work
-    item alike. Returns ``None`` when nothing local is actionable.
+    ``feature`` names the `unstarted` case's command (feature tasks only);
+    ``pr_number`` the `started`/`pr` case's, task or work item alike.
+    Returns ``None`` when nothing local is actionable.
     """
 
     if state == STATE_COMPLETED:
-        # `checked is False` here means a merge outran the local sync
-        # (tasks.md's checkbox has not caught up yet) — nothing local is
-        # actionable either way, so both checked values return the same.
+        # Checked or not: an unchecked box here means a merge outran the
+        # local sync, and nothing local is actionable either way.
         return None
     if state == STATE_REVIEW:
         return "wait for the human merge"

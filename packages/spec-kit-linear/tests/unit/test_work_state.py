@@ -33,6 +33,18 @@ def _derive(**overrides: object):
     return derive_task_state("001", "T004", **arguments)  # type: ignore[arg-type]
 
 
+class PullRequestNumberThreadingTests(unittest.TestCase):
+    """The observed PR's number reaches the task state (D6): the fact `/speckit.code-review <n>` needs."""
+
+    def test_a_pull_request_carries_its_number_into_the_task_state(self) -> None:
+        derived = _derive(pull_requests=(_pull_request("001-T004-parse", draft=True, number=42),))
+
+        self.assertEqual((derived.source, derived.pr_number), (SOURCE_PULL_REQUEST, 42))
+
+    def test_a_branch_alone_carries_no_number(self) -> None:
+        self.assertIsNone(_derive(branches=("001-T004-parse",)).pr_number)
+
+
 class BranchConventionTests(unittest.TestCase):
     def test_the_convention_matches_a_bare_task_branch_and_a_suffixed_one(self) -> None:
         pattern = branch_pattern("001", "T004")
@@ -219,13 +231,12 @@ class NextActionTests(unittest.TestCase):
         from spec_kit_linear.work_state import next_action
 
         cases = [
-            (("completed", "checkbox"), {"checked": True}, None),
-            (("completed", "pr"), {"checked": False}, None),
-            (("completed", "pr"), {}, None),  # work item: no checkbox
+            (("completed", "checkbox"), {}, None),
+            (("completed", "pr"), {}, None),  # a merge that outran the local sync, or a work item
             (("review", "pr"), {}, "wait for the human merge"),
             (("started", "pr"), {"pr_number": 42}, "/speckit.code-review 42"),
             (("started", "branch"), {}, "/speckit.pr"),
-            (("unstarted", "none"), {"feature": "001", "task": "T004"}, "/speckit.implement 001"),
+            (("unstarted", "none"), {"feature": "001"}, "/speckit.implement 001"),
         ]
         for (state, source), kwargs, expected in cases:
             with self.subTest(state=state, source=source, **kwargs):
@@ -240,7 +251,7 @@ class NextActionTests(unittest.TestCase):
         for state in states:
             for source in sources:
                 with self.subTest(state=state, source=source):
-                    result = next_action(state, source, checked=False, feature="001", task="T004", pr_number=7)
+                    result = next_action(state, source, feature="001", pr_number=7)
                     if result is not None:
                         self.assertTrue(result.startswith("/speckit.") or result == "wait for the human merge", result)
 
