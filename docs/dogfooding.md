@@ -737,3 +737,82 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     inútiles) y deja la puerta viva para el ejecutor; un prompt real por
     evento habilitado necesitaría que los templates evalúen la
     expresión. *Documentada;* el caveat viaja en el commit del parche.
+85. **Los eventos sí llegan a todas las integraciones instaladas; los
+    comandos no.** `refresh_integration_events` (v1.0.4) recorre
+    `installed_integrations` entero tras cada `extension add`, `remove`,
+    `enable` o `disable`, así que en la fixture de T023
+    `.claude/settings.json` y `.codex/config.toml` quedaron cableados con
+    solo añadir las dos extensiones: ni el `integration install --force`
+    que pedía el contrato de la tarea y D12 (un no-op sobre una key
+    instalada, review de T015) ni `integration upgrade` (que re-renderizó
+    byte a byte lo mismo) hicieron nada. El remedio del paso 6 del doctor
+    queda para el hueco real: integraciones cableadas antes de que las
+    extensiones declararan eventos (A-002, este repositorio). *Regla:*
+    el contrato de una tarea de verificación nombra el comando que de
+    verdad cablea (`extension add`), no el que suena a cableado; el
+    contraste con la entrada 81 (comandos solo en la integración activa)
+    es de upstream, no de esta distribución.
+86. **El marcador de Codex no es `__speckit_event__`.** `events.py`
+    reutiliza la constante `_SPECKIT_MARKER` en todos los renders JSON y
+    escribe el literal `speckit_marker = true` en los dos TOML (codex,
+    vibe). El doctor de T015 decía `__speckit_event__` para los tres
+    archivos; un agente que lo siguiera al pie de la letra diagnosticaría
+    Codex como sin cablear estando sano. *Resuelta en T023:* el paso 6
+    nombra cada marcador por formato y `events-consumer.sh` asserta
+    ambos. (Para upstream, un nit: la constante no llega a los renders
+    TOML.)
+87. **Sin `plan.md` la línea de contexto desaparece en silencio.**
+    `parse_feature` exige el título de `spec.md` y de `plan.md` (solo
+    `tasks.md` es opcional), y `session-start` traga cualquier excepción
+    para cumplir su contrato de salida 0: una feature recién
+    especificada (`/speckit.specify` hecho, `/speckit.plan` pendiente)
+    abre sesión sin línea, indistinguible de "Linear no configurado".
+    Reproducido en la fixture de T023: borrar `plan.md` → stdout vacío,
+    exit 0; restaurarlo → la línea. *Pendiente de decisión:* `plan.md`
+    opcional en el parser, como `tasks.md`, o una línea degradada que
+    nombre la causa.
+88. **La mitad viva de T023 depende de binarios y credenciales que el
+    agente no tiene.** `codex` no está instalado en esta máquina, y el
+    token OAuth en disco del `claude` standalone había expirado
+    (`claude auth status` dice `loggedIn: true`; `claude -p` responde
+    401 "OAuth access token has expired"): re-autenticar es un login
+    interactivo del humano, y desde una sesión de Claude Code el agente
+    tampoco puede prestarle la suya. La mitad reproducible — config
+    nativa de ambos agentes, dispatcher generado, handlers reales, Linear
+    en solo lectura (`hooks.lifecycle_enabled: false`) — es
+    `scripts/conformance/events-consumer.sh`; por leer las credenciales
+    locales no entra al CI, que sigue en `bundles.sh` con fakes. Los
+    tres prompts de la mitad viva quedan en la evidencia para repetirlos
+    donde existan `claude` autenticado y `codex`. *Regla:* una tarea de
+    verificación en vivo declara en su contrato qué agentes están
+    instalados y autenticados en la máquina que la ejecuta antes de
+    prometer transcripts "en ambos agentes". *Resuelta a medias el mismo
+    día:* tras el login del humano, los tres prompts a Claude Code
+    (2.1.236, `--model haiku`) dieron la línea de contexto
+    (`SessionStart:startup hook success: Linear: …`), el force push
+    bloqueado y la escritura protegida bloqueada — en la evidencia de
+    T023; Codex sigue pendiente de una máquina con el binario.
+89. **Un handler silencioso por contrato no se puede verificar desde
+    fuera.** `post-tool-use` nunca imprime y siempre sale 0 (FR-005,
+    FR-006), y `_reconcile_hook` descarta el payload de `push --hook`:
+    la sonda de la fixture de T023 no distingue "reconcilió" de "no
+    era un push" — ambos dan exit 0 y stdout vacío, como señaló la
+    review de #112. La fixture prueba el enrutado y el contrato de
+    salida; que el reconcile ocurre lo prueban los tests de T012 y, en
+    vivo, el estado de Linear tras un push real. *Pendiente de
+    decisión:* un canal observable (una línea en stderr bajo una
+    variable de depuración) si el doctor o una fixture han de probar
+    que un hook corrió.
+90. **Una categoría inventada rechaza el archivo de hallazgos entero.**
+    El skill de review enumera las severidades pero no las categorías
+    (solo el ejemplo `correctness`; el packet sí las lista, en su
+    sección de reglas), y el reviewer fresco de #112 inventó cinco
+    (`reproducibility`, `test-coverage`, `contract-fidelity`,
+    `process`, `consistency`). El cierre rechaza todo el archivo con
+    `findings_field_enum` — asimétrico con una ruta o un rango
+    inexistentes, que se descartan hallazgo por hallazgo con un
+    diagnóstico. El orquestador normalizó las categorías y volvió a
+    cerrar. *Resuelta en T023:* el skill y el README nombran el enum.
+    *Pendiente de decisión:* que el cierre normalice o descarte la
+    categoría inválida como hace con la ruta, en vez de rechazar el
+    archivo.
