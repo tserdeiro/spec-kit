@@ -1082,6 +1082,13 @@ class SessionStartContextFormatterTests(unittest.TestCase):
             "next: await the final review and the human merge",
         )
 
+    def test_a_merged_task_pr_is_excluded_from_open_task_prs(self) -> None:
+        tasks = [_task_row("T001", local_complete=True, derived_state="completed", state_source="pr")]
+
+        line = _format_feature_context("005-developer-experience", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-developer-experience")
+
     def test_feature_branch_with_nothing_unchecked_omits_the_task_and_command(self) -> None:
         tasks = [_task_row("T001", local_complete=True, derived_state="completed", state_source="checkbox")]
 
@@ -1127,7 +1134,7 @@ class SessionStartTests(CliTestCase):
 
     def test_an_unexpected_failure_still_exits_zero_with_no_output(self) -> None:
         output = StringIO()
-        with patch("spec_kit_linear.cli._current_branch", side_effect=RuntimeError("boom")):
+        with patch("spec_kit_linear.cli._current_branch", side_effect=RuntimeError("boom")), patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
             with redirect_stdout(output):
                 code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
 
@@ -1150,6 +1157,18 @@ class SessionStartTests(CliTestCase):
 
     def test_a_work_item_branch_prints_one_line(self) -> None:
         client = _WorkItemClient((_matching_remote_project(self._desired()),), work_items=(_remote_work_item("WOR-123"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                    code, output = self._run("wor-123-fix-crash")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "Linear: WOR-123 (started) — next: open the draft PR\n")
+
+    def test_a_work_item_branch_with_no_feature_directory_still_prints_one_line(self) -> None:
+        shutil.rmtree(self.fixture_root / "specs")
+        (self.fixture_root / ".specify" / "feature.json").unlink()
+        client = _WorkItemClient(work_items=(_remote_work_item("WOR-123"),))
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
                 with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):

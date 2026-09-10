@@ -1194,6 +1194,7 @@ def _current_branch(root: Path) -> str | None:
         check=False,
         text=True,
         capture_output=True,
+        timeout=20,
     )
     if result.returncode != 0:
         return None
@@ -1232,7 +1233,7 @@ def _format_work_item_context(row: Mapping[str, object]) -> str:
     return line
 
 
-def _session_start_context_line(root: Path) -> str | None:
+def _session_start_context_line(root: Path, branch: str, work_item_identifier: str | None) -> str | None:
     """FR-003's context line for the current branch's shape, or `None`.
 
     A feature/task branch (`NNN-...`) and a work-item branch (`<team
@@ -1241,23 +1242,14 @@ def _session_start_context_line(root: Path) -> str | None:
     is treated identically by the caller (FR-006).
     """
 
-    branch = _current_branch(root)
-    if not branch:
-        return None
     feature_match = FEATURE_RE.fullmatch(branch)
-    work_item_identifier = None
-    if feature_match is None:
-        config, _shared_path = load_config(root, None)
-        _team_id, team_key = team_binding(config)
-        match = issue_key_pattern(team_key).fullmatch(branch)
-        if match is None:
-            return None
-        work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}"
+    if feature_match is None and work_item_identifier is None:
+        return None
 
-    # `--current` resolves the same feature `push --current --hook` just
-    # reconciled (dogfooding entry 52); work items are feature-independent,
-    # so which feature (if any) it names never affects that lookup below.
-    status_args = argparse.Namespace(root=str(root), config=None, feature=None, current=True, all_features=False)
+    # A feature/task branch resolves `--current` through its own name; a work
+    # item has no feature to resolve, so `current` is False for it and this
+    # lookup never raises for that reason (caller already resolved the id).
+    status_args = argparse.Namespace(root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False)
     status = run_status(status_args)["status"]
 
     if work_item_identifier is not None:
@@ -1282,8 +1274,22 @@ def run_session_start(args: argparse.Namespace) -> int:
     except AppError:
         return EXIT_SUCCESS
 
+    branch = work_item_identifier = None
+    try:
+        branch = _current_branch(root)
+        if branch and not FEATURE_RE.fullmatch(branch):
+            config, _shared_path = load_config(root, None)
+            _team_id, team_key = team_binding(config)
+            match = issue_key_pattern(team_key).fullmatch(branch)
+            work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
+    except Exception:
+        pass
+
+    # A work item can only resolve `--current` through `.specify/feature.json`,
+    # which is often absent; a feature/task branch still resolves it through
+    # its own name, so only the former needs the feature-independent selector.
     hook_args = argparse.Namespace(
-        root=str(root), config=None, feature=None, current=True, all_features=False,
+        root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
         dry_run=False, apply=False, hook=True,
     )
     try:
@@ -1292,7 +1298,7 @@ def run_session_start(args: argparse.Namespace) -> int:
         pass
 
     try:
-        line = _session_start_context_line(root)
+        line = _session_start_context_line(root, branch, work_item_identifier)
     except Exception:
         line = None
     if line:

@@ -48,10 +48,10 @@ native GitHub integration's job; `push` remains the idempotent reconciler.
 
 Configured, this extension also runs as a `session_start` runtime-event
 handler (Claude Code, Codex, Cursor): every session on a feature, task, or
-work-item branch reconciles Linear (`push --current --hook`) and prints one
-context line naming the branch's state and the next command, before the
-agent does anything else. Silent, exit `0`, on any other branch shape or
-without configuration.
+work-item branch reconciles Linear (`push --hook`, with `--current` added
+only on a feature/task branch) and prints one context line naming the
+branch's state and the next command, before the agent does anything else.
+Silent, exit `0`, on any other branch shape or without configuration.
 
 ## Getting started
 

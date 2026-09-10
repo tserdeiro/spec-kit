@@ -12,7 +12,8 @@ This is the extension's `session_start` runtime-event handler, declared in
 its name is deliberately undotted and equal to this file's stem. Never invoke
 it directly.
 
-It reconciles Linear (`push --current --hook`) and then prints one context
-line naming the current branch's Linear state and the next command to run —
-or nothing at all when the branch matches no recognized shape, or the
-extension is unconfigured.
+It reconciles Linear (`push --hook`, with `--current` added on a feature/task
+branch only -- a work item is feature-independent) and then prints one
+context line naming the current branch's Linear state and the next command
+to run — or nothing at all when the branch matches no recognized shape, or
+the extension is unconfigured.
