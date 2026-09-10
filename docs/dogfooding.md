@@ -516,3 +516,36 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Pendiente de decisión:* sacar la suite del preset (p. ej.
     `tests/preset/` en la raíz) cambia el layout del plan; no lo decide
     una tarea.
+61. **Plan y ledger discrepan en el alcance del reconcile de
+    `task_base.py`.** D1 dice "cada modo termina igual" (`push --hook`);
+    el bloque de T001 dice "cada modo que crea una rama". El
+    implementador siguió al ledger: `refresh` no crea rama y no
+    reconcilia. *Regla:* el ledger es el contrato de la tarea y el plan
+    describe la intención; una discrepancia se resuelve a favor del
+    ledger y se anota, no se "corrige" hacia el plan.
+62. **Una justificación del ledger no era cierta en su tarea.** T001
+    dice que estrechar el grep de `python3` en `bundles.sh:636`
+    "fallaría en este mismo PR", pero esa trampa solo lee los skills
+    instalados de `pr` e `implement`, que T001 no toca; la causa real la
+    da D2 (T002 y T008). Se hizo igual, adelantado. *Documentada.*
+63. **Un `type: script` en `preset.yml` es contabilidad.** Verificado
+    en el CLI 1.0.4: la entrada se valida contra el esquema pero no se
+    registra ni materializa en ningún lado (el directorio entero se copia
+    igual, entrada 60); los comandos llaman al archivo instalado por su
+    ruta literal. La entrada declara la superficie, no la cablea.
+    *Documentada.*
+64. **El slash command de review se llama
+    `/speckit-code-review-code-review`.** Upstream antepone el id de la
+    extensión al nombre del comando, y el comando único de `code-review`
+    ya se llama `speckit.code-review`, así que el registro queda
+    `speckit.code-review.code-review` (se ve en `extensions.yml`) y el
+    skill instalado, en Claude y Codex, con el nombre doblado. Toda la
+    prosa (README, visión, el loop de `implement`) dice
+    `/speckit.code-review <n>`, que no existe tal cual. El orquestador
+    corrió los dos pasos del skill por el CLI (`review <n> --json` y el
+    cierre con `--findings`), que es exactamente lo que el skill
+    prescribe, sin invocar el skill por su nombre. *Pendiente:* renombrar
+    el comando (`speckit.code-review.review`, que rendería
+    `speckit-code-review-review`) o documentar el nombre doblado; es un
+    cambio de superficie de la extensión, fuera de esta ronda salvo
+    decisión humana.

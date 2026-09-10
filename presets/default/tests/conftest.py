@@ -20,22 +20,49 @@ with open(os.environ["GH_CALLS_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\\n")
 if argv == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
     sys.stdout.write(os.environ.get("GH_DEFAULT_BRANCH", "main") + "\\n")
+elif argv == ["pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName,baseRefName,isDraft"]:
+    sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
 else:
     sys.stderr.write(f"fake gh: unexpected argv: {argv}\\n")
     sys.exit(1)
 '''
 
+_CHECK_PREREQUISITES = """#!/bin/sh
+printf 'BRANCH: 003-feature\\n'
+printf 'FEATURE_DIR: specs/003-feature\\n'
+"""
+
 @pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    """A throwaway, initialized git repository."""
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A throwaway, initialized git repository. Every later git call this
+    process makes also sees the isolated config, not only these calls, since
+    monkeypatch mutates the process environment rather than a local dict."""
     root = tmp_path / "repo"
     root.mkdir()
-    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
     calls = (["init", "--initial-branch=main", "-q"], ["config", "user.email", "t@example.invalid"],
              ["config", "user.name", "spec-kit tests"], ["config", "commit.gpgsign", "false"])
     for args in calls:
-        subprocess.run(["git", *args], cwd=root, check=True, env=env, capture_output=True)
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
     return root
+
+@pytest.fixture
+def feature_repo(repo: Path, tmp_path: Path) -> Path:
+    """``repo`` with a bare ``origin`` remote, ``003-feature`` pushed, and a
+    fake check-prerequisites.sh reporting that branch and feature directory."""
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(origin)], check=True, capture_output=True)
+    setup = (["remote", "add", "origin", str(origin)], ["commit", "--allow-empty", "-q", "-m", "chore: initial"],
+             ["push", "-q", "origin", "main"], ["switch", "-q", "-c", "003-feature"],
+             ["push", "-q", "-u", "origin", "003-feature"])
+    for args in setup:
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    prerequisites = repo / ".specify/scripts/bash/check-prerequisites.sh"
+    prerequisites.parent.mkdir(parents=True)
+    prerequisites.write_text(_CHECK_PREREQUISITES, encoding="utf-8")
+    prerequisites.chmod(0o755)
+    return repo
 
 @pytest.fixture
 def fake_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:

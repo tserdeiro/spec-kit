@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 DEFAULT_FORECAST = 400  # no "~N" on the Delivery line: today's shell default
 
@@ -107,6 +108,16 @@ def run_git(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[
 
 def run_gh(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["gh", *args], cwd=cwd, text=True, capture_output=True)
+
+def run_gh_json(*args: str, cwd: Path | None = None) -> Any:
+    """Run a `gh ... --json <fields>` call; parse stdout, `die` on either failure."""
+    result = run_gh(*args, cwd=cwd)
+    if result.returncode != 0:
+        die(result.stderr.strip() or f"gh {' '.join(args)} failed")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        die(f"gh {' '.join(args)} returned invalid JSON: {error}")
 
 def die(message: str) -> NoReturn:
     """Today's shell diagnostic, unchanged: "error: ..." on stderr, exit 2."""

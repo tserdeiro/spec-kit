@@ -73,6 +73,12 @@ provides:
       description: "Appends the branch-per-task delivery loop to the core implement command"
       strategy: "append"
 
+    - type: "script"
+      name: "task-base"
+      file: "scripts/python/task_base.py"
+      description: "Per-task branch setup: refresh, task, and work-item modes"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"

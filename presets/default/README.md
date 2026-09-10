@@ -78,6 +78,20 @@ its own render, never another's; it also adds the installer's cache and
 `.venv` directories to `.gitignore` when not already covered. Both
 passes are read-only until `--fix`.
 
+## Scripts
+
+`scripts/python/task_base.py` (Python 3.11+, standard library only) sets
+up a task's branch in three modes: `refresh` (once per feature, merges
+the delivery base into the feature branch), `task <NNN-T###-slug>`
+(branches from the open task stack's top, else the feature branch), and
+`work-item <branch-name>` (branches from the delivery base — the mode
+`speckit.chore` and `speckit.bugfix` both call, one script for both).
+Every mode that creates a branch ends by reconciling Linear
+(`push --hook`) when the extension is installed; a failing reconcile is
+a warning, never a script failure. Run it with the consumer's
+`.venv/bin/python` when it exists, else `python3` on PATH — the rule
+upstream's own `py` scripts follow.
+
 ## Executable blocks
 
 Every marked block in the preset's commands — `pr-create`,
