@@ -1,4 +1,4 @@
-From 59eca3ff97a7c538c20a4ae1d71183ad3c18b6ac Mon Sep 17 00:00:00 2001
+From 955af1159aec4e9516c97fd30e3d85e2fd1fc906 Mon Sep 17 00:00:00 2001
 From: tserdeiro <tserdeiro@gmail.com>
 Date: Thu, 10 Sep 2026 07:56:08 -0300
 Subject: [PATCH] fix(git): gate optional commit hooks on their own auto_commit
@@ -16,55 +16,75 @@ outright, so a condition alone could not have fixed this: nothing
 evaluated it.
 
 Give each git.commit hook the condition it needs to respect at run
-time: condition: "config.auto_commit.<event>.enabled == 'true'", using
-HookExecutor's existing config.<path> == 'value' grammar. Then make
-templates honor it: every hook block in templates/commands/*.md
-(before_ and after_, ten commands) now evaluates a hook's condition
-the way HookExecutor._evaluate_condition does -- no condition means
-executable; config.<path> is read from the hook's own
+time: condition: "config.auto_commit.<event>.enabled == 'true' or
+(config.auto_commit.<event>.enabled is not set and
+config.auto_commit.default == 'true')" -- the per-event key when it is
+set, else the shared default, exactly the resolution
+auto_commit.py's _parse_auto_commit_config already implements by hand.
+Expressing that needs disjunction, so HookExecutor._evaluate_condition
+now composes its five atom forms (config.<path> / env.<VAR> with is
+set, is not set, ==, !=) with and, or, not, and parentheses: not binds
+tightest, then and, then or; keywords are case-insensitive and a
+quoted value may itself contain one (e.g. == 'a and b'); an expression
+that doesn't fully parse this way -- unbalanced parentheses, an
+unrecognized atom, trailing text after a valid atom -- evaluates
+False, the same failure default an unrecognized atom always had. The
+grammar is a small hand-written tokenizer plus a recursive-descent
+parser, standard library only.
+
+Make templates honor the condition: every hook block in
+templates/commands/*.md (before_ and after_, ten commands) evaluates a
+hook's condition the way HookExecutor._evaluate_condition does -- no
+condition means executable; config.<path> is read from the hook's own
 .specify/extensions/<extension>/<extension>-config.yml, env.<VAR> from
-the process environment; anything else, or a config file that can't be
-read, leaves the hook not executable -- instead of skipping any
-conditioned hook outright. docs/reference/extensions.md documents the
-same rule. The two mandatory hooks (git.initialize, git.feature) are
-untouched; they carry no auto_commit key to gate on.
+the process environment, composed the same way -- instead of skipping
+any conditioned hook outright. docs/reference/extensions.md documents
+the same rule. The two mandatory hooks (git.initialize, git.feature)
+are untouched; they carry no auto_commit key to gate on.
 
-HookExecutor.should_execute_hook already evaluated this grammar
-correctly against the extension's own git-config.yml, live, so turning
-an event's auto-commit on later needs no reinstall. Two limits of the
-expression remain: the grammar has no disjunction, so
-auto_commit.default's "enable for all, then override" shorthand is not
-honored (only the per-event key is), and a mistyped condition degrades
-silently to never-executable.
+HookExecutor.should_execute_hook already evaluates this grammar live
+against the extension's own git-config.yml, so turning an event's
+auto-commit on later -- through its own key or through the shared
+default -- needs no reinstall. One limit remains: a mistyped condition
+degrades silently to never-executable.
 
-Tests: the manifest declares the expected condition on every
-git.commit entry and none on the two mandatory hooks; installing the
-extension writes the condition into the registered before_plan entry,
-and should_execute_hook is false under the shipped git-config.yml and
-true once auto_commit.before_plan.enabled is set to true in it. A
-parametrized test over templates/commands/*.md pins that the old
-skip-unconditionally sentence is gone and the evaluation rule reads
-identically across all twenty hook blocks.
+Tests: a new grammar suite covers composition, precedence (and over
+or, not tightest), parentheses, is not set, case-insensitive keywords,
+a quoted value containing one, and every malformed shape -- unbalanced
+parentheses, an unrecognized atom, trailing text, a missing operand --
+evaluating False. The manifest declares the new composite condition on
+every git.commit entry and none on the two mandatory hooks; installing
+the extension writes it into the registered before_plan entry; and,
+across four git-config.yml shapes (default true/false with no
+per-event override, and each explicitly overridden the other way),
+should_execute_hook and auto_commit.py's own
+_parse_auto_commit_config are proven to agree. A parametrized test
+over templates/commands/*.md pins that the old skip-unconditionally
+sentence is gone and the evaluation rule, composition wording
+included, reads identically across all twenty hook blocks.
 ---
- docs/reference/extensions.md                  |  2 +-
- extensions/git/extension.yml                  | 16 ++++
- templates/commands/analyze.md                 | 16 ++--
- templates/commands/checklist.md               | 16 ++--
- templates/commands/clarify.md                 | 16 ++--
- templates/commands/constitution.md            | 16 ++--
- templates/commands/converge.md                | 16 ++--
- templates/commands/implement.md               | 16 ++--
- templates/commands/plan.md                    | 16 ++--
- templates/commands/specify.md                 | 16 ++--
- templates/commands/tasks.md                   | 16 ++--
- templates/commands/taskstoissues.md           | 16 ++--
- tests/extensions/git/test_git_extension.py    | 57 +++++++++++
- .../test_command_template_hook_conditions.py  | 96 +++++++++++++++++++
- 14 files changed, 270 insertions(+), 61 deletions(-)
+ docs/reference/extensions.md                  |   2 +-
+ extensions/git/extension.yml                  |  16 ++
+ src/specify_cli/extensions/__init__.py        | 252 ++++++++++++++---
+ templates/commands/analyze.md                 |  18 +-
+ templates/commands/checklist.md               |  18 +-
+ templates/commands/clarify.md                 |  18 +-
+ templates/commands/constitution.md            |  18 +-
+ templates/commands/converge.md                |  18 +-
+ templates/commands/implement.md               |  18 +-
+ templates/commands/plan.md                    |  18 +-
+ templates/commands/specify.md                 |  18 +-
+ templates/commands/tasks.md                   |  18 +-
+ templates/commands/taskstoissues.md           |  18 +-
+ tests/extensions/git/test_git_extension.py    | 160 +++++++++++
+ .../test_command_template_hook_conditions.py  | 109 ++++++++
+ tests/test_hook_condition_grammar.py          | 259 ++++++++++++++++++
+ 16 files changed, 878 insertions(+), 100 deletions(-)
  create mode 100644 tests/test_command_template_hook_conditions.py
+ create mode 100644 tests/test_hook_condition_grammar.py
 
 diff --git a/docs/reference/extensions.md b/docs/reference/extensions.md
-index 0473e72..1eeaeae 100644
+index 0473e72..4dfff79 100644
 --- a/docs/reference/extensions.md
 +++ b/docs/reference/extensions.md
 @@ -245,7 +245,7 @@ Each hook entry supports the following fields:
@@ -72,117 +92,417 @@ index 0473e72..1eeaeae 100644
  | `prompt` | Message shown when asking whether to run an optional hook. |
  | `description` | Human-readable explanation of what the hook does. |
 -| `condition` | Optional expression evaluated by `HookExecutor` (using `config.<path>` or `env.<VAR>` with `is set`, `==`, or `!=`). Current command templates do not evaluate conditions and skip hooks with a non-empty condition. |
-+| `condition` | Optional expression evaluated by `HookExecutor` (using `config.<path>` or `env.<VAR>` with `is set`, `==`, or `!=`). Current command templates evaluate a hook's condition the same way `HookExecutor._evaluate_condition` does before offering or executing it: `config.<path>` is read from the extension's effective configuration as `ConfigManager` merges it (the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml`, then `local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables), `env.<VAR>` from the process environment; a recognized form is matched at the start of the expression, and a condition matching none of the supported forms — or a config file that can't be read or parsed — leaves the hook not executable. |
++| `condition` | Optional expression evaluated by `HookExecutor` (using `config.<path>` or `env.<VAR>` with `is set`, `is not set`, `==`, or `!=`, composed with `and`, `or`, `not`, and parentheses). Current command templates evaluate a hook's condition the same way `HookExecutor._evaluate_condition` does before offering or executing it: `config.<path>` is read from the extension's effective configuration as `ConfigManager` merges it (the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml`, then `local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables), `env.<VAR>` from the process environment; `not` binds tightest, then `and`, then `or`, the keywords are case-insensitive, and a quoted value may itself contain one (e.g. `== 'a and b'`). An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — or a config file that can't be read or parsed, leaves the hook not executable. |
  Hook event names identify when a hook is invoked. They generally use `before_<command>` or `after_<command>`, such as `before_implement`, `after_implement`, `before_tasks`, and `after_tasks`.
  
  Extension manifests reject invalid hook priorities during installation. For existing `.specify/extensions.yml` entries, `HookExecutor.get_hooks_for_event()` sorts with `normalize_priority()`: missing values, booleans, non-numeric values rejected by `int()`, and values less than `1` fall back to `10`; numeric strings and finite floats are coerced with `int()`, while non-finite floats are unsupported and may fail instead of falling back.
 diff --git a/extensions/git/extension.yml b/extensions/git/extension.yml
-index c92322d..ee90fa0 100644
+index c92322d..7d9c5ee 100644
 --- a/extensions/git/extension.yml
 +++ b/extensions/git/extension.yml
 @@ -53,81 +53,97 @@ hooks:
      optional: true
      prompt: "Commit outstanding changes before clarification?"
      description: "Auto-commit before spec clarification"
-+    condition: "config.auto_commit.before_clarify.enabled == 'true'"
++    condition: "config.auto_commit.before_clarify.enabled == 'true' or (config.auto_commit.before_clarify.enabled is not set and config.auto_commit.default == 'true')"
    before_plan:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before planning?"
      description: "Auto-commit before implementation planning"
-+    condition: "config.auto_commit.before_plan.enabled == 'true'"
++    condition: "config.auto_commit.before_plan.enabled == 'true' or (config.auto_commit.before_plan.enabled is not set and config.auto_commit.default == 'true')"
    before_tasks:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before task generation?"
      description: "Auto-commit before task generation"
-+    condition: "config.auto_commit.before_tasks.enabled == 'true'"
++    condition: "config.auto_commit.before_tasks.enabled == 'true' or (config.auto_commit.before_tasks.enabled is not set and config.auto_commit.default == 'true')"
    before_implement:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before implementation?"
      description: "Auto-commit before implementation"
-+    condition: "config.auto_commit.before_implement.enabled == 'true'"
++    condition: "config.auto_commit.before_implement.enabled == 'true' or (config.auto_commit.before_implement.enabled is not set and config.auto_commit.default == 'true')"
    before_checklist:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before checklist?"
      description: "Auto-commit before checklist generation"
-+    condition: "config.auto_commit.before_checklist.enabled == 'true'"
++    condition: "config.auto_commit.before_checklist.enabled == 'true' or (config.auto_commit.before_checklist.enabled is not set and config.auto_commit.default == 'true')"
    before_analyze:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before analysis?"
      description: "Auto-commit before analysis"
-+    condition: "config.auto_commit.before_analyze.enabled == 'true'"
++    condition: "config.auto_commit.before_analyze.enabled == 'true' or (config.auto_commit.before_analyze.enabled is not set and config.auto_commit.default == 'true')"
    before_taskstoissues:
      command: speckit.git.commit
      optional: true
      prompt: "Commit outstanding changes before issue sync?"
      description: "Auto-commit before tasks-to-issues conversion"
-+    condition: "config.auto_commit.before_taskstoissues.enabled == 'true'"
++    condition: "config.auto_commit.before_taskstoissues.enabled == 'true' or (config.auto_commit.before_taskstoissues.enabled is not set and config.auto_commit.default == 'true')"
    after_constitution:
      command: speckit.git.commit
      optional: true
      prompt: "Commit constitution changes?"
      description: "Auto-commit after constitution update"
-+    condition: "config.auto_commit.after_constitution.enabled == 'true'"
++    condition: "config.auto_commit.after_constitution.enabled == 'true' or (config.auto_commit.after_constitution.enabled is not set and config.auto_commit.default == 'true')"
    after_specify:
      command: speckit.git.commit
      optional: true
      prompt: "Commit specification changes?"
      description: "Auto-commit after specification"
-+    condition: "config.auto_commit.after_specify.enabled == 'true'"
++    condition: "config.auto_commit.after_specify.enabled == 'true' or (config.auto_commit.after_specify.enabled is not set and config.auto_commit.default == 'true')"
    after_clarify:
      command: speckit.git.commit
      optional: true
      prompt: "Commit clarification changes?"
      description: "Auto-commit after spec clarification"
-+    condition: "config.auto_commit.after_clarify.enabled == 'true'"
++    condition: "config.auto_commit.after_clarify.enabled == 'true' or (config.auto_commit.after_clarify.enabled is not set and config.auto_commit.default == 'true')"
    after_plan:
      command: speckit.git.commit
      optional: true
      prompt: "Commit plan changes?"
      description: "Auto-commit after implementation planning"
-+    condition: "config.auto_commit.after_plan.enabled == 'true'"
++    condition: "config.auto_commit.after_plan.enabled == 'true' or (config.auto_commit.after_plan.enabled is not set and config.auto_commit.default == 'true')"
    after_tasks:
      command: speckit.git.commit
      optional: true
      prompt: "Commit task changes?"
      description: "Auto-commit after task generation"
-+    condition: "config.auto_commit.after_tasks.enabled == 'true'"
++    condition: "config.auto_commit.after_tasks.enabled == 'true' or (config.auto_commit.after_tasks.enabled is not set and config.auto_commit.default == 'true')"
    after_implement:
      command: speckit.git.commit
      optional: true
      prompt: "Commit implementation changes?"
      description: "Auto-commit after implementation"
-+    condition: "config.auto_commit.after_implement.enabled == 'true'"
++    condition: "config.auto_commit.after_implement.enabled == 'true' or (config.auto_commit.after_implement.enabled is not set and config.auto_commit.default == 'true')"
    after_checklist:
      command: speckit.git.commit
      optional: true
      prompt: "Commit checklist changes?"
      description: "Auto-commit after checklist generation"
-+    condition: "config.auto_commit.after_checklist.enabled == 'true'"
++    condition: "config.auto_commit.after_checklist.enabled == 'true' or (config.auto_commit.after_checklist.enabled is not set and config.auto_commit.default == 'true')"
    after_analyze:
      command: speckit.git.commit
      optional: true
      prompt: "Commit analysis results?"
      description: "Auto-commit after analysis"
-+    condition: "config.auto_commit.after_analyze.enabled == 'true'"
++    condition: "config.auto_commit.after_analyze.enabled == 'true' or (config.auto_commit.after_analyze.enabled is not set and config.auto_commit.default == 'true')"
    after_taskstoissues:
      command: speckit.git.commit
      optional: true
      prompt: "Commit after syncing issues?"
      description: "Auto-commit after tasks-to-issues conversion"
-+    condition: "config.auto_commit.after_taskstoissues.enabled == 'true'"
++    condition: "config.auto_commit.after_taskstoissues.enabled == 'true' or (config.auto_commit.after_taskstoissues.enabled is not set and config.auto_commit.default == 'true')"
  
  tags:
    - "git"
+diff --git a/src/specify_cli/extensions/__init__.py b/src/specify_cli/extensions/__init__.py
+index 3968e4f..150290d 100644
+--- a/src/specify_cli/extensions/__init__.py
++++ b/src/specify_cli/extensions/__init__.py
+@@ -4735,6 +4735,166 @@ class ConfigManager:
+         return True
+ 
+ 
++class _ConditionSyntaxError(Exception):
++    """A hook condition does not parse. Always caught; the caller falls
++    back to False, the same default an unrecognized atom already had."""
++
++
++# The five condition forms `_evaluate_condition` has always supported, plus
++# "is not set" (added alongside `and`/`or`/`not`/parentheses below). Each
++# pattern serves two purposes with the same compiled object: `.match()` at a
++# tokenizer position finds an atom's extent, and `.fullmatch()` against that
++# isolated text dispatches its evaluation -- so the shape of an atom is
++# defined exactly once.
++_CONFIG_IS_SET_RE = re.compile(
++    r"config\.([a-z0-9_.]+)\s+is\s+(?:(not)\s+)?set", re.IGNORECASE
++)
++_CONFIG_CMP_RE = re.compile(
++    r'config\.([a-z0-9_.]+)\s*(==|!=)\s*["\']([^"\']+)["\']', re.IGNORECASE
++)
++_ENV_IS_SET_RE = re.compile(
++    r"env\.([A-Z0-9_]+)\s+is\s+(?:(not)\s+)?set", re.IGNORECASE
++)
++_ENV_CMP_RE = re.compile(
++    r'env\.([A-Z0-9_]+)\s*(==|!=)\s*["\']([^"\']+)["\']', re.IGNORECASE
++)
++_ATOM_PATTERNS = (_CONFIG_IS_SET_RE, _CONFIG_CMP_RE, _ENV_IS_SET_RE, _ENV_CMP_RE)
++
++# `and`/`or`/`not`, case-insensitive, as a whole word -- tried only after
++# every atom pattern above has already had a chance to match at the same
++# position, so "is not set" is consumed whole by an atom pattern before this
++# ever gets to treat its "not" as the unary operator, and a quoted value
++# containing "and"/"or"/"not" is consumed whole by a cmp pattern's quoted
++# group before this regex is tried at all.
++_CONDITION_KEYWORD_RE = re.compile(r"(and|or|not)\b", re.IGNORECASE)
++
++
++def _tokenize_condition(condition: str) -> list[tuple[str, str]]:
++    """Tokenize a hook condition into ATOM/AND/OR/NOT/LPAREN/RPAREN tokens.
++
++    Whitespace between tokens is insignificant and skipped. Raises
++    _ConditionSyntaxError on any text that is not one of those -- an
++    unrecognized atom shape, a stray character, or anything else -- which
++    callers treat the same as any other malformed condition (False).
++    """
++    tokens: list[tuple[str, str]] = []
++    pos = 0
++    length = len(condition)
++    while pos < length:
++        ch = condition[pos]
++        if ch.isspace():
++            pos += 1
++            continue
++        if ch == "(":
++            tokens.append(("LPAREN", ch))
++            pos += 1
++            continue
++        if ch == ")":
++            tokens.append(("RPAREN", ch))
++            pos += 1
++            continue
++
++        atom_match = None
++        for pattern in _ATOM_PATTERNS:
++            atom_match = pattern.match(condition, pos)
++            if atom_match:
++                break
++        if atom_match:
++            tokens.append(("ATOM", atom_match.group(0)))
++            pos = atom_match.end()
++            continue
++
++        keyword_match = _CONDITION_KEYWORD_RE.match(condition, pos)
++        if keyword_match:
++            tokens.append((keyword_match.group(1).upper(), keyword_match.group(0)))
++            pos = keyword_match.end()
++            continue
++
++        raise _ConditionSyntaxError(f"unrecognized condition text at position {pos}")
++
++    return tokens
++
++
++class _ConditionParser:
++    """Recursive-descent evaluator for the composite condition grammar.
++
++        expression := or_expr
++        or_expr    := and_expr (OR and_expr)*
++        and_expr   := not_expr (AND not_expr)*
++        not_expr   := NOT not_expr | primary
++        primary    := LPAREN or_expr RPAREN | ATOM
++
++    `not` binds tightest, then `and`, then `or`. This evaluates straight to
++    a bool as it parses rather than building a separate AST -- the grammar
++    is small enough that the parse and the result coincide, and both sides
++    of `and`/`or` are always parsed (never skipped for short-circuiting),
++    so a malformed right-hand side is still caught even when the left side
++    alone would already decide the outcome.
++
++    Any malformed input -- unbalanced parentheses, an operator with a
++    missing operand, leftover tokens after a complete expression --
++    raises _ConditionSyntaxError; `_evaluate_condition` catches it and
++    returns False, the existing failure default.
++    """
++
++    def __init__(self, tokens: list[tuple[str, str]], evaluate_atom: Callable[[str], bool]):
++        self._tokens = tokens
++        self._pos = 0
++        self._evaluate_atom = evaluate_atom
++
++    def parse(self) -> bool:
++        if not self._tokens:
++            raise _ConditionSyntaxError("empty condition")
++        result = self._or_expr()
++        if self._pos != len(self._tokens):
++            raise _ConditionSyntaxError("trailing text after a complete expression")
++        return result
++
++    def _peek_kind(self) -> Optional[str]:
++        return self._tokens[self._pos][0] if self._pos < len(self._tokens) else None
++
++    def _advance(self) -> tuple[str, str]:
++        token = self._tokens[self._pos]
++        self._pos += 1
++        return token
++
++    def _or_expr(self) -> bool:
++        result = self._and_expr()
++        while self._peek_kind() == "OR":
++            self._advance()
++            rhs = self._and_expr()
++            result = result or rhs
++        return result
++
++    def _and_expr(self) -> bool:
++        result = self._not_expr()
++        while self._peek_kind() == "AND":
++            self._advance()
++            rhs = self._not_expr()
++            result = result and rhs
++        return result
++
++    def _not_expr(self) -> bool:
++        if self._peek_kind() == "NOT":
++            self._advance()
++            return not self._not_expr()
++        return self._primary()
++
++    def _primary(self) -> bool:
++        kind = self._peek_kind()
++        if kind == "LPAREN":
++            self._advance()
++            result = self._or_expr()
++            if self._peek_kind() != "RPAREN":
++                raise _ConditionSyntaxError("expected ')'")
++            self._advance()
++            return result
++        if kind == "ATOM":
++            _, text = self._advance()
++            return self._evaluate_atom(text)
++        raise _ConditionSyntaxError(f"expected an atom, '(' or 'not', found {kind!r}")
++
++
+ class HookExecutor:
+     """Manages extension hook execution."""
+ 
+@@ -5158,46 +5318,65 @@ class HookExecutor:
+             return False
+ 
+     def _evaluate_condition(self, condition: str, extension_id: Optional[str]) -> bool:
+-        """Evaluate a hook condition expression.
++        """Evaluate a (possibly composite) hook condition expression.
+ 
+-        Supported condition patterns:
+-        - "config.key.path is set" - checks if config value exists
+-        - "config.key.path == 'value'" - checks if config equals value
+-        - "config.key.path != 'value'" - checks if config not equals value
+-        - "env.VAR_NAME is set" - checks if environment variable exists
+-        - "env.VAR_NAME == 'value'" - checks if env var equals value
++        An atom is one of the five forms `_evaluate_atom` documents; atoms
++        compose with `and`, `or`, `not`, and parentheses, with `not`
++        binding tightest, then `and`, then `or`. Keywords are
++        case-insensitive, and a quoted value may itself contain one (e.g.
++        `== 'a and b'`) without being mistaken for an operator.
+ 
+         Args:
+             condition: Condition expression string
+             extension_id: Extension ID for config lookup
+ 
+         Returns:
+-            True if condition is met, False otherwise
++            True if condition is met, False otherwise -- including when
++            the expression doesn't fully parse (unbalanced parentheses, an
++            unrecognized atom, trailing text after a valid atom, ...): the
++            same failure default an unrecognized atom always had.
+         """
+-        import os
++        try:
++            tokens = _tokenize_condition(condition)
++            parser = _ConditionParser(
++                tokens, lambda atom: self._evaluate_atom(atom, extension_id)
++            )
++            return parser.parse()
++        except (_ConditionSyntaxError, RecursionError):  # malformed, or nested past any sane depth
++            return False
+ 
+-        condition = condition.strip()
++    def _evaluate_atom(self, atom: str, extension_id: Optional[str]) -> bool:
++        """Evaluate a single condition atom.
+ 
+-        # Pattern: "config.key.path is set"
+-        if match := re.match(
+-            r"config\.([a-z0-9_.]+)\s+is\s+set", condition, re.IGNORECASE
+-        ):
+-            key_path = match.group(1)
++        Supported condition patterns:
++        - "config.key.path is set" / "is not set" - config value (non-)existence
++        - "config.key.path == 'value'" / "!= 'value'" - config value (in)equality
++        - "env.VAR_NAME is set" / "is not set" - env var (non-)existence
++        - "env.VAR_NAME == 'value'" / "!= 'value'" - env var (in)equality
++
++        Called only with text one of the module-level `_ATOM_PATTERNS`
++        already matched in full while tokenizing, so `fullmatch` here is a
++        formality rather than a filter -- the final `return False` is
++        unreachable in practice.
++
++        Args:
++            atom: A single atom's text (no `and`/`or`/`not`/parentheses).
++            extension_id: Extension ID for config lookup.
++
++        Returns:
++            True if the atom holds, False otherwise.
++        """
++        if match := _CONFIG_IS_SET_RE.fullmatch(atom):
++            key_path, negate = match.group(1), match.group(2)
+             if not extension_id:
+                 return False
+ 
+             config_manager = ConfigManager(self.project_root, extension_id)
+-            return config_manager.has_value(key_path)
++            has_value = config_manager.has_value(key_path)
++            return (not has_value) if negate else has_value
+ 
+-        # Pattern: "config.key.path == 'value'" or "config.key.path != 'value'"
+-        if match := re.match(
+-            r'config\.([a-z0-9_.]+)\s*(==|!=)\s*["\']([^"\']+)["\']',
+-            condition,
+-            re.IGNORECASE,
+-        ):
+-            key_path = match.group(1)
+-            operator = match.group(2)
+-            expected_value = match.group(3)
++        if match := _CONFIG_CMP_RE.fullmatch(atom):
++            key_path, operator, expected_value = match.groups()
+ 
+             if not extension_id:
+                 return False
+@@ -5217,20 +5396,14 @@ class HookExecutor:
+             else:  # !=
+                 return normalized_value != expected_value
+ 
+-        # Pattern: "env.VAR_NAME is set"
+-        if match := re.match(r"env\.([A-Z0-9_]+)\s+is\s+set", condition, re.IGNORECASE):
+-            var_name = match.group(1).upper()
+-            return var_name in os.environ
++        if match := _ENV_IS_SET_RE.fullmatch(atom):
++            var_name, negate = match.group(1).upper(), match.group(2)
++            is_set = var_name in os.environ
++            return (not is_set) if negate else is_set
+ 
+-        # Pattern: "env.VAR_NAME == 'value'" or "env.VAR_NAME != 'value'"
+-        if match := re.match(
+-            r'env\.([A-Z0-9_]+)\s*(==|!=)\s*["\']([^"\']+)["\']',
+-            condition,
+-            re.IGNORECASE,
+-        ):
+-            var_name = match.group(1).upper()
+-            operator = match.group(2)
+-            expected_value = match.group(3)
++        if match := _ENV_CMP_RE.fullmatch(atom):
++            var_name, operator, expected_value = match.groups()
++            var_name = var_name.upper()
+ 
+             actual_value = os.environ.get(var_name, "")
+ 
+@@ -5239,7 +5412,8 @@ class HookExecutor:
+             else:  # !=
+                 return actual_value != expected_value
+ 
+-        # Unknown condition format, default to False for safety
++        # Unreachable: the tokenizer only ever emits an ATOM token for text
++        # one of these same four patterns already matched.
+         return False
+ 
+     def format_hook_message(self, event_name: str, hooks: List[Dict[str, Any]]) -> str:
 diff --git a/templates/commands/analyze.md b/templates/commands/analyze.md
-index 2e13af5..a239740 100644
+index 2e13af5..5fd10d7 100644
 --- a/templates/commands/analyze.md
 +++ b/templates/commands/analyze.md
-@@ -21,9 +21,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -21,9 +21,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_analyze` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -191,13 +511,14 @@ index 2e13af5..a239740 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -207,9 +209,11 @@ After reporting, check if `.specify/extensions.yml` exists in the project root.
+@@ -207,9 +210,12 @@ After reporting, check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_analyze` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -206,17 +527,18 @@ index 2e13af5..a239740 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
 diff --git a/templates/commands/checklist.md b/templates/commands/checklist.md
-index 5ee239d..6490b34 100644
+index 5ee239d..4bdbaa8 100644
 --- a/templates/commands/checklist.md
 +++ b/templates/commands/checklist.md
-@@ -51,9 +51,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -51,9 +51,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_checklist` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -225,13 +547,14 @@ index 5ee239d..6490b34 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -352,9 +354,11 @@ Check if `.specify/extensions.yml` exists in the project root.
+@@ -352,9 +355,12 @@ Check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_checklist` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -240,17 +563,18 @@ index 5ee239d..6490b34 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
 diff --git a/templates/commands/clarify.md b/templates/commands/clarify.md
-index ea2f20d..55f1e33 100644
+index ea2f20d..03cb82c 100644
 --- a/templates/commands/clarify.md
 +++ b/templates/commands/clarify.md
-@@ -25,9 +25,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -25,9 +25,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_clarify` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -259,13 +583,14 @@ index ea2f20d..55f1e33 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -247,9 +249,11 @@ Check if `.specify/extensions.yml` exists in the project root.
+@@ -247,9 +250,12 @@ Check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_clarify` key.
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -274,17 +599,18 @@ index ea2f20d..55f1e33 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
      ```
 diff --git a/templates/commands/constitution.md b/templates/commands/constitution.md
-index 7b2f368..2f27a5b 100644
+index 7b2f368..a511240 100644
 --- a/templates/commands/constitution.md
 +++ b/templates/commands/constitution.md
-@@ -44,9 +44,11 @@ and commands read the constitution at runtime and are not modified here.
+@@ -44,9 +44,12 @@ and commands read the constitution at runtime and are not modified here.
  - If it exists, read it and look for entries under the `hooks.before_constitution` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -293,13 +619,14 @@ index 7b2f368..2f27a5b 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -150,9 +152,11 @@ Check if `.specify/extensions.yml` exists in the project root.
+@@ -150,9 +153,12 @@ Check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_constitution` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -308,17 +635,18 @@ index 7b2f368..2f27a5b 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
 diff --git a/templates/commands/converge.md b/templates/commands/converge.md
-index a177c31..ddbb4a9 100644
+index a177c31..59cb62e 100644
 --- a/templates/commands/converge.md
 +++ b/templates/commands/converge.md
-@@ -22,9 +22,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -22,9 +22,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_converge` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -327,13 +655,14 @@ index a177c31..ddbb4a9 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
  
-@@ -240,9 +242,11 @@ After producing the result, check if `.specify/extensions.yml` exists in the pro
+@@ -240,9 +243,12 @@ After producing the result, check if `.specify/extensions.yml` exists in the pro
  - If it exists, read it and look for entries under the `hooks.after_converge` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -342,17 +671,18 @@ index a177c31..ddbb4a9 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - Report the convergence outcome (`converged` or `tasks_appended`) in-session before listing
    any hooks, so users can decide whether to run optional follow-up commands.
  - For each executable hook, output the following based on its `optional` flag:
 diff --git a/templates/commands/implement.md b/templates/commands/implement.md
-index 742c45e..50d5584 100644
+index 742c45e..935cc69 100644
 --- a/templates/commands/implement.md
 +++ b/templates/commands/implement.md
-@@ -21,9 +21,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -21,9 +21,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_implement` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -361,13 +691,14 @@ index 742c45e..50d5584 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -185,9 +187,11 @@ Check if `.specify/extensions.yml` exists in the project root.
+@@ -185,9 +188,12 @@ Check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_implement` key.
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -376,17 +707,18 @@ index 742c45e..50d5584 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
      ```
 diff --git a/templates/commands/plan.md b/templates/commands/plan.md
-index 664f428..eb8cc0b 100644
+index 664f428..f21bde9 100644
 --- a/templates/commands/plan.md
 +++ b/templates/commands/plan.md
-@@ -29,9 +29,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -29,9 +29,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_plan` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -395,13 +727,14 @@ index 664f428..eb8cc0b 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -80,9 +82,11 @@ Check if `.specify/extensions.yml` exists in the project root.
+@@ -80,9 +83,12 @@ Check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_plan` key.
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -410,17 +743,18 @@ index 664f428..eb8cc0b 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
      ```
 diff --git a/templates/commands/specify.md b/templates/commands/specify.md
-index 54151e8..3c9b645 100644
+index 54151e8..7198646 100644
 --- a/templates/commands/specify.md
 +++ b/templates/commands/specify.md
-@@ -25,9 +25,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -25,9 +25,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_specify` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -429,13 +763,14 @@ index 54151e8..3c9b645 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -242,9 +244,11 @@ Check if `.specify/extensions.yml` exists in the project root.
+@@ -242,9 +245,12 @@ Check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_specify` key.
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -444,17 +779,18 @@ index 54151e8..3c9b645 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
      ```
 diff --git a/templates/commands/tasks.md b/templates/commands/tasks.md
-index 64146a3..65cf8f3 100644
+index 64146a3..ce1dccd 100644
 --- a/templates/commands/tasks.md
 +++ b/templates/commands/tasks.md
-@@ -30,9 +30,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -30,9 +30,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_tasks` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -463,13 +799,14 @@ index 64146a3..65cf8f3 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -101,9 +103,11 @@ Check if `.specify/extensions.yml` exists in the project root.
+@@ -101,9 +104,12 @@ Check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_tasks` key.
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -478,17 +815,18 @@ index 64146a3..65cf8f3 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
      ```
 diff --git a/templates/commands/taskstoissues.md b/templates/commands/taskstoissues.md
-index 36c1231..e054b69 100644
+index 36c1231..9424291 100644
 --- a/templates/commands/taskstoissues.md
 +++ b/templates/commands/taskstoissues.md
-@@ -22,9 +22,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+@@ -22,9 +22,12 @@ You **MUST** consider the user input before proceeding (if not empty).
  - If it exists, read it and look for entries under the `hooks.before_taskstoissues` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -497,13 +835,14 @@ index 36c1231..e054b69 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
-@@ -79,9 +81,11 @@ Check if `.specify/extensions.yml` exists in the project root.
+@@ -79,9 +82,12 @@ Check if `.specify/extensions.yml` exists in the project root.
  - If it exists, read it and look for entries under the `hooks.after_taskstoissues` key
  - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
@@ -512,29 +851,69 @@ index 36c1231..e054b69 100644
 -  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
 +- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
 +  - No `condition` field, or a null/empty one, means the hook is executable.
-+  - `config.<key.path> is set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value.
-+  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
-+  - A recognized form is matched at the start of the expression and any trailing text is ignored. Any other expression, or a config file that can't be read or parsed, leaves the hook not executable — the same failure default `should_execute_hook` falls back to.
++  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
++  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
++  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
++  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
    - **Optional hook** (`optional: true`):
      ```
 diff --git a/tests/extensions/git/test_git_extension.py b/tests/extensions/git/test_git_extension.py
-index f6be51c..5b43445 100644
+index f6be51c..f28955f 100644
 --- a/tests/extensions/git/test_git_extension.py
 +++ b/tests/extensions/git/test_git_extension.py
-@@ -180,6 +180,30 @@ class TestGitExtensionManifest:
+@@ -25,6 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+ EXT_DIR = PROJECT_ROOT / "extensions" / "git"
+ EXT_BASH = EXT_DIR / "scripts" / "bash"
+ EXT_PS = EXT_DIR / "scripts" / "powershell"
++EXT_PY = EXT_DIR / "scripts" / "python"
+ CORE_COMMON_SH = PROJECT_ROOT / "scripts" / "bash" / "common.sh"
+ CORE_COMMON_PS = PROJECT_ROOT / "scripts" / "powershell" / "common.ps1"
+ 
+@@ -89,6 +90,26 @@ def _write_config(project: Path, content: str) -> Path:
+     return config_path
+ 
+ 
++def _load_auto_commit_module():
++    """Import extensions/git/scripts/python/auto_commit.py by file path.
++
++    Not an installed package -- a standalone script shipped inside the
++    extension -- so it is loaded the way
++    tests/test_check_prerequisites_python_parity.py loads the sibling
++    common.py port. auto_commit.py defines no dataclasses, so (unlike that
++    helper) there is no need to register the module in sys.modules before
++    exec'ing it.
++    """
++    import importlib.util
++
++    spec = importlib.util.spec_from_file_location(
++        "_git_auto_commit_py", EXT_PY / "auto_commit.py"
++    )
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    return module
++
++
+ def _add_sibling_worktree(project: Path, path: Path, branch: str) -> None:
+     """Add a sibling worktree so `git branch -a` marks it with `+`."""
+     subprocess.run(
+@@ -180,6 +201,38 @@ class TestGitExtensionManifest:
              cmd_path = EXT_DIR / cmd["file"]
              assert cmd_path.is_file(), f"Missing command file: {cmd['file']}"
  
 +    def test_manifest_git_commit_hooks_declare_auto_commit_condition(self):
-+        """Every optional `git.commit` hook gates on its own auto_commit key.
++        """Every optional `git.commit` hook gates on its own auto_commit key,
++        falling back to `auto_commit.default` exactly the way
++        `_parse_auto_commit_config` (auto_commit.py) does.
 +
 +        `auto_commit.default` ships `false` (config-template.yml), so a
 +        fresh project must not surface all sixteen `git.commit` hooks as
-+        always-executable. Each carries `condition:
-+        "config.auto_commit.<event>.enabled == 'true'"`, evaluated by
-+        `HookExecutor` against `git-config.yml` at run time — flipping the
-+        event's own key later needs no reinstall. The two mandatory hooks
++        always-executable. Each carries a composite `condition`: the
++        per-event key when it is set, else the shared default — the two
++        mechanisms are proven to agree in
++        TestGitCommitHookAgreesWithAutoCommitScript below. Flipping either
++        key later needs no reinstall: `HookExecutor` evaluates `condition`
++        against `git-config.yml` live. The two mandatory hooks
 +        (`git.initialize`, `git.feature`) are untouched.
 +        """
 +        from specify_cli.extensions import ExtensionManifest
@@ -545,7 +924,11 @@ index f6be51c..5b43445 100644
 +        ]
 +        assert len(git_commit_events) == 16
 +        for event in git_commit_events:
-+            assert m.hooks[event]["condition"] == f"config.auto_commit.{event}.enabled == 'true'"
++            assert m.hooks[event]["condition"] == (
++                f"config.auto_commit.{event}.enabled == 'true' or "
++                f"(config.auto_commit.{event}.enabled is not set and "
++                f"config.auto_commit.default == 'true')"
++            )
 +
 +        assert "condition" not in m.hooks["before_constitution"]
 +        assert "condition" not in m.hooks["before_specify"]
@@ -553,7 +936,7 @@ index f6be51c..5b43445 100644
  
  # ── Install Tests ────────────────────────────────────────────────────────────
  
-@@ -195,6 +219,39 @@ class TestGitExtensionInstall:
+@@ -195,6 +248,43 @@ class TestGitExtensionInstall:
          assert manifest.id == "git"
          assert manager.registry.is_installed("git")
  
@@ -576,7 +959,11 @@ index f6be51c..5b43445 100644
 +        executor = HookExecutor(tmp_path)
 +        entries = executor.get_project_config()["hooks"]["before_plan"]
 +        entry = next(e for e in entries if e["command"] == "speckit.git.commit")
-+        assert entry["condition"] == "config.auto_commit.before_plan.enabled == 'true'"
++        assert entry["condition"] == (
++            "config.auto_commit.before_plan.enabled == 'true' or "
++            "(config.auto_commit.before_plan.enabled is not set and "
++            "config.auto_commit.default == 'true')"
++        )
 +
 +        shipped_config = (EXT_DIR / "config-template.yml").read_text(encoding="utf-8")
 +        _write_config(tmp_path, shipped_config)
@@ -593,17 +980,96 @@ index f6be51c..5b43445 100644
      def test_install_copies_scripts(self, tmp_path: Path):
          """Extension install copies script files."""
          from specify_cli.extensions import ExtensionManager
+@@ -222,6 +312,76 @@ class TestGitExtensionInstall:
+         assert (path / "extension.yml").is_file()
+ 
+ 
++# ── Auto-Commit Gate / Script Agreement Tests ─────────────────────────────────
++
++
++class TestGitCommitHookAgreesWithAutoCommitScript:
++    """`should_execute_hook`'s condition gate and `auto_commit.py`'s own
++    config resolution must reach the same verdict for `before_plan`.
++
++    `_parse_auto_commit_config` resolves `auto_commit.<event>.enabled`,
++    falling back to `auto_commit.default` only when the event's own section
++    is entirely absent from git-config.yml -- an explicit `enabled: false`
++    always wins over the default. The `condition` grammar's `<event>.enabled
++    == 'true' or (<event>.enabled is not set and default == 'true')` encodes
++    that identical rule through `HookExecutor`. Before the composite
++    grammar, the condition only ever checked the per-event key, so a project
++    that turned auto-commit on solely via `auto_commit.default: true` had
++    every hook announced as never-executable even though the script itself
++    would have committed.
++
++    These four configs -- default true/false with no per-event section, and
++    each default explicitly overridden the other way -- exercise every
++    branch of that resolution and pin that both mechanisms agree on all of
++    them.
++    """
++
++    @pytest.mark.parametrize(
++        "config_yaml, expected",
++        [
++            pytest.param(
++                "auto_commit:\n  default: true\n",
++                True,
++                id="default-true-no-per-event-section",
++            ),
++            pytest.param(
++                "auto_commit:\n  default: false\n",
++                False,
++                id="default-false-no-per-event-section",
++            ),
++            pytest.param(
++                "auto_commit:\n  default: true\n  before_plan:\n    enabled: false\n",
++                False,
++                id="default-true-explicit-before-plan-false",
++            ),
++            pytest.param(
++                "auto_commit:\n  default: false\n  before_plan:\n    enabled: true\n",
++                True,
++                id="default-false-explicit-before-plan-true",
++            ),
++        ],
++    )
++    def test_gate_and_script_agree_on_before_plan(
++        self, tmp_path: Path, config_yaml: str, expected: bool
++    ):
++        from specify_cli.extensions import ExtensionManager, HookExecutor
++
++        (tmp_path / ".specify").mkdir()
++        manager = ExtensionManager(tmp_path)
++        manager.install_from_directory(EXT_DIR, "0.5.0", register_commands=False)
++
++        executor = HookExecutor(tmp_path)
++        entries = executor.get_project_config()["hooks"]["before_plan"]
++        entry = next(e for e in entries if e["command"] == "speckit.git.commit")
++
++        config_path = _write_config(tmp_path, config_yaml)
++        assert executor.should_execute_hook(entry) is expected
++
++        auto_commit = _load_auto_commit_module()
++        enabled, _commit_msg = auto_commit._parse_auto_commit_config(config_path, "before_plan")
++        assert enabled is expected
++
++
+ # ── initialize-repo.sh Tests ─────────────────────────────────────────────────
+ 
+ 
 diff --git a/tests/test_command_template_hook_conditions.py b/tests/test_command_template_hook_conditions.py
 new file mode 100644
-index 0000000..4bddc66
+index 0000000..7a21c26
 --- /dev/null
 +++ b/tests/test_command_template_hook_conditions.py
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,109 @@
 +"""Command templates evaluate a hook's `condition` instead of skipping it.
 +
 +`extensions/git/extension.yml` gates the sixteen optional `git.commit` hooks
-+on `condition: "config.auto_commit.<event>.enabled == 'true'"`, a grammar
-+`HookExecutor._evaluate_condition` already supports -- but a condition only
++on a composite `condition` -- the per-event `auto_commit.<event>.enabled`
++key when it is set, else the shared `auto_commit.default` -- a grammar
++`HookExecutor._evaluate_condition` supports via `and`/`or`/`not`/parentheses
++composed over its five atom forms, but a condition only
 +matters if something evaluates it. Every hook block in
 +`templates/commands/*.md` used to instruct the agent to skip any hook with a
 +non-empty `condition` and "leave condition evaluation to the HookExecutor
@@ -687,14 +1153,290 @@ index 0000000..4bddc66
 +    # config.<path> forms, read from the extension's merged configuration.
 +    assert "HookExecutor._evaluate_condition" in block
 +    assert "config.<key.path> is set" in block
++    assert "config.<key.path> is not set" in block
 +    assert ".specify/extensions/<extension>/<extension>-config.yml" in block
-+    assert "a key missing from every layer is never `is set`, never `==` a value, and always `!=` a value" in block
++    assert (
++        "a key missing from every layer is never `is set`, always `is not set`, "
++        "never `==` a value, and always `!=` a value"
++    ) in block
 +    # env.<VAR> forms, read from the process environment.
 +    assert "env.<VAR_NAME> is set" in block
++    assert "env.<VAR_NAME> is not set" in block
 +    assert "read the process environment the same way" in block
++    # Composition: and/or/not/parentheses, precedence, case-insensitive
++    # keywords, and a quoted value that may itself contain one.
++    assert "Atoms compose with `and`, `or`, `not`, and parentheses" in block
++    assert "`not` binds tightest, then `and`, then `or`" in block
++    assert "case-insensitive" in block
++    assert "a quoted value may itself contain one" in block
 +    # Failure default: unrecognized expression or unreadable config -> skip.
 +    assert "config file that can't be read or parsed" in block
 +    assert "should_execute_hook" in block
+diff --git a/tests/test_hook_condition_grammar.py b/tests/test_hook_condition_grammar.py
+new file mode 100644
+index 0000000..29f67f6
+--- /dev/null
++++ b/tests/test_hook_condition_grammar.py
+@@ -0,0 +1,259 @@
++"""Grammar tests for `HookExecutor._evaluate_condition`'s composite conditions.
++
++`_evaluate_condition` composes its five atom forms -- `config.<path>` /
++`env.<VAR>` with `is set`, `is not set`, `==`, and `!=` -- with `and`, `or`,
++`not`, and parentheses. `not` binds tightest, then `and`, then `or`;
++keywords are case-insensitive, and a quoted value may itself contain one
++(e.g. `== 'a and b'`). Anything that doesn't fully parse this way --
++unbalanced parentheses, an unrecognized atom, trailing text after a valid
++atom, an operator with a missing operand -- evaluates False, the same
++failure default an unrecognized atom always had.
++
++These tests exercise the grammar's mechanics through `env.<VAR>` atoms,
++which need only environment variables to set up. `config.<path>` atoms use
++the identical tokenizer/parser and are covered against a real extension
++configuration by tests/extensions/git/test_git_extension.py (the sixteen
++`git.commit` hooks' composite condition, proven to agree with
++`auto_commit.py`'s own resolution) and by the pre-existing
++tests/test_extensions.py condition tests.
++"""
++
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from specify_cli.extensions import HookExecutor
++
++
++@pytest.fixture()
++def executor(tmp_path: Path) -> HookExecutor:
++    # Only env.<VAR> atoms are exercised via this fixture, so the project
++    # root is never actually read from disk.
++    return HookExecutor(tmp_path)
++
++
++def _ev(executor: HookExecutor, condition: str) -> bool:
++    return executor._evaluate_condition(condition, extension_id=None)
++
++
++class TestBooleanComposition:
++    @pytest.mark.parametrize(
++        "a, b, expected",
++        [
++            (True, True, True),
++            (True, False, False),
++            (False, True, False),
++            (False, False, False),
++        ],
++    )
++    def test_and(self, executor, monkeypatch, a, b, expected):
++        monkeypatch.setenv("A", "true" if a else "false")
++        monkeypatch.setenv("B", "true" if b else "false")
++        assert _ev(executor, "env.A == 'true' and env.B == 'true'") is expected
++
++    @pytest.mark.parametrize(
++        "a, b, expected",
++        [
++            (True, True, True),
++            (True, False, True),
++            (False, True, True),
++            (False, False, False),
++        ],
++    )
++    def test_or(self, executor, monkeypatch, a, b, expected):
++        monkeypatch.setenv("A", "true" if a else "false")
++        monkeypatch.setenv("B", "true" if b else "false")
++        assert _ev(executor, "env.A == 'true' or env.B == 'true'") is expected
++
++    @pytest.mark.parametrize("a, expected", [(True, False), (False, True)])
++    def test_not(self, executor, monkeypatch, a, expected):
++        monkeypatch.setenv("A", "true" if a else "false")
++        assert _ev(executor, "not env.A == 'true'") is expected
++
++    def test_double_not(self, executor, monkeypatch):
++        monkeypatch.setenv("A", "true")
++        assert _ev(executor, "not not env.A == 'true'") is True
++
++    def test_three_way_or(self, executor, monkeypatch):
++        monkeypatch.setenv("A", "false")
++        monkeypatch.setenv("B", "false")
++        monkeypatch.setenv("C", "true")
++        assert _ev(executor, "env.A == 'true' or env.B == 'true' or env.C == 'true'") is True
++
++    def test_three_way_and(self, executor, monkeypatch):
++        monkeypatch.setenv("A", "true")
++        monkeypatch.setenv("B", "true")
++        monkeypatch.setenv("C", "false")
++        assert _ev(executor, "env.A == 'true' and env.B == 'true' and env.C == 'true'") is False
++
++
++class TestPrecedence:
++    def test_and_binds_tighter_than_or(self, executor, monkeypatch):
++        # "A or B and C" must parse as "A or (B and C)":
++        #   true or (false and false) = True.
++        # A left-to-right misparse, "(A or B) and C", would instead give
++        #   (true or false) and false = False.
++        # The two readings disagree, so this pins that `and` binds tighter.
++        monkeypatch.setenv("A", "true")
++        monkeypatch.setenv("B", "false")
++        monkeypatch.setenv("C", "false")
++        assert _ev(executor, "env.A == 'true' or env.B == 'true' and env.C == 'true'") is True
++
++    def test_not_binds_tighter_than_and(self, executor, monkeypatch):
++        # "not A and B" must parse as "(not A) and B":
++        #   (not true) and false = False.
++        # A misparse of "not (A and B)" would instead give
++        #   not (true and false) = True.
++        # The two readings disagree, so this pins that `not` binds to A alone.
++        monkeypatch.setenv("A", "true")
++        monkeypatch.setenv("B", "false")
++        assert _ev(executor, "not env.A == 'true' and env.B == 'true'") is False
++
++    def test_parentheses_override_precedence(self, executor, monkeypatch):
++        # Same values as test_and_binds_tighter_than_or, but parenthesized
++        # as "(A or B) and C": (true or false) and false = False, the
++        # opposite of that test's unparenthesized result -- proving the
++        # parentheses actually regroup rather than being ignored.
++        monkeypatch.setenv("A", "true")
++        monkeypatch.setenv("B", "false")
++        monkeypatch.setenv("C", "false")
++        assert _ev(executor, "(env.A == 'true' or env.B == 'true') and env.C == 'true'") is False
++
++    def test_nested_parentheses(self, executor, monkeypatch):
++        monkeypatch.setenv("A", "true")
++        monkeypatch.setenv("B", "false")
++        monkeypatch.setenv("C", "true")
++        condition = (
++            "env.A == 'true' and "
++            "(env.B == 'true' or (env.C == 'true' and not env.B == 'true'))"
++        )
++        assert _ev(executor, condition) is True
++
++
++class TestIsNotSet:
++    def test_not_of_a_parenthesized_group(self, executor, monkeypatch):
++        monkeypatch.setenv("A", "true")
++        monkeypatch.setenv("B", "false")
++        assert _ev(executor, "not (env.A == 'true' or env.B == 'true')") is False
++        assert _ev(executor, "not (env.A == 'false' or env.B == 'true')") is True
++
++    def test_nesting_past_any_sane_depth_is_false_not_an_error(self, executor, monkeypatch):
++        monkeypatch.setenv("A", "true")
++        assert _ev(executor, "(" * 3000 + "env.A == 'true'" + ")" * 3000) is False
++
++    def test_is_not_set_true_when_absent(self, executor, monkeypatch):
++        monkeypatch.delenv("MISSING_VAR", raising=False)
++        assert _ev(executor, "env.MISSING_VAR is not set") is True
++
++    def test_is_not_set_false_when_present(self, executor, monkeypatch):
++        monkeypatch.setenv("PRESENT_VAR", "anything")
++        assert _ev(executor, "env.PRESENT_VAR is not set") is False
++
++    def test_is_set_and_is_not_set_are_complements(self, executor, monkeypatch):
++        monkeypatch.setenv("V", "x")
++        assert _ev(executor, "env.V is set") is True
++        assert _ev(executor, "env.V is not set") is False
++
++    def test_config_is_not_set_on_unconfigured_extension(self, tmp_path: Path):
++        # No extension.yml, no <ext>-config.yml -- the merged config is {},
++        # so has_value is False and "is not set" is True.
++        executor = HookExecutor(tmp_path)
++        assert executor._evaluate_condition("config.anything is not set", "git") is True
++
++    def test_composite_matches_auto_commit_fallback_shape(self, tmp_path: Path, monkeypatch):
++        # The exact composite shape used to gate the sixteen git.commit
++        # hooks: the per-event key wins when it is set, otherwise fall back
++        # to a default. No config.* value is configured for "git" here, so
++        # both config.*.enabled atoms are "not set" and the result reduces
++        # to whatever the env-backed stand-in for the default says.
++        executor = HookExecutor(tmp_path)
++        monkeypatch.setenv("DEFAULT_TRUE", "true")
++        condition = (
++            "config.auto_commit.before_plan.enabled == 'true' or "
++            "(config.auto_commit.before_plan.enabled is not set and "
++            "env.DEFAULT_TRUE == 'true')"
++        )
++        assert executor._evaluate_condition(condition, "git") is True
++
++
++class TestCaseInsensitiveKeywords:
++    @pytest.mark.parametrize(
++        "condition",
++        [
++            "env.A == 'true' and env.B == 'true'",
++            "env.A == 'true' AND env.B == 'true'",
++            "env.A == 'true' And env.B == 'true'",
++            "env.A == 'true' aNd env.B == 'true'",
++        ],
++    )
++    def test_and_case_insensitive(self, executor, monkeypatch, condition):
++        monkeypatch.setenv("A", "true")
++        monkeypatch.setenv("B", "true")
++        assert _ev(executor, condition) is True
++
++    @pytest.mark.parametrize("keyword", ["not", "NOT", "Not", "nOT"])
++    def test_not_case_insensitive(self, executor, monkeypatch, keyword):
++        monkeypatch.setenv("A", "false")
++        assert _ev(executor, f"{keyword} env.A == 'true'") is True
++
++    @pytest.mark.parametrize("keyword", ["or", "OR", "Or"])
++    def test_or_case_insensitive(self, executor, monkeypatch, keyword):
++        monkeypatch.setenv("A", "false")
++        monkeypatch.setenv("B", "true")
++        assert _ev(executor, f"env.A == 'true' {keyword} env.B == 'true'") is True
++
++
++class TestQuotedValueMayContainKeyword:
++    def test_quoted_value_with_and_or_not(self, executor, monkeypatch):
++        monkeypatch.setenv("PHRASE", "a and b or not c")
++        assert _ev(executor, "env.PHRASE == 'a and b or not c'") is True
++
++    def test_quoted_value_with_a_parenthesis(self, executor, monkeypatch):
++        monkeypatch.setenv("PHRASE", "a)b")
++        assert _ev(executor, "env.PHRASE == 'a)b'") is True
++        assert _ev(executor, "(env.PHRASE == 'a)b')") is True
++
++    def test_quoted_keyword_value_is_compared_in_full(self, executor, monkeypatch):
++        # If the tokenizer mistakenly treated "and" inside the quotes as the
++        # boolean operator, this would either fail to parse or compare only
++        # part of the value. It must compare the whole quoted string.
++        monkeypatch.setenv("PHRASE", "a and c")
++        assert _ev(executor, "env.PHRASE == 'a and b'") is False
++
++    def test_quoted_keyword_value_still_composes(self, executor, monkeypatch):
++        monkeypatch.setenv("PHRASE", "a and b")
++        monkeypatch.delenv("OTHER", raising=False)
++        assert _ev(executor, "env.PHRASE == 'a and b' or env.OTHER == 'true'") is True
++
++
++class TestMalformedConditionsEvaluateFalse:
++    @pytest.mark.parametrize(
++        "condition",
++        [
++            "",  # empty
++            "   ",  # whitespace only
++            "(env.A == 'true'",  # unbalanced: missing ')'
++            "env.A == 'true')",  # unbalanced: stray ')'
++            "((env.A == 'true')",  # unbalanced: 2 open, 1 close
++            "(env.A == 'true'))",  # unbalanced: 1 open, 2 close
++            "()",  # empty parentheses: no atom inside
++            "( )",  # empty parentheses with whitespace
++            "foo.bar == 'true'",  # unknown atom: not config./env.
++            "config.x.y",  # config path with no operator/"is set"
++            "env.A == true",  # unquoted comparison value
++            "env.A == 'true' garbage",  # trailing text after a valid atom
++            "env.A == 'true' env.B == 'true'",  # two atoms, no connective
++            "and",  # lone operator, no operand
++            "or",  # lone operator, no operand
++            "not",  # lone operator, no operand
++            "env.A == 'true' and",  # dangling `and` with no right operand
++            "env.A == 'true' and and env.B == 'true'",  # doubled operator
++            "env.A == 'true' and or env.B == 'true'",  # operator where an atom is expected
++            "not or env.A == 'true'",  # `not` applied to a non-atom
++            "env.A == 'true",  # atom text itself malformed: unterminated quote
++        ],
++    )
++    def test_malformed_condition_is_false(self, executor, condition):
++        assert _ev(executor, condition) is False
 -- 
 2.50.1 (Apple Git-155)
 
