@@ -1,4 +1,4 @@
-From c47de0f2ad8db843a5933ede56d1f2cb93948023 Mon Sep 17 00:00:00 2001
+From c559d180ad21e4ab8e11d066d1bb121143804da2 Mon Sep 17 00:00:00 2001
 From: tserdeiro <tserdeiro@gmail.com>
 Date: Thu, 10 Sep 2026 05:54:04 -0300
 Subject: [PATCH] fix(git): scope auto-commit's git add to what the command
@@ -10,34 +10,40 @@ untracked file anywhere in the project, not just what the triggering
 command actually produced -- an in-progress edit in an unrelated file,
 directory, or feature gets swept into the same auto-commit.
 
-Stage only the directory the event's own command is responsible for:
-.specify/memory/ for after_constitution, and the active feature's
-directory (specs/<feature>/) for every other event, resolved the same
-way every other script resolves it (SPECIFY_FEATURE_DIRECTORY, else
-.specify/feature.json). When no feature directory can be resolved -- no
-active feature yet, or the core scripts aren't installed -- fall back to
-`git add -u`, so an in-progress edit to an already-tracked file still
-commits without ever adding a new untracked file outside a known scope.
-The existing "no changes to commit" check keeps its whole-repo reach; a
-new check after staging catches the case where that broader check finds
-pending changes but the event's own scope holds none, skipping cleanly
-instead of committing an empty index.
+Stage only what the event's own command is responsible for:
+.specify/memory/ for after_constitution; the whole working tree
+(git add -A, same as before this scoping) for before_implement and
+after_implement, because implementation code lands wherever the project
+puts it -- src/, lib/, anywhere -- never only inside the feature
+directory, so these two events cannot be scoped to it; the active
+feature's directory (specs/<feature>/) for every other event, resolved
+the same way every other script resolves it (SPECIFY_FEATURE_DIRECTORY,
+else .specify/feature.json). When no feature directory can be resolved
+-- no active feature yet, or the core scripts aren't installed -- fall
+back to `git add -u`, so an in-progress edit to an already-tracked file
+still commits without ever adding an untracked file outside a known
+scope. The existing "no changes to commit" check keeps its whole-repo
+reach; a new check after staging catches the case where that broader
+check finds pending changes but the event's own scope holds none,
+skipping cleanly instead of committing an empty index.
 
 Existing tests that exercised the blanket `add .` behavior now write
 their fixture's changed file under a resolvable feature directory; new
-tests cover all three staging paths -- the feature directory, the
-constitution directory, and the tracked-only fallback -- each proving an
-unrelated untracked file elsewhere in the tree is never staged.
+tests cover every staging path -- the feature directory and the
+constitution directory (an unrelated untracked file elsewhere is never
+staged), the tracked-only fallback, and before_implement/after_implement
+(a source file outside the feature directory is committed, proving the
+repo-wide stage still captures real implementation changes).
 ---
- extensions/git/scripts/bash/auto-commit.sh    |  49 +++-
- .../git/scripts/powershell/auto-commit.ps1    |  67 ++++-
- extensions/git/scripts/python/auto_commit.py  | 106 +++++++-
- tests/extensions/git/test_git_extension.py    | 246 ++++++++++++++----
- .../git/test_git_extension_python_parity.py   |  36 ++-
- 5 files changed, 441 insertions(+), 63 deletions(-)
+ extensions/git/scripts/bash/auto-commit.sh    |  60 +++-
+ .../git/scripts/powershell/auto-commit.ps1    |  78 ++++-
+ extensions/git/scripts/python/auto_commit.py  | 116 ++++++-
+ tests/extensions/git/test_git_extension.py    | 298 +++++++++++++++---
+ .../git/test_git_extension_python_parity.py   |  59 +++-
+ 5 files changed, 548 insertions(+), 63 deletions(-)
 
 diff --git a/extensions/git/scripts/bash/auto-commit.sh b/extensions/git/scripts/bash/auto-commit.sh
-index 17fec66..6f7b9bf 100755
+index 17fec66..4701568 100755
 --- a/extensions/git/scripts/bash/auto-commit.sh
 +++ b/extensions/git/scripts/bash/auto-commit.sh
 @@ -72,6 +72,24 @@ _find_project_root() {
@@ -65,26 +71,37 @@ index 17fec66..6f7b9bf 100755
  # Check if git is available
  if ! command -v git >/dev/null 2>&1; then
      echo "[specify] Warning: Git not found; skipped auto-commit" >&2
-@@ -204,8 +222,35 @@ if [ -z "$_commit_msg" ]; then
+@@ -204,8 +222,46 @@ if [ -z "$_commit_msg" ]; then
      _commit_msg="[Spec Kit] Auto-commit ${_phase} ${_command_name}"
  fi
  
 -# Stage and commit
 -_git_out=$(git add . 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
-+# Stage only what this event's command produced -- never `git add .`, which
-+# sweeps in every untracked file in the tree regardless of which command ran.
++# Stage only what this event's command produced -- never a blanket `git add`
++# for every event, which sweeps in every untracked file in the tree
++# regardless of which command ran.
 +#
 +# Scope, by event:
-+#   after_constitution   -> .specify/memory/, the constitution's own directory
-+#   every other event    -> the active feature's directory, resolved the same
-+#                           way every other script resolves it
-+#                           (get_feature_paths: SPECIFY_FEATURE_DIRECTORY,
-+#                           else .specify/feature.json)
-+#   unresolvable feature -> tracked files only (git add -u), so an
-+#                           in-progress edit still commits without ever
-+#                           adding an untracked file outside a known scope
++#   after_constitution    -> .specify/memory/, the constitution's own
++#                            directory
++#   before_implement,
++#   after_implement       -> the whole working tree (git add -A), same as
++#                            before this scoping existed: implementation
++#                            code lands wherever the project puts it (src/,
++#                            lib/, ...), never only inside the feature
++#                            directory, so these two events cannot be
++#                            scoped to it
++#   every other event     -> the active feature's directory, resolved the
++#                            same way every other script resolves it
++#                            (get_feature_paths: SPECIFY_FEATURE_DIRECTORY,
++#                            else .specify/feature.json)
++#   unresolvable feature  -> tracked files only (git add -u), so an
++#                            in-progress edit still commits without ever
++#                            adding an untracked file outside a known scope
 +if [ "$EVENT_NAME" = "after_constitution" ]; then
 +    _git_out=$(git add -- "$REPO_ROOT/.specify/memory" 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
++elif [ "$EVENT_NAME" = "before_implement" ] || [ "$EVENT_NAME" = "after_implement" ]; then
++    _git_out=$(git add -A 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
 +elif type get_feature_paths >/dev/null 2>&1 && _paths_output=$(get_feature_paths --no-persist 2>/dev/null); then
 +    eval "$_paths_output"
 +    _git_out=$(git add -- "$FEATURE_DIR" 2>&1) || { echo "[specify] Error: git add failed: $_git_out" >&2; exit 1; }
@@ -104,7 +121,7 @@ index 17fec66..6f7b9bf 100755
  
  echo "[OK] Changes committed ${_phase} ${_command_name}" >&2
 diff --git a/extensions/git/scripts/powershell/auto-commit.ps1 b/extensions/git/scripts/powershell/auto-commit.ps1
-index d27b484..2d10e21 100644
+index d27b484..1c2fa37 100644
 --- a/extensions/git/scripts/powershell/auto-commit.ps1
 +++ b/extensions/git/scripts/powershell/auto-commit.ps1
 @@ -63,6 +63,24 @@ $repoRoot = Find-ProjectRoot -StartDir $PSScriptRoot
@@ -132,23 +149,32 @@ index d27b484..2d10e21 100644
  # Check if git is available
  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
      Write-Warning "[specify] Warning: Git not found; skipped auto-commit"
-@@ -210,14 +228,59 @@ if (-not $commitMsg) {
+@@ -210,14 +228,70 @@ if (-not $commitMsg) {
      $commitMsg = "[Spec Kit] Auto-commit $phase $commandName"
  }
  
 -# Stage and commit
-+# Stage only what this event's command produced -- never `git add .`, which
-+# sweeps in every untracked file in the tree regardless of which command ran.
++# Stage only what this event's command produced -- never a blanket `git add`
++# for every event, which sweeps in every untracked file in the tree
++# regardless of which command ran.
 +#
 +# Scope, by event:
-+#   after_constitution   -> .specify/memory/, the constitution's own directory
-+#   every other event    -> the active feature's directory, resolved the same
-+#                           way every other script resolves it
-+#                           (Get-FeaturePathsEnv: SPECIFY_FEATURE_DIRECTORY,
-+#                           else .specify/feature.json)
-+#   unresolvable feature -> tracked files only (git add -u), so an
-+#                           in-progress edit still commits without ever
-+#                           adding an untracked file outside a known scope
++#   after_constitution    -> .specify/memory/, the constitution's own
++#                            directory
++#   before_implement,
++#   after_implement       -> the whole working tree (git add -A), same as
++#                            before this scoping existed: implementation
++#                            code lands wherever the project puts it (src/,
++#                            lib/, ...), never only inside the feature
++#                            directory, so these two events cannot be
++#                            scoped to it
++#   every other event     -> the active feature's directory, resolved the
++#                            same way every other script resolves it
++#                            (Get-FeaturePathsEnv: SPECIFY_FEATURE_DIRECTORY,
++#                            else .specify/feature.json)
++#   unresolvable feature  -> tracked files only (git add -u), so an
++#                            in-progress edit still commits without ever
++#                            adding an untracked file outside a known scope
 +#
  # Relax ErrorActionPreference so CRLF warnings on stderr do not terminate,
  # while still allowing redirected error output to be captured for diagnostics.
@@ -158,6 +184,8 @@ index d27b484..2d10e21 100644
 -    $out = git add . 2>&1 | Out-String
 +    if ($EventName -eq 'after_constitution') {
 +        $out = git add -- (Join-Path $repoRoot '.specify/memory') 2>&1 | Out-String
++    } elseif ($EventName -eq 'before_implement' -or $EventName -eq 'after_implement') {
++        $out = git add -A 2>&1 | Out-String
 +    } elseif ((Get-Command Get-FeaturePathsEnv -ErrorAction SilentlyContinue) -and
 +              ($featurePaths = Get-FeaturePathsEnv -NoPersist -ReturnNullOnError)) {
 +        $out = git add -- $featurePaths.FEATURE_DIR 2>&1 | Out-String
@@ -195,7 +223,7 @@ index d27b484..2d10e21 100644
      if ($LASTEXITCODE -ne 0) { throw "git commit failed: $out" }
  } catch {
 diff --git a/extensions/git/scripts/python/auto_commit.py b/extensions/git/scripts/python/auto_commit.py
-index c669289..3acd161 100644
+index c669289..2ef1df7 100644
 --- a/extensions/git/scripts/python/auto_commit.py
 +++ b/extensions/git/scripts/python/auto_commit.py
 @@ -11,6 +11,9 @@ Usage: auto_commit.py <event_name>
@@ -208,7 +236,7 @@ index c669289..3acd161 100644
  import re
  import shutil
  import subprocess
-@@ -28,6 +31,80 @@ def _find_project_root(start: Path) -> Path | None:
+@@ -28,6 +31,90 @@ def _find_project_root(start: Path) -> Path | None:
          current = current.parent
  
  
@@ -254,26 +282,36 @@ index c669289..3acd161 100644
 +
 +
 +def _stage_event_scope(event_name: str, repo_root: Path, script_file: Path) -> str | None:
-+    """Stage only what this event's command produced -- never `git add .`,
-+    which sweeps in every untracked file in the tree regardless of which
-+    command ran.
++    """Stage only what this event's command produced -- never a blanket
++    `git add` for every event, which sweeps in every untracked file in the
++    tree regardless of which command ran.
 +
 +    Scope, by event:
-+      after_constitution   -> .specify/memory/, the constitution's own
-+                              directory
-+      every other event    -> the active feature's directory, resolved the
-+                              same way every other script resolves it
-+                              (get_feature_paths: SPECIFY_FEATURE_DIRECTORY,
-+                              else .specify/feature.json)
-+      unresolvable feature -> tracked files only (git add -u), so an
-+                              in-progress edit still commits without ever
-+                              adding an untracked file outside a known scope
++      after_constitution    -> .specify/memory/, the constitution's own
++                               directory
++      before_implement,
++      after_implement       -> the whole working tree (git add -A), same as
++                               before this scoping existed: implementation
++                               code lands wherever the project puts it
++                               (src/, lib/, ...), never only inside the
++                               feature directory, so these two events
++                               cannot be scoped to it
++      every other event     -> the active feature's directory, resolved the
++                               same way every other script resolves it
++                               (get_feature_paths: SPECIFY_FEATURE_DIRECTORY,
++                               else .specify/feature.json)
++      unresolvable feature  -> tracked files only (git add -u), so an
++                               in-progress edit still commits without ever
++                               adding an untracked file outside a known
++                               scope
 +
 +    Returns None on success, or the combined stdout+stderr of a failed
 +    ``git add`` on failure.
 +    """
 +    if event_name == "after_constitution":
 +        add_args = ["add", "--", str(repo_root / ".specify" / "memory")]
++    elif event_name in ("before_implement", "after_implement"):
++        add_args = ["add", "-A"]
 +    else:
 +        feature_dir = _resolve_feature_dir(repo_root, script_file)
 +        add_args = ["add", "--", str(feature_dir)] if feature_dir else ["add", "-u"]
@@ -289,7 +327,7 @@ index c669289..3acd161 100644
  def _value_after_colon(line: str) -> str:
      return re.sub(r"^[^:]*:\s*", "", line)
  
-@@ -176,16 +253,25 @@ def main(argv: list[str]) -> int:
+@@ -176,16 +263,25 @@ def main(argv: list[str]) -> int:
      if not commit_msg:
          commit_msg = f"[Spec Kit] Auto-commit {phase} {command_name}"
  
@@ -326,7 +364,7 @@ index c669289..3acd161 100644
      print(f"[OK] Changes committed {phase} {command_name}", file=sys.stderr)
      return 0
 diff --git a/tests/extensions/git/test_git_extension.py b/tests/extensions/git/test_git_extension.py
-index f6be51c..9d70499 100644
+index f6be51c..461c857 100644
 --- a/tests/extensions/git/test_git_extension.py
 +++ b/tests/extensions/git/test_git_extension.py
 @@ -89,6 +89,22 @@ def _write_config(project: Path, content: str) -> Path:
@@ -770,7 +808,7 @@ index f6be51c..9d70499 100644
  
          result = _run_pwsh("auto-commit.ps1", project, "after_plan")
          assert result.returncode == 0
-@@ -1931,6 +1945,142 @@ class TestAutoCommitPowerShellCRLF:
+@@ -1931,6 +1945,194 @@ class TestAutoCommitPowerShellCRLF:
          assert log.stdout.strip().count("\n") == 0  # only the seed commit
  
  
@@ -877,6 +915,33 @@ index f6be51c..9d70499 100644
 +        )
 +        assert status.stdout.strip() == "?? unrelated.txt"
 +
++    def test_implement_events_stage_source_outside_feature_directory(self, tmp_path: Path):
++        """before_implement and after_implement commit implementation code
++        wherever it lands in the tree, not just specs/<feature>/: unlike
++        every other event, these two keep the repo-wide `git add -A`
++        because the command they follow produces code outside the feature
++        directory."""
++        project = _setup_project_with_feature(tmp_path)
++        _write_config(project, (
++            "auto_commit:\n"
++            "  default: false\n"
++            "  after_implement:\n"
++            "    enabled: true\n"
++        ))
++        (project / "specs" / "001-test" / "tasks.md").write_text("- [X] T001 done\n")
++        (project / "src").mkdir()
++        (project / "src" / "app.py").write_text("print('hello')\n")
++
++        result = _run_bash("auto-commit.sh", project, "after_implement")
++        assert result.returncode == 0
++
++        show = subprocess.run(
++            ["git", "show", "--stat", "--oneline", "HEAD"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert "tasks.md" in show.stdout
++        assert "app.py" in show.stdout
++
 +
 +@pytest.mark.skipif(not HAS_PWSH, reason="pwsh not available")
 +class TestAutoCommitScopePowerShell:
@@ -909,12 +974,37 @@ index f6be51c..9d70499 100644
 +        )
 +        assert status.stdout.strip() == "?? unrelated.txt"
 +
++    def test_implement_events_stage_source_outside_feature_directory(self, tmp_path: Path):
++        """PowerShell twin: before_implement/after_implement keep the
++        repo-wide stage, so implementation code outside specs/<feature>/
++        is committed too."""
++        project = _setup_project_with_feature(tmp_path)
++        _write_config(project, (
++            "auto_commit:\n"
++            "  default: false\n"
++            "  after_implement:\n"
++            "    enabled: true\n"
++        ))
++        (project / "specs" / "001-test" / "tasks.md").write_text("- [X] T001 done\n")
++        (project / "src").mkdir()
++        (project / "src" / "app.py").write_text("print('hello')\n")
++
++        result = _run_pwsh("auto-commit.ps1", project, "after_implement")
++        assert result.returncode == 0
++
++        show = subprocess.run(
++            ["git", "show", "--stat", "--oneline", "HEAD"],
++            cwd=project, capture_output=True, text=True,
++        )
++        assert "tasks.md" in show.stdout
++        assert "app.py" in show.stdout
++
 +
  # ── git-common.sh Tests ──────────────────────────────────────────────────────
  
  
 diff --git a/tests/extensions/git/test_git_extension_python_parity.py b/tests/extensions/git/test_git_extension_python_parity.py
-index faeef00..a742f3a 100644
+index faeef00..bb780c5 100644
 --- a/tests/extensions/git/test_git_extension_python_parity.py
 +++ b/tests/extensions/git/test_git_extension_python_parity.py
 @@ -466,7 +466,15 @@ class TestInitializeRepoParity:
@@ -934,7 +1024,7 @@ index faeef00..a742f3a 100644
  
      def _last_message(self, proj: Path) -> str:
          return subprocess.run(
-@@ -632,6 +640,32 @@ class TestAutoCommitParity:
+@@ -632,6 +640,55 @@ class TestAutoCommitParity:
          _assert_parity(b, p)
          assert "Not a Git repository" in p.stderr
  
@@ -963,6 +1053,29 @@ index faeef00..a742f3a 100644
 +                cwd=proj, capture_output=True, text=True,
 +            )
 +            assert status.stdout.strip() == "?? unrelated.txt"
++
++    def test_implement_events_stage_source_outside_feature_directory(self, tmp_path: Path):
++        """before_implement/after_implement commit implementation code
++        wherever it lands in the tree, not just specs/<feature>/: these two
++        events keep the repo-wide `git add -A`, unlike every other event's
++        feature-directory scope."""
++        bash_proj, py_proj = _twin_projects(tmp_path)
++        config = "auto_commit:\n  default: false\n  after_implement:\n    enabled: true\n"
++        for proj in (bash_proj, py_proj):
++            _write_config(proj, config)
++            self._dirty(proj)  # specs/001-test/change.txt -- in scope
++            (proj / "src").mkdir()
++            (proj / "src" / "app.py").write_text("print('hello')\n", encoding="utf-8")
++        b = _run_bash("auto-commit.sh", bash_proj, "after_implement")
++        p = _run_py("auto-commit", py_proj, "after_implement")
++        _assert_parity(b, p)
++        for proj in (bash_proj, py_proj):
++            show = subprocess.run(
++                ["git", "show", "--stat", "--oneline", "HEAD"],
++                cwd=proj, capture_output=True, text=True,
++            )
++            assert "change.txt" in show.stdout
++            assert "app.py" in show.stdout
 +
  
  class TestGitCommonPython:

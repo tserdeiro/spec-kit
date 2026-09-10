@@ -17,10 +17,13 @@ forks or vendors upstream (`AGENTS.md`). These files are the hand-off.
    distribution's doctor mirror stays the answer for the second agent.
 2. `0002-scope-auto-commit-git-add.patch` — replace `auto-commit.sh`'s (and
    its PowerShell and Python twins') blanket `git add .` with a scoped
-   stage (T021): `.specify/memory/` for `after_constitution`, the active
-   feature's directory (`specs/<feature>/`, resolved via
+   stage (T021): `.specify/memory/` for `after_constitution`; the whole
+   working tree (`git add -A`, unchanged from before this scoping) for
+   `before_implement`/`after_implement`, since implementation code lands
+   wherever the project puts it, never only inside the feature directory;
+   the active feature's directory (`specs/<feature>/`, resolved via
    `SPECIFY_FEATURE_DIRECTORY` or `.specify/feature.json`) for every other
-   event, and a tracked-only `git add -u` fallback when no feature
+   event; and a tracked-only `git add -u` fallback when no feature
    directory can be resolved — never an untracked file outside those
    paths.
 3. Stop registering the sixteen `git.commit` hooks when the git
