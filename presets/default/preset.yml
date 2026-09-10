@@ -79,6 +79,12 @@ provides:
       description: "Per-task branch setup: refresh, task, and work-item modes"
       strategy: "replace"
 
+    - type: "script"
+      name: "pr-create"
+      file: "scripts/python/pr_create.py"
+      description: "Resolve and print the delivery base for a feature, task, or work-item PR"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"

@@ -103,6 +103,21 @@ def delivery_base(repo_root: Path) -> str:
         die(result.stderr.strip() or "gh repo view failed")
     return result.stdout.strip()
 
+def check_prerequisites(repo_root: Path) -> dict[str, str]:
+    """Run check-prerequisites.sh --paths-only; parse its "KEY: value" lines."""
+    result = subprocess.run(
+        ["bash", ".specify/scripts/bash/check-prerequisites.sh", "--paths-only"],
+        cwd=repo_root, text=True, capture_output=True,
+    )
+    if result.returncode != 0:
+        die(result.stderr.strip() or "check-prerequisites.sh failed")
+    paths: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        key, sep, value = line.partition(": ")
+        if sep:
+            paths[key] = value
+    return paths
+
 def run_git(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True)
 

@@ -13,28 +13,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _common import delivery_base, die, run_gh_json, run_git
+from _common import check_prerequisites, delivery_base, die, run_gh_json, run_git
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = run_git(*args, cwd=repo_root)
     if result.returncode != 0:
         die(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result
-
-def _paths(repo_root: Path) -> dict[str, str]:
-    """Run check-prerequisites.sh --paths-only; parse its "KEY: value" lines."""
-    result = subprocess.run(
-        ["bash", ".specify/scripts/bash/check-prerequisites.sh", "--paths-only"],
-        cwd=repo_root, text=True, capture_output=True,
-    )
-    if result.returncode != 0:
-        die(result.stderr.strip() or "check-prerequisites.sh failed")
-    paths: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        key, sep, value = line.partition(": ")
-        if sep:
-            paths[key] = value
-    return paths
 
 def _reconcile(repo_root: Path) -> None:
     run_sh = repo_root / ".specify" / "extensions" / "linear" / "scripts" / "bash" / "run.sh"
@@ -47,7 +32,7 @@ def _reconcile(repo_root: Path) -> None:
 
 def refresh(repo_root: Path) -> None:
     current_branch = _git(repo_root, "branch", "--show-current").stdout.strip()
-    feature_branch = _paths(repo_root)["BRANCH"]
+    feature_branch = check_prerequisites(repo_root)["BRANCH"]
     if current_branch != feature_branch:
         die(f"expected feature branch {feature_branch}, found {current_branch}")
     base = delivery_base(repo_root)
@@ -59,7 +44,7 @@ def refresh(repo_root: Path) -> None:
     # never creates one, so there is nothing new for Linear to project.
 
 def task(repo_root: Path, task_branch: str) -> None:
-    feature_branch = _paths(repo_root)["BRANCH"]
+    feature_branch = check_prerequisites(repo_root)["BRANCH"]
     feature_number = feature_branch.rsplit("/", 1)[-1].split("-", 1)[0]
     prs = run_gh_json(
         "pr", "list", "--state", "open", "--limit", "100",

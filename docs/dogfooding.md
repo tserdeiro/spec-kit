@@ -549,3 +549,24 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     `speckit-code-review-review`) o documentar el nombre doblado; es un
     cambio de superficie de la extensión, fuera de esta ronda salvo
     decisión humana.
+65. **El host sirve el skill cacheado después de regenerarlo.** Tras
+    `preset add --dev` y el espejo del doctor, `/speckit-pr` llegó al
+    agente con el párrafo viejo del paso 5 mientras
+    `.claude/skills/speckit-pr/SKILL.md` en disco ya tenía el nuevo (el
+    host indexa los skills al arrancar o al listarlos, y sirve esa
+    copia). En una sesión que regenera el preset, el skill que se invoca
+    puede no ser el que se acaba de instalar. *Regla:* tras regenerar,
+    verificar el archivo en disco antes de fiarse del skill servido, o
+    abrir sesión nueva. Aun así el mecanismo nuevo corrió bien: el PR de
+    T002 resolvió su base con `pr_create.py task T002` bajo
+    `.venv/bin/python`.
+66. **El instalador reescribe rutas relativas dentro de los comandos de
+    extensiones.** En el render de `speckit-code-review-code-review`,
+    en Claude y Codex, el ejemplo de `findings.json` dice `"path":
+    ".specify/extensions/code-review/src/module.py"` donde el `.md`
+    fuente dice `src/module.py`: upstream antepone el directorio de
+    instalación a toda ruta relativa que reconoce, incluso dentro de un
+    bloque JSON de ejemplo. Un lector que copie el ejemplo apunta un
+    hallazgo al paquete de la extensión. *Documentada:* los ejemplos de
+    ruta en comandos de extensiones se escriben de forma que no parezcan
+    rutas del paquete (o se explican), hasta un PR a upstream.
