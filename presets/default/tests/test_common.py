@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import install_fake_linear
 from spec_kit_linear import parser as linear_parser
 
 import _common
@@ -89,3 +90,16 @@ def test_die_writes_to_stderr_and_exits_2(capsys: pytest.CaptureFixture[str]) ->
     assert excinfo.value.code == 2
     captured = capsys.readouterr()
     assert (captured.out, captured.err) == ("", "error: something went wrong\n")
+
+def test_reconcile_linear_warns_when_the_extension_fails(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run_sh = repo / ".specify/extensions/linear/scripts/bash/run.sh"
+    run_sh.parent.mkdir(parents=True)
+    run_sh.write_text("#!/bin/sh\necho 'linear: boom' >&2\nexit 1\n", encoding="utf-8")
+    run_sh.chmod(0o755)
+    _common.reconcile_linear(repo)  # a failing reconcile never raises
+    assert capsys.readouterr().err == "warning: linear reconcile failed: linear: boom\n"
+
+def test_reconcile_linear_runs_push_hook_once(repo: Path) -> None:
+    calls = install_fake_linear(repo)
+    _common.reconcile_linear(repo)
+    assert calls.read_text(encoding="utf-8") == "push --hook\n"

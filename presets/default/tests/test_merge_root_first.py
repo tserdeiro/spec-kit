@@ -8,19 +8,12 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import install_fake_linear
 
 import merge_root_first
 
 def _calls(log: Path) -> list[list[str]]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-
-def _install_fake_linear(repo: Path) -> Path:
-    run_sh = repo / ".specify/extensions/linear/scripts/bash/run.sh"
-    run_sh.parent.mkdir(parents=True)
-    calls = repo / "linear-calls.txt"
-    run_sh.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{calls}"\n', encoding="utf-8")
-    run_sh.chmod(0o755)
-    return calls
 
 _LIST_CALL = ["pr", "list", "--state", "open", "--limit", "1000",
               "--json", "number,headRefName,baseRefName,isDraft"]
@@ -77,14 +70,14 @@ def test_empty_stack_reports_and_exits_0(feature_repo: Path, fake_gh: Path, monk
 def test_reconciles_linear_once_after_merging(feature_repo: Path, fake_gh: Path,
                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GH_PR_LIST_JSON", _STACK_PRS)
-    calls = _install_fake_linear(feature_repo)
+    calls = install_fake_linear(feature_repo)
     assert merge_root_first.merge_root_first(feature_repo) == 0
     assert calls.read_text(encoding="utf-8").strip() == "push --hook"
 
 def test_reconcile_not_called_on_the_empty_stack(feature_repo: Path, fake_gh: Path,
                                                    monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GH_PR_LIST_JSON", "[]")
-    calls = _install_fake_linear(feature_repo)
+    calls = install_fake_linear(feature_repo)
     assert merge_root_first.merge_root_first(feature_repo) == 0
     assert not calls.exists()
 

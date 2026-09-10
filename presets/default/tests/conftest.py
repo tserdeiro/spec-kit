@@ -42,6 +42,15 @@ printf 'BRANCH: 003-feature\\n'
 printf 'FEATURE_DIR: specs/003-feature\\n'
 """
 
+def install_fake_linear(repo: Path) -> Path:
+    """A fake linear extension whose ``run.sh`` appends its argv to the returned log file."""
+    run_sh = repo / ".specify/extensions/linear/scripts/bash/run.sh"
+    run_sh.parent.mkdir(parents=True)
+    calls = repo / "linear-calls.txt"
+    run_sh.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{calls}"\n', encoding="utf-8")
+    run_sh.chmod(0o755)
+    return calls
+
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A throwaway, initialized git repository. Every later git call this

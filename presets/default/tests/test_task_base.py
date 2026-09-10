@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import install_fake_linear
 
 import task_base
 
@@ -22,17 +23,9 @@ def _push_branch(repo: Path, name: str, from_ref: str = "origin/003-feature") ->
     subprocess.run(["git", "push", "-q", "origin", name], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "switch", "-q", "003-feature"], cwd=repo, check=True, capture_output=True)
 
-def _install_fake_linear(repo: Path) -> Path:
-    run_sh = repo / ".specify/extensions/linear/scripts/bash/run.sh"
-    run_sh.parent.mkdir(parents=True)
-    calls = repo / "linear-calls.txt"
-    run_sh.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{calls}"\n', encoding="utf-8")
-    run_sh.chmod(0o755)
-    return calls
-
 def test_refresh_merges_and_pushes_the_delivery_base(feature_repo: Path) -> None:
     _set_trunk(feature_repo, "main")
-    calls = _install_fake_linear(feature_repo)
+    calls = install_fake_linear(feature_repo)
     task_base.refresh(feature_repo)
     log = subprocess.run(["git", "log", "origin/003-feature", "-1", "--format=%s"],
                           cwd=feature_repo, text=True, capture_output=True, check=True)
@@ -87,7 +80,7 @@ def test_work_item_branches_from_the_delivery_base(feature_repo: Path) -> None:
 
 def test_reconcile_calls_the_installed_linear_extension_when_present(feature_repo: Path) -> None:
     _set_trunk(feature_repo, "main")
-    calls = _install_fake_linear(feature_repo)
+    calls = install_fake_linear(feature_repo)
     task_base.work_item(feature_repo, "wor-124-other-slug")
     assert calls.read_text(encoding="utf-8").strip() == "push --hook"
 
