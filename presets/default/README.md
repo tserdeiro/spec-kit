@@ -109,6 +109,15 @@ binary rows, the four lockfiles, and eleven doc/asset suffixes, and the
 stop is the smaller of twice the forecast and 400. Same interpreter rule
 as `task_base.py`.
 
+`scripts/python/stack_propagate.py <fixed_branch>` carries a fix landed
+on `fixed_branch` through every open task PR stacked above it — the
+same chain `task_base.py`'s `task` mode reads — merging each in stack
+order as a `--no-ff` commit (`merge(task): carry the <T### of
+fixed_branch> fix into <T### of that branch>`) and pushing it to
+`origin`. A merge conflict aborts, names the branch, and exits 2
+without touching the branches above it; an empty chain is reported and
+exits 0. Same interpreter rule as `task_base.py`.
+
 ## Executable blocks
 
 Every marked block in the preset's commands — `first-task-refresh`,

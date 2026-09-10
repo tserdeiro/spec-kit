@@ -573,3 +573,14 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     hallazgo al paquete de la extensión. *Documentada:* los ejemplos de
     ruta en comandos de extensiones se escriben de forma que no parezcan
     rutas del paquete (o se explican), hasta un PR a upstream.
+67. **El presupuesto solo suma líneas agregadas: refactorizar por
+    borrado nunca paga.** En T004 el implementador promovió dos helpers
+    duplicados de tests a `conftest.py` (menos líneas en el repo) y lo
+    revirtió porque contra el presupuesto costaba más: `budget-stop`
+    cuenta las agregadas y regala las borradas, así que una deduplicación
+    suma sus imports y no descuenta nada. Tres copias de `_git` (en
+    `task_base.py`, `pr_create.py`, `stack_propagate.py`) y dos de
+    `_push_branch`/`_set_trunk` en tests quedaron así por la métrica, no
+    por diseño. *Pendiente de decisión:* contar líneas netas, o una
+    tarea de consolidación con su propio presupuesto cuando termine la
+    fase 1.
