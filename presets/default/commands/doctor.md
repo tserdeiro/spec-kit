@@ -9,7 +9,22 @@ One health check for the whole setup. You (the agent) run each installed
 extension's own doctor and reduce everything to a single answer: healthy,
 or exactly what to run to become healthy.
 
-## 1. Discover what is installed
+## 1. The Python interpreter
+
+Every script this distribution installs, and every runtime event
+handler, resolves its interpreter the same way: the consumer's
+`.venv/bin/python` when it exists, else `python3` on PATH. This check is
+always read-only, including with `--fix`.
+
+Resolve the interpreter with that rule, run `<interpreter> --version`,
+and report it.
+
+- **3.11 or newer** → healthy.
+- **Older than 3.11, or none found** → a blocking problem. Name the
+  exact fix without running it: `uv python install 3.11 --default`, or
+  activating the virtual environment that already has the right version.
+
+## 2. Discover what is installed
 
 List `.specify/extensions/`. The two doctors this distribution ships are:
 
@@ -23,14 +38,14 @@ part of this role's bundle; say so in one line and move on. If neither is
 installed, say the setup has no extensions to check and point at the
 README's Get Started.
 
-## 2. Run each doctor
+## 3. Run each doctor
 
 Run them read-only first. If the user asked to fix (`--fix` or "arregla"),
 re-run each failing doctor with `--fix` and report what it repaired —
 `--fix` is each doctor's own, bounded repair; you never fix anything
 yourself.
 
-## 3. Verify the GitHub repository settings
+## 4. Verify the GitHub repository settings
 
 The delivery flow depends on GitHub deleting merged branches and allowing
 merge commits. These checks are always read-only, including with `--fix`.
@@ -53,22 +68,67 @@ merge commits. These checks are always read-only, including with `--fix`.
 If the query itself fails, report both settings as `cannot verify` and include
 the failure as a warning. Never change repository settings.
 
-## 4. Summarize one result
+## 5. Summarize one result
+
+Group every reported gap into six fixed categories, in this order,
+regardless of which sub-doctor produced the underlying diagnostic: (1)
+the Python interpreter, (2) GitHub CLI authentication, (3) the Linear
+API key, (4) the Linear onboarding binding, (5) the review engine
+installation, (6) the repository's GitHub delivery settings.
 
 - **Everything passed and both settings were verified** → one line: the
   setup is healthy, the installed extensions were checked (name them), with
   `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`.
-- **Anything failed** → one short list, one bullet per blocking problem,
-  carrying an extension doctor's own remediation **verbatim** or the exact
-  GitHub remediation from step 3. End with the single next action: usually
-  re-running this command with `--fix`, or the one manual step the
-  remediation names.
+- **Anything failed** → one short list, ordered by the six categories
+  above and skipping any with nothing to report; one bullet per blocking
+  problem, carrying its doctor's own remediation **verbatim**, step 1's
+  interpreter fix, or the exact GitHub remediation from step 4. End with
+  the single next action: usually
+  re-running this command with `--fix`, or the one manual step a
+  report-only category names.
 - **Nothing failed but GitHub could not be verified** → say the checks that
   ran passed, but do not call the setup healthy.
 
+`--fix` applies each doctor's own bounded repair for categories 2
+through 5, where the doctor offers one. Categories 1 and 6 stay
+report-only even with `--fix`: installing or activating an interpreter,
+and changing GitHub's delivery settings, are both human decisions.
+
 Warnings that block nothing go in one final line, not in the list.
 
-## 5. Mirror the skills across installed agents
+## 6. Check the runtime-events wiring
+
+Read-only; nothing here is ever written, even with `--fix`.
+
+Report once whether `.specify/events.py`, the dispatcher every wired
+integration shares, exists. Then, for each key in
+`.specify/integration.json`'s `installed_integrations`, report whether
+that integration's own native hook file carries the `__speckit_event__`
+marker: `.claude/settings.json` for claude, `.codex/config.toml` for
+codex, `.cursor/hooks.json` for cursor; for any other integration, the
+hook file its `specify integration upgrade` writes — when you cannot
+name it, report that integration's wiring as unverified. An integration
+whose hook file carries no marker is unwired whatever the dispatcher's
+state — one with no hook file at all (Zed, today), or one wired before
+the extensions declared events: state plainly that the code-review
+guard and the Linear session-start and tool-use handlers do not run
+there, and that the prose rules stay authoritative.
+
+For each installed extension declaring `events:` under
+`.specify/extensions/<id>/extension.yml`, check that every
+`events.<event>.command` equals the stem of a file under that
+extension's `commands/` directory — a mismatch resolves to nothing at
+the dispatcher, silently, so the event simply never fires — and name any
+mismatch you find.
+
+The fix for a gap this step finds is never run here: once the extension
+itself declares events, it is `specify integration upgrade <key>` — an
+`install` of a key already installed changes nothing; `--force` when the
+upgrade reports locally modified files, which the mirrored appends are —
+followed by this doctor with `--fix`, so step 7 restores the preset layer
+the upgrade re-rendered.
+
+## 7. Mirror the skills across installed agents
 
 Upstream registers extension and preset commands only for the **default**
 integration ("active-only registration"); this distribution's portability
@@ -94,7 +154,7 @@ receives its own append text, never a whole copy, across integrations.
 Re-run after `bundle update` or
 `integration switch`: both refresh only the default agent's copies.
 
-## 6. Add the installer's ignore entries
+## 8. Add the installer's ignore entries
 
 The installer's cache directories (extension, preset, and integration
 catalogs) and the extension payload virtual environments are rarely in
@@ -110,6 +170,6 @@ python3 .specify/presets/default/scripts/python/ignore_entries.py <true|false>
 `check-ignore` honors broader patterns already in the ignore file, so a
 repository ignoring `.venv/` globally gets no duplicate entry.
 
-Never mutate anything outside step 2's explicit `--fix` pass-through,
-step 5's skill mirror, and step 6's ignore entries; never install,
+Never mutate anything outside step 3's explicit `--fix` pass-through,
+step 7's skill mirror, and step 8's ignore entries; never install,
 download, or configure on your own.
