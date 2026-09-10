@@ -110,16 +110,18 @@ Read-only; nothing here is ever written, even with `--fix`.
 Report once whether `.specify/events.py`, the dispatcher every wired
 integration shares, exists. Then, for each key in
 `.specify/integration.json`'s `installed_integrations`, report whether
-that integration's own native hook file carries the `__speckit_event__`
-marker: `.claude/settings.json` for claude, `.codex/config.toml` for
-codex, `.cursor/hooks.json` for cursor; for any other integration, the
-hook file its `specify integration upgrade` writes — when you cannot
-name it, report that integration's wiring as unverified. An integration
-whose hook file carries no marker is unwired whatever the dispatcher's
-state — one with no hook file at all (Zed, today), or one wired before
-the extensions declared events: state plainly that the code-review
-guard and the Linear session-start and tool-use handlers do not run
-there, and that the prose rules stay authoritative.
+that integration's own native hook file carries the dispatcher's marker
+— `__speckit_event__` in the JSON hook files (`.claude/settings.json`
+for claude, `.cursor/hooks.json` for cursor), `speckit_marker = true`
+in the TOML one (`.codex/config.toml` for codex); for any other
+integration, the hook file its `specify integration upgrade` writes —
+when you cannot name it, report that integration's wiring as
+unverified. An integration whose hook file carries no marker is unwired
+whatever the dispatcher's state — one with no hook file at all (Zed,
+today), or one wired before the extensions declared events: state
+plainly that the code-review guard and the Linear session-start and
+tool-use handlers do not run there, and that the prose rules stay
+authoritative.
 
 For each installed extension declaring `events:` under
 `.specify/extensions/<id>/extension.yml`, check that every
@@ -142,11 +144,11 @@ integration ("active-only registration"); this distribution's portability
 principle says no agent is second-class. Close that gap here, without ever
 overwriting one integration's own render with another's: extension and
 preset skills are copied whole from the default integration's directory;
-the four core commands with a registered preset append (`specify`, `plan`,
-`tasks`, `analyze`) keep each integration's own render and receive that
-append; a core command the preset **replaces** (`implement`) is copied
-whole instead, like an extension skill, since it has no
-integration-specific render to keep. Run `skill_mirror.py` — with the
+the three core commands with a registered preset append (`specify`,
+`plan`, `analyze`) keep each integration's own render and receive that
+append; the two core commands the preset **replaces** (`tasks`,
+`implement`) are copied whole instead, like an extension skill, since
+the preset's file is their whole render. Run `skill_mirror.py` — with the
 consumer's `.venv/bin/python` when it exists, else `python3` on PATH,
 the rule upstream's own `py` scripts follow. Its one argument replaces
 `<true|false>`: `true` when the user asked to fix, else `false`:
@@ -157,9 +159,14 @@ python3 .specify/presets/default/scripts/python/skill_mirror.py <true|false>
 
 A core render with no registered append or replace strategy (e.g.
 `checklist`) is never touched, and a core skill with an append only ever
-receives its own append text, never a whole copy, across integrations.
-Re-run after `bundle update` or
-`integration switch`: both refresh only the default agent's copies.
+receives its own append text, never a whole copy, across integrations; a
+registered command strategy the script does not compose (`prepend`,
+`wrap`) stops it before any write, naming the command. Re-run after
+`preset add` (the `preset remove` + `preset add` pair of a dev reinstall
+included), `bundle update`, or `integration switch`, which compose the
+preset for the default integration only, and after `integration upgrade
+<key> --force`, which re-renders that integration's core commands from
+upstream alone.
 
 ## 8. Add the installer's ignore entries
 

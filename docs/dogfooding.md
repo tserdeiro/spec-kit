@@ -622,8 +622,11 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     extensión para Claude, que el registro no tenía) sin aplicar el
     reemplazo. El espejo del doctor solo trataba `append`. *Resuelta en
     T008 (PR #96):* `skill_mirror.py` copia entero, como un skill de extensión,
-    todo core que el preset reemplaza. *Pendiente:* la composición para
-    todas las integraciones instaladas es el PR 1 a upstream (T020).
+    todo core que el preset reemplaza. *T028:* ese camino entra en la
+    conformance (la sección 8 seguía registrando dos appends) y el doctor
+    nombra cada evento que desincroniza a la integración rezagada. La
+    composición para todas las integraciones quedó fuera del parche de
+    T020 (entrada 81): el espejo es la decisión de esta distribución.
 72. **Un frontmatter YAML inválido falla en silencio.** Una
     `description:` con dos puntos sin comillas hace que
     `parse_frontmatter` devuelva `{}` sin aviso: `{SCRIPT}` queda sin
@@ -842,6 +845,27 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Pendiente de decisión:* que el piso de un bundle sea el máximo de
     los de sus componentes (una línea por bundle y C-004 enmendada),
     idealmente en la chore de publicación.
+93. **Un fix fuera de Boundaries viajó sin conformance y volvió como
+    hallazgo.** El espejo aprendió a copiar entero un core reemplazado
+    dentro del PR de T008 (entrada 71), con test unitario pero sin
+    escenario en `bundles.sh`: la sección 8 seguía registrando dos
+    appends. Un informe posterior describió el hueco como abierto —
+    `_registered_appends` saltando `replace`, el espejo incapaz de
+    restaurar un reemplazo tras `integration upgrade --force` —: describe
+    el árbol anterior a ese fix, no la punta del stack, donde la receta
+    de regeneración (`preset add --dev`, `integration install claude
+    --force`, `integration upgrade claude --force`, `skill_mirror.py
+    true`) restaura `implement` y `tasks` byte a byte y la segunda corrida
+    dice `nothing to do`. Lo que faltaba era la prueba, y la copia tiene
+    un límite que nadie había escrito: lleva el render del default tal
+    cual, sin las tres claves de frontmatter que Claude Code agrega en un
+    render nativo (`argument-hint`, `user-invocable`,
+    `disable-model-invocation`, las tres en su valor por defecto). *Resuelta
+    en T028:* escenarios de replace en la sección 8, la estrategia no
+    soportada (`prepend`, `wrap`) falla cerrada, el límite documentado.
+    *Regla:* una desviación de alcance que cambia el contrato de un script
+    trae su escenario de conformance en el mismo PR o se vuelve tarea
+    propia en el ledger.
 94. **Una auditoría externa reprodujo siete defectos en una ronda dada por
     cerrada.** Codex auditó el candidato de #113 (`740a9b9`) con once
     hallazgos; siete eran reales y el orquestador los reprodujo contra el
@@ -875,3 +899,39 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     T014 y T027 quedaron por encima de su tope tras el fix, por decisión
     humana. *Pendiente:* la mitad viva de T023 en Codex y la reconciliación
     observada contra un proyecto de prueba en Linear siguen sin correr.
+95. **`specify integration install` no tiene `--ignore-agent-tools`.**
+    Solo `init` lo tiene; una fixture que instala una segunda integración
+    en una máquina sin su binario depende de que el instalador no lo
+    exija (hoy no lo hace). Superficie inconsistente de upstream;
+    anotada, sin parche.
+96. **Un fix de prosa del doctor viajó sin regenerar sus renders.** El
+    commit `1672876` (T023: el marcador TOML de Codex en el paso 6 de
+    `doctor.md`) no corrió la receta de regeneración, así que
+    `.claude/skills/speckit-doctor/SKILL.md` y
+    `.agents/skills/speckit-doctor/SKILL.md` quedaron con la prosa vieja
+    hasta que la regeneración de T028 los arrastró. La regla del ledger
+    ("toda tarea de preset regenera") existe, pero nadie la comprueba.
+    *Resuelta de paso en T028.* *Pendiente de decisión:* una aserción en
+    `bundles.sh` o en CI de que cada `commands/*.md` del preset coincide
+    con sus renders instalados.
+97. **El cierre de la segunda auditoría necesita revisar los escapes, no
+    solo sumar tests verdes.** El candidato local reúne los fixes de T012,
+    T014, T022 y T024, más T028. La revisión independiente encontró que un
+    `;` citado o escapado se confundía con un separador y que una
+    continuación `\` + salto de línea ocultaba el push; ambos analizadores
+    conservan ahora esos argumentos. Quince comparaciones contra Bash con
+    Git simulado coinciden. El parche 0003 respeta `auto_commit.default`
+    solo cuando falta la sección del evento y rechaza comillas discordantes.
+    Verificación local: Linear 447 passed / 252 subtests; guard 66 passed /
+    61 subtests; preset 64 passed; upstream 690 passed / 48 skipped
+    (`pwsh` ausente); conformance de bundles y eventos en verde. La suite
+    amplia de code-review más preset pasó con 919 tests antes del último
+    ajuste de escapes, verificado después con guard y preset completos.
+    Los commits `3491608` (T012), `2764eb0` (T014) y `f48c198` (T022)
+    incorporan las correcciones en sus ramas de origen; `226e25d` lleva
+    la propagación hasta T028 (#114), con autorización humana.
+    Las entradas 94 de ambas ramas colisionaban: se conserva 94 para la
+    primera auditoría y la de regeneración de T028 pasa a 96. *Pendiente:*
+    PRs upstream y decisión de alcance de FR-016; runtime vivo de Codex y reconciliación observada
+    en un proyecto de prueba de Linear. Ninguna prueba de dispatcher se
+    presenta como ejecución real del agente.

@@ -1,11 +1,14 @@
 """Tests for the preset's skill_mirror script: the two-integration mirror
-with and without an existing append, the single-integration skip, and the
-bad-append fail-closed case. The script reads only files, so a hand-built
-fixture stands in for a real install -- no repo or gh fixture needed."""
+with and without an existing append, a replaced core reset or missing on
+the lagging side, the single-integration skip, and the two fail-closed
+cases (a bad append, an unsupported strategy). The script reads only
+files, so a hand-built fixture stands in for a real install -- no repo or
+gh fixture needed."""
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -125,4 +128,62 @@ def test_bad_append_fails_closed(tmp_path: Path, capsys: pytest.CaptureFixture[s
         "mirror: append .specify/presets/default/commands/missing-append.md "
         "for speckit-checklist is missing or has no heading\n"
     )
+    assert _snapshot(tmp_path) == before
+
+def test_replaced_core_reset_or_missing_is_copied_whole(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A replaced core render that `integration upgrade --force` reset to
+    upstream's, or that is missing outright, comes back whole on the next
+    fix run -- the lagging integration's regression once `implement`
+    became a replace (dogfooding entry 71)."""
+    _fixture(tmp_path)
+    skill_mirror.mirror_skills(tmp_path, True)
+    capsys.readouterr()
+    source = tmp_path / ".agents/skills/speckit-implement/SKILL.md"
+    mirrored = tmp_path / ".claude/skills/speckit-implement/SKILL.md"
+    mirrored.write_text(
+        '---\nname: "speckit-implement"\nmetadata:\n  source: "templates/commands/implement.md"\n---\n'
+        "upstream core body, the replace lost\n", encoding="utf-8")
+    assert skill_mirror.mirror_skills(tmp_path, False) == 0
+    assert "speckit-implement missing or differs in .claude/skills (claude)" in capsys.readouterr().out
+    assert skill_mirror.mirror_skills(tmp_path, True) == 0
+    assert "copied speckit-implement" in capsys.readouterr().out
+    assert mirrored.read_bytes() == source.read_bytes()
+    shutil.rmtree(mirrored.parent)
+    assert skill_mirror.mirror_skills(tmp_path, True) == 0
+    assert "copied speckit-implement" in capsys.readouterr().out
+    assert mirrored.read_bytes() == source.read_bytes()
+    assert skill_mirror.mirror_skills(tmp_path, True) == 0
+    assert capsys.readouterr().out == "mirror: nothing to do\n"
+
+def test_unsupported_strategy_fails_closed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A registered command strategy the mirror cannot compose (wrap,
+    prepend) stops the run before any write -- with the fixture's copies
+    and appends still pending -- instead of skipping that command silently,
+    the shape of the gap a replace once fell into."""
+    _fixture(tmp_path)
+    preset_yml = tmp_path / ".specify/presets/default/preset.yml"
+    with preset_yml.open("a", encoding="utf-8") as handle:
+        handle.write(
+            '    - type: "command"\n      name: "speckit.checklist"\n'
+            '      file: "commands/checklist.md"\n      strategy: "wrap"\n'
+        )
+    before = _snapshot(tmp_path)
+    assert skill_mirror.mirror_skills(tmp_path, True) == 2
+    assert capsys.readouterr().err == (
+        'mirror: speckit-checklist registers command strategy "wrap" -- '
+        "the mirror composes only append and replace\n"
+    )
+    assert _snapshot(tmp_path) == before
+
+
+def test_an_append_without_file_is_named(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """An append entry with no file is a broken registration, not an
+    unsupported strategy: the diagnostic says which, and nothing is written."""
+    _fixture(tmp_path)
+    preset_yml = tmp_path / ".specify/presets/default/preset.yml"
+    with preset_yml.open("a", encoding="utf-8") as handle:
+        handle.write('    - type: "command"\n      name: "speckit.checklist"\n      strategy: "append"\n')
+    before = _snapshot(tmp_path)
+    assert skill_mirror.mirror_skills(tmp_path, True) == 2
+    assert capsys.readouterr().err == "mirror: speckit-checklist registers an append with no file\n"
     assert _snapshot(tmp_path) == before

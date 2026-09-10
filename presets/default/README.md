@@ -145,12 +145,17 @@ it exits 2 naming exactly what is missing. Same interpreter rule as
 `scripts/python/skill_mirror.py <true|false>` closes the gap upstream's
 active-only command registration leaves: it copies each non-core skill
 whole from the default integration's directory into every other
-installed one — a core command the preset replaces is copied the same
-way, whole, since it has no integration-specific render to keep — and
-appends the preset's registered layer to each core-command render that
-keeps its own render instead, never overwriting a core render with
-another integration's content. A registered append that is missing or
-has no `## ` heading fails closed, before any write. Same interpreter
+installed one — a core command the preset replaces (`tasks`,
+`implement`) is copied the same way, whole, since the preset's file is
+its whole render — and appends the preset's registered layer to each
+core-command render that keeps its own render instead, never
+overwriting a core render with another integration's content. The whole
+copy is the default integration's render as is: the keys an integration
+adds to its own native render (Claude Code's `argument-hint`,
+`user-invocable`, `disable-model-invocation`, all at their defaults) are
+not synthesized. A registered append that is missing or has no `## `
+heading, or a registered command strategy the script does not compose
+(`prepend`, `wrap`), fails closed before any write. Same interpreter
 rule as `task_base.py`.
 
 `scripts/python/ignore_entries.py <true|false>` adds the installer's

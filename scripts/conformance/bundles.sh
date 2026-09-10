@@ -1104,12 +1104,15 @@ grep -Fq 400 "$budget_err" || fail "budget: capped stop diagnosis did not name t
 echo "ok: budget"
 
 # --------------------------------------------------------------------------
-# 8. Doctor: safe skill mirror and ignore entries (plan D11). Step 5 copies
-#    extension/preset skills whole and appends each core command's own
-#    layer to that integration's render, never crossing integrations,
-#    idempotently; step 6 adds the installer's cache and venv directories
-#    to .gitignore. The scripts read only files, so a hand-made fixture
-#    stands in for a real `specify` install.
+# 8. Doctor: safe skill mirror and ignore entries (plan D11). The mirror
+#    step copies extension/preset skills, and every core command the
+#    preset replaces, whole from the default integration; appends each
+#    remaining core command's own layer to that integration's render,
+#    never crossing integrations; and does both idempotently, restoring a
+#    lagging render that `integration upgrade --force` reset to upstream's.
+#    The ignore step adds the installer's cache and venv directories to
+#    .gitignore. The scripts read only files, so a hand-made fixture stands
+#    in for a real `specify` install.
 # --------------------------------------------------------------------------
 
 dir_checksum() { (cd "$1" && find . -type f | sort && find . -type f | sort | xargs cat) | shasum -a 256 | awk '{print $1}'; }
@@ -1141,21 +1144,23 @@ provides:
       strategy: "append"
     - type: "command"
       name: "speckit.implement"
-      file: "commands/implement-append.md"
-      strategy: "append"
+      file: "commands/implement.md"
+      strategy: "replace"
 YAML
-printf '\n## Loop (tserdeiro/spec-kit)\nline one\nline two\n' \
-  > "$mirror_root/.specify/presets/default/commands/implement-append.md"
 printf '\n## Order (tserdeiro/spec-kit)\nline one\nline two\n' \
   > "$mirror_root/.specify/presets/default/commands/tasks-append.md"
 
 # The mirror never reads a core render's content when deciding to leave it
-# alone (only its directory name), so codex's own core skills need only
-# exist; only its extension skill speckit-pr is ever compared or copied.
-for name in speckit-implement speckit-tasks speckit-checklist; do
+# alone (only its directory name), so codex's tasks and checklist need only
+# exist; its extension skill speckit-pr and its replaced core implement are
+# the two it compares and copies whole.
+for name in speckit-tasks speckit-checklist; do
   mkdir -p "$mirror_root/.agents/skills/$name"
   printf 'codex core render, content unused by this name\n' > "$mirror_root/.agents/skills/$name/SKILL.md"
 done
+mkdir -p "$mirror_root/.agents/skills/speckit-implement"
+printf 'codex implement render, the preset replace composed for the default\n' \
+  > "$mirror_root/.agents/skills/speckit-implement/SKILL.md"
 mkdir -p "$mirror_root/.agents/skills/speckit-pr"
 printf 'codex pr body, extension skill\n' > "$mirror_root/.agents/skills/speckit-pr/SKILL.md"
 
@@ -1197,11 +1202,13 @@ printf '%s\n' "$mirror_report" | grep -Fq speckit-checklist &&
 cmp -s "$mirror_root/.agents/skills/speckit-pr/SKILL.md" \
   "$mirror_root/.claude/skills/speckit-pr/SKILL.md" ||
   fail "mirror: speckit-pr is not byte-identical across integrations"
+cmp -s "$mirror_root/.agents/skills/speckit-implement/SKILL.md" \
+  "$mirror_root/.claude/skills/speckit-implement/SKILL.md" ||
+  fail "mirror: the replaced speckit-implement is not byte-identical across integrations"
 [ "$(shasum -a 256 < "$checklist_claude")" = "$checklist_before" ] ||
   fail "mirror: fix=true touched the untouchable core checklist"
 
-for spec in "speckit-implement:claude implement body:implement-append.md" \
-            "speckit-tasks:claude tasks body:tasks-append.md"; do
+for spec in "speckit-tasks:claude tasks body:tasks-append.md"; do
   IFS=: read -r name body append_file <<<"$spec"
   core=$(printf '%s\n%s\n%s\n%s\n%s\n' '---' "name: \"$name\"" 'frontmatter: "claude"' '---' "$body")
   append=$(cat "$mirror_root/.specify/presets/default/commands/$append_file")
@@ -1217,6 +1224,38 @@ second=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) ||
 [ "$second" = "mirror: nothing to do" ] || fail "mirror: second fix=true run was not a clean no-op: $second"
 [ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: second fix=true run changed a file"
 
+# `integration upgrade <key> --force` re-renders every core command of that
+# integration from upstream alone (dogfooding entry 71): a replaced core
+# reset that way, or missing outright, comes back whole on the next fix
+# run, and an appended one gets its layer again -- the exact fixed point.
+render speckit-implement <<'MD'
+---
+name: "speckit-implement"
+metadata:
+  source: "templates/commands/implement.md"
+---
+upstream core body, the replace lost
+MD
+render speckit-tasks <<'MD'
+---
+name: "speckit-tasks"
+frontmatter: "claude"
+---
+claude tasks body
+MD
+reset_report=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" false) ||
+  fail "mirror: fix=false run after the reset failed"
+printf '%s\n' "$reset_report" | grep -Fq 'speckit-implement missing or differs' &&
+  printf '%s\n' "$reset_report" | grep -Fq 'speckit-tasks in .claude/skills (claude) needs the preset append' ||
+  fail "mirror: the two reset renders were not both reported"
+(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) >/dev/null ||
+  fail "mirror: fix=true run after the reset failed"
+[ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: the reset renders did not come back to the fixed point"
+rm -r "$mirror_root/.claude/skills/speckit-implement"
+(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) >/dev/null ||
+  fail "mirror: fix=true run with the replaced core missing failed"
+[ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: the missing replaced core did not come back whole"
+
 # A preset entry registered for append but pointing at a nonexistent file
 # must fail closed, never truncate a render (review finding, major); reuse
 # checklist's render, which has no append registration yet.
@@ -1231,6 +1270,32 @@ broken_status=0
 (cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) >/dev/null 2>&1 || broken_status=$?
 [ "$broken_status" -eq 2 ] || fail "mirror: a missing append file did not exit 2 (got $broken_status)"
 [ "$(dir_checksum "$mirror_root")" = "$before" ] || fail "mirror: a missing append file still wrote a file"
+
+# A registered command strategy the mirror cannot compose (wrap, prepend)
+# stops the run before any write instead of skipping the command silently
+# -- even with the tasks append still genuinely pending, reset here so the
+# guard has real work in front of it to preempt, not an already-clean tree.
+render speckit-tasks <<'MD'
+---
+name: "speckit-tasks"
+frontmatter: "claude"
+---
+claude tasks body
+MD
+cat >> "$mirror_root/.specify/presets/default/preset.yml" <<'YAML'
+    - type: "command"
+      name: "speckit.checklist"
+      file: "commands/checklist.md"
+      strategy: "wrap"
+YAML
+before=$(dir_checksum "$mirror_root")
+wrap_status=0
+wrap_err=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true 2>&1 >/dev/null) || wrap_status=$?
+[ "$wrap_status" -eq 2 ] || fail "mirror: a wrap strategy did not exit 2 (got $wrap_status)"
+[ "$wrap_err" = 'mirror: speckit-checklist registers command strategy "wrap" -- the mirror composes only append and replace' ] ||
+  fail "mirror: a wrap strategy was not diagnosed before any write: $wrap_err"
+[ "$(dir_checksum "$mirror_root")" = "$before" ] ||
+  fail "mirror: a wrap strategy still wrote a file, with the reset tasks append left pending"
 
 single_root="$temporary_root/mirror-single"
 init_options "$single_root" codex '    "codex"'
