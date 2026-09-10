@@ -737,3 +737,53 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     inútiles) y deja la puerta viva para el ejecutor; un prompt real por
     evento habilitado necesitaría que los templates evalúen la
     expresión. *Documentada;* el caveat viaja en el commit del parche.
+85. **Los eventos sí llegan a todas las integraciones instaladas; los
+    comandos no.** `refresh_integration_events` (v1.0.4) recorre
+    `installed_integrations` entero tras cada `extension add`, `remove`,
+    `enable` o `disable`, así que en la fixture de T023
+    `.claude/settings.json` y `.codex/config.toml` quedaron cableados con
+    solo añadir las dos extensiones: ni el `integration install --force`
+    que pedía el contrato de la tarea y D12 (un no-op sobre una key
+    instalada, review de T015) ni `integration upgrade` (que re-renderizó
+    byte a byte lo mismo) hicieron nada. El remedio del paso 6 del doctor
+    queda para el hueco real: integraciones cableadas antes de que las
+    extensiones declararan eventos (A-002, este repositorio). *Regla:*
+    el contrato de una tarea de verificación nombra el comando que de
+    verdad cablea (`extension add`), no el que suena a cableado; el
+    contraste con la entrada 81 (comandos solo en la integración activa)
+    es de upstream, no de esta distribución.
+86. **El marcador de Codex no es `__speckit_event__`.** `events.py`
+    reutiliza la constante `_SPECKIT_MARKER` en todos los renders JSON y
+    escribe el literal `speckit_marker = true` en los dos TOML (codex,
+    vibe). El doctor de T015 decía `__speckit_event__` para los tres
+    archivos; un agente que lo siguiera al pie de la letra diagnosticaría
+    Codex como sin cablear estando sano. *Resuelta en T023:* el paso 6
+    nombra cada marcador por formato y `events-consumer.sh` asserta
+    ambos. (Para upstream, un nit: la constante no llega a los renders
+    TOML.)
+87. **Sin `plan.md` la línea de contexto desaparece en silencio.**
+    `parse_feature` exige el título de `spec.md` y de `plan.md` (solo
+    `tasks.md` es opcional), y `session-start` traga cualquier excepción
+    para cumplir su contrato de salida 0: una feature recién
+    especificada (`/speckit.specify` hecho, `/speckit.plan` pendiente)
+    abre sesión sin línea, indistinguible de "Linear no configurado".
+    Reproducido en la fixture de T023: borrar `plan.md` → stdout vacío,
+    exit 0; restaurarlo → la línea. *Pendiente de decisión:* `plan.md`
+    opcional en el parser, como `tasks.md`, o una línea degradada que
+    nombre la causa.
+88. **La mitad viva de T023 depende de binarios y credenciales que el
+    agente no tiene.** `codex` no está instalado en esta máquina, y el
+    token OAuth en disco del `claude` standalone había expirado
+    (`claude auth status` dice `loggedIn: true`; `claude -p` responde
+    401 "OAuth access token has expired"): re-autenticar es un login
+    interactivo del humano, y desde una sesión de Claude Code el agente
+    tampoco puede prestarle la suya. La mitad reproducible — config
+    nativa de ambos agentes, dispatcher generado, handlers reales, Linear
+    en solo lectura (`hooks.lifecycle_enabled: false`) — es
+    `scripts/conformance/events-consumer.sh`; por leer las credenciales
+    locales no entra al CI, que sigue en `bundles.sh` con fakes. Los
+    tres prompts de la mitad viva quedan en la evidencia para repetirlos
+    donde existan `claude` autenticado y `codex`. *Regla:* una tarea de
+    verificación en vivo declara en su contrato qué agentes están
+    instalados y autenticados en la máquina que la ejecuta antes de
+    prometer transcripts "en ambos agentes".
