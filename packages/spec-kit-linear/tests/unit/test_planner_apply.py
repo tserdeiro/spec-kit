@@ -511,6 +511,53 @@ class PlannerApplyTests(unittest.TestCase):
         migrated = merge_managed_block(f"Manual\n<!-- {marker} -->\nunsafe", marker, replacement)
         self.assertEqual(migrated, f"{replacement}\nunsafe")
 
+    def _with_archived(self, discovery: RemoteDiscovery, issue_id: str, archived_at: str | None) -> RemoteDiscovery:
+        project = discovery.projects[0]
+        issues = tuple(replace(issue, archived_at=archived_at) if issue.id == issue_id else issue for issue in project.issues)
+        return replace(discovery, projects=(replace(project, issues=issues),))
+
+    def test_a_task_removed_from_the_ledger_archives_its_issue(self) -> None:
+        # FR-020/D14: the marker is still there (T003's Issue was already
+        # pushed), but T003 itself is gone from this desired state -- exactly
+        # what a ledger edit after the gate looks like (dogfooding entry 54).
+        without_t003 = replace(self.desired, feature=replace(self.desired.feature, tasks=tuple(t for t in self.desired.feature.tasks if t.identity != "task:001:T003")))
+
+        plan = build_push_plan(without_t003, self._complete_discovery(), config=self.config)
+
+        archives = [item for item in plan["operations"] if item["kind"] == "issue.archive"]
+        self.assertEqual([item["target"] for item in archives], ["task:001:T003"])
+        self.assertEqual(archives[0]["input"], {})
+        self.assertEqual(archives[0]["preconditions"], {"id": "issue-task:001:T003", "updated_at": "2099-01-01T00:00:00Z"})
+
+    def test_a_task_returned_to_the_ledger_unarchives_its_issue(self) -> None:
+        discovery = self._with_archived(self._complete_discovery(), "issue-task:001:T003", "2099-06-01T00:00:00Z")
+
+        plan = build_push_plan(self.desired, discovery, config=self.config)
+
+        self.assertEqual([(item["kind"], item["target"]) for item in plan["operations"]], [("issue.unarchive", "task:001:T003")])
+        self.assertEqual(plan["operations"][0]["input"], {})
+
+    def test_a_human_issue_without_a_task_marker_is_never_touched(self) -> None:
+        complete = self._complete_discovery()
+        human_issue = RemoteIssue(
+            id="issue-human-1", identifier="WOR-99", title="Investigate flaky CI",
+            description="Filed directly in Linear, not by push.", updated_at="2099-01-01T00:00:00Z",
+            project_id="project-1", parent_id=None, assignee_id=None, label_ids=(),
+        )
+        discovery = replace(complete, projects=(replace(complete.projects[0], issues=complete.projects[0].issues + (human_issue,)),))
+
+        plan = build_push_plan(self.desired, discovery, config=self.config)
+
+        self.assertEqual(plan["operations"], [])
+
+    def test_a_second_push_after_archiving_is_zero_operations(self) -> None:
+        without_t003 = replace(self.desired, feature=replace(self.desired.feature, tasks=tuple(t for t in self.desired.feature.tasks if t.identity != "task:001:T003")))
+        discovery = self._with_archived(self._complete_discovery(), "issue-task:001:T003", "2099-06-01T00:00:00Z")
+
+        plan = build_push_plan(without_t003, discovery, config=self.config)
+
+        self.assertEqual(plan["operations"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

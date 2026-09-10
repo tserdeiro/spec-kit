@@ -19,6 +19,11 @@ _DOCUMENTS: dict[str, tuple[str, str, str | None, bool, str, str]] = {
     "issue.create": ("issueCreate", "issueCreate", "IssueCreateInput!", False, "issue", "input"),
     "issue.update": ("issueUpdate", "issueUpdate", "IssueUpdateInput!", True, "issue", "input"),
     "issue.lifecycle.update": ("issueUpdate", "issueUpdate", "IssueUpdateInput!", True, "issue", "input"),
+    # issueArchive/issueUnarchive take a bare `id` argument and no input
+    # object; needs_id=True sources that id from preconditions, exactly like
+    # every other non-create kind.
+    "issue.archive": ("issueArchive", "issueArchive", None, True, "issue", "id"),
+    "issue.unarchive": ("issueUnarchive", "issueUnarchive", None, True, "issue", "id"),
     "team.automation.create": ("gitAutomationStateCreate", "gitAutomationStateCreate", "GitAutomationStateCreateInput!", False, "gitAutomationState", "input"),
     "project.label.create": ("projectLabelCreate", "projectLabelCreate", "ProjectLabelCreateInput!", False, "projectLabel", "input"),
     "view.create": ("customViewCreate", "customViewCreate", "CustomViewCreateInput!", False, "customView", "input"),
@@ -76,6 +81,9 @@ def _document(operation_name: str, result_key: str, input_type: str | None, need
             raise AssertionError("label mutations require a reviewed remote target")
         arguments = "id: $id, labelId: $labelId"
         variables = "$id: String!, $labelId: String!"
+    elif argument_style == "id":
+        arguments = "id: $id"
+        variables = "$id: String!"
     else:
         if input_type is None:
             raise AssertionError("input mutations require a GraphQL input type")

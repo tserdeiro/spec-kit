@@ -223,6 +223,7 @@ query FeatureIssues($first: Int!, $after: String, $projectId: ID!) {
   issues(
     first: $first
     after: $after
+    includeArchived: true
     filter: { project: { id: { eq: $projectId } } }
   ) {
     nodes {
@@ -232,6 +233,7 @@ query FeatureIssues($first: Int!, $after: String, $projectId: ID!) {
       description
       updatedAt
       url
+      archivedAt
       project { id }
       parent { id }
       assignee { id displayName }
@@ -385,6 +387,10 @@ class RemoteIssue:
     # than required, since the small fake GraphQL server used by existing
     # tests never populated a `url` field before this and should not have to.
     url: str = ""
+    # "push" (planner.build_push_plan's orphan scan, D14): None means active;
+    # an ISO timestamp means archived. Read defensively -- None when absent
+    # or not a string -- for the same reason as url above.
+    archived_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1220,6 +1226,7 @@ def _remote_issue(node: Mapping[str, object]) -> RemoteIssue:
         assignee_name=_optional_nested_string(node, "assignee", "displayName"),
         state_name=_optional_nested_string(node, "state", "name"),
         url=_optional_string(node, "url"),
+        archived_at=node.get("archivedAt") if isinstance(node.get("archivedAt"), str) else None,
     )
 
 

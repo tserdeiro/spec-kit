@@ -17,6 +17,10 @@ class _CapturingClient:
             return {"projectAddLabel": {"success": True, "project": {"id": "project-1"}}}
         if operation_kind in {"project.update", "project.create"}:
             return {"projectUpdate" if operation_kind == "project.update" else "projectCreate": {"success": True, "project": {"id": "project-1"}}}
+        if operation_kind == "issue.archive":
+            return {"issueArchive": {"success": True, "issue": {"id": "issue-1"}}}
+        if operation_kind == "issue.unarchive":
+            return {"issueUnarchive": {"success": True, "issue": {"id": "issue-1"}}}
         return {"issueCreate" if operation_kind == "issue.create" else "issueUpdate": {"success": True, "issue": {"id": "issue-1"}}}
 
 
@@ -68,6 +72,19 @@ class MutationExecutorContractTests(unittest.TestCase):
         self.assertNotIn("$id:", document)
         self.assertEqual(variables["input"]["id"], create_id)
         self.assertEqual(result, {"id": "issue-1"})
+
+    def test_issue_archive_and_unarchive_send_a_bare_id_argument(self) -> None:
+        for kind, operation_name in (("issue.archive", "issueArchive"), ("issue.unarchive", "issueUnarchive")):
+            with self.subTest(kind=kind):
+                client = _CapturingClient()
+                result = LinearMutationExecutor(client).execute({"kind": kind, "input": {}, "preconditions": {"id": "issue-1"}})
+                document, variables, operation_kind = client.calls[0]
+                self.assertEqual(result, {"id": "issue-1"})
+                self.assertEqual(operation_kind, kind)
+                self.assertIn(operation_name, document)
+                self.assertIn("$id: String!", document)
+                self.assertNotIn("input", document)
+                self.assertEqual(variables, {"id": "issue-1"})
 
     def test_kinds_outside_the_allowlist_are_refused(self) -> None:
         for kind, input_values in (
