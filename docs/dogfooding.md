@@ -816,3 +816,62 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     *Pendiente de decisión:* que el cierre normalice o descarte la
     categoría inválida como hace con la ruta, en vez de rechazar el
     archivo.
+91. **El preset no tiene dónde contar su versión, y el bump escribe
+    menos de lo que el ledger dice.** `publish.sh --bump` deja el
+    esqueleto de changelog (`- TODO`) solo a los dos paquetes; el
+    preset — el componente más grande de esta ronda (ocho scripts, los
+    `replace` de `implement` y `tasks`, el doctor) — pasa de 0.9.0 a
+    0.10.0 sin una nota de release en ningún sitio, y los bundles
+    igual. Además, los Boundaries de T024 nombran
+    `presets/default/README.md` entre lo que `--bump` escribe, pero solo
+    el camino de publicación lo reescribe (las URLs de descarga), y
+    omiten `packages/*/src/*/__init__.py`, que el bump sí escribe
+    (review de #113). *Regla:*
+    la fila de Evidence de una tarea de bump se copia de lo que el
+    script imprime, no de la memoria del plan. *Pendiente de decisión:*
+    un `CHANGELOG.md` del preset que el bump también esqueletice (un
+    cambio de script, fuera de T024), o las notas de la ronda en
+    `docs/releases.md`.
+92. **Los bundles admiten un CLI que sus extensiones rechazan.** T018
+    subió el piso de las dos extensiones a `>=1.0.4` (C-004 lo acota a
+    "ambas extensiones") y dejó `>=1.0.1` en el preset y en los tres
+    bundles; con el bump de T024 cada bundle fija linear 0.13.0 y
+    code-review 0.5.0, así que un consumidor con 1.0.1–1.0.3 pasa la
+    comprobación del bundle y falla en la de la extensión — antes de la
+    ronda los pisos coincidían. La review de #113 lo confirmó.
+    *Pendiente de decisión:* que el piso de un bundle sea el máximo de
+    los de sus componentes (una línea por bundle y C-004 enmendada),
+    idealmente en la chore de publicación.
+94. **Una auditoría externa reprodujo siete defectos en una ronda dada por
+    cerrada.** Codex auditó el candidato de #113 (`740a9b9`) con once
+    hallazgos; siete eran reales y el orquestador los reprodujo contra el
+    código: (1) `issueArchive`/`issueUnarchive` seleccionaban `issue { id }`
+    y el payload real de Linear (`IssueArchivePayload`) se llama `entity`
+    — los mocks fabricaban el mismo campo, la suite pasaba y ninguna Issue
+    se archivó jamás (T027); (2) el guard dejaba pasar `+refspec`, `-vf`,
+    `;` pegado, saltos de línea, `-am`, `-m"…"`, `-F` y
+    `--delete-branch=true`, y además bloqueaba el heredoc
+    `$(cat <<'EOF' …)` con subject válido, la forma que Claude Code usa por
+    defecto (T014); (3) `other/../specs/…/spec.md` eludía `protected_paths`
+    (T014); (4) el matcher de reconcile no veía `git -C . push` ni
+    `gh --repo … pr ready` (T012), y `merge_root_first.py` y
+    `stack_propagate.py` no reconciliaban al terminar; (5) la línea de
+    `session_start` perdía NEXT con la pila entera `[x]` en review y no
+    nombraba los PR (T013); (6) `implement.md` corría prerequisites antes
+    de seleccionar la feature nombrada (T008); (7) `--limit 100` sin
+    paginar en los cuatro scripts que leen la pila. Otros dos eran
+    decisiones ya registradas (81, y 92, ahora resuelta: piso `>=1.0.4` en
+    los tres bundles), uno el parche 0003 incompleto por diseño (su README
+    lo decía; ahora lleva la segunda mitad: los templates evalúan
+    `condition`), y uno la evidencia de SC-002 (diez sesiones headless
+    corridas después: 10/10 con la línea). *Regla:* un mock que fabrica la
+    respuesta del proveedor no prueba el contrato — la selección GraphQL se
+    fija en el test contra el esquema real —, y un guard se prueba con la
+    lista de formas equivalentes del comando (clusters, `=valor`,
+    separadores pegados, redirecciones, heredoc), no con los flags que se
+    le ocurrieron al implementador. *Resueltas* en los PR de origen (#96,
+    #100, #101, #102, #103, #111) y en #113 lo transversal, propagadas con
+    la receta de `stack_propagate.py`; los presupuestos de T012, T013,
+    T014 y T027 quedaron por encima de su tope tras el fix, por decisión
+    humana. *Pendiente:* la mitad viva de T023 en Codex y la reconciliación
+    observada contra un proyecto de prueba en Linear siguen sin correr.

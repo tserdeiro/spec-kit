@@ -685,7 +685,7 @@ run_pr_create() {
 }
 
 pr_list_json_call() {
-  json_argv pr list --state open --limit 100 --json headRefName,baseRefName,isDraft
+  json_argv pr list --state open --limit 1000 --json headRefName,baseRefName,isDraft
 }
 repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
 
@@ -1278,7 +1278,7 @@ echo "ok: ignore"
 #    stops before the next retarget.
 # --------------------------------------------------------------------------
 
-merge_list_call=$(json_argv pr list --state open --limit 100 --json number,headRefName,baseRefName,isDraft)
+merge_list_call=$(json_argv pr list --state open --limit 1000 --json number,headRefName,baseRefName,isDraft)
 merge_root_first_pr_list=$'003-T003-c 003-T002-b false\n003-T001-a 003-feature false\n003-T002-b 003-T001-a false'
 
 run_merge_root_first() {

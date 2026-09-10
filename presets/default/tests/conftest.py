@@ -24,9 +24,9 @@ if fail_on and fail_on in " ".join(argv):
     sys.exit(1)
 if argv == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
     sys.stdout.write(os.environ.get("GH_DEFAULT_BRANCH", "main") + "\\n")
-elif argv == ["pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName,baseRefName,isDraft"]:
+elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "headRefName,baseRefName,isDraft"]:
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
-elif argv == ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,baseRefName,isDraft"]:
+elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "number,headRefName,baseRefName,isDraft"]:
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
 elif len(argv) == 6 and argv[0:3] == ["api", "-X", "PATCH"] and argv[3].startswith("repos/") and argv[4] == "-f":
     pass
@@ -41,6 +41,15 @@ _CHECK_PREREQUISITES = """#!/bin/sh
 printf 'BRANCH: 003-feature\\n'
 printf 'FEATURE_DIR: specs/003-feature\\n'
 """
+
+def install_fake_linear(repo: Path) -> Path:
+    """A fake linear extension whose ``run.sh`` appends its argv to the returned log file."""
+    run_sh = repo / ".specify/extensions/linear/scripts/bash/run.sh"
+    run_sh.parent.mkdir(parents=True)
+    calls = repo / "linear-calls.txt"
+    run_sh.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{calls}"\n', encoding="utf-8")
+    run_sh.chmod(0o755)
+    return calls
 
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:

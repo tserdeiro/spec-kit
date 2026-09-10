@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import install_fake_linear
 from spec_kit_linear import parser as linear_parser
 
 import _common
@@ -62,8 +63,26 @@ def test_run_gh_json_dies_on_a_failing_call(repo: Path, fake_gh: Path) -> None:
 def test_run_gh_json_dies_on_invalid_json(repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GH_PR_LIST_JSON", "not json")
     with pytest.raises(SystemExit) as excinfo:
-        _common.run_gh_json("pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName,baseRefName,isDraft", cwd=repo)
+        _common.run_gh_json("pr", "list", "--state", "open", "--limit", "1000", "--json", "headRefName,baseRefName,isDraft", cwd=repo)
     assert excinfo.value.code == 2
+
+def test_open_task_prs_filters_to_the_feature_and_drops_other_features(repo: Path, fake_gh: Path,
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_PR_LIST_JSON", json.dumps([
+        {"headRefName": "003-T001-x", "baseRefName": "003-feature", "isDraft": False},
+        {"headRefName": "004-T001-y", "baseRefName": "004-feature", "isDraft": False},
+    ]))
+    prs = _common.open_task_prs(repo, "003", "headRefName,baseRefName,isDraft")
+    assert [pr["headRefName"] for pr in prs] == ["003-T001-x"]
+
+def test_open_task_prs_dies_when_the_page_is_saturated(repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch,
+                                                          capsys: pytest.CaptureFixture[str]) -> None:
+    one_pr = {"headRefName": "003-T001-x", "baseRefName": "003-feature", "isDraft": False}
+    monkeypatch.setenv("GH_PR_LIST_JSON", json.dumps([one_pr] * _common._TASK_PR_LIMIT))
+    with pytest.raises(SystemExit) as excinfo:
+        _common.open_task_prs(repo, "003", "headRefName,baseRefName,isDraft")
+    assert excinfo.value.code == 2
+    assert "1000" in capsys.readouterr().err
 
 def test_die_writes_to_stderr_and_exits_2(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:
@@ -71,3 +90,16 @@ def test_die_writes_to_stderr_and_exits_2(capsys: pytest.CaptureFixture[str]) ->
     assert excinfo.value.code == 2
     captured = capsys.readouterr()
     assert (captured.out, captured.err) == ("", "error: something went wrong\n")
+
+def test_reconcile_linear_warns_when_the_extension_fails(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run_sh = repo / ".specify/extensions/linear/scripts/bash/run.sh"
+    run_sh.parent.mkdir(parents=True)
+    run_sh.write_text("#!/bin/sh\necho 'linear: boom' >&2\nexit 1\n", encoding="utf-8")
+    run_sh.chmod(0o755)
+    _common.reconcile_linear(repo)  # a failing reconcile never raises
+    assert capsys.readouterr().err == "warning: linear reconcile failed: linear: boom\n"
+
+def test_reconcile_linear_runs_push_hook_once(repo: Path) -> None:
+    calls = install_fake_linear(repo)
+    _common.reconcile_linear(repo)
+    assert calls.read_text(encoding="utf-8") == "push --hook\n"

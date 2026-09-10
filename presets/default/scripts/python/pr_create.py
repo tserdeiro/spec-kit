@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _common import check_prerequisites, delivery_base, die, first_unchecked, parse_ledger, run_gh_json, run_git
+from _common import check_prerequisites, delivery_base, die, first_unchecked, open_task_prs, parse_ledger, run_git
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = run_git(*args, cwd=repo_root)
@@ -47,12 +47,8 @@ def task(repo_root: Path, named_task: str) -> str:
     if branch_task != expected_task:
         die(f"branch {current} delivers {branch_task} but the task to deliver is {expected_task}")
     _git(repo_root, "fetch", "origin")
-    prs = run_gh_json(
-        "pr", "list", "--state", "open", "--limit", "100",
-        "--json", "headRefName,baseRefName,isDraft", cwd=repo_root,
-    )
-    heads = [pr["headRefName"] for pr in prs
-             if pr["headRefName"].startswith(f"{feature_number}-T") and not pr["isDraft"]]
+    prs = open_task_prs(repo_root, feature_number, "headRefName,baseRefName,isDraft")
+    heads = [pr["headRefName"] for pr in prs if not pr["isDraft"]]
     base = feature_branch
     for head in heads:
         if not _is_ancestor(repo_root, f"origin/{head}", "HEAD"):
