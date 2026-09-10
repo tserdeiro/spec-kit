@@ -16,8 +16,8 @@ It reads the native payload from stdin and blocks, before it takes effect
 (exit 2, a one-line message on stderr naming the fix): a `git commit` whose
 subject — however the message is given (`-m`, `--message`, `-F`/`--file`,
 or a heredoc) — does not follow `type(scope): subject`; a `git push`
-carrying any form of `--force`, including a `+refspec`; and a `gh pr merge`
-carrying `--delete-branch`. It also blocks an `Edit`/`Write` to a
+carrying any form of `--force`, including a `+refspec` or `--mirror`; and a
+`gh pr merge` carrying `--delete-branch`. It also blocks an `Edit`/`Write` to a
 `protected_paths` glob while on a task branch (`NNN-T###-...`). Every other
 tool, command, or branch — and any malformed payload or internal failure —
 is a silent no-op, exit 0.
