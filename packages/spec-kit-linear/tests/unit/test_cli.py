@@ -1038,6 +1038,18 @@ def _command_flags(parser) -> dict[str, list[str]]:
     }
 
 
+class LauncherTests(unittest.TestCase):
+    """Both launchers run uv quietly, so a parsed `--json` starts with the JSON (dogfooding entry 56)."""
+
+    def test_both_launchers_pass_q_to_uv(self) -> None:
+        package_root = Path(__file__).resolve().parents[2]
+        for launcher in ("scripts/bash/run.sh", "scripts/powershell/run.ps1"):
+            with self.subTest(launcher=launcher):
+                text = (package_root / launcher).read_text(encoding="utf-8")
+                self.assertIn("uv run --frozen --offline --project", text)
+                self.assertIn(" -q python -m spec_kit_linear.cli", text)
+
+
 class CommandSurfaceTests(CliTestCase):
     def test_only_six_commands_exist(self) -> None:
         from spec_kit_linear.cli import build_parser

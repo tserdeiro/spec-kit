@@ -79,14 +79,14 @@ class LauncherTests(unittest.TestCase):
         self.assertIn('extension_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)', text)
         self.assertIn("exit 4", text)
         self.assertIn("uv run --frozen --offline --project", text)
-        self.assertIn("python -m spec_kit_code_review.cli", text)
+        self.assertIn(" -q python -m spec_kit_code_review.cli", text)  # uv quiet: a parsed --json starts with the JSON
 
     def test_the_powershell_launcher_mirrors_it_including_the_exit_code(self) -> None:
         text = (PACKAGE_ROOT / "scripts" / "powershell" / "run.ps1").read_text(encoding="utf-8")
 
         self.assertIn("exit 4", text)
         self.assertIn("uv run --frozen --offline --project", text)
-        self.assertIn("python -m spec_kit_code_review.cli", text)
+        self.assertIn(" -q python -m spec_kit_code_review.cli", text)
 
     def test_no_launcher_or_manifest_hardcodes_a_development_checkout(self) -> None:
         for relative in ("scripts/bash/run.sh", "scripts/powershell/run.ps1", "extension.yml"):
