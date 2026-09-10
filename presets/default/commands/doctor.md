@@ -137,11 +137,11 @@ integration ("active-only registration"); this distribution's portability
 principle says no agent is second-class. Close that gap here, without ever
 overwriting one integration's own render with another's: extension and
 preset skills are copied whole from the default integration's directory;
-the four core commands with a registered preset append (`specify`, `plan`,
-`tasks`, `analyze`) keep each integration's own render and receive that
-append; a core command the preset **replaces** (`implement`) is copied
-whole instead, like an extension skill, since it has no
-integration-specific render to keep. Run `skill_mirror.py` — with the
+the three core commands with a registered preset append (`specify`,
+`plan`, `analyze`) keep each integration's own render and receive that
+append; the two core commands the preset **replaces** (`tasks`,
+`implement`) are copied whole instead, like an extension skill, since
+the preset's file is their whole render. Run `skill_mirror.py` — with the
 consumer's `.venv/bin/python` when it exists, else `python3` on PATH,
 the rule upstream's own `py` scripts follow. Its one argument replaces
 `<true|false>`: `true` when the user asked to fix, else `false`:
@@ -152,9 +152,14 @@ python3 .specify/presets/default/scripts/python/skill_mirror.py <true|false>
 
 A core render with no registered append or replace strategy (e.g.
 `checklist`) is never touched, and a core skill with an append only ever
-receives its own append text, never a whole copy, across integrations.
-Re-run after `bundle update` or
-`integration switch`: both refresh only the default agent's copies.
+receives its own append text, never a whole copy, across integrations; a
+registered command strategy the script does not compose (`prepend`,
+`wrap`) stops it before any write, naming the command. Re-run after
+`preset add` (the `preset remove` + `preset add` pair of a dev reinstall
+included), `bundle update`, or `integration switch`, which compose the
+preset for the default integration only, and after `integration upgrade
+<key> --force`, which re-renders that integration's core commands from
+upstream alone.
 
 ## 8. Add the installer's ignore entries
 
