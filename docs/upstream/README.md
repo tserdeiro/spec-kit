@@ -32,14 +32,19 @@ forks or vendors upstream (`AGENTS.md`). These files are the hand-off.
    `HookExecutor._evaluate_condition` already supports. The hooks stay
    registered — enabling an event later needs no reinstall — but
    `should_execute_hook` now gates each one on its own key instead of
-   the always-true default. Caveat carried in the patch itself: current
-   core command templates don't evaluate a hook's `condition` at all —
-   they skip any hook that has one (`docs/reference/extensions.md`) — so
-   until a template (or another `HookExecutor`-aware consumer) actually
-   reads the expression, this stops all sixteen from prompting
-   regardless of whether their event is enabled. It still closes the
-   no-op prompt dogfooding entry 25 names; it does not yet deliver a
-   live per-event prompt through the stock templates.
+   the always-true default. **Open it only as the first half of the
+   fix, or bundled with the second**: current core command templates do
+   not evaluate a hook's `condition` — they skip any hook that has one
+   (`docs/reference/extensions.md`) and nothing in `src/specify_cli`
+   calls `should_execute_hook` in production — so on its own this
+   stops all sixteen from being offered, including for a project that
+   has already enabled an event's auto-commit today; the second half is
+   the templates (or the dispatcher) evaluating the condition before
+   offering the hook. The expression honors only the per-event key, not
+   `auto_commit.default`'s "enable for all" shorthand (the grammar has
+   no disjunction), and a mistyped condition degrades silently to
+   never. It closes the no-op prompt dogfooding entry 25 names; it does
+   not yet deliver a live per-event prompt through the stock templates.
 
 ## Opening a patch upstream
 
