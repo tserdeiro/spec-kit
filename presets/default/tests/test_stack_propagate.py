@@ -28,6 +28,14 @@ def _commit(repo: Path, path: str, content: str) -> None:
     subprocess.run(["git", "add", path], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-q", "-m", "test: change file"], cwd=repo, check=True, capture_output=True)
 
+def _install_fake_linear(repo: Path) -> Path:
+    run_sh = repo / ".specify/extensions/linear/scripts/bash/run.sh"
+    run_sh.parent.mkdir(parents=True)
+    calls = repo / "linear-calls.txt"
+    run_sh.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{calls}"\n', encoding="utf-8")
+    run_sh.chmod(0o755)
+    return calls
+
 _CHAIN_PRS = json.dumps([
     {"headRefName": "003-T002-y", "baseRefName": "003-T001-x", "isDraft": False},
     {"headRefName": "003-T003-z", "baseRefName": "003-T002-y", "isDraft": False},
@@ -80,3 +88,29 @@ def test_empty_chain_reports_and_exits_0_without_touching_git(feature_repo: Path
     assert stack_propagate.propagate(feature_repo, "003-T001-x") == 0
     assert capsys.readouterr().out == "nothing stacked on 003-T001-x\n"
     assert _git_out(feature_repo, "branch", "--show-current") == "003-feature"
+
+def test_reconciles_linear_once_after_propagating(feature_repo: Path, fake_gh: Path,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    _push_branch(feature_repo, "003-T001-x")
+    _push_branch(feature_repo, "003-T002-y", "origin/003-T001-x")
+    _push_branch(feature_repo, "003-T003-z", "origin/003-T002-y")
+    monkeypatch.setenv("GH_PR_LIST_JSON", _CHAIN_PRS)
+    calls = _install_fake_linear(feature_repo)
+    assert stack_propagate.propagate(feature_repo, "003-T001-x") == 0
+    assert calls.read_text(encoding="utf-8").strip() == "push --hook"
+
+def test_reconcile_not_called_on_the_empty_chain(feature_repo: Path, fake_gh: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_PR_LIST_JSON", "[]")
+    calls = _install_fake_linear(feature_repo)
+    assert stack_propagate.propagate(feature_repo, "003-T001-x") == 0
+    assert not calls.exists()
+
+def test_reconcile_is_a_silent_no_op_without_the_extension(feature_repo: Path, fake_gh: Path,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    _push_branch(feature_repo, "003-T001-x")
+    _push_branch(feature_repo, "003-T002-y", "origin/003-T001-x")
+    _push_branch(feature_repo, "003-T003-z", "origin/003-T002-y")
+    monkeypatch.setenv("GH_PR_LIST_JSON", _CHAIN_PRS)
+    assert stack_propagate.propagate(feature_repo, "003-T001-x") == 0
+    assert not (feature_repo / ".specify/extensions/linear").exists()

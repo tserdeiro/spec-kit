@@ -5,7 +5,10 @@ Direct translation of today's stack-propagate shell block: walks the
 feature's open task-PR chain above ``fixed_branch``, in stack order,
 merging each with a "carry the fix" subject and pushing it; a conflict
 aborts and names the branch, an empty chain is reported without
-touching git.
+touching git. Pushing at least one branch ends by reconciling Linear
+(push --hook) when the extension is installed, same rule as
+task_base.py; a failing reconcile is a warning, never a failure of
+this script, and an empty chain reconciles nothing.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from _common import die, run_gh_json, run_git
+from _common import die, open_task_prs, reconcile_linear, run_git
 
 _TASK_RE = re.compile(r"^[0-9]+-(T[0-9]{3})-")
 
@@ -33,11 +36,7 @@ def _child(prs: list[dict[str, Any]], base: str) -> str | None:
 
 def propagate(repo_root: Path, fixed_branch: str) -> int:
     feature_number = fixed_branch.split("-", 1)[0]
-    prs = run_gh_json(
-        "pr", "list", "--state", "open", "--limit", "100",
-        "--json", "headRefName,baseRefName,isDraft", cwd=repo_root,
-    )
-    feature_prs = [pr for pr in prs if pr["headRefName"].startswith(f"{feature_number}-T")]
+    feature_prs = open_task_prs(repo_root, feature_number, "headRefName,baseRefName,isDraft")
     fixed_task = _task_id(fixed_branch)
     previous = fixed_branch
     current = _child(feature_prs, previous)
@@ -56,6 +55,7 @@ def propagate(repo_root: Path, fixed_branch: str) -> int:
         previous = current
         current = _child(feature_prs, previous)
     _git(repo_root, "switch", fixed_branch)
+    reconcile_linear(repo_root)
     return 0
 
 def main(argv: list[str]) -> int:

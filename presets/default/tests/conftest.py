@@ -24,9 +24,9 @@ if fail_on and fail_on in " ".join(argv):
     sys.exit(1)
 if argv == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
     sys.stdout.write(os.environ.get("GH_DEFAULT_BRANCH", "main") + "\\n")
-elif argv == ["pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName,baseRefName,isDraft"]:
+elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "headRefName,baseRefName,isDraft"]:
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
-elif argv == ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,baseRefName,isDraft"]:
+elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "number,headRefName,baseRefName,isDraft"]:
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
 elif len(argv) == 6 and argv[0:3] == ["api", "-X", "PATCH"] and argv[3].startswith("repos/") and argv[4] == "-f":
     pass

@@ -62,8 +62,26 @@ def test_run_gh_json_dies_on_a_failing_call(repo: Path, fake_gh: Path) -> None:
 def test_run_gh_json_dies_on_invalid_json(repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GH_PR_LIST_JSON", "not json")
     with pytest.raises(SystemExit) as excinfo:
-        _common.run_gh_json("pr", "list", "--state", "open", "--limit", "100", "--json", "headRefName,baseRefName,isDraft", cwd=repo)
+        _common.run_gh_json("pr", "list", "--state", "open", "--limit", "1000", "--json", "headRefName,baseRefName,isDraft", cwd=repo)
     assert excinfo.value.code == 2
+
+def test_open_task_prs_filters_to_the_feature_and_drops_other_features(repo: Path, fake_gh: Path,
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_PR_LIST_JSON", json.dumps([
+        {"headRefName": "003-T001-x", "baseRefName": "003-feature", "isDraft": False},
+        {"headRefName": "004-T001-y", "baseRefName": "004-feature", "isDraft": False},
+    ]))
+    prs = _common.open_task_prs(repo, "003", "headRefName,baseRefName,isDraft")
+    assert [pr["headRefName"] for pr in prs] == ["003-T001-x"]
+
+def test_open_task_prs_dies_when_the_page_is_saturated(repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch,
+                                                          capsys: pytest.CaptureFixture[str]) -> None:
+    one_pr = {"headRefName": "003-T001-x", "baseRefName": "003-feature", "isDraft": False}
+    monkeypatch.setenv("GH_PR_LIST_JSON", json.dumps([one_pr] * _common._TASK_PR_LIMIT))
+    with pytest.raises(SystemExit) as excinfo:
+        _common.open_task_prs(repo, "003", "headRefName,baseRefName,isDraft")
+    assert excinfo.value.code == 2
+    assert "1000" in capsys.readouterr().err
 
 def test_die_writes_to_stderr_and_exits_2(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as excinfo:

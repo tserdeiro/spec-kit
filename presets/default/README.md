@@ -116,7 +116,9 @@ order as a `--no-ff` commit (`merge(task): carry the <T### of
 fixed_branch> fix into <T### of that branch>`) and pushing it to
 `origin`. A merge conflict aborts, names the branch, and exits 2
 without touching the branches above it; an empty chain is reported and
-exits 0. Same interpreter rule as `task_base.py`.
+exits 0. Pushing at least one branch ends by reconciling Linear (same
+rule as `task_base.py`); an empty chain reconciles nothing. Same
+interpreter rule as `task_base.py`.
 
 `scripts/python/merge_root_first.py` (no argument) is the mechanical
 half of a human's explicit "yes, merge" on an open task-PR stack: self-
@@ -127,7 +129,9 @@ it (`gh pr merge <n> --merge`, never `--delete-branch` — the repository's
 auto-delete of merged branches does that cleanup instead). It prints one
 `merged #<n> <head>` line per PR, stops naming the PR number on a failing
 `gh` call, and reports `nothing to merge on <feature-branch>` on an empty
-stack. Same interpreter rule as `task_base.py`.
+stack. Merging at least one PR ends by reconciling Linear (same rule as
+`task_base.py`); an empty stack reconciles nothing. Same interpreter
+rule as `task_base.py`.
 
 `scripts/python/ledger_check.py <task_id>` verifies a task's ledger entry
 before its PR is marked `ready for review`: the checkbox must be `[x]`

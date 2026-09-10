@@ -14,7 +14,15 @@ import merge_root_first
 def _calls(log: Path) -> list[list[str]]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
 
-_LIST_CALL = ["pr", "list", "--state", "open", "--limit", "100",
+def _install_fake_linear(repo: Path) -> Path:
+    run_sh = repo / ".specify/extensions/linear/scripts/bash/run.sh"
+    run_sh.parent.mkdir(parents=True)
+    calls = repo / "linear-calls.txt"
+    run_sh.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{calls}"\n', encoding="utf-8")
+    run_sh.chmod(0o755)
+    return calls
+
+_LIST_CALL = ["pr", "list", "--state", "open", "--limit", "1000",
               "--json", "number,headRefName,baseRefName,isDraft"]
 
 _STACK_PRS = json.dumps([
@@ -65,3 +73,23 @@ def test_empty_stack_reports_and_exits_0(feature_repo: Path, fake_gh: Path, monk
     assert merge_root_first.merge_root_first(feature_repo) == 0
     assert capsys.readouterr().out == "nothing to merge on 003-feature\n"
     assert _calls(fake_gh) == [_LIST_CALL]
+
+def test_reconciles_linear_once_after_merging(feature_repo: Path, fake_gh: Path,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_PR_LIST_JSON", _STACK_PRS)
+    calls = _install_fake_linear(feature_repo)
+    assert merge_root_first.merge_root_first(feature_repo) == 0
+    assert calls.read_text(encoding="utf-8").strip() == "push --hook"
+
+def test_reconcile_not_called_on_the_empty_stack(feature_repo: Path, fake_gh: Path,
+                                                   monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_PR_LIST_JSON", "[]")
+    calls = _install_fake_linear(feature_repo)
+    assert merge_root_first.merge_root_first(feature_repo) == 0
+    assert not calls.exists()
+
+def test_reconcile_is_a_silent_no_op_without_the_extension(feature_repo: Path, fake_gh: Path,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_PR_LIST_JSON", _STACK_PRS)
+    assert merge_root_first.merge_root_first(feature_repo) == 0
+    assert not (feature_repo / ".specify/extensions/linear").exists()
