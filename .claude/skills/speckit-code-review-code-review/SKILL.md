@@ -1,14 +1,11 @@
 ---
 name: speckit-code-review-code-review
-description: Review the pending diff, or a pull-request candidate; publish only with
-  an explicit flag.
+description: Review the pending diff, or a pull-request candidate; publish only with an explicit flag.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: extension:code-review
+  source: code-review:commands/code-review.md
 ---
-
-# Code Review Code Review Skill
 
 # Spec Kit code review
 

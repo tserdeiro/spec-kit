@@ -10,6 +10,8 @@ metadata:
 
 # Speckit Tasks Skill
 
+# Spec Kit Tasks
+
 ## User Input
 
 ```text
@@ -18,240 +20,28 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty).
 
-## Pre-Execution Checks
+## Setup
 
-**Check for extension hooks (before tasks generation)**:
-- Check if `.specify/extensions.yml` exists in the project root.
-- If it exists, read it and look for entries under the `hooks.before_tasks` key
-- If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
-  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
-- When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
-- For each executable hook, output the following based on its `optional` flag:
-  - **Optional hook** (`optional: true`):
-    ```
-    ## Extension Hooks
+1. Run `.specify/scripts/bash/setup-tasks.sh --json` from the repository root; parse `FEATURE_DIR`, `TASKS_TEMPLATE_CONTENT` (or `TASKS_TEMPLATE`, when an older setup script omits the content field), and `AVAILABLE_DOCS`. Every path is absolute.
+2. **Load the artifacts** — `plan.md` and `spec.md` from `FEATURE_DIR` (required); `data-model.md`, `contracts/`, `research.md`, and `quickstart.md` when `AVAILABLE_DOCS` lists them; `.specify/memory/constitution.md` when present.
+3. **Load the template** — `TASKS_TEMPLATE_CONTENT`, or the file `TASKS_TEMPLATE` names.
+4. **Hooks, silently** — read `.specify/extensions.yml`'s `hooks.before_tasks` (skip entirely, silently, on a missing file, a missing key, or invalid YAML). Among entries whose `enabled` is not explicitly `false` and whose `condition` is empty (a non-empty `condition` is left to the HookExecutor): invoke a **mandatory** hook (`optional: false`) as its own slash command — dots become hyphens, e.g. `speckit.git.commit` → `/speckit-git-commit` — and wait for it before continuing; run an **optional** hook the same way, silently, only when its own extension enables its event — for `git.commit`, that gate is `auto_commit.<event>.enabled: true` in `.specify/extensions/git/git-config.yml`, regardless of `auto_commit.default`; skip every other optional hook, silently. Nothing about a hook is ever printed. The same rule governs `hooks.after_tasks` — see Completion below.
 
-    **Optional Pre-Hook**: {extension}
-    Command: `/{command}`
-    Description: {description}
+## The ledger rules
 
-    Prompt: {prompt}
-    To execute: `/{command}`
-    ```
-  - **Mandatory hook** (`optional: false`):
-    ```
-    ## Extension Hooks
+Fill the template's task blocks — organized by user story, in priority order from `spec.md`, except where dependency order below takes precedence — under these rules:
 
-    **Automatic Pre-Hook**: {extension}
-    Executing: `/{command}`
-    EXECUTE_COMMAND: {command}
+- **One task at a time, no `[P]` marker, no parallel-execution example.** Order every task by its dependencies alone (`Depends on`), so the list reads as the sequence one developer follows; who takes which task is Linear assignment, never a marker here.
+- **Dependency order wins over user-story priority when they conflict** — a task with no caller yet cannot be verified. Tasks form one chain in file order: `Depends on` documents that order and never chooses the base — delivery stacks the next task on the open, ready task PR, or starts from the feature branch when none is open.
+- **The resolved template rules the sections and files this ledger produces** — only the sections `TASKS_TEMPLATE_CONTENT` defines, at the density of the previous feature's own ledger.
+- **Every `Delivery` line carries its forecast as `(~N authored lines)`** — the review budget's count of added executable lines — sized to the task's whole deliverable (the change itself, its tests, its manifest entry, its conformance conversion), never only the size of what it replaces. A prose-only task forecasts its diff size the same way; the budget stop counts executable lines alone, so it stays moot for that task without excusing it from stating a forecast.
+- **`single PR` means one PR for the task.** Stacking the next task's branch on this one's open PR is the loop's own topology, never a choice a task's `Delivery` line makes.
+- **IDs are permanent once this command commits the ledger** (Completion, below). A task added later takes the next unused ID; existing tasks are never renumbered.
 
-    Wait for the result of the hook command before proceeding to the Outline.
-    ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
+## Completion
 
-## Outline
+Run `.specify/extensions.yml`'s `hooks.after_tasks` by Setup step 4's own rule — silently, mandatory hooks awaited, eligible optional hooks run quietly, every other one skipped.
 
-1. **Setup**: Run `.specify/scripts/bash/setup-tasks.sh --json` from repo root and parse FEATURE_DIR, TASKS_TEMPLATE_CONTENT, TASKS_TEMPLATE, and AVAILABLE_DOCS list. `FEATURE_DIR` and `TASKS_TEMPLATE` must be absolute paths when provided. `AVAILABLE_DOCS` is a list of document names/relative paths available under `FEATURE_DIR` (for example `research.md` or `contracts/`). For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+Commit the feature's artifacts: stage only `specs/<feature-directory>/` — never anything outside it, however dirty the rest of the tree is — and commit with a `type(scope): subject` message in English naming this phase's artifact (e.g. `docs(specs): <feature> — tasks`). Skip the commit silently when those paths hold no changes; no reminder and no announcement beyond the commit appearing in the report below.
 
-2. **Load design documents**: Read from FEATURE_DIR:
-   - **Required**: plan.md (tech stack, libraries, structure), spec.md (user stories with priorities)
-   - **Optional**: data-model.md (entities), contracts/ (interface contracts), research.md (decisions), quickstart.md (test scenarios)
-   - **IF EXISTS**: Load `.specify/memory/constitution.md` for project principles and governance constraints
-   - Note: Not all projects have all documents. Generate tasks based on what's available.
-
-3. **Execute task generation workflow**:
-   - Load plan.md and extract tech stack, libraries, project structure
-   - Load spec.md and extract user stories with their priorities (P1, P2, P3, etc.)
-   - If data-model.md exists: Extract entities and map to user stories
-   - If contracts/ exists: Map interface contracts to user stories
-   - If research.md exists: Extract decisions for setup tasks
-   - Generate tasks organized by user story (see Task Generation Rules below)
-   - Generate dependency graph showing user story completion order
-   - Create parallel execution examples per user story
-   - Validate task completeness (each user story has all needed tasks, independently testable)
-
-4. **Generate tasks.md**: Use TASKS_TEMPLATE_CONTENT (from the JSON output above) as the structure. For compatibility with older setup scripts that omit TASKS_TEMPLATE_CONTENT, read TASKS_TEMPLATE instead. Fill with:
-   - Correct feature name from plan.md
-   - Phase 1: Setup tasks (project initialization)
-   - Phase 2: Foundational tasks (blocking prerequisites for all user stories)
-   - Phase 3+: One phase per user story (in priority order from spec.md)
-   - Each phase includes: story goal, independent test criteria, tests (if requested), implementation tasks
-   - Final Phase: Polish & cross-cutting concerns
-   - All tasks must follow the strict checklist format (see Task Generation Rules below)
-   - Clear file paths for each task
-   - Dependencies section showing story completion order
-   - Parallel execution examples per story
-   - Implementation strategy section (MVP first, incremental delivery)
-
-## Mandatory Post-Execution Hooks
-
-**You MUST complete this section before reporting completion to the user.**
-
-Check if `.specify/extensions.yml` exists in the project root.
-- If it does not exist, or no hooks are registered under `hooks.after_tasks`, skip to the Completion Report.
-- If it exists, read it and look for entries under the `hooks.after_tasks` key.
-- If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
-  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
-- When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
-- For each executable hook, output the following based on its `optional` flag:
-  - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
-    ```
-    ## Extension Hooks
-
-    **Automatic Hook**: {extension}
-    Executing: `/{command}`
-    EXECUTE_COMMAND: {command}
-    ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
-  - **Optional hook** (`optional: true`):
-    ```
-    ## Extension Hooks
-
-    **Optional Hook**: {extension}
-    Command: `/{command}`
-    Description: {description}
-
-    Prompt: {prompt}
-    To execute: `/{command}`
-    ```
-
-## Completion Report
-
-Output path to generated tasks.md and summary:
-- Total task count
-- Task count per user story
-- Parallel opportunities identified
-- Independent test criteria for each story
-- Suggested MVP scope (typically just User Story 1)
-- Format validation: Confirm ALL tasks follow the checklist format (checkbox, ID, labels, file paths)
-
-Context for task generation: $ARGUMENTS
-
-The tasks.md should be immediately executable - each task must be specific enough that an LLM can complete it without additional context.
-
-## Task Generation Rules
-
-**CRITICAL**: Tasks MUST be organized by user story to enable independent implementation and testing.
-
-**Tests are OPTIONAL**: Only generate test tasks if explicitly requested in the feature specification or if user requests TDD approach.
-
-### Checklist Format (REQUIRED)
-
-Every task MUST strictly follow this format:
-
-```text
-- [ ] [TaskID] [P?] [Story?] Description with file path
-```
-
-**Format Components**:
-
-1. **Checkbox**: ALWAYS start with `- [ ]` (markdown checkbox)
-2. **Task ID**: Sequential number (T001, T002, T003...) in execution order
-3. **[P] marker**: Include ONLY if task is parallelizable (different files, no dependencies on incomplete tasks)
-4. **[Story] label**: REQUIRED for user story phase tasks only
-   - Format: [US1], [US2], [US3], etc. (maps to user stories from spec.md)
-   - Setup phase: NO story label
-   - Foundational phase: NO story label
-   - User Story phases: MUST have story label
-   - Polish phase: NO story label
-5. **Description**: Clear action with exact file path
-
-**Examples**:
-
-- ✅ CORRECT: `- [ ] T001 Create project structure per implementation plan`
-- ✅ CORRECT: `- [ ] T005 [P] Implement authentication middleware in src/middleware/auth.py`
-- ✅ CORRECT: `- [ ] T012 [P] [US1] Create User model in src/models/user.py`
-- ✅ CORRECT: `- [ ] T014 [US1] Implement UserService in src/services/user_service.py`
-- ❌ WRONG: `- [ ] Create User model` (missing ID and Story label)
-- ❌ WRONG: `T001 [US1] Create model` (missing checkbox)
-- ❌ WRONG: `- [ ] [US1] Create User model` (missing Task ID)
-- ❌ WRONG: `- [ ] T001 [US1] Create model` (missing file path)
-
-### Task Organization
-
-1. **From User Stories (spec.md)** - PRIMARY ORGANIZATION:
-   - Each user story (P1, P2, P3...) gets its own phase
-   - Map all related components to their story:
-     - Models needed for that story
-     - Services needed for that story
-     - Interfaces/UI needed for that story
-     - If tests requested: Tests specific to that story
-   - Mark story dependencies (most stories should be independent)
-
-2. **From Contracts**:
-   - Map each interface contract → to the user story it serves
-   - If tests requested: Each interface contract → contract test task [P] before implementation in that story's phase
-
-3. **From Data Model**:
-   - Map each entity to the user story(ies) that need it
-   - If entity serves multiple stories: Put in earliest story or Setup phase
-   - Relationships → service layer tasks in appropriate story phase
-
-4. **From Setup/Infrastructure**:
-   - Shared infrastructure → Setup phase (Phase 1)
-   - Foundational/blocking tasks → Foundational phase (Phase 2)
-   - Story-specific setup → within that story's phase
-
-### Phase Structure
-
-- **Phase 1**: Setup (project initialization)
-- **Phase 2**: Foundational (blocking prerequisites - MUST complete before user stories)
-- **Phase 3+**: User Stories in priority order (P1, P2, P3...)
-  - Within each story: Tests (if requested) → Models → Services → Endpoints → Integration
-  - Each phase should be a complete, independently testable increment
-- **Final Phase**: Polish & Cross-Cutting Concerns
-
-## Done When
-
-- [ ] tasks.md generated with all phases, task IDs, and file paths
-- [ ] Extension hooks dispatched or skipped according to the rules in Mandatory Post-Execution Hooks above
-- [ ] Completion reported to user with task count, story breakdown, and MVP scope
-
-
-
-## One task at a time (tserdeiro/spec-kit)
-
-This distribution delivers tasks strictly one at a time, one branch and
-one draft PR each — **where the core guidance above differs, this rule
-wins**: emit no `[P]` markers and no parallel-execution examples. Order
-every task by its dependencies alone (`Depends on`), so the list reads
-as the sequence one developer follows. Who takes which task is decided
-by assignment in Linear, never by markers in this file.
-
-Tasks form one chain in file order: **Depends on** documents that order
-and never chooses the base — delivery always stacks the next task on the
-open, ready task PR, or starts from the feature branch when none is
-open, so the ledger accumulates every checked box on one stack.
-
-Every task's `**Delivery**:` line carries its forecast as
-`(~N authored lines)` — the review budget's count of added executable
-lines — so the delivery loop can stop the task at twice it.
-
-## Phase close (tserdeiro/spec-kit)
-
-This distribution closes every product phase silent and committed —
-**where the hook and report rules above differ, these rules win**:
-
-- **Hooks are acted on, never announced.** Wherever the core text above
-  says to print an "Optional Hook" / "Optional Pre-Hook" block, print
-  nothing. An optional hook whose own extension configuration enables its
-  event (check under `.specify/extensions/<extension>/`) is executed
-  silently; every other optional hook is skipped silently. Mandatory
-  hooks behave exactly as the core text says.
-- **The phase ends committed.** After this command's own report, commit
-  the feature's artifacts: stage only `specs/<feature-directory>/` — the
-  active feature's directory, never anything outside it, however dirty
-  the rest of the tree is — and commit with a `type(scope): subject`
-  message in English naming the phase's artifact (e.g.
-  `docs(specs): <feature> — implementation plan`). When those paths hold
-  no changes, skip the commit silently. No reminders and no announcement
-  beyond the commit appearing in the report's evidence, if this command
-  reports any.
+Report: the path to the generated `tasks.md`; the phase-close commit's subject, if one was made; the total task count and the count per user story; the independent-test criterion for each story; the suggested MVP scope; and confirmation every task follows the template's checklist format.

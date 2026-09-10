@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: code-review
   name: Spec Kit Code Review
-  version: "0.4.0"
+  version: "0.5.0"
   description: >-
     One agentic review command: the pending diff of the working tree, or a
     pull-request candidate, against the repository's versioned review rules and
@@ -14,7 +14,7 @@ extension:
   license: MIT
 
 requires:
-  speckit_version: ">=1.0.1,<1.1.0"
+  speckit_version: ">=1.0.4,<1.1.0"
   tools:
     - name: uv
       required: true
@@ -33,17 +33,11 @@ provides:
     - name: speckit.code-review.doctor
       file: commands/doctor.md
       description: Validate git, ocr, gh, configuration, and rules; --fix applies the local repairs
-    - name: speckit.code-review.completions
-      file: commands/completions.md
-      description: Print a bash or zsh completion script for the review CLI
 
-hooks:
-  after_implement:
-    command: speckit.code-review
-    optional: true
-    priority: 30
-    prompt: Review the pending diff before opening a pull request?
-    description: Advisory review of the working tree before a pull request exists
+events:
+  pre_tool_use:
+    command: guard
+    matcher: "Bash|Edit|Write"
 
 tags:
   - code-review

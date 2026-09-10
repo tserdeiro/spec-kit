@@ -23,7 +23,6 @@ sanitized diagnostics.
 | `push` | Projects the current feature state. Preview by default, `--apply` writes. Idempotent. |
 | `status` | Reports the local feature state and its Linear projection. Never writes. |
 | `doctor` | Diagnoses prerequisites, with `--fix` for the mechanical ones. |
-| `completions` | Prints a bash or zsh completion script. |
 
 Flags, in full:
 
@@ -43,6 +42,22 @@ and honors the `hooks.*` gates. `after_plan` projects the feature's Project
 with zero Issues even before `tasks.md` exists; `after_tasks` adds the
 Issues once the ledger does. Every later state transition is Linear's
 native GitHub integration's job; `push` remains the idempotent reconciler.
+
+## Session start
+
+Configured, this extension also runs as a `session_start` runtime-event
+handler (Claude Code, Codex, Cursor): every session on a feature, task, or
+work-item branch reconciles Linear (`push --hook`, with `--current` added
+only on a feature/task branch) and prints one context line naming the
+branch's state and the next command, before the agent does anything else.
+Silent, exit `0`, on any other branch shape or without configuration.
+
+## Post tool use
+
+The same extension also handles `post_tool_use` (matcher `Bash`): after a
+`git push` or a `gh pr create`/`ready`/`merge`, it reconciles Linear the same
+way (`push --hook`); every other command, a non-Bash tool, or a malformed
+payload is a silent no-op, exit `0`.
 
 ## Getting started
 
@@ -100,14 +115,15 @@ Every `push` and every `status` re-derives each task's state from what can be
 observed right now. Nothing is remembered between runs and no event is
 listened for, so a missed webhook cannot desynchronize anything.
 
-| Observed | Derived state | Linear state |
-| --- | --- | --- |
-| A merged PR | `completed` | `completed_state_id` |
-| An open, ready-for-review PR | `review` | `review_state_id` |
-| An open draft PR | `started` | `started_state_id` |
-| `[x]` in `tasks.md` (no live PR) | `completed` | `completed_state_id` |
-| A branch | `started` | `started_state_id` |
-| Nothing | `unstarted` | `open_state_id` |
+| Observed | Derived state | Linear state | Next action |
+| --- | --- | --- | --- |
+| A merged PR | `completed` | `completed_state_id` | — |
+| An open, ready-for-review PR | `review` | `review_state_id` | wait for the human merge |
+| An open draft PR | `started` | `started_state_id` | `/speckit.code-review <n>` |
+| `[x]` in `tasks.md` (no live PR) | `completed` | `completed_state_id` | — |
+| A branch | `started` | `started_state_id` | `/speckit.pr` |
+| Nothing | `unstarted` | `open_state_id` | `/speckit.implement <feature>` |
+| Gone from `tasks.md` (Issue archived, restored if the task returns) | — | — | — |
 
 The first row that applies wins: the box is checked inside the task PR
 before `ready for review`, so an observable PR is always the fresher
@@ -115,6 +131,10 @@ witness and the checkbox decides only once no live PR remains. Branches and pull
 they follow the convention `NNN-Txxx`, optionally with a `-suffix`
 (`001-T004`, `001-T004-add-parser`); several PRs on one task — stacked PRs —
 report the furthest that task reached.
+
+`status` and the `session_start` context line print **Next action** as
+shown here: a runnable command, or the literal "wait for the human merge"
+— never a manual gesture to translate (FR-004).
 
 Branches are read from the refs Git already has (`refs/heads` and
 `refs/remotes/origin`): no fetch, no network. Pull requests are read with one
@@ -131,12 +151,13 @@ plan, and no `tasks.md` row. This extension never creates one and never edits
 its content — the only thing it projects is its workflow state, from the same
 two observations, on the same map minus the checkbox row:
 
-| Observed | Derived state |
-| --- | --- |
-| A merged PR | `completed` |
-| An open, ready-for-review PR | `review` |
-| An open draft PR, or a branch | `started` |
-| Nothing | *left untouched* |
+| Observed | Derived state | Next action |
+| --- | --- | --- |
+| A merged PR | `completed` | — |
+| An open, ready-for-review PR | `review` | wait for the human merge |
+| An open draft PR | `started` | `/speckit.code-review <n>` |
+| A branch | `started` | `/speckit.pr` |
+| Nothing | *left untouched* | — |
 
 The convention is the Issue key itself: a branch (local or `origin/`) named
 `<team key>-<number>`, optionally with a `-suffix` and optionally behind a
@@ -201,13 +222,14 @@ overrides that destination — and only the destination.
 
 ## What push will never do
 
-Delete or archive anything; create sub-issues or checklists; assign anyone
+Delete anything; archiving is the one reversible removal, and only of the
+Issues it created; create sub-issues or checklists; assign anyone
 (assignment is native Linear: the UI or the official Linear MCP acting as
 the human); touch a project lead, project members, or human comments;
 rewrite content outside its own `<!-- speckit-linear:... -->` managed
 block; create a bug or chore Issue, or change anything about one except
 its workflow state; or touch any file under `specs/`. The complete write
-surface is nine operation kinds with an enumerated input field list each
+surface is eleven operation kinds with an enumerated input field list each
 — see [`src/spec_kit_linear/allowlist.py`](src/spec_kit_linear/allowlist.py).
 
 ## Exit codes
@@ -242,12 +264,3 @@ announces a non-production endpoint on every invocation. It pins the endpoint
 override to a loopback destination and refuses to run if the effective
 endpoint would be production, so credentials on a machine cannot change what
 conformance touches.
-
-## Shell completions
-
-```bash
-eval "$(spec-kit-linear completions bash)"   # or: zsh
-```
-
-The script is generated from the argparse tree itself, so it can never drift
-from the real command surface.

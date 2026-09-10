@@ -7,8 +7,23 @@ siempre al día **sin que nadie lo actualice a mano**. Construido sobre
 [GitHub Spec Kit](https://github.com/github/spec-kit), sin fork: solo
 composición.
 
+## 🎯 Tu día en cuatro comandos
+
+Con una feature ya especificada, tu día se resume en cuatro comandos:
+
+- **`/speckit.linear.status`** — dónde estás; la misma orientación que
+  ya te imprime sola cada sesión, para pedirla vos cuando quieras.
+- **`/speckit.implement <feature>`** — entrega la próxima tarea de punta
+  a punta: rama, código, PR draft, auto-revisión y `ready for review`.
+- **`/speckit.code-review <n> --publish`** — revisa el PR de otra
+  persona.
+- **`/speckit.doctor`** (`--fix` para lo mecánico) — cura el setup.
+
+Mergear sigue siendo siempre una decisión humana — nunca un comando.
+
 ## Tabla de contenidos
 
+- [🎯 Tu día en cuatro comandos](#-tu-día-en-cuatro-comandos)
 - [🤔 ¿Qué es esto?](#-qué-es-esto)
 - [⚡ Primeros pasos](#-primeros-pasos)
 - [👥 ¿Qué rol soy?](#-qué-rol-soy)
@@ -47,8 +62,10 @@ y en versiones exactas.
 
 ## ⚡ Primeros pasos
 
-Cinco pasos y tu repo queda conectado a tu agente, a Linear y al motor de
-revisión. Prerrequisitos: `git`, [`uv`](https://docs.astral.sh/uv/), `gh`
+Cuatro pasos y tu repo queda conectado a tu agente, a Linear y al motor de
+revisión. Prerrequisitos: `git`, [`uv`](https://docs.astral.sh/uv/),
+[Python 3.11+](https://www.python.org/downloads/) (el mismo que exige
+Spec Kit; corre los scripts del preset y los hooks), `gh`
 ([GitHub CLI](https://cli.github.com/), autenticado con `gh auth login`) y
 `node`/`npm` (los usa el motor de revisión). Para el paso 4, una API key
 de Linear (Linear → Settings → API → Personal API keys).
@@ -86,34 +103,22 @@ specify bundle catalog add https://raw.githubusercontent.com/tserdeiro/spec-kit/
 specify bundle install developer   # o: product | reviewer
 ```
 
-### 4. Conecta Linear
+### 4. Cierra el setup con el doctor
 
-`onboard` resuelve y **crea** solo todo lo vinculable — el label del
-repositorio, sus dos vistas compartidas y el mapeo PR→estado del equipo —
-y escribe `speckit-linear.yml` (se commitea: sin secretos). Tu API key
-vive en `.speckit-linear.env`, gitignoreado — al pasarla inline, `onboard`
-la persiste ahí solo; si aún no diste ninguna, `doctor --fix` crea el
-template para pegarla. Desde tu agente,
-`/speckit.linear.onboard`, o:
+Con el bundle instalado, un solo comando termina de conectar Linear y el
+motor de revisión: `/speckit.doctor`. Reporta lo que falta siempre en el
+mismo orden — el intérprete de Python (el `.venv` del repo si existe, si
+no `python3` en PATH), `gh auth`, la API key de Linear
+(`.speckit-linear.env`, gitignoreada; `--fix` crea el template para
+pegarla), el binding de `/speckit.linear.onboard`, la instalación del
+motor de revisión, y los settings de entrega de GitHub — nombrando el
+comando exacto que resuelve cada uno. `/speckit.doctor --fix` aplica la
+parte mecánica; dos huecos quedan siempre solo reportados: el intérprete
+(instalarlo o activarlo es decisión tuya) y los settings de GitHub
+(aplicarlos es alcance de la ronda de releases).
 
-```bash
-LINEAR_API_KEY=... bash .specify/extensions/linear/scripts/bash/run.sh onboard --team-key <EQUIPO> --repository <slug>
-```
-
-El equipo necesita los estados `In Progress` e `In Review`; si falta uno,
-todo funciona igual pero ese paso no se refleja (verás un aviso).
-
-### 5. Prepara el motor de revisión
-
-`doctor --fix` crea la configuración e instala el motor verificando su
-firma. Desde tu agente, `/speckit.code-review.doctor`, o:
-
-```bash
-bash .specify/extensions/code-review/scripts/bash/run.sh doctor --fix
-```
-
-Listo. Ante cualquier falla futura, los dos `doctor --fix` (Linear y
-review) son el primer auxilio.
+Listo. Ante cualquier falla futura, `/speckit.doctor --fix` es el primer
+auxilio.
 
 ## 👥 ¿Qué rol soy?
 
@@ -149,79 +154,68 @@ con el estado que Linear refleja solo:
 | 7. Revisión final | el revisor: `/speckit.code-review --publish` más su revisión humana; una persona mergea al branch de feature | *Done* |
 | 8. Cierre | todas `[x]` → marcas el PR de feature `ready` → revisión de la película completa → una persona mergea al branch de entrega con **merge commit** (el branch se borra); `/speckit.linear.push --apply` reconcilia | — |
 
-Los pasos 4–6 los orquesta `/speckit.implement` solo, tarea por tarea;
-cada comando también puede correrse suelto.
+Los pasos 4–6 (abrir el PR, auto-revisarse, marcar `ready for review`)
+los orquesta `/speckit.implement` solo, tarea por tarea; cada comando
+también puede correrse suelto, y el detalle de cada paso en la tabla
+sigue valiendo tal cual.
 
-Reglas de oro:
+Reglas de oro. Lo que hacés vos:
 
-- **Una tarea en vuelo por dev, nunca en paralelo**: se entregan de a
-  una, en orden de dependencias (las listas no llevan marcadores `[P]`).
-  `ready for review` te libera para la siguiente: la siguiente tarea se
-  apila sobre el PR ready sin mergear de la anterior (línea `Stack:`) o
-  sale del branch de feature si no hay ninguno abierto — un solo stack
-  por feature.
-- **El checkbox viaja dentro del PR de la tarea**: tras la auto-revisión,
-  el último commit del PR marca `[x]` y llena la **Completion evidence**
-  (PR, verificación). Llega al branch de feature únicamente vía el merge
-  humano — ahí `[x]` = mergeado, por construcción — y nadie vuelve a
-  tocar tareas pasadas; comentarios del reviewer se corrigen en el mismo
-  PR. En la proyección a Linear un PR abierto pesa más que el checkbox:
-  una tarea en review nunca aparece como *Done*.
+- **Una tarea en vuelo, nunca en paralelo**: se entregan de a una, en
+  orden de dependencias (las listas no llevan marcadores `[P]`);
+  `ready for review` te libera para la siguiente.
+- **El checkbox y la Completion evidence viajan en el último commit del
+  PR de la tarea**: llegan al branch de feature únicamente vía el merge
+  humano — ahí `[x]` = mergeado, por construcción; un comentario del
+  reviewer se corrige en ese mismo PR, nunca tocando tareas pasadas.
+- **Nunca actualices Linear a mano**: la proyección sigue al repositorio
+  (branches, PRs, checkboxes); `push` es la reconciliación idempotente
+  si algo no cuadra, y no escribe nada si no cambió nada.
+
+<details>
+<summary>Lo que garantiza el loop</summary>
+
 - **El branch de feature (`NNN-slug`) es la integración**: los branches
-  de tarea salen de él actualizado y sus PRs vuelven a él; la feature
-  entra al branch de entrega **una sola vez**, con merge commit — nada a
-  medias llega antes. Bugs y chores también van al branch de entrega.
-  Por defecto los comandos usan el default de GitHub; si el trunk real es
-  otro, configura `trunk: <branch>` en
-  `.specify/extensions/git/git-config.yml` (este repo declara
-  `trunk: main`) — ese valor explícito tiene prioridad para el PR de
-  feature y el primer refresh de `/speckit.implement`. Los PRs de tarea
-  van a la feature activa y los de bug/chore al branch de entrega.
-- **Nunca actualices Linear a mano**: el Project y los Issues nacen solos
-  en plan/tareas, los estados los mueve la integración nativa por eventos
-  de PR, y `push --apply` es la reconciliación idempotente que repara lo
-  que falte. Si no cambió nada, no escribe nada.
-- **PRs chicos**: máximo ~400 líneas ejecutables escritas por ti; una
-  tarea mayor se parte en
-  [Stacked PRs](https://docs.github.com/en/pull-requests/get-started/stacked-prs-quickstart)
-  (cada uno nombra al anterior en su línea `Stack:`). El loop frena la
-  tarea antes de abrir (o marcar ready) el PR cuando sus líneas
-  ejecutables añadidas pasan el doble del forecast de su línea
-  `Delivery` (o 400, lo que llegue primero) y vuelve al humano con el
-  diagnóstico; un forecast nunca se amplía en el PR que lo excede; el
-  comando de revisión sigue avisando sobre 400.
-- **El body del PR usa el template canónico**
-  [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md);
-  `/speckit.pr` lo llena solo desde los artefactos.
-- La revisión **nunca aprueba ni mergea** — siempre humano. Exit 1
-  significa "hay hallazgos que corregir", no que algo falló.
-- **El loop nunca mergea**: deja cada PR ready con su review fresca
-  cerrada; el humano revisa y mergea **raíz-primero** (GitHub reapunta
-  el PR de arriba con un evento `edited` que no relanza tests ni
-  conformance, solo el check de naming lo escucha; de la hoja hacia
-  abajo, en cambio, cada merge sincroniza los PRs abiertos debajo y
-  relanza toda la CI en cada paso) — o se lo pide al agente en la
-  conversación, que corre `git worktree prune` y, raíz-primero, fija
-  por API la base de cada PR antes de mergearlo (`gh api -X PATCH
-  repos/<owner>/<repo>/pulls/<n> -f base=<rama-feature>`) y lo mergea
-  con `gh pr merge --merge`, nunca `--delete-branch`: cierra el PR
-  apilado antes del reapunte; el auto-borrado del repo limpia las
-  ramas. Un ruleset de
-  GitHub que exija aprobación en ramas `NNN-*` se activa solo cuando
-  haya un segundo revisor o una identidad bot para el agente — en un
-  repo de una sola persona bloquearía al maintainer, porque GitHub no
-  cuenta la aprobación del autor del PR.
-- **El stack se deriva, no se inventa**: mandan la tarea y la sección
-  `## Documentation` del plan; si no, el agente lee los manifests reales
-  y el código vecino y reutiliza lo instalado. Una dependencia nueva o
-  reimplementar lo que una lib cubre es **decisión humana**, y una API
-  desconocida se verifica contra su doc oficial antes de usarse.
-  Declara el principio en tu constitución (`/speckit.constitution`);
-  tip opcional: el MCP de [Context7](https://context7.com) sirve docs
-  actualizadas por versión.
-- **Un revert es una tarea**: se entrega por el loop igual que
-  cualquier otra, y su commit lleva `revert(scope): <subject>`, nunca el
-  subject por defecto de `git revert`.
+  de tarea salen de él y sus PRs vuelven a él; la feature entra al
+  branch de entrega una sola vez, con merge commit. Bugs y chores van
+  directo al branch de entrega. `trunk: <branch>` en
+  `.specify/extensions/git/git-config.yml` manda cuando el default de
+  GitHub no es el real (este repo: `trunk: main`).
+- **La base de cada PR se deriva del stack abierto, nunca se elige a
+  mano**: la siguiente tarea se apila sobre el PR ready sin mergear de
+  la anterior, o sale del branch de feature si no hay ninguno — un solo
+  stack por feature.
+- **El presupuesto frena solo**: al doble del forecast de la línea
+  `Delivery`, o 400 líneas ejecutables, lo que llegue primero, nombrando
+  lo que no entra; un forecast nunca se amplía en el PR que lo excede —
+  lo cambia el humano en el ledger, o graba una excepción explícita en
+  la conversación que queda en el PR.
+- **La auto-revisión es siempre fresca**, con el body del PR ya armado
+  desde el template canónico
+  ([`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md));
+  exit 1 del comando de revisión son hallazgos para corregir, no una
+  falla — nunca aprueba ni mergea.
+- **`ledger_check.py` frena el `ready for review`** hasta que el
+  checkbox y la Completion evidence estén los dos.
+- **El merge es raíz-primero y nunca pide borrar la rama**: a pedido
+  tuyo en la conversación, un script prunea worktrees, fija por API la
+  base de cada PR abierto y lo mergea de raíz hacia la hoja; el
+  auto-borrado del repo limpia las ramas.
+- **Cuatro guards bloquean antes del hecho**: un commit que no siga
+  `type(scope): subject`, cualquier force-push, un merge con
+  `--delete-branch`, o una escritura a un path protegido (`spec.md`, la
+  constitución) desde una rama de tarea — cada uno nombra el arreglo;
+  ninguno corre en un agente sin soporte de eventos (`/speckit.doctor`
+  lo dice).
+- **Linear se reconcilia solo**, por scripts y eventos, sin ningún
+  reconcile manual; un PR abierto pesa más que el checkbox, así que una
+  tarea en review nunca aparece como *Done*.
+- **El stack técnico se deriva, nunca se inventa**: `/speckit.implement`
+  lee la tarea y el plan primero, y si no alcanzan, los manifests reales
+  y el código vecino; una dependencia nueva o reimplementar lo que una
+  lib ya cubre siempre vuelve a vos como decisión.
+
+</details>
 
 **Linear en tiempo real** (opcional, recomendado): un admin conecta GitHub
 en Linear (Settings → Integrations → GitHub), **una vez por workspace**;
@@ -281,9 +275,9 @@ el trío `/speckit.bug.*`.
 
 | Origen | Comandos |
 | --- | --- |
-| preset `default` | `/speckit.pr`, `.bugfix`, `.chore`, `.doctor` (espeja skills entre agentes y agrega al `.gitignore` las cachés del instalador) — más los appends que inyecta en `.specify`, `.plan`, `.tasks`, `.analyze` e `.implement` (fases silenciosas y commiteadas, el loop de entrega) |
-| extensión `linear` | `onboard`, `push` (`--dry-run` / `--apply`), `status`, `doctor --fix`, `completions` |
-| extensión `code-review` | `speckit.code-review` (`--publish`), `doctor --fix`, `completions` — bloquea con un finding automático el PR de tarea que toque `spec.md` o la constitución (`protected_paths`) |
+| preset `default` | `/speckit.pr`, `.bugfix`, `.chore`, `.doctor` (conduce el onboarding en seis categorías, verifica el cableado de eventos, espeja skills entre agentes y agrega al `.gitignore` las cachés del instalador) — más los reemplazos de `.implement` (el loop de entrega, sobre los scripts del preset) y `.tasks` (el ledger sin `[P]`), y los appends en `.specify`, `.plan` y `.analyze` (fases silenciosas y commiteadas) |
+| extensión `linear` | `onboard`, `push` (`--dry-run` / `--apply`), `status`, `doctor --fix` |
+| extensión `code-review` | `speckit.code-review` (`--publish`), `doctor --fix` — bloquea con un finding automático el PR de tarea que toque `spec.md` o la constitución (`protected_paths`) |
 
 No hay más superficie que esta: cada comando expone solo lo que su paso
 necesita (y hay tests que lo fijan).
@@ -336,7 +330,7 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
 | --- | --- |
 | `specify init` + los 3 `catalog add` | `gh auth login` |
 | `specify bundle install developer` | su `.speckit-linear.env` con **su** API key (el template lo crea `doctor --fix`) |
-| `onboard` (el binding de Linear, sin secretos) | `doctor --fix` una vez (instala el motor de revisión localmente) |
+| `onboard` (el binding de Linear, sin secretos) | `/speckit.doctor --fix` una vez (instala el motor de revisión y crea los templates que faltan) |
 
 - **Con `developer` alcanza para todos**: es el superconjunto de
   `product` y `reviewer`; los roles definen qué comandos *usa* cada
@@ -428,14 +422,22 @@ specify bundle update --all
 (La primera vez tras subir a v1.0.1, destrackea el puntero local que el
 CLI ahora gitignora: `git rm --cached .specify/feature.json`.)
 
-Tras cualquier actualización, re-corre los dos `doctor --fix`.
+Cuando una extensión suma wiring nuevo (eventos, comandos
+reemplazados), ninguna de las dos vías de arriba re-renderiza sola los
+hooks de tu agente: corre `specify integration upgrade <agente>` — una
+integración ya instalada no cambia nada con `install ... --force`, el
+comando es `upgrade` — y después `/speckit.doctor --fix`, cuyo espejo
+restaura la capa del preset que `upgrade` acaba de pisar con el core de
+upstream.
+
+Tras cualquier actualización, re-corre `/speckit.doctor --fix`.
 
 ## ❓ Problemas frecuentes
 
 - **"is from a discovery-only catalog"** al instalar → al registrar los
   catálogos faltó `--install-allowed` (paso 3). Quita el catálogo y
   vuelve a agregarlo con la flag.
-- **El motor de revisión no aparece** → `doctor --fix` de code-review lo
+- **El motor de revisión no aparece** → `/speckit.doctor --fix` lo
   instala y verifica; necesita `npm` disponible.
 - **Un paso no se refleja en Linear** → corre `status` para ver el estado
   derivado y su fuente; revisa que el branch siga la convención
@@ -454,7 +456,7 @@ Tras cualquier actualización, re-corre los dos `doctor --fix`.
   el aviso no falla nada — reintenta el `push` y lo proyecta.
 - **Falta `In Review` en el equipo** → créalo en Linear (Settings → Teams
   → Workflow, tipo *started*) y re-corre `onboard`.
-- Ante la duda: `doctor --fix` de cada extensión; sus mensajes traen la
+- Ante la duda: `/speckit.doctor --fix`; sus mensajes traen la
   remediación exacta.
 
 ## 🔐 Integridad

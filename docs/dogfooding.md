@@ -306,3 +306,632 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     edita a mano. *Upstream:* que `init --force` preserve
     `installed_integrations` y que el registro del preset en todas las
     integraciones sea suyo (y con él, el hash) es candidato a PR.
+
+## J. Hallazgos de la ronda 005
+
+36. **El hook de rama mezcla un comentario con su JSON.**
+    `create-new-feature-branch.sh --json` escribe
+    `# To persist: export SPECIFY_FEATURE=005-developer-experience` en
+    stderr y `{"BRANCH_NAME":…,"FEATURE_NUM":…}` en stdout; la
+    herramienta del agente une los dos streams, así que ve el
+    comentario antes del JSON y un `jq` sobre lo que ve falla. El skill
+    promete "salida parseable" sin decir que hay que separar stderr, y
+    la línea sigue sugiriendo la persistencia equivocada (entrada 18).
+    Tampoco advierte que la descripción larga viaja como un argumento
+    posicional sin guía de escapado. *Upstream.*
+37. **La regla de hooks del preset no nombra la clave que la gobierna.**
+    El append de cierre de fase dice "un hook opcional cuya propia
+    configuración de extensión habilita su evento (mirar bajo
+    `.specify/extensions/<extensión>/`)": `extensions.yml` lo marca
+    `enabled: true` y la clave real es `auto_commit.<evento>.enabled` en
+    `git-config.yml`, bajo `auto_commit.default: false`. Un agente que
+    mire solo `extensions.yml` dispararía `git.commit`, que hace
+    `git add .` antes del commit acotado del propio append (entrada 24).
+    *Resuelta en T010 (PR #98):* el append nombra la clave; el PR 3 a
+    upstream (T022) lo
+    elimina de raíz.
+38. **`specify` no nombra el script determinista que ya trae.** El skill
+    dice "resolvé el `spec-template` por el stack (equivalente a
+    `specify preset resolve spec-template`)" sin nombrar
+    `.specify/scripts/bash/resolve-template.sh` ni
+    `check-prerequisites.sh --template`; el implementador lo resolvió a
+    mano comparando copias. *Upstream.*
+39. **La checklist de calidad del spec no encaja con un producto de
+    tooling.** "Sin detalles de implementación" y "criterios agnósticos
+    de tecnología" chocan con un spec cuya superficie de usuario son
+    comandos y flags; la 004 hizo la misma excepción sin registrarla.
+    *Regla:* la excepción se documenta en las Notas de la checklist,
+    como hizo la 005.
+40. **El short name se genera dos veces sin cruzarse.** Lo genera el
+    skill de `git.feature` (rama) y otra vez el de `specify`
+    (directorio), y el texto avisa que pueden diferir; nada dice que
+    deben coincidir, y un agente descuidado terminaría con rama y
+    directorio distintos por accidente. *Regla:* mismo slug para rama y
+    directorio.
+41. **`dx.md` contó cuatro bloques y omitió los dos más grandes.**
+    `skill-mirror` (110 líneas) e `ignore-entries` (22) del doctor son
+    el mismo anti-patrón "reemplazá solo el literal". *Resuelta (spec
+    005):* FR-001 pasa a ocho scripts y `dx.md` se corrigió.
+42. **El brief del orquestador aplanó el diseño.** Al resumir `dx.md` en
+    el argumento de `specify`, las dos guardas `pre_tool_use` (matchers
+    `Bash` y `Edit|Write`) quedaron como una lista de cuatro pares; el
+    implementador lo recuperó leyendo `dx.md`. *Regla:* el brief apunta
+    al documento y no lo resume; la regla del loop ("punteros, nunca la
+    conversación") vale también para las fases de producto.
+43. **`plan` ordena artefactos que el template del preset no tiene.** El
+    skill core dice "Phase 0: Generate research.md… Phase 1:
+    data-model.md, contracts/, quickstart.md", pero el
+    `plan-template.md` del preset no tiene esas secciones y ni la 003 ni
+    la 004 los produjeron; un junior los crearía. El mismo par
+    skill/template deja al plan sin vara de brevedad: el de la 005 salió
+    de 770 líneas contra 330 del de la 004 y hubo que recortarlo en
+    revisión. *Resuelta en T010 (PR #98):* el append de cierre de fase dice que el
+    template resuelto manda (solo sus secciones y archivos, en la
+    densidad del precedente).
+44. **`pr.md` decía "reemplazá solo dos literales" con cuatro placeholders
+    en el bloque.** "Replace only the delivery-kind and named-task
+    literals" convive con `<type(scope): subject>` y `<the body>` dentro
+    del mismo `gh pr create`; copiado al pie de la letra deja
+    placeholders en un PR real. *Resuelta (005, D1):* `pr-create.sh`
+    solo resuelve e imprime la base; el `gh pr create` con título y body
+    lo compone el comando.
+45. **Un solo handler por evento y por extensión.** `validate_events`
+    exige que `events.<evento>` sea un mapping (`Invalid event
+    '<evento>': expected a mapping`) y `collect_extension_events` acumula
+    handlers entre extensiones distintas, nunca dos de la misma; `dx.md`
+    daba por hechas dos registraciones `pre_tool_use` en code-review.
+    *Documentada (005, D5; `dx.md` corregido):* un `pre_tool_use` con
+    matcher `Bash|Edit|Write` y las dos guardas dentro, despachadas por
+    `tool_name`.
+46. **Un handler fuera de `provides.commands` se resuelve por nombre de
+    archivo, y el dispatcher falla abierto.** `_find_command_template`
+    cae al stem del `.md` (el `command:` crudo o sin prefijo
+    `speckit.`/`spec.`): un comando con puntos y un archivo
+    `session-start.md` no coinciden, y el dispatcher devuelve exit 0 sin
+    decir nada, así que el evento nunca dispara. *Regla (005, D4):*
+    handlers sin puntos e iguales a su archivo, con un comentario en
+    `events:`; *Resuelta en T015 (PR #104):* el doctor verifica el cableado por
+    integración (FR-009).
+47. **La conformance prohibía `scripts/` en el preset.** `bundles.sh:550`
+    falla si existe `.specify/presets/default/scripts`, un resto de la
+    004 (que retiró un resolver Python) que haría fallar a la 005 a mitad
+    de camino; y `bundles.sh:636` falla si un skill menciona `python3`,
+    lo que con scripts Python dispara en cada comando. *Resuelta (005,
+    D2):* la primera aserción se invierte y la segunda se acota a
+    `resolve-delivery-base`.
+48. **Hay más bloques marcados que los ocho procedimientos del spec.**
+    `first-task-refresh` y `work-item-branch` (pegado dos veces, en
+    `chore.md` y `bugfix.md`) no aparecen en `dx.md` ni en el spec.
+    *Resuelta (005, D1):* son modos de `task-base.sh` (`refresh`, `task`,
+    `work-item`); no queda shell inline.
+49. **`NEXT` de un work item sugería crear una rama de tarea.**
+    `reporting.py:129` llama a `next_action` sin identificador y el
+    estado `unstarted` imprime `start: create branch NNN-T###-<slug>`:
+    la convención equivocada y el gesto que FR-004 prohíbe, en una fila
+    además inalcanzable (un work item se lista solo con rama o PR).
+    *Resuelta (005, D6):* `next_action` devuelve comandos y la fila
+    `unstarted` de work items desaparece.
+50. **El reconcile tras crear la rama seguía siendo prosa.**
+    `post_tool_use` dispara con `git push` y `gh pr`, pero la rama de
+    tarea o de work item nace local, y el loop, `chore` y `bugfix` piden
+    `push --hook` o `--apply` a mano justo después. *Resuelta (005,
+    D1/D4):* `task-base.sh` termina con `push --hook` si `linear` está
+    instalada.
+51. **El diseño asumió `sh` por inercia y el README había perdido a
+    Python.** Los ocho scripts y los tres handlers se planearon en POSIX
+    `sh` porque los bloques que reemplazan lo eran, mientras los dos
+    paquetes son Python, el awk de los bloques era lo difícil de
+    mantener y los payloads de los hooks son JSON. Upstream exige Python
+    3.11+ en sus prerrequisitos y nuestro README lo omitía por asumir
+    que `uv` lo cubría; el `python3` del PATH de esta Mac es 3.9.
+    *Decisión (2026-09-09):* Python 3.11+ en las dos capas, invocado con
+    la regla de upstream para su variante `py` (el `.venv` del
+    consumidor si existe, si no `python3`), sin `--python` fijo ni `uv`
+    ni `.sh` de por medio; el README recupera el prerrequisito y el
+    doctor verifica el intérprete que esa regla elige.
+52. **El hook de Linear no dice con qué forma se corre.** El core emite
+    `EXECUTE_COMMAND: speckit.linear.push` y aclara que "un agente en modo
+    skills lo corre como `/skill:…` o `$speckit-…`", pero invocar el skill
+    de `push` solo carga su doc; nada dice que un hook corre
+    `push --current --hook` (y `--current` es redundante con
+    `feature.json`). El implementador lo dedujo del README de la
+    extensión. *Resuelta en T011 (PR #99):* `commands/push.md` lo enuncia.
+53. **Dos reglas del ledger que solo existían como precedente.** El
+    template core ordena las fases por prioridad de historia y el append
+    por dependencias, y chocan: la US4 va antes que la US2 y la US3
+    porque los scripts no tienen quien los llame hasta que `implement` se
+    reemplaza, y nada dice cuál manda. Y una tarea solo de prosa mide
+    ~0 líneas para el presupuesto, que cuenta ejecutables, así que su
+    forecast es el tamaño del diff por convención heredada de la 004.
+    *Resuelta en T010 (PR #98):* el `tasks` reemplazado enuncia las dos, y qué
+    significa `single PR` en la línea `Delivery`: un PR por tarea; el
+    apilado es topología del loop, no elección de la tarea.
+54. **Editar el ledger después de `after_tasks` deja Issues huérfanos.**
+    El hook proyecta los Issues en el mismo run del comando y `push`
+    nunca borra ni archiva: quitar o fusionar tareas en la revisión del
+    gate dejaría Issues en Todo para siempre, así que la revisión solo
+    agrega tareas con IDs nuevos (T025 y T026 acá; T015 en la 004).
+    *Resuelta en T027 (PR #102; decidido en el gate, 2026-09-09):* `push`
+    archiva los Issues que él mismo creó cuando su tarea desaparece del
+    ledger y los restaura si vuelve, como operaciones previsualizadas y
+    reversibles; nunca borra ni toca Issues creados por personas. Es la
+    proyección siguiendo a la fuente en las dos direcciones, no un cambio
+    del momento en que se proyecta: la constitución exige la
+    sincronización revisada y la asignación de cada tarea **antes** de
+    `ready-for-development`, así que los Issues deben existir en el gate.
+55. **`analyze` encontró dos promesas del log sin tarea.** Las entradas
+    37 y 43 decían "ronda 005" para cambios al append de cierre de fase
+    que ninguna tarea entregaba; el cruce spec/plan/tasks lo atrapó antes
+    del gate. *Regla:* un estado *ronda N* nombra su tarea, o no es un
+    estado. Del propio skill de `analyze`, upstream: `check-prerequisites
+    --json` devuelve `AVAILABLE_DOCS` sin `spec.md` ni `plan.md` (son
+    requeridos y se validan aparte, pero el JSON sugiere que faltan), y
+    el ejemplo de la tabla de hallazgos usa el prefijo `A` para una
+    "Duplication" cuando la regla pide la inicial de la categoría.
+56. **Abrir el PR de gate mostró tres huecos chicos y uno de ruido.**
+    `pr.md` no dice que el "no pull requests found" de `gh pr view` es
+    la señal para seguir, ni los patrones de las tres formas de rama,
+    ni si la línea Requirements lleva las C-###; la variante de feature
+    manda leer el nombre del Project en `status`, que solo imprime
+    `Feature 005` (el nombre lo conoce la proyección). Y cada
+    invocación por `run.sh` antepone `Uninstalled 1 package` /
+    `Installed 1 package` de `uv` al stream que el agente parsea, así
+    que un `--json` falla igual que en la entrada 36. *Resuelta:* la
+    prosa en T002, el nombre del Project en T013, `uv run -q` en T017.
+57. **El host sustituye `$0` en el skill por el primer argumento.**
+    `/speckit-implement 005` llegó al agente con el awk de `budget-stop`
+    renderizado como `substr(005,i+1,1)` y `005 ~ /^- \[/` donde el
+    archivo fuente dice `$0`: un bloque inline con `$0` no corre tal
+    como se recibe cuando el skill lleva argumento, y `pr.md` tiene el
+    mismo `$0` en `pr-create`. El orquestador lo esquivó extrayendo los
+    bloques del archivo fuente con `sed -n '/start/,/end/p'`, que es lo
+    que hace la conformance. *Resuelta:* los scripts (T002, T003) lo
+    eliminan por construcción y la conformance deja de extraer prosa
+    (T009).
+58. **El presupuesto cuenta líneas en blanco y docstrings.** T025
+    (forecast ~120, el harness que la entrada 30 pedía dimensionar con
+    generosidad) entró en 234/240 solo con una línea en blanco entre
+    definiciones, contra las dos del estilo de los paquetes, y dejando
+    fuera el runner `gh --json` que su outcome nombraba (pasa a T001, su
+    primer llamador). El ledger no aplicó su propia regla. *Regla:* una
+    tarea de harness o fixtures se estima al doble de lo que parece; el
+    presupuesto no se enmienda en el PR que lo roza, lo cambia el humano
+    en el ledger.
+59. **Las dos suites de paquetes no corren en una invocación.** La fila
+    de regresión del plan (`uv run pytest packages/*/tests
+    presets/default/tests`) falla antes de recolectar: ambos paquetes
+    tienen `tests/__init__.py`, así que sus `conftest.py` resuelven al
+    mismo módulo `tests.conftest` y pytest aborta por
+    `ImportPathMismatchError`. La CI lo evita con un job por suite; la
+    suite del preset sí corre junto a cualquiera de las dos (sin
+    `__init__.py`, nombres de módulo únicos). *Documentada:* la fila del
+    plan se lee como tres invocaciones.
+60. **`preset add` copia el directorio entero del preset.**
+    `shutil.copytree(source_dir, dest_dir)` sin `ignore`
+    (`presets/__init__.py:3874` del CLI 1.0.4): en el consumidor,
+    `.specify/presets/default/` ya lleva `LICENSE` y `README.md`, y desde
+    la regeneración de T001 llevará `scripts/python/` (buscado) y
+    `tests/` (no buscado), más cualquier `__pycache__` presente en un
+    dev-install. La suite del preset viaja inerte al consumidor.
+    *Pendiente de decisión:* sacar la suite del preset (p. ej.
+    `tests/preset/` en la raíz) cambia el layout del plan; no lo decide
+    una tarea.
+61. **Plan y ledger discrepan en el alcance del reconcile de
+    `task_base.py`.** D1 dice "cada modo termina igual" (`push --hook`);
+    el bloque de T001 dice "cada modo que crea una rama". El
+    implementador siguió al ledger: `refresh` no crea rama y no
+    reconcilia. *Regla:* el ledger es el contrato de la tarea y el plan
+    describe la intención; una discrepancia se resuelve a favor del
+    ledger y se anota, no se "corrige" hacia el plan.
+62. **Una justificación del ledger no era cierta en su tarea.** T001
+    dice que estrechar el grep de `python3` en `bundles.sh:636`
+    "fallaría en este mismo PR", pero esa trampa solo lee los skills
+    instalados de `pr` e `implement`, que T001 no toca; la causa real la
+    da D2 (T002 y T008). Se hizo igual, adelantado. *Documentada.*
+63. **Un `type: script` en `preset.yml` es contabilidad.** Verificado
+    en el CLI 1.0.4: la entrada se valida contra el esquema pero no se
+    registra ni materializa en ningún lado (el directorio entero se copia
+    igual, entrada 60); los comandos llaman al archivo instalado por su
+    ruta literal. La entrada declara la superficie, no la cablea.
+    *Documentada.*
+64. **El slash command de review se llama
+    `/speckit-code-review-code-review`.** Upstream antepone el id de la
+    extensión al nombre del comando, y el comando único de `code-review`
+    ya se llama `speckit.code-review`, así que el registro queda
+    `speckit.code-review.code-review` (se ve en `extensions.yml`) y el
+    skill instalado, en Claude y Codex, con el nombre doblado. Toda la
+    prosa (README, visión, el loop de `implement`) dice
+    `/speckit.code-review <n>`, que no existe tal cual. El orquestador
+    corrió los dos pasos del skill por el CLI (`review <n> --json` y el
+    cierre con `--findings`), que es exactamente lo que el skill
+    prescribe, sin invocar el skill por su nombre. *Pendiente:* renombrar
+    el comando (`speckit.code-review.review`, que rendería
+    `speckit-code-review-review`) o documentar el nombre doblado; es un
+    cambio de superficie de la extensión, fuera de esta ronda salvo
+    decisión humana.
+65. **El host sirve el skill cacheado después de regenerarlo.** Tras
+    `preset add --dev` y el espejo del doctor, `/speckit-pr` llegó al
+    agente con el párrafo viejo del paso 5 mientras
+    `.claude/skills/speckit-pr/SKILL.md` en disco ya tenía el nuevo (el
+    host indexa los skills al arrancar o al listarlos, y sirve esa
+    copia). En una sesión que regenera el preset, el skill que se invoca
+    puede no ser el que se acaba de instalar. *Regla:* tras regenerar,
+    verificar el archivo en disco antes de fiarse del skill servido, o
+    abrir sesión nueva; en la invocación siguiente (`/speckit-pr T003`)
+    el host ya sirvió el texto nuevo, así que la copia se refresca sola
+    con el tiempo, no con el archivo. Aun así el mecanismo nuevo corrió
+    bien: el PR de T002 resolvió su base con `pr_create.py task T002`
+    bajo `.venv/bin/python`, y desde T003 la rama, la base y el
+    presupuesto los dan los scripts instalados.
+66. **El instalador reescribe rutas relativas dentro de los comandos de
+    extensiones.** En el render de `speckit-code-review-code-review`,
+    en Claude y Codex, el ejemplo de `findings.json` dice `"path":
+    ".specify/extensions/code-review/src/module.py"` donde el `.md`
+    fuente dice `src/module.py`: upstream antepone el directorio de
+    instalación a toda ruta relativa que reconoce, incluso dentro de un
+    bloque JSON de ejemplo. Un lector que copie el ejemplo apunta un
+    hallazgo al paquete de la extensión. *Documentada:* los ejemplos de
+    ruta en comandos de extensiones se escriben de forma que no parezcan
+    rutas del paquete (o se explican), hasta un PR a upstream.
+67. **El presupuesto solo suma líneas agregadas: refactorizar por
+    borrado nunca paga.** En T004 el implementador promovió dos helpers
+    duplicados de tests a `conftest.py` (menos líneas en el repo) y lo
+    revirtió porque contra el presupuesto costaba más: `budget-stop`
+    cuenta las agregadas y regala las borradas, así que una deduplicación
+    suma sus imports y no descuenta nada. Tres copias de `_git` (en
+    `task_base.py`, `pr_create.py`, `stack_propagate.py`) y dos de
+    `_push_branch`/`_set_trunk` en tests quedaron así por la métrica, no
+    por diseño. *Pendiente de decisión:* contar líneas netas, o una
+    tarea de consolidación con su propio presupuesto cuando termine la
+    fase 1.
+68. **El bloque de T006 se contradice con su propio ejemplo.** La prosa
+    dice que el mensaje combinado une los dos fragmentos con ` and `
+    (leído literal: `task T003 is not checked and task T003 has no
+    completion evidence`) y el ejemplo entre paréntesis dice `error: task
+    T003 is not checked and has no completion evidence`. El implementador
+    escribió el test desde el ejemplo y atrapó su primera versión, que
+    seguía la prosa. *Regla:* cuando un bloque trae ejemplo, el ejemplo
+    es el contrato; la prosa se escribe para coincidir con él.
+69. **`budget-stop` mide historia commiteada; el implementador sin
+    escrituras de git no puede autoevaluarse.** El script suma `git diff
+    --numstat <base>...HEAD` (tres puntos), así que un sub-agente que
+    trabaja en el árbol sin commitear ve `0/N` aunque su diff real esté
+    al borde del stop (T007 llegó al stop exacto y recortó a mano). La
+    receta manual del brief (`git diff --numstat <base>`, dos puntos, más
+    `wc -l` de los archivos nuevos) es la única forma de medir antes del
+    commit. *Pendiente de decisión:* un modo `--worktree` del script, o
+    que el orquestador mida antes de encargar el recorte.
+70. **T026 paró en 91/80: el forecast contaba el bloque, no la tarea.**
+    El ledger estimó ~40 líneas para las 22 del bloque `ignore-entries`,
+    pero la tarea entrega script (42), tests (38), entrada de preset
+    (6) y conversión de conformance (5): el mínimo de cualquier script
+    de esta ronda ronda las 90 líneas contadas, y T006, la más chica
+    antes, dio 116. El humano decidió abrir el PR tal cual como
+    excepción, sin tocar el forecast, porque enmendarlo por la regla del
+    loop exige un commit en la rama de feature y un merge hacia la rama
+    de tarea mientras el stack sigue sin mergear: en un flujo apilado la
+    enmienda cuesta más que el exceso. *Regla:* el forecast de una tarea
+    de script se estima por su entregable completo (script + tests +
+    manifiesto + conformance), nunca por el tamaño de lo que reemplaza;
+    y una excepción explícita del humano en el PR vale como enmienda.
+71. **`strategy: replace` no llega a la integración no-default.** Tras
+    T008, `preset add --dev` compuso el `implement` reemplazado solo para
+    codex (el default); el render de Claude quedó en el core de upstream,
+    sin loop, y `specify integration install claude --force` re-renderizó
+    los core de Claude desde upstream (y registró los comandos de
+    extensión para Claude, que el registro no tenía) sin aplicar el
+    reemplazo. El espejo del doctor solo trataba `append`. *Resuelta en
+    T008 (PR #96):* `skill_mirror.py` copia entero, como un skill de extensión,
+    todo core que el preset reemplaza. *T028:* ese camino entra en la
+    conformance (la sección 8 seguía registrando dos appends) y el doctor
+    nombra cada evento que desincroniza a la integración rezagada. La
+    composición para todas las integraciones quedó fuera del parche de
+    T020 (entrada 81): el espejo es la decisión de esta distribución.
+72. **Un frontmatter YAML inválido falla en silencio.** Una
+    `description:` con dos puntos sin comillas hace que
+    `parse_frontmatter` devuelva `{}` sin aviso: `{SCRIPT}` queda sin
+    resolver y la descripción sale del catálogo interno del CLI, no del
+    archivo ni del preset. El síntoma no apunta a la causa.
+    *Pendiente:* aviso en upstream, o un check del doctor.
+73. **`preset add --dev` quita el bit ejecutable a
+    `.specify/scripts/bash/*.sh`.** Inofensivo (todo los invoca con
+    `bash <ruta>`), pero cada regeneración ensucia el diff con un cambio
+    de modo hasta restaurarlo a mano. *Documentada.*
+74. **La review excluye Markdown.** El motor deja fuera del packet todo
+    `.md` (`unsupported_ext`): en el PR de T008, cuyo entregable es el
+    comando `implement.md`, el packet incluyó 5 archivos y excluyó 37,
+    y el reviewer tuvo que leer el comando desde el worktree por
+    instrucción del orquestador. Para una distribución cuyo producto es
+    prosa que ejecuta un agente, el packet revisa el andamiaje y no el
+    producto. *Pendiente de decisión:* incluir `.md` en el alcance del
+    packet (al menos bajo `presets/` y `packages/*/commands/`), o un
+    brief fijo que mande leer los `.md` del worktree.
+75. **Las cifras de evidencia escritas a mano se desfasan.** Dos
+    `major` de review (T026, T010) por el mismo motivo: el body del PR
+    citaba una entrada del log aún no pusheada, o un `budget: N/M`
+    tipeado antes de correr el script. El body lo compone el agente en
+    prosa mientras los scripts ya imprimen la cifra exacta. *Regla:* el
+    body toma la línea de `budget_stop.py` y la base de `pr_create.py`
+    tal cual las imprimen, nunca reescritas; y toda referencia al log se
+    commitea y pushea antes de abrir la sesión de review, que ancla el
+    head. *Pendiente:* que `speckit.pr` rellene la fila de convergencia
+    con la salida de los scripts.
+76. **Un `command` de `events:` que no coincide con el stem de su `.md`
+    falla en silencio.** Confirmado en `events.py` del CLI 1.0.4: el
+    dispatcher registra un aviso que ningún agente ve y devuelve 0; el
+    evento simplemente no dispara. La regla de la entrada 46 no tiene
+    diagnóstico: solo la verificación en vivo (T023) lo atraparía.
+    *Resuelta en T015 (PR #104):* el chequeo de cableado del doctor compara cada
+    `events.<evento>.command` del manifest con los stems de
+    `commands/*.md` de la extensión instalada y nombra el desajuste.
+77. **D4 dice `push --hook` y `status --current --json`.** El plan
+    mezcla la invocación con y sin `--current` para el mismo handler; el
+    ledger de T011, `push.md` y la entrada 52 dicen `--current` en las
+    dos. El implementador siguió a la mayoría. *Documentada:* el plan
+    describe la intención; el ledger es el contrato (entrada 61).
+78. **Extraer una función compartida cuesta el doble contra el
+    presupuesto.** T012 movió el reconcile de `run_session_start` a
+    `_reconcile_hook` para compartirlo con el handler nuevo: `numstat`
+    cuenta el cuerpo entero como agregado en su lugar nuevo y no
+    descuenta las mismas líneas borradas en el viejo (entrada 67), así
+    que el brief que pide "factorizar, no copiar" paga más que copiar.
+    T012 cerró en 118/120 recortando docstrings y tests. *Pendiente de
+    decisión (67):* contar líneas netas.
+79. **El packet de review trunca el ledger y todo veredicto pasa a
+    `inconclusive`.** Desde #100, el cierre devuelve `inconclusive` con
+    la causa "`tasks.md`: N bytes no cupieron en el packet": el ledger de
+    la 005 ya pasa los 55 KB con las evidencias de completitud, y el
+    packet lo incluye entero como artefacto SDD. El veredicto deja de
+    distinguir "sin hallazgos" de "no revisado", y el orquestador leyó
+    mal la causa dos veces hasta mirar el JSON. *Regla:* la evidencia
+    del ledger toma el veredicto y sus `causes` del JSON del cierre, no
+    del resumen del reviewer. *Pendiente de decisión:* que el packet
+    incluya solo el bloque de la tarea revisada (y la estrategia de
+    entrega), no el ledger entero.
+80. **Borrar un hook tiene un dependiente que nadie nombró.** Al quitar
+    `hooks.after_implement` del manifest de code-review (T017), el
+    `doctor.py` del paquete seguía validando que ese hook estuviera
+    registrado en `.specify/extensions.yml` del consumidor: sin el
+    borrado, cada doctor habría avisado `lifecycle_hook_unregistered`
+    para siempre, con un remedio imposible. El implementador lo quitó
+    fuera de los Boundaries y lo anotó. *Regla:* los Boundaries de una
+    tarea que borra un hook, evento o comando nombran también el código
+    de salud que valida su registro (doctor, conformance, tests de
+    superficie).
+81. **El registro "solo en la integración activa" es diseño de upstream,
+    no un bug.** Al preparar el parche de T020, la docstring de
+    `_register_extensions_for_agent` (`integrations/_helpers.py`, v1.0.4)
+    y sus tests citan el issue #2948: instalar una segunda integración
+    "deliberadamente" no registra extensiones ni presets hasta que se la
+    selecciona. La mitad de FR-016 que pedía registrar en todas las
+    integraciones instaladas iba contra ese diseño; el parche se acotó a
+    `init --force`, que sí era una regresión (entrada 35), y el espejo
+    del doctor deja de ser un rodeo para ser la decisión de esta
+    distribución. *Documentada:* las entradas 17 y 29 quedan resueltas
+    por el espejo, no por upstream.
+82. **Un `.patch` tropieza con `git diff --check` y no entra al packet.**
+    La salida de `format-patch` lleva por diseño espacios finales (líneas
+    de contexto vacías, la firma `-- `), así que el chequeo de whitespace
+    la marca siempre; y el motor de review lo excluye como extensión no
+    soportada, igual que al Markdown (entrada 74), de modo que el reviewer
+    lee el parche desde el worktree y lo aplica en un clon propio.
+    *Resuelta en T020:* `docs/upstream/*.patch -whitespace` en
+    `.gitattributes`. *Pendiente (74):* el alcance del packet.
+83. **Un parche a upstream se mide entero y su forecast era el de una
+    línea.** T021 (quitar `git add .` de `auto-commit`) estaba estimada
+    en ~10 líneas como si fuera un borrado; el `.patch` real trae tres
+    variantes del script en paridad, cuatro tests nuevos y la reescritura
+    de dieciséis fixtures que codificaban el bug: 972 líneas contra el
+    techo de 400. El humano abrió el PR como excepción (entrada 70). El
+    de T020 dio 152 solo porque se acotó a `init --force` tras la
+    review. *Regla:* una tarea de parche a upstream se estima por el
+    `.patch` completo (cabeceras, contexto, variantes y tests de
+    upstream), nunca por la línea que cambia; y su presupuesto real es
+    el que acepte el mantenedor, no el de este loop.
+84. **El campo `condition` de los hooks existe, se evalúa en el
+    ejecutor y ningún template lo lee.** Al preparar el parche de T022:
+    `HookExecutor.should_execute_hook`/`_evaluate_condition` (v1.0.4)
+    entienden `config.<clave> == 'valor'` contra la config de la
+    extensión y tienen tests, pero ningún comando core los invoca — los
+    templates saltan todo hook con `condition` no vacía sin evaluarla
+    (`docs/reference/extensions.md` lo dice en una línea). Un
+    `condition:` en cualquier manifest significa hoy "nunca se ofrece".
+    El parche 3 igual cierra la entrada 25 (los dieciséis prompts
+    inútiles) y deja la puerta viva para el ejecutor; un prompt real por
+    evento habilitado necesitaría que los templates evalúen la
+    expresión. *Documentada;* el caveat viaja en el commit del parche.
+85. **Los eventos sí llegan a todas las integraciones instaladas; los
+    comandos no.** `refresh_integration_events` (v1.0.4) recorre
+    `installed_integrations` entero tras cada `extension add`, `remove`,
+    `enable` o `disable`, así que en la fixture de T023
+    `.claude/settings.json` y `.codex/config.toml` quedaron cableados con
+    solo añadir las dos extensiones: ni el `integration install --force`
+    que pedía el contrato de la tarea y D12 (un no-op sobre una key
+    instalada, review de T015) ni `integration upgrade` (que re-renderizó
+    byte a byte lo mismo) hicieron nada. El remedio del paso 6 del doctor
+    queda para el hueco real: integraciones cableadas antes de que las
+    extensiones declararan eventos (A-002, este repositorio). *Regla:*
+    el contrato de una tarea de verificación nombra el comando que de
+    verdad cablea (`extension add`), no el que suena a cableado; el
+    contraste con la entrada 81 (comandos solo en la integración activa)
+    es de upstream, no de esta distribución.
+86. **El marcador de Codex no es `__speckit_event__`.** `events.py`
+    reutiliza la constante `_SPECKIT_MARKER` en todos los renders JSON y
+    escribe el literal `speckit_marker = true` en los dos TOML (codex,
+    vibe). El doctor de T015 decía `__speckit_event__` para los tres
+    archivos; un agente que lo siguiera al pie de la letra diagnosticaría
+    Codex como sin cablear estando sano. *Resuelta en T023:* el paso 6
+    nombra cada marcador por formato y `events-consumer.sh` asserta
+    ambos. (Para upstream, un nit: la constante no llega a los renders
+    TOML.)
+87. **Sin `plan.md` la línea de contexto desaparece en silencio.**
+    `parse_feature` exige el título de `spec.md` y de `plan.md` (solo
+    `tasks.md` es opcional), y `session-start` traga cualquier excepción
+    para cumplir su contrato de salida 0: una feature recién
+    especificada (`/speckit.specify` hecho, `/speckit.plan` pendiente)
+    abre sesión sin línea, indistinguible de "Linear no configurado".
+    Reproducido en la fixture de T023: borrar `plan.md` → stdout vacío,
+    exit 0; restaurarlo → la línea. *Pendiente de decisión:* `plan.md`
+    opcional en el parser, como `tasks.md`, o una línea degradada que
+    nombre la causa.
+88. **La mitad viva de T023 depende de binarios y credenciales que el
+    agente no tiene.** `codex` no está instalado en esta máquina, y el
+    token OAuth en disco del `claude` standalone había expirado
+    (`claude auth status` dice `loggedIn: true`; `claude -p` responde
+    401 "OAuth access token has expired"): re-autenticar es un login
+    interactivo del humano, y desde una sesión de Claude Code el agente
+    tampoco puede prestarle la suya. La mitad reproducible — config
+    nativa de ambos agentes, dispatcher generado, handlers reales, Linear
+    en solo lectura (`hooks.lifecycle_enabled: false`) — es
+    `scripts/conformance/events-consumer.sh`; por leer las credenciales
+    locales no entra al CI, que sigue en `bundles.sh` con fakes. Los
+    tres prompts de la mitad viva quedan en la evidencia para repetirlos
+    donde existan `claude` autenticado y `codex`. *Regla:* una tarea de
+    verificación en vivo declara en su contrato qué agentes están
+    instalados y autenticados en la máquina que la ejecuta antes de
+    prometer transcripts "en ambos agentes". *Resuelta a medias el mismo
+    día:* tras el login del humano, los tres prompts a Claude Code
+    (2.1.236, `--model haiku`) dieron la línea de contexto
+    (`SessionStart:startup hook success: Linear: …`), el force push
+    bloqueado y la escritura protegida bloqueada — en la evidencia de
+    T023; Codex sigue pendiente de una máquina con el binario.
+89. **Un handler silencioso por contrato no se puede verificar desde
+    fuera.** `post-tool-use` nunca imprime y siempre sale 0 (FR-005,
+    FR-006), y `_reconcile_hook` descarta el payload de `push --hook`:
+    la sonda de la fixture de T023 no distingue "reconcilió" de "no
+    era un push" — ambos dan exit 0 y stdout vacío, como señaló la
+    review de #112. La fixture prueba el enrutado y el contrato de
+    salida; que el reconcile ocurre lo prueban los tests de T012 y, en
+    vivo, el estado de Linear tras un push real. *Pendiente de
+    decisión:* un canal observable (una línea en stderr bajo una
+    variable de depuración) si el doctor o una fixture han de probar
+    que un hook corrió.
+90. **Una categoría inventada rechaza el archivo de hallazgos entero.**
+    El skill de review enumera las severidades pero no las categorías
+    (solo el ejemplo `correctness`; el packet sí las lista, en su
+    sección de reglas), y el reviewer fresco de #112 inventó cinco
+    (`reproducibility`, `test-coverage`, `contract-fidelity`,
+    `process`, `consistency`). El cierre rechaza todo el archivo con
+    `findings_field_enum` — asimétrico con una ruta o un rango
+    inexistentes, que se descartan hallazgo por hallazgo con un
+    diagnóstico. El orquestador normalizó las categorías y volvió a
+    cerrar. *Resuelta en T023:* el skill y el README nombran el enum.
+    *Pendiente de decisión:* que el cierre normalice o descarte la
+    categoría inválida como hace con la ruta, en vez de rechazar el
+    archivo.
+91. **El preset no tiene dónde contar su versión, y el bump escribe
+    menos de lo que el ledger dice.** `publish.sh --bump` deja el
+    esqueleto de changelog (`- TODO`) solo a los dos paquetes; el
+    preset — el componente más grande de esta ronda (ocho scripts, los
+    `replace` de `implement` y `tasks`, el doctor) — pasa de 0.9.0 a
+    0.10.0 sin una nota de release en ningún sitio, y los bundles
+    igual. Además, los Boundaries de T024 nombran
+    `presets/default/README.md` entre lo que `--bump` escribe, pero solo
+    el camino de publicación lo reescribe (las URLs de descarga), y
+    omiten `packages/*/src/*/__init__.py`, que el bump sí escribe
+    (review de #113). *Regla:*
+    la fila de Evidence de una tarea de bump se copia de lo que el
+    script imprime, no de la memoria del plan. *Pendiente de decisión:*
+    un `CHANGELOG.md` del preset que el bump también esqueletice (un
+    cambio de script, fuera de T024), o las notas de la ronda en
+    `docs/releases.md`.
+92. **Los bundles admiten un CLI que sus extensiones rechazan.** T018
+    subió el piso de las dos extensiones a `>=1.0.4` (C-004 lo acota a
+    "ambas extensiones") y dejó `>=1.0.1` en el preset y en los tres
+    bundles; con el bump de T024 cada bundle fija linear 0.13.0 y
+    code-review 0.5.0, así que un consumidor con 1.0.1–1.0.3 pasa la
+    comprobación del bundle y falla en la de la extensión — antes de la
+    ronda los pisos coincidían. La review de #113 lo confirmó.
+    *Pendiente de decisión:* que el piso de un bundle sea el máximo de
+    los de sus componentes (una línea por bundle y C-004 enmendada),
+    idealmente en la chore de publicación.
+93. **Un fix fuera de Boundaries viajó sin conformance y volvió como
+    hallazgo.** El espejo aprendió a copiar entero un core reemplazado
+    dentro del PR de T008 (entrada 71), con test unitario pero sin
+    escenario en `bundles.sh`: la sección 8 seguía registrando dos
+    appends. Un informe posterior describió el hueco como abierto —
+    `_registered_appends` saltando `replace`, el espejo incapaz de
+    restaurar un reemplazo tras `integration upgrade --force` —: describe
+    el árbol anterior a ese fix, no la punta del stack, donde la receta
+    de regeneración (`preset add --dev`, `integration install claude
+    --force`, `integration upgrade claude --force`, `skill_mirror.py
+    true`) restaura `implement` y `tasks` byte a byte y la segunda corrida
+    dice `nothing to do`. Lo que faltaba era la prueba, y la copia tiene
+    un límite que nadie había escrito: lleva el render del default tal
+    cual, sin las tres claves de frontmatter que Claude Code agrega en un
+    render nativo (`argument-hint`, `user-invocable`,
+    `disable-model-invocation`, las tres en su valor por defecto). *Resuelta
+    en T028:* escenarios de replace en la sección 8, la estrategia no
+    soportada (`prepend`, `wrap`) falla cerrada, el límite documentado.
+    *Regla:* una desviación de alcance que cambia el contrato de un script
+    trae su escenario de conformance en el mismo PR o se vuelve tarea
+    propia en el ledger.
+94. **Una auditoría externa reprodujo siete defectos en una ronda dada por
+    cerrada.** Codex auditó el candidato de #113 (`740a9b9`) con once
+    hallazgos; siete eran reales y el orquestador los reprodujo contra el
+    código: (1) `issueArchive`/`issueUnarchive` seleccionaban `issue { id }`
+    y el payload real de Linear (`IssueArchivePayload`) se llama `entity`
+    — los mocks fabricaban el mismo campo, la suite pasaba y ninguna Issue
+    se archivó jamás (T027); (2) el guard dejaba pasar `+refspec`, `-vf`,
+    `;` pegado, saltos de línea, `-am`, `-m"…"`, `-F` y
+    `--delete-branch=true`, y además bloqueaba el heredoc
+    `$(cat <<'EOF' …)` con subject válido, la forma que Claude Code usa por
+    defecto (T014); (3) `other/../specs/…/spec.md` eludía `protected_paths`
+    (T014); (4) el matcher de reconcile no veía `git -C . push` ni
+    `gh --repo … pr ready` (T012), y `merge_root_first.py` y
+    `stack_propagate.py` no reconciliaban al terminar; (5) la línea de
+    `session_start` perdía NEXT con la pila entera `[x]` en review y no
+    nombraba los PR (T013); (6) `implement.md` corría prerequisites antes
+    de seleccionar la feature nombrada (T008); (7) `--limit 100` sin
+    paginar en los cuatro scripts que leen la pila. Otros dos eran
+    decisiones ya registradas (81, y 92, ahora resuelta: piso `>=1.0.4` en
+    los tres bundles), uno el parche 0003 incompleto por diseño (su README
+    lo decía; ahora lleva la segunda mitad: los templates evalúan
+    `condition`), y uno la evidencia de SC-002 (diez sesiones headless
+    corridas después: 10/10 con la línea). *Regla:* un mock que fabrica la
+    respuesta del proveedor no prueba el contrato — la selección GraphQL se
+    fija en el test contra el esquema real —, y un guard se prueba con la
+    lista de formas equivalentes del comando (clusters, `=valor`,
+    separadores pegados, redirecciones, heredoc), no con los flags que se
+    le ocurrieron al implementador. *Resueltas* en los PR de origen (#96,
+    #100, #101, #102, #103, #111) y en #113 lo transversal, propagadas con
+    la receta de `stack_propagate.py`; los presupuestos de T012, T013,
+    T014 y T027 quedaron por encima de su tope tras el fix, por decisión
+    humana. *Pendiente:* la mitad viva de T023 en Codex y la reconciliación
+    observada contra un proyecto de prueba en Linear siguen sin correr.
+95. **`specify integration install` no tiene `--ignore-agent-tools`.**
+    Solo `init` lo tiene; una fixture que instala una segunda integración
+    en una máquina sin su binario depende de que el instalador no lo
+    exija (hoy no lo hace). Superficie inconsistente de upstream;
+    anotada, sin parche.
+96. **Un fix de prosa del doctor viajó sin regenerar sus renders.** El
+    commit `1672876` (T023: el marcador TOML de Codex en el paso 6 de
+    `doctor.md`) no corrió la receta de regeneración, así que
+    `.claude/skills/speckit-doctor/SKILL.md` y
+    `.agents/skills/speckit-doctor/SKILL.md` quedaron con la prosa vieja
+    hasta que la regeneración de T028 los arrastró. La regla del ledger
+    ("toda tarea de preset regenera") existe, pero nadie la comprueba.
+    *Resuelta de paso en T028.* *Pendiente de decisión:* una aserción en
+    `bundles.sh` o en CI de que cada `commands/*.md` del preset coincide
+    con sus renders instalados.
+97. **El cierre de la segunda auditoría necesita revisar los escapes, no
+    solo sumar tests verdes.** El candidato local reúne los fixes de T012,
+    T014, T022 y T024, más T028. La revisión independiente encontró que un
+    `;` citado o escapado se confundía con un separador y que una
+    continuación `\` + salto de línea ocultaba el push; ambos analizadores
+    conservan ahora esos argumentos. Quince comparaciones contra Bash con
+    Git simulado coinciden. El parche 0003 respeta `auto_commit.default`
+    solo cuando falta la sección del evento y rechaza comillas discordantes.
+    Verificación local: Linear 447 passed / 252 subtests; guard 66 passed /
+    61 subtests; preset 64 passed; upstream 690 passed / 48 skipped
+    (`pwsh` ausente); conformance de bundles y eventos en verde. La suite
+    amplia de code-review más preset pasó con 919 tests antes del último
+    ajuste de escapes, verificado después con guard y preset completos.
+    Los commits `3491608` (T012), `2764eb0` (T014) y `f48c198` (T022)
+    incorporan las correcciones en sus ramas de origen; `226e25d` lleva
+    la propagación hasta T028 (#114), con autorización humana.
+    Las entradas 94 de ambas ramas colisionaban: se conserva 94 para la
+    primera auditoría y la de regeneración de T028 pasa a 96. *Pendiente:*
+    PRs upstream y decisión de alcance de FR-016; runtime vivo de Codex y reconciliación observada
+    en un proyecto de prueba de Linear. Ninguna prueba de dispatcher se
+    presenta como ejecución real del agente.

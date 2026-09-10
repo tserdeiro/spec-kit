@@ -30,8 +30,9 @@ un bug o chore toma un camino más corto.
   proyección y nunca escribe artefactos.
 - Los estados **se derivan, no se avisan**: cada `push` reconcilia Linear
   desde lo observable (checkbox, branches, PRs) de forma idempotente — sin
-  eventos, sin actualizaciones manuales, sin estado fantasma. Una segunda
-  pasada sin cambios son cero operaciones.
+  actualizaciones manuales, sin estado fantasma. Los eventos de runtime del
+  agente, donde existen, solo disparan esa misma reconciliación idempotente;
+  nunca cargan estado. Una segunda pasada sin cambios son cero operaciones.
 - Hecho significa **funcionando de punta a punta y verificado contra los
   artefactos publicados**, no especificado ni probado solo con fixtures.
 - Cuando falta una pieza (sin `gh`, sin un estado en el team), se degrada
@@ -47,6 +48,13 @@ runtime. Donde upstream registra los comandos de extensiones y preset solo
 en el agente default, `/speckit.doctor --fix` los espeja al resto de los
 agentes instalados.
 
+Los eventos de runtime son la capa de mecanismo: una extensión declara
+`events:` y el CLI cablea el hook nativo de cada agente instalado, así que
+la distribución no shippea lógica por agente. Un agente sin soporte de
+eventos (Zed, hoy) degrada explícitamente: ahí no corren las guardas ni los
+handlers de Linear y la prosa sigue siendo la regla, lo que
+`/speckit.doctor` declara.
+
 ### Developer Experience
 
 El proyecto es usado por desarrolladores de distintos niveles y en distintos
@@ -56,8 +64,9 @@ proyectos: **la DX es prioridad**.
   distribución e instalar el bundle del rol. `doctor --fix` cierra los
   huecos que queden — incluida la instalación verificada del motor de
   revisión pinneado y el template de credenciales de Linear.
-- Toda fricción se pule; lo automatizable se automatiza. Autocompletado de
-  comandos y mensajes con remediación exacta, especialmente para juniors.
+- Toda fricción se pule; lo automatizable se automatiza. El autocompletado
+  de los slash commands es de cada agente; mensajes con remediación exacta,
+  especialmente para juniors.
 
 ## Roles
 
@@ -131,14 +140,15 @@ Dos extensiones first-party, más las oficiales de upstream (`git`, `bug`):
   mapeo PR→estado del team para la integración nativa — jamás pisa nada
   existente distinto, y persiste la API key que recibió inline), `push`
   (`--dry-run`/`--apply`, la reconciliación), `status`, `doctor --fix`,
-  `completions`. Núcleo del flujo, no un opcional. Requiere en el team los
+  y sus dos handlers de eventos (`session_start`, `post_tool_use`).
+  Núcleo del flujo, no un opcional. Requiere en el team los
   estados *In Progress* e *In Review* (los resuelve por nombre; sin
   *In Review*, degrada con aviso). Convive con la integración nativa
   GitHub↔Linear (links por branch o magic words, transiciones en tiempo
   real, configurada por equipo): esa integración adelanta estados; `push`
   sigue siendo la reconciliación idempotente que manda.
 - **Code review**: `/speckit.code-review` (el comando único) + `doctor
-  --fix` + `completions`. Envuelve [Open Code Review](https://github.com/alibaba/open-code-review)
+  --fix` + el guard `pre_tool_use`. Envuelve [Open Code Review](https://github.com/alibaba/open-code-review)
   en modo delegación, fail-closed, con el pin del motor viajando dentro de
   la propia extensión para que cualquier consumidor lo verifique.
 

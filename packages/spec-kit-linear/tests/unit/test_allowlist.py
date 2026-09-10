@@ -11,7 +11,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 
-from spec_kit_linear.allowlist import ALLOWED_INPUTS, PUSH_MUTATIONS, assert_allowed
+from spec_kit_linear.allowlist import ALLOWED_INPUTS, PUSH_MUTATIONS, assert_allowed, forbidden_operations
 from spec_kit_linear.errors import AppError
 
 
@@ -47,9 +47,10 @@ class AssigneeAllowlistTests(unittest.TestCase):
 
 
 class WriteSurfaceTests(unittest.TestCase):
-    def test_the_write_surface_is_exactly_the_nine_allowed_operations(self) -> None:
-        # Six projection operations (push) plus onboard's three additive
-        # creates (automation mapping, repository label, shared view).
+    def test_the_write_surface_is_exactly_the_eleven_allowed_operations(self) -> None:
+        # Six projection operations (push) plus the two orphan-Issue
+        # operations (D14) plus onboard's three additive creates (automation
+        # mapping, repository label, shared view).
         self.assertEqual(
             PUSH_MUTATIONS,
             frozenset(
@@ -60,6 +61,8 @@ class WriteSurfaceTests(unittest.TestCase):
                     "issue.create",
                     "issue.update",
                     "issue.lifecycle.update",
+                    "issue.archive",
+                    "issue.unarchive",
                     "team.automation.create",
                     "project.label.create",
                     "view.create",
@@ -71,7 +74,6 @@ class WriteSurfaceTests(unittest.TestCase):
     def test_destructive_and_out_of_scope_kinds_are_never_allowed(self) -> None:
         for kind in (
             "issue.delete",
-            "issue.archive",
             "project.delete",
             "project.archive",
             "project.label.detach",
@@ -92,6 +94,24 @@ class WriteSurfaceTests(unittest.TestCase):
                     assert_allowed(kind, {"id": str(uuid.uuid4()), "name": "anything"})
                 self.assertEqual(raised.exception.code, 6)
                 self.assertEqual(raised.exception.diagnostics[0].code, "mutation_not_allowed")
+
+    def test_issue_archive_and_unarchive_accept_only_an_empty_input(self) -> None:
+        for kind in ("issue.archive", "issue.unarchive"):
+            with self.subTest(kind=kind):
+                assert_allowed(kind, {})
+                with self.assertRaises(AppError) as raised:
+                    assert_allowed(kind, {"id": "issue-1"})
+                self.assertEqual(raised.exception.diagnostics[0].code, "mutation_input_not_allowed")
+                with self.assertRaises(AppError) as raised:
+                    assert_allowed(kind, {"title": "renamed"})
+                self.assertEqual(raised.exception.diagnostics[0].code, "mutation_input_not_allowed")
+
+    def test_forbidden_operations_no_longer_lists_issue_archive(self) -> None:
+        forbidden = forbidden_operations()
+        self.assertNotIn("issue.archive", forbidden)
+        self.assertIn("issue.delete", forbidden)
+        self.assertIn("project.archive", forbidden)
+        self.assertIn("project.delete", forbidden)
 
     def test_no_input_table_carries_a_hierarchy_or_ownership_field(self) -> None:
         # project.label.create is the one sanctioned parent relationship: the

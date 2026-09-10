@@ -16,7 +16,22 @@ One health check for the whole setup. You (the agent) run each installed
 extension's own doctor and reduce everything to a single answer: healthy,
 or exactly what to run to become healthy.
 
-## 1. Discover what is installed
+## 1. The Python interpreter
+
+Every script this distribution installs, and every runtime event
+handler, resolves its interpreter the same way: the consumer's
+`.venv/bin/python` when it exists, else `python3` on PATH. This check is
+always read-only, including with `--fix`.
+
+Resolve the interpreter with that rule, run `<interpreter> --version`,
+and report it.
+
+- **3.11 or newer** → healthy.
+- **Older than 3.11, or none found** → a blocking problem. Name the
+  exact fix without running it: `uv python install 3.11 --default`, or
+  activating the virtual environment that already has the right version.
+
+## 2. Discover what is installed
 
 List `.specify/extensions/`. The two doctors this distribution ships are:
 
@@ -30,14 +45,14 @@ part of this role's bundle; say so in one line and move on. If neither is
 installed, say the setup has no extensions to check and point at the
 README's Get Started.
 
-## 2. Run each doctor
+## 3. Run each doctor
 
 Run them read-only first. If the user asked to fix (`--fix` or "arregla"),
 re-run each failing doctor with `--fix` and report what it repaired —
 `--fix` is each doctor's own, bounded repair; you never fix anything
 yourself.
 
-## 3. Verify the GitHub repository settings
+## 4. Verify the GitHub repository settings
 
 The delivery flow depends on GitHub deleting merged branches and allowing
 merge commits. These checks are always read-only, including with `--fix`.
@@ -60,186 +75,115 @@ merge commits. These checks are always read-only, including with `--fix`.
 If the query itself fails, report both settings as `cannot verify` and include
 the failure as a warning. Never change repository settings.
 
-## 4. Summarize one result
+## 5. Summarize one result
+
+Group every reported gap into six fixed categories, in this order,
+regardless of which sub-doctor produced the underlying diagnostic: (1)
+the Python interpreter, (2) GitHub CLI authentication, (3) the Linear
+API key, (4) the Linear onboarding binding, (5) the review engine
+installation, (6) the repository's GitHub delivery settings.
 
 - **Everything passed and both settings were verified** → one line: the
   setup is healthy, the installed extensions were checked (name them), with
   `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`.
-- **Anything failed** → one short list, one bullet per blocking problem,
-  carrying an extension doctor's own remediation **verbatim** or the exact
-  GitHub remediation from step 3. End with the single next action: usually
-  re-running this command with `--fix`, or the one manual step the
-  remediation names.
+- **Anything failed** → one short list, ordered by the six categories
+  above and skipping any with nothing to report; one bullet per blocking
+  problem, carrying its doctor's own remediation **verbatim**, step 1's
+  interpreter fix, or the exact GitHub remediation from step 4. End with
+  the single next action: usually
+  re-running this command with `--fix`, or the one manual step a
+  report-only category names.
 - **Nothing failed but GitHub could not be verified** → say the checks that
   ran passed, but do not call the setup healthy.
 
+`--fix` applies each doctor's own bounded repair for categories 2
+through 5, where the doctor offers one. Categories 1 and 6 stay
+report-only even with `--fix`: installing or activating an interpreter,
+and changing GitHub's delivery settings, are both human decisions.
+
 Warnings that block nothing go in one final line, not in the list.
 
-## 5. Mirror the skills across installed agents
+## 6. Check the runtime-events wiring
+
+Read-only; nothing here is ever written, even with `--fix`.
+
+Report once whether `.specify/events.py`, the dispatcher every wired
+integration shares, exists. Then, for each key in
+`.specify/integration.json`'s `installed_integrations`, report whether
+that integration's own native hook file carries the dispatcher's marker
+— `__speckit_event__` in the JSON hook files (`.claude/settings.json`
+for claude, `.cursor/hooks.json` for cursor), `speckit_marker = true`
+in the TOML one (`.codex/config.toml` for codex); for any other
+integration, the hook file its `specify integration upgrade` writes —
+when you cannot name it, report that integration's wiring as
+unverified. An integration whose hook file carries no marker is unwired
+whatever the dispatcher's state — one with no hook file at all (Zed,
+today), or one wired before the extensions declared events: state
+plainly that the code-review guard and the Linear session-start and
+tool-use handlers do not run there, and that the prose rules stay
+authoritative.
+
+For each installed extension declaring `events:` under
+`.specify/extensions/<id>/extension.yml`, check that every
+`events.<event>.command` equals the stem of a file under that
+extension's `commands/` directory — a mismatch resolves to nothing at
+the dispatcher, silently, so the event simply never fires — and name any
+mismatch you find.
+
+The fix for a gap this step finds is never run here: once the extension
+itself declares events, it is `specify integration upgrade <key>` — an
+`install` of a key already installed changes nothing; `--force` when the
+upgrade reports locally modified files, which the mirrored appends are —
+followed by this doctor with `--fix`, so step 7 restores the preset layer
+the upgrade re-rendered.
+
+## 7. Mirror the skills across installed agents
 
 Upstream registers extension and preset commands only for the **default**
 integration ("active-only registration"); this distribution's portability
 principle says no agent is second-class. Close that gap here, without ever
 overwriting one integration's own render with another's: extension and
 preset skills are copied whole from the default integration's directory;
-the five core commands with a registered preset append (`specify`, `plan`,
-`tasks`, `analyze`, `implement`) keep each integration's own render and
-receive that append. Run this block, replacing only the `fix` literal
-(`true` when the user asked to fix, else `false`):
+the three core commands with a registered preset append (`specify`,
+`plan`, `analyze`) keep each integration's own render and receive that
+append; the two core commands the preset **replaces** (`tasks`,
+`implement`) are copied whole instead, like an extension skill, since
+the preset's file is their whole render. Run `skill_mirror.py` — with the
+consumer's `.venv/bin/python` when it exists, else `python3` on PATH,
+the rule upstream's own `py` scripts follow. Its one argument replaces
+`<true|false>`: `true` when the user asked to fix, else `false`:
 
 ```bash
-# skill-mirror:start
-set -e
-fix="<true|false>"
-default_ai=$(sed -n 's/.*"ai": *"\([^"]*\)".*/\1/p' .specify/init-options.json | head -1)
-installed=$(awk '
-  /"installed_integrations":/ { inside = 1; next }
-  inside && /\]/ { exit }
-  inside { gsub(/[",]/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); if (length($0)) print }
-' .specify/integration.json)
-count=$(printf '%s\n' "$installed" | grep -c .)
-if [ "$count" -le 1 ]; then
-  echo "mirror: only one integration installed, skipped"
-  exit 0
-fi
-
-manifest_paths() {
-  grep -Eo '"[^"]*/speckit-[^"/]*/SKILL\.md"' "$1" | tr -d '"'
-}
-
-appends=$(mktemp)
-: > "$appends"
-for preset_yml in .specify/presets/*/preset.yml; do
-  [ -f "$preset_yml" ] || continue
-  preset_dir=$(dirname "$preset_yml")
-  awk -v dir="$preset_dir" '
-    function flush() {
-      if (t == "command" && s == "append" && n != "" && fl != "") {
-        gsub(/^speckit\./, "speckit-", n); print n, dir "/" fl
-      }
-    }
-    /^[ \t]*- type:/ { flush(); t = ($0 ~ /"command"/) ? "command" : ""; n = ""; fl = ""; s = ""; next }
-    /name:/     && t == "command" { n = $0;  sub(/^.*name:[ \t]*"/, "", n);     sub(/".*$/, "", n) }
-    /file:/     && t == "command" { fl = $0; sub(/^.*file:[ \t]*"/, "", fl);    sub(/".*$/, "", fl) }
-    /strategy:/ && t == "command" { s = $0;  sub(/^.*strategy:[ \t]*"/, "", s); sub(/".*$/, "", s) }
-    END { flush() }
-  ' "$preset_yml" >> "$appends"
-done
-
-default_paths=$(manifest_paths ".specify/integrations/$default_ai.manifest.json")
-default_dir=$(printf '%s\n' "$default_paths" | head -1 | sed -E 's#/speckit-[^/]*/SKILL\.md$##')
-if [ -z "$default_dir" ]; then
-  echo "mirror: default integration $default_ai has no skills to mirror"
-  exit 0
-fi
-
-acted=false
-for key in $installed; do
-  [ "$key" = "$default_ai" ] && continue
-  manifest=".specify/integrations/$key.manifest.json"
-  paths=$(manifest_paths "$manifest")
-  lag_dir=$(printf '%s\n' "$paths" | head -1 | sed -E 's#/speckit-[^/]*/SKILL\.md$##')
-  if [ -z "$lag_dir" ]; then
-    echo "mirror: $key is command-mode, no skills to mirror"
-    continue
-  fi
-  core=$(mktemp)
-  printf '%s\n' "$paths" | sed -E 's#.*/(speckit-[^/]*)/SKILL\.md$#\1#' > "$core"
-
-  for src in "$default_dir"/speckit-*/; do
-    [ -d "$src" ] || continue
-    name=$(basename "$src")
-    grep -qxF "$name" "$core" && continue
-    srcfile="$default_dir/$name"
-    dst="$lag_dir/$name"
-    if [ ! -f "$dst/SKILL.md" ] || ! cmp -s "$srcfile/SKILL.md" "$dst/SKILL.md"; then
-      acted=true
-      if [ "$fix" = "true" ]; then
-        mkdir -p "$lag_dir"
-        cp -R "$srcfile" "$lag_dir/"
-        echo "mirror: copied $name into $lag_dir ($key)"
-      else
-        echo "mirror: $name missing or differs in $lag_dir ($key) -- run with --fix"
-      fi
-    fi
-  done
-
-  while read -r name; do
-    [ -n "$name" ] || continue
-    append_file=$(awk -v n="$name" '$1 == n { print $2; exit }' "$appends")
-    [ -n "$append_file" ] || continue
-    render="$lag_dir/$name/SKILL.md"
-    if [ ! -f "$render" ]; then
-      acted=true
-      echo "mirror: $name missing in $lag_dir ($key) -- run: specify integration install $key"
-      continue
-    fi
-    heading=""
-    [ -f "$append_file" ] && heading=$(awk '/^## /{ print; exit }' "$append_file")
-    if [ -z "$heading" ]; then
-      echo "mirror: append $append_file for $name is missing or has no heading" >&2
-      exit 2
-    fi
-    prefix=$(awk -v h="$heading" '$0 == h { exit } { print }' "$render")
-    body=$(cat "$append_file")
-    expected=$(printf '%s\n\n\n%s\n' "$prefix" "$body")
-    actual=$(cat "$render")
-    if [ "$expected" != "$actual" ]; then
-      acted=true
-      if [ "$fix" = "true" ]; then
-        printf '%s\n\n\n%s\n' "$prefix" "$body" > "$render"
-        echo "mirror: appended the preset layer to $name in $lag_dir ($key)"
-      else
-        echo "mirror: $name in $lag_dir ($key) needs the preset append -- run with --fix"
-      fi
-    fi
-  done < "$core"
-done
-
-[ "$acted" = "true" ] || echo "mirror: nothing to do"
-# skill-mirror:end
+python3 .specify/presets/default/scripts/python/skill_mirror.py <true|false>
 ```
 
-A core render with no registered append (e.g. `checklist`) is never
-touched, and a core skill is never copied across integrations — only its
-own append text ever reaches it. Re-run after `bundle update` or
-`integration switch`: both refresh only the default agent's copies.
+A core render with no registered append or replace strategy (e.g.
+`checklist`) is never touched, and a core skill with an append only ever
+receives its own append text, never a whole copy, across integrations; a
+registered command strategy the script does not compose (`prepend`,
+`wrap`) stops it before any write, naming the command. Re-run after
+`preset add` (the `preset remove` + `preset add` pair of a dev reinstall
+included), `bundle update`, or `integration switch`, which compose the
+preset for the default integration only, and after `integration upgrade
+<key> --force`, which re-renders that integration's core commands from
+upstream alone.
 
-## 6. Add the installer's ignore entries
+## 8. Add the installer's ignore entries
 
 The installer's cache directories (extension, preset, and integration
 catalogs) and the extension payload virtual environments are rarely in
-a fresh consumer's ignore file. Run this block, replacing only the
-`fix` literal:
+a fresh consumer's ignore file. Run `ignore_entries.py` — with the
+consumer's `.venv/bin/python` when it exists, else `python3` on PATH, the
+rule upstream's own `py` scripts follow. Its one argument replaces
+`<true|false>`: `true` when the user asked to fix, else `false`:
 
 ```bash
-# ignore-entries:start
-set -e
-fix="<true|false>"
-acted=false
-for entry in ".specify/extensions/.cache/" ".specify/presets/.cache/" ".specify/integrations/.cache/" ".specify/extensions/*/.venv/"; do
-  probe=$(printf '%s' "$entry" | sed 's/\*/x/')
-  git check-ignore -q "$probe" && continue
-  acted=true
-  if [ "$fix" = "true" ]; then
-    if [ ! -f .gitignore ]; then
-      printf '# tserdeiro/spec-kit installer state\n' > .gitignore
-    elif ! grep -q '# tserdeiro/spec-kit installer state' .gitignore; then
-      printf '\n# tserdeiro/spec-kit installer state\n' >> .gitignore
-    fi
-    printf '%s\n' "$entry" >> .gitignore
-    echo "ignore: added $entry to .gitignore"
-  else
-    echo "ignore: $entry is not covered by .gitignore -- run with --fix"
-  fi
-done
-[ "$acted" = "true" ] || echo "ignore: nothing to do"
-# ignore-entries:end
+python3 .specify/presets/default/scripts/python/ignore_entries.py <true|false>
 ```
 
 `check-ignore` honors broader patterns already in the ignore file, so a
 repository ignoring `.venv/` globally gets no duplicate entry.
 
-Never mutate anything outside step 2's explicit `--fix` pass-through,
-step 5's skill mirror, and step 6's ignore entries; never install,
+Never mutate anything outside step 3's explicit `--fix` pass-through,
+step 7's skill mirror, and step 8's ignore entries; never install,
 download, or configure on your own.

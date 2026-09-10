@@ -1,7 +1,7 @@
 ---
 name: speckit-implement
-description: Execute the implementation plan by processing and executing all tasks
-  defined in tasks.md
+description: Execute the task delivery loop — one branch and one draft pull request
+  per task, scripted end to end.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
@@ -9,6 +9,8 @@ metadata:
 ---
 
 # Speckit Implement Skill
+
+# Spec Kit Implement
 
 ## User Input
 
@@ -18,591 +20,123 @@ $ARGUMENTS
 
 You **MUST** consider the user input before proceeding (if not empty).
 
-## Pre-Execution Checks
+## Setup
 
-**Check for extension hooks (before implementation)**:
-- Check if `.specify/extensions.yml` exists in the project root.
-- If it exists, read it and look for entries under the `hooks.before_implement` key
-- If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
-  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
-- When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
-- For each executable hook, output the following based on its `optional` flag:
-  - **Optional hook** (`optional: true`):
-    ```
-    ## Extension Hooks
+1. If the user named a feature (`/speckit.implement 003` or `003-checkout-flow`), resolve it to exactly one `specs/<dir>/` directory (a unique prefix is enough; stop and list the candidates if it is ambiguous or matches nothing) and `export SPECIFY_FEATURE_DIRECTORY=specs/<dir>` in every shell where this feature's scripts run. Upstream persists that choice to `.specify/feature.json`, so later runs without an argument continue it; without an argument, the active feature applies as-is.
+2. Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` from the repository root; parse `FEATURE_DIR` and `AVAILABLE_DOCS`. Every path is absolute.
+3. **Checklists, read-only** — when `FEATURE_DIR/checklists/` exists, scan each file's `- [ ]`/`- [x]` counts into a table (`Checklist | Total | Checked | Unchecked | Status`). Every checklist at 0 unchecked is `PASS`; otherwise display the table and ask whether to proceed anyway — "no" or "wait" halts, "yes" or "proceed" continues. Never edit a checklist file or its markers.
+4. **Load the artifacts** — `tasks.md` and `plan.md` (required); `data-model.md`, `contracts/`, `research.md`, `quickstart.md`, and `.specify/memory/constitution.md` when present.
+5. **Hooks, silently** — read `.specify/extensions.yml`'s `hooks.before_implement` (skip entirely, silently, on a missing file, a missing key, or invalid YAML). Among entries whose `enabled` is not explicitly `false` and whose `condition` is empty (a non-empty `condition` is left to the HookExecutor): invoke a **mandatory** hook (`optional: false`) as its own slash command — dots become hyphens, e.g. `speckit.git.commit` → `/speckit-git-commit` — and wait for it before continuing; run an **optional** hook the same way, silently, only when its own extension's configuration enables its event (check under `.specify/extensions/<extension>/`); skip every other optional hook, silently. Nothing about a hook is ever printed. The same rule governs `hooks.after_implement` — see "After hooks" below.
 
-    **Optional Pre-Hook**: {extension}
-    Command: `/{command}`
-    Description: {description}
+## The delivery loop
 
-    Prompt: {prompt}
-    To execute: `/{command}`
-    ```
-  - **Mandatory hook** (`optional: false`):
-    ```
-    ## Extension Hooks
+This distribution delivers **one branch and one draft PR per task**; wrap every task in the steps below.
 
-    **Automatic Pre-Hook**: {extension}
-    Executing: `/{command}`
-    EXECUTE_COMMAND: {command}
+**Orchestrate when your host can.** If your host supports delegating to sub-agents (Claude Code's Task tool, OpenCode agents, or equivalent), run this loop as an orchestrator: implement each task in a **fresh sub-agent**, so no context carries one task's residue into the next, and keep for yourself only what the loop needs — state derivation, branches, commits, and the conversation with the human. Everything a sub-agent needs (spec, plan, tasks, checkboxes, branches, PRs) is observable from the repository, so hand it pointers, never your conversation. Without that capability, run the loop yourself as written.
 
-    Wait for the result of the hook command before proceeding to the Outline.
-    ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
+**One task at a time.** Task lists here carry no parallel-task marker and no task ever runs in parallel. Exactly one task is in flight: one branch, one sub-agent, one draft PR. The next task starts only once the current one is `ready for review` (step 2). Tasks other developers deliver on their own branches are not this loop's concern.
 
-## Outline
+Run every script below with the consumer's `.venv/bin/python` when it exists, else `python3` on PATH — the rule upstream's own `py` scripts follow.
 
-1. Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` from repo root and parse FEATURE_DIR and AVAILABLE_DOCS list. All paths must be absolute. For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+## 0. The gate
 
-2. **Check checklists status** (if FEATURE_DIR/checklists/ exists):
-   - Treat checklist markers as a read-only gate: scan checkbox state, report status, and ask before proceeding when needed; do NOT modify checklist files or markers
-   - `checklists/requirements.md` is the built-in spec-quality checklist maintained by `$speckit-specify` and `$speckit-clarify`; custom checklists generated by `$speckit-checklist` are reviewer-owned requirements-quality review artifacts
-   - For custom checklists, `[x]` means the reviewer determined the requirements-quality criterion is satisfied; it does NOT mean implementation work is complete
-   - Scan all checklist files in the checklists/ directory
-   - For each checklist, count:
-     - Total items: All lines matching `- [ ]` or `- [X]` or `- [x]`
-     - Checked items: Lines matching `- [X]` or `- [x]`
-     - Unchecked items: Lines matching `- [ ]`
-   - Create a status table:
+Verify the **feature gate** — the draft feature PR on the feature branch (`NNN-slug`), the spec-review gate a human merge later closes:
 
-     ```text
-     | Checklist | Total | Checked | Unchecked | Status |
-     |-----------|-------|---------|-----------|--------|
-     | ux.md     | 12    | 12      | 0         | ✓ PASS |
-     | test.md   | 8     | 5       | 3         | ✗ FAIL |
-     | security.md | 6   | 6       | 0         | ✓ PASS |
-     ```
+```bash
+gh pr view <feature-branch> --json url,isDraft,state 2>/dev/null
+```
 
-   - Calculate overall status:
-     - **PASS**: All checklists have 0 unchecked items
-     - **FAIL**: One or more checklists have unchecked items
+Only an OPEN pull request counts. When none exists, run the `/speckit.pr` routine's **feature-PR variant** — from the feature branch, with the feature's artifacts committed — before the first task: it opens the canonical draft gate, and the loop continues. When it is open, report its URL and never open another. When it is CLOSED or MERGED, stop and tell the human — a closed gate is a decision, not a gap. The gate is where a human approves the spec and plan; the loop never delivers a task against a feature with no gate open.
 
-   - **If any checklist has unchecked items**:
-     - Display the table with unchecked item counts
-     - **STOP** and ask: "Some checklists have unchecked items. Do you want to proceed with implementation anyway? (yes/no)"
-     - Wait for user response before continuing
-     - If user says "no" or "wait" or "stop", halt execution
-     - If user says "yes" or "proceed" or "continue", proceed to step 3
+Report the tooling once, from the feature branch: `[ -d .specify/extensions/code-review ]` decides the review path of step 2 below — `Tooling: code-review` or `Tooling: none — reviews by diff`. Linear's own state-syncing runs outside this loop — in `task_base.py`'s branch creation and, where the linear extension's session and tool-use handlers are installed, in those handlers; the loop carries no instruction for it. A task never installs or removes an extension — that is a trunk chore, never a feature task.
 
-   - **If all checklists are checked**:
-     - Display the table showing all checklists passed
-     - Automatically proceed to step 3
+## 1. Starting a task
 
-3. Load and analyze the implementation context:
-   - **REQUIRED**: Read tasks.md for the complete task list and execution plan
-   - **REQUIRED**: Read plan.md for tech stack, architecture, and file structure
-   - **IF EXISTS**: Read data-model.md for entities and relationships
-   - **IF EXISTS**: Read contracts/ for API specifications and test requirements
-   - **IF EXISTS**: Read research.md for technical decisions and constraints
-   - **IF EXISTS**: Read .specify/memory/constitution.md for governance constraints
-   - **IF EXISTS**: Read quickstart.md for integration scenarios
+Before touching any code for `T###`:
 
-4. **Project Setup Verification**:
-   - **REQUIRED**: Create/verify ignore files based on actual project setup:
+- On the **first task of the feature**, bring the delivery base into the feature branch, once:
 
-   **Detection & Creation Logic**:
-   - Check if the following command succeeds to determine if the repository is a git repo (create/verify .gitignore if so):
+  ```bash
+  python3 .specify/presets/default/scripts/python/task_base.py refresh
+  ```
 
-     ```sh
-     git rev-parse --git-dir 2>/dev/null
-     ```
+  Do not run this on later tasks; later delivery-base refreshes are the developer's duty.
+- Create the task branch from the top of the open task stack:
 
-   - Check if Dockerfile* exists or Docker in plan.md → create/verify .dockerignore
-   - Check if .eslintrc* exists → create/verify .eslintignore
-   - Check if eslint.config.* exists → ensure the config's `ignores` entries cover required patterns
-   - Check if .prettierrc* exists → create/verify .prettierignore
-   - Check if .npmrc or package.json exists → create/verify .npmignore (if publishing)
-   - Check if terraform files (*.tf) exist → create/verify .terraformignore
-   - Check if .helmignore needed (helm charts present) → create/verify .helmignore
+  ```bash
+  python3 .specify/presets/default/scripts/python/task_base.py task <NNN-T###-short-slug>
+  ```
 
-   **If ignore file already exists**: Verify it contains essential patterns, append missing critical patterns only
-   **If ignore file missing**: Create with full pattern set for detected technology
+  It prints `base=<name>` — name it in the PR body's `Stack:` line — and projects the branch to Linear itself once it exists. A draft task PR still open, or two open stacks, stops the loop with the script's own diagnosis; **Depends on** in the ledger documents delivery order, it never chooses the base.
+- **The stack is derived, never invented**: when the task or the plan's `## Documentation` section defines stack or documentation links, they rule. Otherwise read the real manifests (`package.json`, lockfiles, etc.) and the neighboring code, and reuse what is installed. Never add a dependency and never reimplement what an installed library already covers — both are human decisions to ask for. An API you are not certain of is verified against the linked or official documentation before use, never guessed.
 
-   **Common Patterns by Technology** (from plan.md tech stack):
-   - **Node.js/JavaScript/TypeScript**: `node_modules/`, `dist/`, `build/`, `*.log`, `.env*`
-   - **Python**: `__pycache__/`, `*.pyc`, `.venv/`, `venv/`, `dist/`, `*.egg-info/`
-   - **Java**: `target/`, `*.class`, `*.jar`, `.gradle/`, `build/`
-   - **C#/.NET**: `bin/`, `obj/`, `*.user`, `*.suo`, `packages/`
-   - **Go**: `*.exe`, `*.test`, `vendor/`, `*.out`
-   - **Ruby**: `.bundle/`, `log/`, `tmp/`, `*.gem`, `vendor/bundle/`
-   - **PHP**: `vendor/`, `*.log`, `*.cache`, `*.env`
-   - **Rust**: `target/`, `debug/`, `release/`, `*.rs.bk`, `*.rlib`, `*.prof*`, `.idea/`, `*.log`, `.env*`
-   - **Kotlin**: `build/`, `out/`, `.gradle/`, `.idea/`, `*.class`, `*.jar`, `*.iml`, `*.log`, `.env*`
-   - **C++**: `build/`, `bin/`, `obj/`, `out/`, `*.o`, `*.so`, `*.a`, `*.exe`, `*.dll`, `.idea/`, `*.log`, `.env*`
-   - **C**: `build/`, `bin/`, `obj/`, `out/`, `*.o`, `*.a`, `*.so`, `*.exe`, `*.dll`, `autom4te.cache/`, `config.status`, `config.log`, `.idea/`, `*.log`, `.env*`
-   - **Swift**: `.build/`, `DerivedData/`, `*.swiftpm/`, `Packages/`
-   - **R**: `.Rproj.user/`, `.Rhistory`, `.RData`, `.Ruserdata`, `*.Rproj`, `packrat/`, `renv/`
-   - **Universal**: `.DS_Store`, `Thumbs.db`, `*.tmp`, `*.swp`, `.vscode/`, `.idea/`
+## 2. Finishing a task
 
-   **Tool-Specific Patterns**:
-   - **Docker**: `node_modules/`, `.git/`, `Dockerfile*`, `.dockerignore`, `*.log*`, `.env*`, `coverage/`
-   - **ESLint**: `node_modules/`, `dist/`, `build/`, `coverage/`, `*.min.js`
-   - **Prettier**: `node_modules/`, `dist/`, `build/`, `coverage/`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`
-   - **Terraform**: `.terraform/`, `*.tfstate*`, `*.tfvars`, `.terraform.lock.hcl`
-   - **Kubernetes/k8s**: `*.secret.yaml`, `secrets/`, `.kube/`, `kubeconfig*`, `*.key`, `*.crt`
+Before opening the PR, run the budget stop:
 
-5. Parse tasks.md structure and extract:
-   - **Task phases**: Setup, Tests, Core, Integration, Polish
-   - **Task dependencies**: Sequential vs parallel execution rules
-   - **Task details**: ID, description, file paths, parallel markers [P]
-   - **Execution flow**: Order and dependency requirements
+```bash
+python3 .specify/presets/default/scripts/python/budget_stop.py <T###> <base>
+```
 
-6. Execute implementation following the task plan:
-   - **Phase-by-phase execution**: Complete each phase before moving to the next
-   - **Respect dependencies**: Run sequential tasks in order, parallel tasks [P] can run together
-   - **Follow TDD approach**: Execute test tasks before their corresponding implementation tasks
-   - **File-based coordination**: Tasks affecting the same files must run sequentially
-   - **Validation checkpoints**: Verify each phase completion before proceeding
+(`base` is what step 1 printed.) It stops the task — no PR opens — when the authored executable lines pass the smaller of twice the task's `Delivery` forecast and 400, naming what does not fit. **A forecast or a budget is never amended in the PR that exceeds it**: a human changes it in the ledger, on the feature branch, outside that PR — or grants an explicit exception in the conversation, recorded in the PR's evidence, letting the PR open as is.
 
-7. Implementation execution rules:
-   - **Setup first**: Initialize project structure, dependencies, configuration
-   - **Tests before code**: If you need to write tests for contracts, entities, and integration scenarios
-   - **Core development**: Implement models, services, CLI commands, endpoints
-   - **Integration work**: Database connections, middleware, logging, external services
-   - **Polish and validation**: Unit tests, performance optimization, documentation
+Run `/speckit.pr`: it guarantees the branch invariant and opens the draft PR with the canonical body. Self-review it next: the fresh reviewer's brief is fixed text, the packet path (or the diff and PR body, below) prepended:
 
-8. Progress tracking and error handling:
-   - Report progress after each completed task
-   - Halt execution if any non-parallel task fails
-   - For parallel tasks [P], continue with successful tasks, report failed ones
-   - Provide clear error messages with context for debugging
-   - Suggest next steps if implementation cannot proceed
-   - **IMPORTANT** For completed tasks, make sure to mark the task off as [X] in the tasks file.
+> Verify the implementer's claims in the packet's evidence instead of
+> repeating its experiments. Before asking for an edge case, ask
+> whether the mechanism is needed at all — a simpler design that meets
+> the requirement is a `major` finding, a new runtime dependency is
+> `blocking`, per the repository's review rules. A packet over 100 KB
+> (`wc -c`) is reviewed one file at a time, findings consolidated at
+> the end. Write `findings.json` inside the review session directory
+> when there is one; otherwise, return the findings directly to the
+> orchestrator.
 
-9. Completion validation:
-   - Verify all required tasks are completed
-   - Check that implemented features match the original specification
-   - Validate that tests pass and coverage meets requirements
-   - Confirm the implementation follows the technical plan
+- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to a **fresh sub-agent** with no implementation residue, which reads the packet in full, reviews the candidate, and writes `findings.json` **inside the review session directory**; close the review with that file. Without sub-agents, run the review yourself — findings still written inside the session directory, fresh per review, never copied from an earlier one.
+- **Without `code-review`**, hand a fresh sub-agent (or, without one, a fresh context) the PR's diff and body — `gh pr diff <n>` and `gh pr view <n>` — and the brief, nothing else carried over. It returns its findings; post them as one PR comment (`gh pr comment <n>`) — no session, no verdict, the degraded mode — and name that comment in the Completion evidence.
 
-Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `$speckit-tasks` first to regenerate the task list.
+That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it.
 
-## Mandatory Post-Execution Hooks
+**Carrying a fix through the stack.** Whenever a commit lands on a task branch that has open task PRs stacked on it — a review fix on an earlier task, a reviewer's comment fixed later:
 
-**You MUST complete this section before reporting completion to the user.**
+```bash
+python3 .specify/presets/default/scripts/python/stack_propagate.py <fixed_branch>
+```
 
-Check if `.specify/extensions.yml` exists in the project root.
-- If it does not exist, or no hooks are registered under `hooks.after_implement`, skip to the Completion Report.
-- If it exists, read it and look for entries under the `hooks.after_implement` key.
-- If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
-- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
-  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
-  - If the hook defines a non-empty `condition`, skip the hook and leave condition evaluation to the HookExecutor implementation
-- When constructing command invocations from hook command names, replace dots (`.`) with hyphens (`-`). For example, `speckit.git.commit` → `$speckit-git-commit`.
-- For each executable hook, output the following based on its `optional` flag:
-  - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
-    ```
-    ## Extension Hooks
+It merges the fix into every branch stacked above, in order, and pushes each; a conflict stops it there, naming the branch, without touching the branches above; an empty chain is reported and changes nothing.
 
-    **Automatic Hook**: {extension}
-    Executing: `/{command}`
-    EXECUTE_COMMAND: {command}
-    ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
-  - **Optional hook** (`optional: true`):
-    ```
-    ## Extension Hooks
+Then, in the PR's **final commit**, check the task's box and fill its **Completion evidence** (a task split into stacked PRs checks it in the stack's last PR), push, and run the budget stop again — the branch may have grown during review. Then the ledger gate:
 
-    **Optional Hook**: {extension}
-    Command: `/{command}`
-    Description: {description}
+```bash
+python3 .specify/presets/default/scripts/python/ledger_check.py <T###>
+```
 
-    Prompt: {prompt}
-    To execute: `/{command}`
-    ```
+It exits 2 naming exactly what's missing — the checkbox, the evidence, or both — before the PR can be marked ready; once it passes, `gh pr ready <n>`. The checked box travels inside the task PR, reaching the feature branch only through the human merge; a reviewer's comment is fixed on this same PR, the box stays checked. Ready for review is what frees you to start the next task (step 1).
 
-## Completion Report
+## 3. Between tasks
 
-Report final status with summary of completed work.
+A task is finished when a human merged its PR — the merge is what lands its checked box and evidence on the feature branch, so `[x]` there means merged, by construction. `/speckit.linear.status` shows every task's derived state and its next command.
 
-## Done When
+**The loop never merges.** Only when the human explicitly asks, in the conversation, does it act. Retargeting a PR onto the feature branch is GitHub's cheap `edited` event; merging leaf-first would instead re-run every check at every step, so the merge goes **root-first**:
 
-- [ ] All tasks in tasks.md completed and marked `[X]`
-- [ ] Implementation validated against specification, plan, and test coverage
-- [ ] Extension hooks dispatched or skipped according to the rules in Mandatory Post-Execution Hooks above
-- [ ] Completion reported to user with summary of completed work
+```bash
+python3 .specify/presets/default/scripts/python/merge_root_first.py
+```
 
+It prunes stale worktrees, then retargets and merges every open task PR root-first, and never requests branch deletion — the repository's auto-delete of merged branches does that cleanup on its own.
 
+## 4. Closing the feature
 
-## Task delivery loop (tserdeiro/spec-kit)
+When every box on the feature branch is checked — every task PR merged — mark the **feature PR** (the draft gate, whichever step opened it) `ready for review`: it now shows the whole feature, composed of task PRs a human already reviewed one by one. Approving and merging are never yours — a human merges it into the delivery base with a **merge commit** (no squash: the task history must survive). After that merge, run `git worktree prune`, then delete your local feature branch (GitHub deletes the remote when the repository auto-deletes merged branches).
 
-This distribution delivers **one branch and one draft PR per task**, and
-this loop is its delivery contract: **where the core rules above differ,
-this loop wins.** Wrap every task in it as you implement:
+## Reverting a delivered task
 
-**Hooks are acted on, never announced.** Wherever the core text above
-says to print an "Optional Hook" / "Optional Pre-Hook" block, print
-nothing. An optional hook whose own extension configuration enables its
-event (check under `.specify/extensions/<extension>/`) runs silently;
-every other optional hook is skipped silently. Mandatory hooks behave
-exactly as the core text says.
+Undoing a delivered change is a ledger task the human adds, delivered through this loop like any other: its own branch, PR, fresh review, and `ready for review`. Its commit is never the tool's default subject, which fails the conventions check: run `git revert --no-commit <sha>` (`-m 1` for a merge), then commit it yourself with `git commit -m "revert(scope): <subject>"`.
 
-**Orchestrate when your host can.** If your host supports delegating to
-sub-agents (Claude Code's Task tool, OpenCode agents, or equivalent), run
-this loop as an orchestrator: implement each task in a **fresh sub-agent**,
-so no context carries one task's residue into the next, and keep for
-yourself only what the loop needs — state derivation, branches, commits,
-and the conversation with the human. Everything a sub-agent needs (spec,
-plan, tasks, checkboxes, branches, PRs) is observable from the repository,
-so hand it pointers, never your conversation. Without that capability, run
-the loop yourself as written.
+## After hooks
 
-**One task at a time.** Task lists here carry no `[P]` markers and no
-task ever runs in parallel. Exactly one task is in flight: one branch,
-one sub-agent, one draft PR. The next task starts only once the current
-one is `ready for review` (step 2). Tasks other developers deliver on
-their own branches are not this loop's concern.
+Run `.specify/extensions.yml`'s `hooks.after_implement` by Setup step 5's own rule, once this run has nothing left to deliver — silently, mandatory hooks awaited, eligible optional hooks run quietly, every other one skipped.
 
-0. **Feature selection** — if the user named a feature in the command
-   (`/speckit.implement 003` or `003-checkout-flow`), resolve it to
-   exactly one `specs/<dir>/` directory (a unique prefix is enough; if it
-   is ambiguous or matches nothing, stop and list the candidates) and
-   `export SPECIFY_FEATURE_DIRECTORY=specs/<dir>` in every shell where
-   you run this feature's scripts. Upstream persists that choice to
-   `.specify/feature.json` — per-checkout local state the CLI keeps
-   gitignored — so later runs without an argument continue it. Without
-   an argument, the active feature applies as-is.
-   Then verify the **feature gate** — the draft feature PR on the
-   feature branch (`NNN-slug`), the spec-review gate a human merge
-   later closes — with `gh pr view <feature-branch> --json
-   url,isDraft,state 2>/dev/null`. Only an OPEN pull request counts.
-   When none exists, execute the `/speckit.pr` routine's
-   **feature-PR variant** — from the feature branch, with the
-   feature's artifacts committed — before the first task: it opens
-   the canonical draft gate, and the loop continues. When it is
-   open, report its URL and never open another. When it is CLOSED
-   or MERGED, stop and tell the human — a closed gate is a
-   decision, not a gap. The gate is where a human approves the spec
-   and plan; the loop never delivers a task against a feature with
-   no gate open.
-   Then fix this run's **tooling set** once, from the feature branch —
-   `[ -d .specify/extensions/linear ]` and `[ -d
-   .specify/extensions/code-review ]` — and report it in one line, for
-   example `Tooling: linear, code-review` or `Tooling: none —
-   reconciliation omitted, reviews by diff`. Every `/speckit.linear.push`
-   call in this loop, `--hook` or `--apply`, runs only when `linear` is
-   in the set and is silently omitted otherwise. A task never installs or
-   removes an extension — that is a trunk chore, never a feature task.
-   When `linear` is in the set, reconcile once with
-   `/speckit.linear.push --hook`
-   (when slash commands are unavailable, agents run
-   `bash .specify/extensions/linear/scripts/bash/run.sh push --current
-   --hook`): it catches state changes that happened while no session
-   ran — overnight merges — applies without asking under the
-   extension's lifecycle gates, and is a silent clean no-op when Linear
-   is not configured. A reconcile failure is reported once and never
-   blocks delivery — tracking waits for the next run.
-1. **Starting a task** — before touching any code for `T###`:
-   - On the **first task of the feature**, bring the repository's
-     up-to-date delivery base into the feature branch (`NNN-slug`) with
-     this single shell invocation:
+## Completion report
 
-     ```bash
-     # first-task-refresh:start
-     set -e
-     current_branch=$(git branch --show-current)
-     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
-     feature_branch=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
-     [ "$current_branch" = "$feature_branch" ] ||
-       { printf 'error: expected feature branch %s, found %s\n' \
-         "$feature_branch" "$current_branch" >&2; exit 2; }
-     trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*["'"'"']?([^"'"'"'#[:space:]]*)["'"'"']?.*$/\1/p;q;}' \
-       .specify/extensions/git/git-config.yml 2>/dev/null || true)
-     delivery_base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
-     git check-ref-format --branch "$delivery_base" >/dev/null
-     remote=origin
-     git fetch "$remote"
-     git merge "$remote/$delivery_base"
-     git push "$remote" "$feature_branch"
-     # first-task-refresh:end
-     ```
-
-     The delivery base resolves the same way `speckit.pr`'s feature PR
-     does (see there for the exact rule). Do not run this refresh on
-     later tasks; later delivery-base refreshes are the developer's duty.
-   - Create the task branch **from the top of the open task stack**: run
-     the block below, replacing only the `task_branch` literal (`pr.md`'s
-     `pr-create` block replaces its own literal the same way). It
-     resolves the feature branch, reads this feature's open, non-draft
-     task PRs, and switches `task_branch` onto the one none of them uses
-     as a base — or onto the feature branch when none is open, including
-     when the human merged the stack root-first between tasks. A draft
-     task PR means one is still in flight and stops the loop; two heads
-     with nothing stacked on either is two stacks and also stops the
-     loop. **Depends on** documents delivery order; it never chooses the
-     base. Name the base the block prints in the PR body's `Stack:` line.
-
-     ```bash
-     # task-base:start
-     set -e
-     task_branch="<NNN-T###-short-slug>"
-     paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
-     feature_branch=$(printf '%s\n' "$paths" | sed -n 's/^BRANCH: //p')
-     feature_number=${feature_branch##*/}
-     feature_number=${feature_number%%-*}
-     prs=$(mktemp)
-     gh pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
-       --jq ".[] | select(.headRefName | startswith(\"$feature_number-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\"" \
-       > "$prs"
-     draft=$(awk '$3 == "true" { print $1 }' "$prs")
-     [ -z "$draft" ] ||
-       { printf 'error: draft task PR still open: %s\n' "$draft" >&2; exit 2; }
-     tops=$(awk '{ head[$1]=1; used[$2]=1 } END { for (h in head) if (!(h in used)) print h }' "$prs")
-     top_count=$(printf '%s\n' "$tops" | grep -c .) || true
-     if [ "$top_count" -gt 1 ]; then
-       printf 'error: two open task stacks: %s\n' "$tops" >&2
-       exit 2
-     elif [ "$top_count" -eq 1 ]; then
-       base="$tops"
-     else
-       base="$feature_branch"
-     fi
-     git fetch origin
-     git switch -c "$task_branch" "origin/$base"
-     printf 'base=%s\n' "$base"
-     # task-base:end
-     ```
-   - **The stack is derived, never invented**: when the task or the
-     plan's `## Documentation` section defines stack or documentation
-     links, they rule. Otherwise read the real manifests
-     (`package.json`, lockfiles, etc.) and the neighboring code, and
-     reuse what is installed. Never add a dependency and never
-     reimplement what an installed library already covers — both are
-     human decisions to ask for. An API you are not certain of is
-     verified against the linked or official documentation before use,
-     never guessed.
-   The branch is what projects the task to *In Progress* in Linear —
-   once it exists and `linear` is in the set, reconcile with
-   `/speckit.linear.push --hook`.
-2. **Finishing a task** — before opening the PR, run the **budget
-   stop**: replacing only the `task_id` and `base` literals (`base` is
-   what `task-base` printed), it reads the forecast from the task's
-   `Delivery` line (`~N authored lines`; absent defaults to 400), sums
-   the added lines of `git diff --numstat <base>...HEAD` over the files
-   the review budget counts, and stops at the smaller of twice the
-   forecast and 400.
-
-   ```bash
-   # budget-stop:start
-   set -e
-   task_id="<T###>"
-   base="<the base the task-base block printed>"
-   paths=$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)
-   tasks_file=$(printf '%s\n' "$paths" | sed -n 's/^FEATURE_DIR: //p')/tasks.md
-   [ -f "$tasks_file" ] ||
-     { printf 'error: task ledger not found: %s\n' "$tasks_file" >&2; exit 2; }
-   forecast=$(awk -v id="$task_id" '
-     in_fence {
-       i=0; while (substr($0,i+1,1)==" ") i++
-       c=substr($0,i+1); sub(/[ \t]+$/, "", c)
-       ok=(i<=3 && length(c)>=mlen)
-       if (ok) for (j=1;j<=length(c);j++) if (substr(c,j,1)!=marker) { ok=0; break }
-       if (ok) in_fence=0
-       next
-     }
-     {
-       i=0; while (substr($0,i+1,1)==" ") i++
-       r=substr($0,i+1); ch=substr(r,1,1)
-       if (i<=3 && (ch=="`" || ch=="~")) {
-         n=0; while (substr(r,n+1,1)==ch) n++
-         if (n>=3 && (ch!="`" || !index(substr(r,n+1),"`"))) { in_fence=1; marker=ch; mlen=n; next }
-       }
-       if (header) {
-         if ($0 ~ /^- \[[ xX]\] T[0-9][0-9][0-9]/) exit
-         if (/\*\*Delivery\*\*:/) {
-           if (match($0, /~[0-9]+/)) print substr($0, RSTART + 1, RLENGTH - 1)
-           exit
-         }
-       }
-       if ($0 ~ "^- \\[[ xX]\\] " id " ") header = 1
-     }
-   ' "$tasks_file")
-   [ -n "$forecast" ] || forecast=400
-   numstat=$(mktemp)
-   git diff --numstat --no-renames "$base...HEAD" > "$numstat"
-   listing=$(mktemp)
-   added=$(awk -F'\t' -v listing="$listing" '
-     {
-       lines = $1; path = $3
-       if (lines == "-" || $2 == "-") next
-       n = split(path, parts, "/"); name = parts[n]
-       if (name == "uv.lock" || name == "package-lock.json" || name == "poetry.lock" || name == "Cargo.lock") next
-       m = split(name, nparts, "."); suffix = ""
-       if (m > 1) suffix = tolower("." nparts[m])
-       if (suffix == ".md" || suffix == ".rst" || suffix == ".txt" || suffix == ".lock" ||
-           suffix == ".svg" || suffix == ".png" || suffix == ".jpg" || suffix == ".jpeg" ||
-           suffix == ".gif" || suffix == ".ico" || suffix == ".pdf") next
-       sum += lines
-       print lines, path > listing
-     }
-     END { print sum + 0 }
-   ' "$numstat")
-   stop=$((2 * forecast))
-   [ "$stop" -le 400 ] || stop=400
-   if [ "$added" -gt "$stop" ]; then
-     printf 'error: %s added %d lines against a stop of %d (forecast ~%d)\n' \
-       "$task_id" "$added" "$stop" "$forecast" >&2
-     sort -rn "$listing" | head -n 10 >&2
-     exit 2
-   fi
-   printf 'budget: %d/%d (forecast ~%d)\n' "$added" "$stop" "$forecast"
-   # budget-stop:end
-   ```
-
-   The loop runs this again before marking the PR `ready for review`, in
-   case the branch grew during the review. On a stop, the task returns
-   to the human with the diagnosis above — what does not fit and a
-   proposed split — and no PR opens as-is. **A forecast or budget is
-   never amended in the PR that exceeds it**: a human changes it in the
-   ledger, on the feature branch, outside that PR.
-
-   Run `/speckit.pr`: it guarantees the branch invariant and opens the
-   draft PR with the canonical body. Self-review it next: the fresh
-   reviewer's brief is fixed text, the packet path (or the diff and PR
-   body, below) prepended:
-
-   > Verify the implementer's claims in the packet's evidence instead of
-   > repeating its experiments. Before asking for an edge case, ask
-   > whether the mechanism is needed at all — a simpler design that meets
-   > the requirement is a `major` finding, a new runtime dependency is
-   > `blocking`, per the repository's review rules. A packet over 100 KB
-   > (`wc -c`) is reviewed one file at a time, findings consolidated at
-   > the end. Write `findings.json` inside the review session directory
-   > when there is one; otherwise, return the findings directly to the
-   > orchestrator.
-
-   - **With `code-review` in the set**, review it with
-     `/speckit.code-review <PR number>` — only the PR form opens a
-     review session — orchestrated like the tasks: on hosts with
-     sub-agents, open the review session but neither read the packet nor
-     write the findings yourself — hand the packet path and the brief,
-     nothing else, to a **fresh sub-agent** with no implementation
-     residue, which reads the packet in full, reviews the candidate, and
-     writes `findings.json` **inside the review session directory**;
-     close the review with that file. Without sub-agents, run the review
-     yourself — findings still written inside the session directory,
-     fresh per review, never copied from an earlier one.
-   - **Without `code-review`**, hand a fresh sub-agent (or, without one,
-     a fresh context) the PR's diff and body — `gh pr diff <n>` and
-     `gh pr view <n>` — and the brief, nothing else carried over. It
-     returns its findings; post them as one PR comment
-     (`gh pr comment <n>`) — no session, no verdict, the degraded
-     mode — and name that comment in the Completion evidence.
-   That independence is what makes the verdict worth anything: a reused
-   findings file is not a review. Fix what it finds on the task branch,
-   whichever path produced it.
-
-   **Carrying a fix through the stack.** Whenever a commit lands on
-   a task branch that has open task PRs stacked on it — a review fix
-   on an earlier task, a reviewer's comment fixed later — run the
-   block below from that branch, replacing only the `fixed_branch`
-   literal. It reads this feature's open task PRs (the same query as
-   `task-base`) and walks the chain upward: the PR whose base is
-   `fixed_branch`, then the PR whose base is that head, and so on —
-   one linear stack, each `T###` read from the branch's `NNN-T###-`
-   prefix with `sed`. For every branch in that order it runs
-   `git switch`, `git merge --no-ff -m "merge(task): carry the <T###
-   of fixed_branch> fix into <T### of that branch>" <previous
-   branch>`, then `git push origin <branch>`. A merge failure runs
-   `git merge --abort`, prints the branch it stopped at, and exits 2
-   without touching the branches above it; an empty chain prints
-   that nothing is stacked and exits 0. Once every stacked branch is
-   merged and pushed, it switches back to `fixed_branch`. No
-   rewrite, no rebase, no force — merge commits only, the subject
-   form the conventions check accepts.
-
-   ```bash
-   # stack-propagate:start
-   set -e
-   fixed_branch="<NNN-T###-short-slug>"
-   feature_number=${fixed_branch%%-*}
-   prs=$(mktemp)
-   gh pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
-     --jq ".[] | select(.headRefName | startswith(\"$feature_number-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\"" \
-     > "$prs"
-   fixed_task=$(printf '%s\n' "$fixed_branch" | sed -nE 's/^[0-9]+-(T[0-9]{3})-.*/\1/p')
-   previous="$fixed_branch"
-   current=$(awk -v base="$fixed_branch" '$2 == base { print $1; exit }' "$prs")
-   if [ -z "$current" ]; then
-     printf 'nothing stacked on %s\n' "$fixed_branch"
-     exit 0
-   fi
-   while [ -n "$current" ]; do
-     current_task=$(printf '%s\n' "$current" | sed -nE 's/^[0-9]+-(T[0-9]{3})-.*/\1/p')
-     git switch "$current"
-     if ! git merge --no-ff -m "merge(task): carry the $fixed_task fix into $current_task" "$previous"; then
-       git merge --abort || true
-       printf 'error: merge conflict carrying the fix into %s\n' "$current" >&2
-       exit 2
-     fi
-     git push origin "$current"
-     previous="$current"
-     current=$(awk -v base="$previous" '$2 == base { print $1; exit }' "$prs")
-   done
-   git switch "$fixed_branch"
-   # stack-propagate:end
-   ```
-
-   Then, in the PR's **final commit**, check
-   the task's box and fill its **Completion evidence** (the PR and the
-   verification results; a task split into stacked PRs checks it in the
-   stack's last PR), push, run the budget stop again first, and mark the
-   PR `ready for review`, then, when `linear` is in the set, reconcile
-   with `/speckit.linear.push --hook` so the issue shows its review
-   state. The checked box travels inside
-   the task PR, so it reaches the feature branch only through the human
-   merge; reviewer comments are fixed on this same PR, the box stays
-   checked. Ready for review is what frees you to start the next task
-   (step 1).
-3. **Between tasks** — a task is finished when a human merged its PR:
-   the merge is what lands its checked box and evidence on the feature
-   branch, so there `[x]` means merged, by construction.
-   `/speckit.linear.status` shows every task's derived state and its
-   suggested next action (an open PR outranks the checkbox in the
-   projection, so a task in review never reads as done).
-
-   **The loop never merges.** A run ends with every task PR `ready for
-   review` and its fresh review closed; merging is the human's
-   decision, made **root-first** — the first PR of the stack into the
-   feature branch, then the next — because retargeting the PR above is
-   GitHub's `edited` event, which re-runs no tests or conformance (only
-   the naming check listens to it), while merging leaf-first
-   synchronizes every open PR still stacked below and re-runs every
-   check at every step.
-   Only when the human explicitly asks the agent to merge, in the
-   conversation, does it act: `git worktree prune` first — a stale
-   worktree blocks branch deletion — then, for each PR root-first, sets
-   its base to the feature branch explicitly with `gh api -X PATCH
-   repos/<owner>/<repo>/pulls/<n> -f base=<feature-branch>` — GitHub's
-   own retarget as an `edited` event, so no check re-runs — and merges
-   it with `gh pr merge <n> --merge`, **never `--delete-branch`**:
-   deleting the head branch by hand before GitHub retargets the PR
-   above closes that PR, and GitHub does not reopen a closed PR onto a
-   new base; the repository's auto-delete of merged branches (the
-   doctor verifies `deleteBranchOnMerge`) does the cleanup. Then, when
-   `linear` is in the set, reconcile with `/speckit.linear.push
-   --apply`.
-4. **Closing the feature** — when every box on the feature branch is
-   checked — every task PR merged — mark the **feature PR** (the draft
-   gate, whether the product phase or step 0 opened it)
-   `ready for review`: it now shows the whole
-   feature, composed of task PRs a human already reviewed one by one.
-   Approving and merging are never yours — a human merges it into the
-   delivery base with a **merge commit** (no squash: the task history
-   must survive). After that merge, run `git worktree prune` — a stale
-   worktree blocks branch deletion — then delete your local feature
-   branch (GitHub deletes the remote when the repository auto-deletes
-   merged branches); when `linear` is in the set, reconcile with
-   `/speckit.linear.push --apply`.
-
-**Reverting a delivered task.** Undoing a delivered change is a ledger
-task the human adds, delivered through this loop like any other: its
-own branch, PR, fresh review, and `ready for review`. Its commit is
-never the tool's default subject, which fails the conventions check:
-run `git revert --no-commit <sha>` (`-m 1` for a merge), then commit it
-yourself with `git commit -m "revert(scope): <subject>"`.
+Report what this run delivered: the tasks moved to `ready for review` (or merged, if the human acted), their PR links, and the loop's current position — the next task, or that the feature is waiting on the human.

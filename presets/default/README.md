@@ -2,9 +2,9 @@
 
 The workflow templates for this distribution: `spec`, `plan`, `tasks`, and
 `checklist`, plus the workflow commands (`speckit.pr`, `speckit.bugfix`,
-`speckit.chore`, `speckit.doctor`, and the `speckit.specify`,
-`speckit.plan`, `speckit.tasks`, `speckit.analyze`, and
-`speckit.implement` appends). The `tasks` template carries the
+`speckit.chore`, `speckit.doctor`, the `speckit.implement` and
+`speckit.tasks` replacements, and the `speckit.specify`, `speckit.plan`,
+and `speckit.analyze` appends). The `tasks` template carries the
 integration-branch delivery conventions — one task in flight per
 developer, no parallel tasks; the rest trim the upstream core templates
 to what the flow needs.
@@ -78,11 +78,98 @@ its own render, never another's; it also adds the installer's cache and
 `.venv` directories to `.gitignore` when not already covered. Both
 passes are read-only until `--fix`.
 
-## Executable blocks
+## Scripts
 
-Every marked block in the preset's commands — `pr-create`,
-`first-task-refresh`, `task-base`, `stack-propagate`, `budget-stop`,
-`skill-mirror`, `ignore-entries` — is POSIX shell: `set -e`, no pipeline
-that needs `pipefail`, no arrays or other bash-isms. Conformance
-extracts and runs each one with `sh` (`dash` on Ubuntu CI); the agent
-replaces only the named literals inside it.
+`scripts/python/task_base.py` (Python 3.11+, standard library only) sets
+up a task's branch in three modes: `refresh` (once per feature, merges
+the delivery base into the feature branch), `task <NNN-T###-slug>`
+(branches from the open task stack's top, else the feature branch), and
+`work-item <branch-name>` (branches from the delivery base — the mode
+`speckit.chore` and `speckit.bugfix` both call, one script for both).
+Every mode that creates a branch ends by reconciling Linear
+(`push --hook`) when the extension is installed; a failing reconcile is
+a warning, never a script failure. Run it with the consumer's
+`.venv/bin/python` when it exists, else `python3` on PATH — the rule
+upstream's own `py` scripts follow.
+
+`scripts/python/pr_create.py <feature|task|work-item> [named-task]`
+resolves and prints the PR's base only — the same delivery-base rule as
+`task_base.py`, plus, for a task, the open task-PR stack's head and the
+branch-identity check against the named task or the ledger's first
+unchecked one. It never runs `gh pr create` itself; `speckit.pr` composes
+that call's title and body and runs it with the printed base. Same
+interpreter rule as `task_base.py`.
+
+`scripts/python/budget_stop.py <task_id> <base>` stops a task before its
+authored executable lines pass the review budget — same rules as the
+`budget-stop` block it will replace: the forecast comes from the task's
+`Delivery` line (fence-aware; absent or without a `~N` marker defaults to
+400), the sum is `git diff --numstat --no-renames <base>...HEAD` excluding
+binary rows, the four lockfiles, and eleven doc/asset suffixes, and the
+stop is the smaller of twice the forecast and 400. Same interpreter rule
+as `task_base.py`.
+
+`scripts/python/stack_propagate.py <fixed_branch>` carries a fix landed
+on `fixed_branch` through every open task PR stacked above it — the
+same chain `task_base.py`'s `task` mode reads — merging each in stack
+order as a `--no-ff` commit (`merge(task): carry the <T### of
+fixed_branch> fix into <T### of that branch>`) and pushing it to
+`origin`. A merge conflict aborts, names the branch, and exits 2
+without touching the branches above it; an empty chain is reported and
+exits 0. Every branch pushed is reconciled into Linear (same rule as
+`task_base.py`), also when a later hop conflicts; an empty chain
+reconciles nothing. Same
+interpreter rule as `task_base.py`.
+
+`scripts/python/merge_root_first.py` (no argument) is the mechanical
+half of a human's explicit "yes, merge" on an open task-PR stack: self-
+derives the feature branch, runs `git worktree prune`, then walks the
+open task PRs root-first, retargeting each to the feature branch by API
+(`gh api -X PATCH .../pulls/<n> -f base=<feature-branch>`) before merging
+it (`gh pr merge <n> --merge`, never `--delete-branch` — the repository's
+auto-delete of merged branches does that cleanup instead). It prints one
+`merged #<n> <head>` line per PR, stops naming the PR number on a failing
+`gh` call, and reports `nothing to merge on <feature-branch>` on an empty
+stack. Every PR merged is reconciled into Linear (same rule as
+`task_base.py`), also when a later merge fails; an empty stack
+reconciles nothing. Same interpreter
+rule as `task_base.py`.
+
+`scripts/python/ledger_check.py <task_id>` verifies a task's ledger entry
+before its PR is marked `ready for review`: the checkbox must be `[x]`
+and its `Completion evidence` filled — not empty, not `Pending`
+(case-insensitive), and not the template's bracketed sample text — else
+it exits 2 naming exactly what is missing. Same interpreter rule as
+`task_base.py`.
+
+`scripts/python/skill_mirror.py <true|false>` closes the gap upstream's
+active-only command registration leaves: it copies each non-core skill
+whole from the default integration's directory into every other
+installed one — a core command the preset replaces (`tasks`,
+`implement`) is copied the same way, whole, since the preset's file is
+its whole render — and appends the preset's registered layer to each
+core-command render that keeps its own render instead, never
+overwriting a core render with another integration's content. The whole
+copy is the default integration's render as is: the keys an integration
+adds to its own native render (Claude Code's `argument-hint`,
+`user-invocable`, `disable-model-invocation`, all at their defaults) are
+not synthesized. A registered append that is missing or has no `## `
+heading, or a registered command strategy the script does not compose
+(`prepend`, `wrap`), fails closed before any write. Same interpreter
+rule as `task_base.py`.
+
+`scripts/python/ignore_entries.py <true|false>` adds the installer's
+cache directories (extension, preset, and integration catalogs) and the
+extension payload virtual environments to `.gitignore` when
+`git check-ignore` does not already cover them — an entry already
+covered by a broader pattern (a repository ignoring `.venv/` globally,
+say) is skipped, never duplicated. Same interpreter rule as
+`task_base.py`.
+
+## No inline blocks
+
+The preset's commands carry no marked shell block for the agent to keep
+intact or edit by hand: `chore.md`, `bugfix.md`, `pr.md`, `doctor.md`,
+and `implement.md` each invoke one of the eight scripts above directly,
+with real argv. Conformance runs the same installed files the commands
+call, not a block extracted from prose.

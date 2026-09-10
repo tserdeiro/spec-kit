@@ -85,6 +85,18 @@ command -v git >/dev/null 2>&1 || {
   exit 4
 }
 
+# The installed scripts require Python 3.11+ (C-005), and a developer
+# machine's python3 may be older, so resolve the interpreter the same way
+# upstream's own `py` scripts do -- this repository's .venv when present,
+# else python3 on PATH -- once, for every scenario invoking an installed script.
+PYTHON="$repository_root/.venv/bin/python"
+[ -x "$PYTHON" ] || PYTHON=$(command -v python3)
+python_recent=$("$PYTHON" -c 'import sys; print(int(sys.version_info >= (3, 11)))')
+[ "$python_recent" = "1" ] || {
+  echo "conformance requires Python 3.11+ to run the installed scripts (found $("$PYTHON" -V 2>&1) at $PYTHON)" >&2
+  exit 4
+}
+
 # The role -> extension matrix, derived by hand from the bundle manifests and
 # asserted against them below, so a manifest edit that is not reflected here
 # fails loudly instead of silently weakening the test.
@@ -494,9 +506,9 @@ done
 echo "ok: update"
 
 # --------------------------------------------------------------------------
-# 4. The product bundle wires trunk resolution as a three-line shell
-#    snippet (no Python, no runtime dependency, no scripts/ directory);
-#    generated delivery commands keep every resolved branch as inert argv.
+# 4. The product bundle installs the preset's eight scripts and the
+#    commands invoke them directly (plan D1, D2); the delivery base and
+#    every resolved branch reach git and gh only as inert argv.
 # --------------------------------------------------------------------------
 
 new_consumer "trunk"
@@ -537,6 +549,7 @@ cat > "$task_tasks_file" <<'MD'
 - [x] T001 Sample outcome one
   - **Depends on**: none
   - **Delivery**: single PR (~20 authored lines)
+  - **Completion evidence**: merged as PR #1
 - [ ] T002 Sample outcome two
   - **Depends on**: T001
   - **Delivery**: single PR (~50 authored lines)
@@ -545,10 +558,24 @@ cat > "$task_tasks_file" <<'MD'
 - [ ] T004 Sample outcome four
   - **Depends on**: T003
   - **Delivery**: single PR (~300 authored lines)
+- [x] T005 Sample outcome five
+  - **Depends on**: T004
+  - **Completion evidence**: Pending
 MD
 
-[ -e "$consumer_root/.specify/presets/default/scripts" ] &&
-  fail "trunk: the retired scripts/ directory is still installed"
+scripts_dir="$consumer_root/.specify/presets/default/scripts/python"
+for script in task_base pr_create budget_stop stack_propagate merge_root_first ledger_check skill_mirror ignore_entries; do
+  [ -e "$scripts_dir/$script.py" ] || fail "trunk: $script.py is not installed"
+done
+[ -e "$scripts_dir/_common.py" ] || fail "trunk: _common.py is not installed"
+task_base_script="$scripts_dir/task_base.py"
+pr_create_script="$scripts_dir/pr_create.py"
+budget_stop_script="$scripts_dir/budget_stop.py"
+stack_propagate_script="$scripts_dir/stack_propagate.py"
+merge_root_first_script="$scripts_dir/merge_root_first.py"
+ledger_check_script="$scripts_dir/ledger_check.py"
+skill_mirror_script="$scripts_dir/skill_mirror.py"
+ignore_entries_script="$scripts_dir/ignore_entries.py"
 grep -Fq 'feature enters the **delivery base** only' "$tasks_template" &&
   grep -Fq 'the explicit non-empty `trunk:` value' "$tasks_template" &&
   grep -Fq '**draft feature PR** (`NNN-slug` → delivery base)' "$tasks_template" ||
@@ -571,7 +598,21 @@ if args == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchR
 elif args[:2] == ["pr", "create"]:
     print("https://example.invalid/pr/1")
 elif args[:2] == ["pr", "list"]:
-    sys.stdout.write(os.environ.get("GH_PR_LIST", ""))
+    fields = args[args.index("--json") + 1].split(",")
+    prs = []
+    for i, line in enumerate(os.environ.get("GH_PR_LIST", "").splitlines(), 1):
+        head, base, draft = line.split(" ")
+        pr = {"headRefName": head, "baseRefName": base, "isDraft": draft == "true"}
+        if "number" in fields:
+            pr["number"] = i
+        prs.append(pr)
+    sys.stdout.write(json.dumps(prs))
+elif args[:2] == ["api", "-X"]:
+    pass
+elif args[:2] == ["pr", "merge"]:
+    if os.environ.get("FAIL_PR_MERGE") == args[2]:
+        print(f"forced merge failure for #{args[2]}", file=sys.stderr)
+        raise SystemExit(9)
 else:
     print("unexpected gh argv", file=sys.stderr)
     raise SystemExit(8)
@@ -584,7 +625,7 @@ import json, os, subprocess, sys
 
 args = sys.argv[1:]
 observed = args == ["branch", "--show-current"] or (
-    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch", "diff"}
+    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch", "diff", "worktree"}
 )
 if observed:
     with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
@@ -628,21 +669,8 @@ set_config() {
 
 pr_skill="$consumer_root/.agents/skills/speckit-pr/SKILL.md"
 implement_skill="$consumer_root/.agents/skills/speckit-implement/SKILL.md"
-pr_create=$(sed -n '/pr-create:start/,/pr-create:end/p' "$pr_skill")
-implement_refresh=$(sed -n '/first-task-refresh:start/,/first-task-refresh:end/p' "$implement_skill")
-[ -n "$pr_create" ] || fail "trunk: installed PR-create block is missing"
-[ -n "$implement_refresh" ] || fail "trunk: installed first-task refresh is missing"
-for skill in "$pr_skill" "$implement_skill"; do
-  grep -Eq 'python3|resolve-delivery-base' "$skill" &&
-    fail "trunk: $skill still references the retired Python resolver"
-  grep -Fq "sed -nE '/^trunk:/" "$skill" ||
-    fail "trunk: $skill does not use the shell trunk resolution"
-done
-
-render_pr_create() {
-  printf '%s\n' "$pr_create" |
-    sed -e "s@<feature|task|work-item>@$1@" -e "s@<T### or empty>@${2:-}@"
-}
+grep -Fq 'pr_create.py' "$pr_skill" ||
+  fail "trunk: $pr_skill does not invoke pr_create.py"
 
 run_pr_create() {
   local kind="$1" github_default="$2" fail_command="$3" named_task="${4:-}"
@@ -653,15 +681,11 @@ run_pr_create() {
     PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE='team/web/003-feature$(safe)' \
     SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
-    sh -c "$(render_pr_create "$kind" "$named_task")")
+    "$PYTHON" "$pr_create_script" "$kind" ${named_task:+"$named_task"})
 }
 
-create_call() {
-  json_argv pr create --draft --base "$1" --title '<type(scope): subject>' --body '<the body>'
-}
-pr_list_call() {
-  json_argv pr list --state open --limit 100 --json headRefName,baseRefName,isDraft \
-    --jq ".[] | select(.headRefName | startswith(\"$1-T\")) | \"\(.headRefName) \(.baseRefName) \(.isDraft)\""
+pr_list_json_call() {
+  json_argv pr list --state open --limit 1000 --json headRefName,baseRefName,isDraft
 }
 repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.name)
 
@@ -670,9 +694,9 @@ repo_view=$(json_argv repo view --json defaultBranchRef -q .defaultBranchRef.nam
 for config in 'trunk: release\n' 'trunk: "release"\n' 'trunk: '"'"'release'"'"'\n' 'trunk: release  # ship branch\n'; do
   set_config "$config"
   reset_command_logs
-  run_pr_create feature main "" >/dev/null || fail "trunk: configured '$config' failed"
-  [ "$(cat "$gh_calls")" = "$(create_call release)" ] ||
-    fail "trunk: configured '$config' used incorrect gh argv"
+  output=$(run_pr_create feature main "") || fail "trunk: configured '$config' failed"
+  [ "$output" = "base=release" ] || fail "trunk: configured '$config' printed the wrong base"
+  [ ! -s "$gh_calls" ] || fail "trunk: configured '$config' queried GitHub"
   [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch release)" ] ||
     fail "trunk: configured '$config' did not validate its base"
 done
@@ -681,9 +705,9 @@ done
 for config in __missing_file__ 'trunk: ""\n' 'other: value\n'; do
   set_config "$config"
   reset_command_logs
-  run_pr_create feature main "" >/dev/null || fail "trunk: fallback '$config' failed"
-  [ "$(cat "$gh_calls")" = "$repo_view
-$(create_call main)" ] || fail "trunk: fallback '$config' used incorrect gh argv"
+  output=$(run_pr_create feature main "") || fail "trunk: fallback '$config' failed"
+  [ "$output" = "base=main" ] || fail "trunk: fallback '$config' printed the wrong base"
+  [ "$(cat "$gh_calls")" = "$repo_view" ] || fail "trunk: fallback '$config' used incorrect gh argv"
 done
 
 # An invalid branch name stops before a PR ever opens.
@@ -704,9 +728,9 @@ run_pr_create feature main gh >/dev/null 2>&1 && fail "trunk: a failed GitHub lo
 set_config 'trunk: unused\n'
 reset_command_logs
 GIT_CURRENT_BRANCH=003-T002-slug
-run_pr_create task main "" >/dev/null || fail "trunk: task PR create failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
-$(create_call 'team/web/003-feature$(safe)')" ] ||
+output=$(run_pr_create task main "") || fail "trunk: task PR create failed"
+[ "$output" = 'base=team/web/003-feature$(safe)' ] || fail "trunk: task PR printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "trunk: task PR used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv branch --show-current)
 $(json_argv fetch origin)" ] ||
@@ -728,10 +752,10 @@ grep -Fq 'branch 003-T003-slug delivers T003 but the task to deliver is T002' \
 
 reset_command_logs
 GIT_CURRENT_BRANCH=003-T003-slug
-run_pr_create task main "" T003 >/dev/null ||
+output=$(run_pr_create task main "" T003) ||
   fail "identity: a named task did not override the ledger"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
-$(create_call 'team/web/003-feature$(safe)')" ] ||
+[ "$output" = 'base=team/web/003-feature$(safe)' ] || fail "identity: named task printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "identity: named task used incorrect gh argv"
 
 # A missing ledger is a coded diagnostic, never a bare awk crash.
@@ -751,33 +775,32 @@ grep -Eq 'error: task ledger not found: .*specs/003-directory-different/tasks\.m
 # PR: configured trunk wins (still active from above), and the fallback
 # both queries the GitHub default and validates it.
 reset_command_logs
-run_pr_create work-item main "" >/dev/null || fail "trunk: work-item PR create failed"
-[ "$(cat "$gh_calls")" = "$(create_call unused)" ] ||
-  fail "trunk: work-item PR used incorrect gh argv"
+output=$(run_pr_create work-item main "") || fail "trunk: work-item PR create failed"
+[ "$output" = "base=unused" ] || fail "trunk: work-item PR printed the wrong base"
+[ ! -s "$gh_calls" ] || fail "trunk: work-item PR queried GitHub"
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch unused)" ] ||
   fail "trunk: work-item PR did not validate its configured base"
 
 set_config __missing_file__
 reset_command_logs
-run_pr_create work-item 'default$(safe)' "" >/dev/null || fail "trunk: work-item PR create failed"
-[ "$(cat "$gh_calls")" = "$repo_view
-$(create_call 'default$(safe)')" ] ||
+output=$(run_pr_create work-item 'default$(safe)' "") || fail "trunk: work-item PR create failed"
+[ "$output" = 'base=default$(safe)' ] || fail "trunk: work-item PR printed the wrong base"
+[ "$(cat "$gh_calls")" = "$repo_view" ] ||
   fail "trunk: work-item PR did not resolve the GitHub default at runtime"
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')" ] ||
   fail "trunk: work-item PR did not validate its fallback base"
 
-# The chore and bugfix commands' own branch-creation block (never routed
-# through pr.md's pr-create case statement) resolves the same delivery
-# base the same way. The two commands carry byte-identical blocks, so
-# asserting one proves both once their equality is checked.
+# The chore and bugfix commands no longer carry their own branch-creation
+# block; both now invoke the installed task_base.py's work-item mode
+# directly (plan D2), so their identity is structural rather than
+# byte-for-byte -- one script, two callers.
 chore_skill="$consumer_root/.agents/skills/speckit-chore/SKILL.md"
 bugfix_skill="$consumer_root/.agents/skills/speckit-bugfix/SKILL.md"
-work_item_branch=$(sed -n '/work-item-branch:start/,/work-item-branch:end/p' "$chore_skill")
-bugfix_work_item_branch=$(sed -n '/work-item-branch:start/,/work-item-branch:end/p' "$bugfix_skill")
-[ -n "$work_item_branch" ] || fail "trunk: installed chore work-item-branch block is missing"
-[ -n "$bugfix_work_item_branch" ] || fail "trunk: installed bugfix work-item-branch block is missing"
-[ "$work_item_branch" = "$bugfix_work_item_branch" ] ||
-  fail "trunk: work-item branch chore and bugfix blocks are not byte-identical"
+doctor_skill="$consumer_root/.agents/skills/speckit-doctor/SKILL.md"
+for skill in "$chore_skill" "$bugfix_skill"; do
+  grep -Fq 'task_base.py work-item' "$skill" ||
+    fail "trunk: $skill does not invoke task_base.py work-item"
+done
 
 switch_call() {
   json_argv switch -c wor-123-short-slug "origin/$1"
@@ -787,7 +810,7 @@ run_work_item_branch() {
   local github_default="$1"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
-    sh -c "$work_item_branch")
+    "$PYTHON" "$task_base_script" work-item wor-123-short-slug)
 }
 
 # Configured trunk wins; no GitHub lookup happens.
@@ -818,7 +841,8 @@ run_refresh() {
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" GIT_CURRENT_BRANCH="$current_branch" \
     FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
-    SPECIFY_FEATURE_DIRECTORY='specs/003-feature' sh -c "$implement_refresh")
+    SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
+    "$PYTHON" "$task_base_script" refresh)
 }
 branch_call=$(json_argv branch --show-current)
 
@@ -855,23 +879,21 @@ $(json_argv check-ref-format --branch release)
 $(json_argv fetch origin)" ] || fail "trunk: refresh did not stop after a forced fetch failure"
 [ ! -s "$gh_calls" ] || fail "trunk: refresh queried GitHub after a forced fetch failure"
 
-grep -Fq 'git merge "$remote/$delivery_base"' "$implement_skill" ||
-  fail "trunk: implement command does not quote the resolved base"
+# SC-001: none of the installed delivery commands carry a marked shell
+# block for the agent to keep intact or edit by hand -- every one of them
+# now invokes a script directly (plan D2).
+for skill in "$implement_skill" "$pr_skill" "$chore_skill" "$bugfix_skill" "$doctor_skill"; do
+  grep -Eq '^# [a-z-]+:(start|end)$' "$skill" &&
+    fail "trunk: $skill still carries a :start/:end marker"
+done
 
 echo "ok: trunk"
 
 # --------------------------------------------------------------------------
-# 5. One linear stack per feature (plan D5): step 1's task-base block picks
+# 5. One linear stack per feature (plan D5): task_base.py's task mode picks
 #    the next task's base from the open, non-draft task PRs, and
 #    speckit.pr's task case resolves the same base for `gh pr create`.
 # --------------------------------------------------------------------------
-
-task_base=$(sed -n '/task-base:start/,/task-base:end/p' "$implement_skill")
-[ -n "$task_base" ] || fail "stack: installed task-base block is missing"
-
-render_task_base() {
-  printf '%s\n' "$task_base" | sed "s@<NNN-T###-short-slug>@$1@"
-}
 
 run_task_base() {
   local branch="$1" pr_list="$2" feature="${3:-}" fail_command="${4:-}"
@@ -879,13 +901,15 @@ run_task_base() {
     GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
     PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE="$feature" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
-    sh -c "$(render_task_base "$branch")")
+    "$PYTHON" "$task_base_script" task "$branch")
 }
 
 # No open task PR: branch from the feature branch.
 reset_command_logs
-run_task_base 003-T002-slug "" >/dev/null || fail "stack: task-base with no open PR failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+output=$(run_task_base 003-T002-slug "") || fail "stack: task-base with no open PR failed"
+[ "$output" = "base=003-feature" ] ||
+  fail "stack: task-base with no open PR printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: task-base with no open PR used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
 $(json_argv switch -c 003-T002-slug origin/003-feature)" ] ||
@@ -894,9 +918,11 @@ $(json_argv switch -c 003-T002-slug origin/003-feature)" ] ||
 # A slashed feature branch (branch_template repositories): the feature
 # number is the final path segment's prefix, not the whole path's.
 reset_command_logs
-run_task_base 003-T002-slug "" 'team/web/003-feature$(safe)' >/dev/null ||
+output=$(run_task_base 003-T002-slug "" 'team/web/003-feature$(safe)') ||
   fail "stack: task-base with a slashed feature branch failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+[ "$output" = 'base=team/web/003-feature$(safe)' ] ||
+  fail "stack: task-base with a slashed feature branch printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: task-base with a slashed feature branch used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
 $(json_argv switch -c 003-T002-slug 'origin/team/web/003-feature$(safe)')" ] ||
@@ -904,23 +930,34 @@ $(json_argv switch -c 003-T002-slug 'origin/team/web/003-feature$(safe)')" ] ||
 
 # One ready task PR: branch from its head, not the feature branch.
 reset_command_logs
-run_task_base 003-T002-slug '003-T001-x 003-feature false' >/dev/null ||
+output=$(run_task_base 003-T002-slug '003-T001-x 003-feature false') ||
   fail "stack: task-base with one ready PR failed"
+[ "$output" = "base=003-T001-x" ] ||
+  fail "stack: task-base with one ready PR printed the wrong base"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
 $(json_argv switch -c 003-T002-slug origin/003-T001-x)" ] ||
   fail "stack: task-base with one ready PR used incorrect git argv"
 
 # Two open tops: two stacks, refuse before touching Git.
 reset_command_logs
+stack_err="$consumer_root/.conformance/stack.err"
+stack_status=0
 run_task_base 003-T002-slug \
   $'003-T001-x 003-feature false\n003-T001-z 003-feature false' \
-  >/dev/null 2>&1 && fail "stack: task-base accepted two open stacks"
+  >/dev/null 2>"$stack_err" || stack_status=$?
+[ "$stack_status" -eq 2 ] || fail "stack: two-stack task-base exited $stack_status, expected 2"
+grep -Fq 'error: two open task stacks' "$stack_err" ||
+  fail "stack: two-stack task-base did not name the error"
 [ ! -s "$git_calls" ] || fail "stack: two-stack task-base unexpectedly touched git"
 
 # A draft task PR: a task is still in flight, refuse before touching Git.
 reset_command_logs
+stack_status=0
 run_task_base 003-T002-slug '003-T001-x 003-feature true' \
-  >/dev/null 2>&1 && fail "stack: task-base accepted a draft task PR"
+  >/dev/null 2>"$stack_err" || stack_status=$?
+[ "$stack_status" -eq 2 ] || fail "stack: draft task-base exited $stack_status, expected 2"
+grep -Fq 'error: draft task PR still open' "$stack_err" ||
+  fail "stack: draft task-base did not name the error"
 [ ! -s "$git_calls" ] || fail "stack: draft task-base unexpectedly touched git"
 
 # A forced fetch failure stops before the branch switch.
@@ -936,9 +973,9 @@ reset_command_logs
 GH_PR_LIST=$'003-T001-x 003-feature false\n003-T002-y 003-T001-x false'
 GIT_ANCESTORS=$'origin/003-T001-x HEAD\norigin/003-T002-y HEAD\norigin/003-T001-x origin/003-T002-y'
 GIT_CURRENT_BRANCH=003-T002-slug
-run_pr_create task main "" >/dev/null || fail "stack: task PR with ancestor failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
-$(create_call '003-T002-y')" ] ||
+output=$(run_pr_create task main "") || fail "stack: task PR with ancestor failed"
+[ "$output" = "base=003-T002-y" ] || fail "stack: task PR with ancestor printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: task PR with ancestor used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv branch --show-current)
 $(json_argv fetch origin)" ] ||
@@ -947,33 +984,26 @@ $(json_argv fetch origin)" ] ||
 reset_command_logs
 GH_PR_LIST=$'003-T002-y 003-T001-x false\n003-T001-x 003-feature false'
 GIT_CURRENT_BRANCH=003-T002-slug
-run_pr_create task main "" >/dev/null || fail "stack: reverse-order task PR with ancestor failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)
-$(create_call '003-T002-y')" ] ||
+output=$(run_pr_create task main "") || fail "stack: reverse-order task PR with ancestor failed"
+[ "$output" = "base=003-T002-y" ] || fail "stack: reverse-order task PR with ancestor printed the wrong base"
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: reverse-order task PR with ancestor used incorrect gh argv"
 
 echo "ok: stack"
 
 # --------------------------------------------------------------------------
-# 6. Fix propagation through the stack (plan D6): the stack-propagate block
+# 6. Fix propagation through the stack (plan D6): stack_propagate.py
 #    carries a commit on a fixed branch into every open task PR stacked on
 #    it, in stack order, as merge commits, and stops naming the branch on a
 #    conflict without touching the branches above it.
 # --------------------------------------------------------------------------
-
-stack_propagate=$(sed -n '/stack-propagate:start/,/stack-propagate:end/p' "$implement_skill")
-[ -n "$stack_propagate" ] || fail "propagate: installed stack-propagate block is missing"
-
-render_stack_propagate() {
-  printf '%s\n' "$stack_propagate" | sed "s@<NNN-T###-short-slug>@$1@"
-}
 
 run_stack_propagate() {
   local branch="$1" pr_list="$2" fail_command="${3:-}"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
     PATH="$fake_bin:$PATH" \
-    sh -c "$(render_stack_propagate "$branch")")
+    "$PYTHON" "$stack_propagate_script" "$branch")
 }
 
 chain_prs=$'003-T002-b 003-T001-a false\n003-T003-c 003-T002-b false'
@@ -982,7 +1012,7 @@ chain_prs=$'003-T002-b 003-T001-a false\n003-T003-c 003-T002-b false'
 # the run finishes back on the fixed branch.
 reset_command_logs
 run_stack_propagate 003-T001-a "$chain_prs" >/dev/null || fail "propagate: chain failed"
-[ "$(cat "$gh_calls")" = "$(pr_list_call 003)" ] ||
+[ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "propagate: chain used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv switch 003-T002-b)
 $(json_argv merge --no-ff -m 'merge(task): carry the T001 fix into T002' 003-T001-a)
@@ -1013,24 +1043,16 @@ run_stack_propagate 003-T001-a "" >/dev/null || fail "propagate: empty chain fai
 echo "ok: propagate"
 
 # --------------------------------------------------------------------------
-# 7. Budget stop at twice the forecast (plan D9): the extracted
-#    budget-stop block measures added lines the review budget counts
-#    against the task's forecast and stops at the smaller of 2x and 400.
+# 7. Budget stop at twice the forecast (plan D9): budget_stop.py measures
+#    added lines the review budget counts against the task's forecast and
+#    stops at the smaller of 2x and 400.
 # --------------------------------------------------------------------------
-
-budget_stop=$(sed -n '/budget-stop:start/,/budget-stop:end/p' "$implement_skill")
-[ -n "$budget_stop" ] || fail "budget: installed budget-stop block is missing"
-
-render_budget_stop() {
-  printf '%s\n' "$budget_stop" |
-    sed -e "s@<T###>@$1@" -e "s@<the base the task-base block printed>@$2@"
-}
 
 run_budget_stop() {
   local task="$1" base="$2" numstat="$3"
   (cd "$consumer_root" && GIT_CALLS="$git_calls" GIT_NUMSTAT="$numstat" REAL_GIT="$real_git" \
     PATH="$fake_bin:$PATH" SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
-    sh -c "$(render_budget_stop "$task" "$base")")
+    "$PYTHON" "$budget_stop_script" "$task" "$base")
 }
 
 # T001's forecast must skip the template's fenced sample block, whose own
@@ -1082,21 +1104,17 @@ grep -Fq 400 "$budget_err" || fail "budget: capped stop diagnosis did not name t
 echo "ok: budget"
 
 # --------------------------------------------------------------------------
-# 8. Doctor: safe skill mirror and ignore entries (plan D11). Step 5 copies
-#    extension/preset skills whole and appends each core command's own
-#    layer to that integration's render, never crossing integrations,
-#    idempotently; step 6 adds the installer's cache and venv directories
-#    to .gitignore. The blocks read only files, so a hand-made fixture
-#    stands in for a real `specify` install.
+# 8. Doctor: safe skill mirror and ignore entries (plan D11). The mirror
+#    step copies extension/preset skills, and every core command the
+#    preset replaces, whole from the default integration; appends each
+#    remaining core command's own layer to that integration's render,
+#    never crossing integrations; and does both idempotently, restoring a
+#    lagging render that `integration upgrade --force` reset to upstream's.
+#    The ignore step adds the installer's cache and venv directories to
+#    .gitignore. The scripts read only files, so a hand-made fixture stands
+#    in for a real `specify` install.
 # --------------------------------------------------------------------------
 
-doctor_skill="$consumer_root/.agents/skills/speckit-doctor/SKILL.md"
-skill_mirror=$(sed -n '/skill-mirror:start/,/skill-mirror:end/p' "$doctor_skill")
-ignore_entries=$(sed -n '/ignore-entries:start/,/ignore-entries:end/p' "$doctor_skill")
-[ -n "$skill_mirror" ] || fail "doctor: installed skill-mirror block is missing"
-[ -n "$ignore_entries" ] || fail "doctor: installed ignore-entries block is missing"
-
-render_fix() { printf '%s\n' "$1" | sed "s@<true|false>@$2@"; }
 dir_checksum() { (cd "$1" && find . -type f | sort && find . -type f | sort | xargs cat) | shasum -a 256 | awk '{print $1}'; }
 render() { mkdir -p "$mirror_root/.claude/skills/$1"; cat > "$mirror_root/.claude/skills/$1/SKILL.md"; }
 init_options() { # $1 root, $2 ai key, $3 JSON array body (indented lines)
@@ -1126,21 +1144,23 @@ provides:
       strategy: "append"
     - type: "command"
       name: "speckit.implement"
-      file: "commands/implement-append.md"
-      strategy: "append"
+      file: "commands/implement.md"
+      strategy: "replace"
 YAML
-printf '\n## Loop (tserdeiro/spec-kit)\nline one\nline two\n' \
-  > "$mirror_root/.specify/presets/default/commands/implement-append.md"
 printf '\n## Order (tserdeiro/spec-kit)\nline one\nline two\n' \
   > "$mirror_root/.specify/presets/default/commands/tasks-append.md"
 
 # The mirror never reads a core render's content when deciding to leave it
-# alone (only its directory name), so codex's own core skills need only
-# exist; only its extension skill speckit-pr is ever compared or copied.
-for name in speckit-implement speckit-tasks speckit-checklist; do
+# alone (only its directory name), so codex's tasks and checklist need only
+# exist; its extension skill speckit-pr and its replaced core implement are
+# the two it compares and copies whole.
+for name in speckit-tasks speckit-checklist; do
   mkdir -p "$mirror_root/.agents/skills/$name"
   printf 'codex core render, content unused by this name\n' > "$mirror_root/.agents/skills/$name/SKILL.md"
 done
+mkdir -p "$mirror_root/.agents/skills/speckit-implement"
+printf 'codex implement render, the preset replace composed for the default\n' \
+  > "$mirror_root/.agents/skills/speckit-implement/SKILL.md"
 mkdir -p "$mirror_root/.agents/skills/speckit-pr"
 printf 'codex pr body, extension skill\n' > "$mirror_root/.agents/skills/speckit-pr/SKILL.md"
 
@@ -1166,7 +1186,7 @@ printf 'stale content\n' > "$mirror_root/.claude/skills/speckit-pr/SKILL.md"
 checklist_before=$(shasum -a 256 < "$checklist_claude")
 
 before=$(dir_checksum "$mirror_root")
-mirror_report=$(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" false)") ||
+mirror_report=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" false) ||
   fail "mirror: fix=false run failed"
 [ "$(dir_checksum "$mirror_root")" = "$before" ] || fail "mirror: fix=false changed a file"
 for name in speckit-pr speckit-implement speckit-tasks; do
@@ -1176,17 +1196,19 @@ done
 printf '%s\n' "$mirror_report" | grep -Fq speckit-checklist &&
   fail "mirror: fix=false reported the untouchable core checklist"
 
-(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") ||
+(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) ||
   fail "mirror: fix=true run failed"
 
 cmp -s "$mirror_root/.agents/skills/speckit-pr/SKILL.md" \
   "$mirror_root/.claude/skills/speckit-pr/SKILL.md" ||
   fail "mirror: speckit-pr is not byte-identical across integrations"
+cmp -s "$mirror_root/.agents/skills/speckit-implement/SKILL.md" \
+  "$mirror_root/.claude/skills/speckit-implement/SKILL.md" ||
+  fail "mirror: the replaced speckit-implement is not byte-identical across integrations"
 [ "$(shasum -a 256 < "$checklist_claude")" = "$checklist_before" ] ||
   fail "mirror: fix=true touched the untouchable core checklist"
 
-for spec in "speckit-implement:claude implement body:implement-append.md" \
-            "speckit-tasks:claude tasks body:tasks-append.md"; do
+for spec in "speckit-tasks:claude tasks body:tasks-append.md"; do
   IFS=: read -r name body append_file <<<"$spec"
   core=$(printf '%s\n%s\n%s\n%s\n%s\n' '---' "name: \"$name\"" 'frontmatter: "claude"' '---' "$body")
   append=$(cat "$mirror_root/.specify/presets/default/commands/$append_file")
@@ -1197,10 +1219,42 @@ for spec in "speckit-implement:claude implement body:implement-append.md" \
 done
 
 mid=$(dir_checksum "$mirror_root")
-second=$(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") ||
+second=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) ||
   fail "mirror: second fix=true run failed"
 [ "$second" = "mirror: nothing to do" ] || fail "mirror: second fix=true run was not a clean no-op: $second"
 [ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: second fix=true run changed a file"
+
+# `integration upgrade <key> --force` re-renders every core command of that
+# integration from upstream alone (dogfooding entry 71): a replaced core
+# reset that way, or missing outright, comes back whole on the next fix
+# run, and an appended one gets its layer again -- the exact fixed point.
+render speckit-implement <<'MD'
+---
+name: "speckit-implement"
+metadata:
+  source: "templates/commands/implement.md"
+---
+upstream core body, the replace lost
+MD
+render speckit-tasks <<'MD'
+---
+name: "speckit-tasks"
+frontmatter: "claude"
+---
+claude tasks body
+MD
+reset_report=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" false) ||
+  fail "mirror: fix=false run after the reset failed"
+printf '%s\n' "$reset_report" | grep -Fq 'speckit-implement missing or differs' &&
+  printf '%s\n' "$reset_report" | grep -Fq 'speckit-tasks in .claude/skills (claude) needs the preset append' ||
+  fail "mirror: the two reset renders were not both reported"
+(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) >/dev/null ||
+  fail "mirror: fix=true run after the reset failed"
+[ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: the reset renders did not come back to the fixed point"
+rm -r "$mirror_root/.claude/skills/speckit-implement"
+(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) >/dev/null ||
+  fail "mirror: fix=true run with the replaced core missing failed"
+[ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: the missing replaced core did not come back whole"
 
 # A preset entry registered for append but pointing at a nonexistent file
 # must fail closed, never truncate a render (review finding, major); reuse
@@ -1213,14 +1267,40 @@ cat >> "$mirror_root/.specify/presets/default/preset.yml" <<'YAML'
 YAML
 before=$(dir_checksum "$mirror_root")
 broken_status=0
-(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") >/dev/null 2>&1 || broken_status=$?
+(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) >/dev/null 2>&1 || broken_status=$?
 [ "$broken_status" -eq 2 ] || fail "mirror: a missing append file did not exit 2 (got $broken_status)"
 [ "$(dir_checksum "$mirror_root")" = "$before" ] || fail "mirror: a missing append file still wrote a file"
+
+# A registered command strategy the mirror cannot compose (wrap, prepend)
+# stops the run before any write instead of skipping the command silently
+# -- even with the tasks append still genuinely pending, reset here so the
+# guard has real work in front of it to preempt, not an already-clean tree.
+render speckit-tasks <<'MD'
+---
+name: "speckit-tasks"
+frontmatter: "claude"
+---
+claude tasks body
+MD
+cat >> "$mirror_root/.specify/presets/default/preset.yml" <<'YAML'
+    - type: "command"
+      name: "speckit.checklist"
+      file: "commands/checklist.md"
+      strategy: "wrap"
+YAML
+before=$(dir_checksum "$mirror_root")
+wrap_status=0
+wrap_err=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true 2>&1 >/dev/null) || wrap_status=$?
+[ "$wrap_status" -eq 2 ] || fail "mirror: a wrap strategy did not exit 2 (got $wrap_status)"
+[ "$wrap_err" = 'mirror: speckit-checklist registers command strategy "wrap" -- the mirror composes only append and replace' ] ||
+  fail "mirror: a wrap strategy was not diagnosed before any write: $wrap_err"
+[ "$(dir_checksum "$mirror_root")" = "$before" ] ||
+  fail "mirror: a wrap strategy still wrote a file, with the reset tasks append left pending"
 
 single_root="$temporary_root/mirror-single"
 init_options "$single_root" codex '    "codex"'
 single_status=0
-single_out=$(cd "$single_root" && sh -c "$(render_fix "$skill_mirror" false)") || single_status=$?
+single_out=$(cd "$single_root" && "$PYTHON" "$skill_mirror_script" false) || single_status=$?
 [ "$single_status" -eq 0 ] && [ "$single_out" = "mirror: only one integration installed, skipped" ] ||
   fail "mirror: single-integration fixture did not skip cleanly"
 
@@ -1232,7 +1312,7 @@ git -C "$ignore_root" init --quiet
 printf '.venv/\n' > "$ignore_root/.gitignore"
 
 before=$(shasum -a 256 < "$ignore_root/.gitignore")
-ignore_report=$(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" false)") ||
+ignore_report=$(cd "$ignore_root" && "$PYTHON" "$ignore_entries_script" false) ||
   fail "ignore: fix=false run failed"
 [ "$(shasum -a 256 < "$ignore_root/.gitignore")" = "$before" ] || fail "ignore: fix=false changed .gitignore"
 printf '%s\n' "$ignore_report" | grep -Fq '.specify/extensions/.cache/' &&
@@ -1242,16 +1322,104 @@ printf '%s\n' "$ignore_report" | grep -Fq '.specify/extensions/.cache/' &&
 printf '%s\n' "$ignore_report" | grep -Fq '.venv/' &&
   fail "ignore: fix=false reported the entry the fixture .gitignore already covers"
 
-(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" true)") ||
+(cd "$ignore_root" && "$PYTHON" "$ignore_entries_script" true) ||
   fail "ignore: fix=true run failed"
 [ "$(cat "$ignore_root/.gitignore")" = "$(printf '.venv/\n\n# tserdeiro/spec-kit installer state\n.specify/extensions/.cache/\n.specify/presets/.cache/\n.specify/integrations/.cache/')" ] ||
   fail "ignore: fix=true did not append exactly the three missing entries"
 
 mid=$(shasum -a 256 < "$ignore_root/.gitignore")
-second=$(cd "$ignore_root" && sh -c "$(render_fix "$ignore_entries" true)") ||
+second=$(cd "$ignore_root" && "$PYTHON" "$ignore_entries_script" true) ||
   fail "ignore: second fix=true run failed"
 [ "$second" = "ignore: nothing to do" ] || fail "ignore: second fix=true run was not a clean no-op: $second"
 [ "$(shasum -a 256 < "$ignore_root/.gitignore")" = "$mid" ] || fail "ignore: second fix=true run changed .gitignore"
 
 echo "ok: ignore"
+
+# --------------------------------------------------------------------------
+# 9. Root-first merge on explicit human request (plan D1, D5;
+#    merge_root_first.py): retarget-then-merge walks the open task-PR
+#    stack root first regardless of listing order, never requests
+#    --delete-branch (the guard T014 will build), and a mid-stack failure
+#    stops before the next retarget.
+# --------------------------------------------------------------------------
+
+merge_list_call=$(json_argv pr list --state open --limit 1000 --json number,headRefName,baseRefName,isDraft)
+merge_root_first_pr_list=$'003-T003-c 003-T002-b false\n003-T001-a 003-feature false\n003-T002-b 003-T001-a false'
+
+run_merge_root_first() {
+  local pr_list="$1" fail_pr_merge="${2:-}"
+  (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
+    GH_PR_LIST="$pr_list" FAIL_PR_MERGE="$fail_pr_merge" REAL_GIT="$real_git" \
+    PATH="$fake_bin:$PATH" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
+    "$PYTHON" "$merge_root_first_script")
+}
+
+# A three-PR stack listed out of order: line order assigns the gh-reported
+# PR numbers (1, 2, 3), but the walk still retargets and merges root first
+# (#2, then #3, then #1), never requesting branch deletion.
+reset_command_logs
+output=$(run_merge_root_first "$merge_root_first_pr_list") ||
+  fail "merge-root-first: three-PR stack failed"
+[ "$output" = 'merged #2 003-T001-a
+merged #3 003-T002-b
+merged #1 003-T003-c' ] || fail "merge-root-first: wrong merge order or output: $output"
+[ "$(cat "$gh_calls")" = "$merge_list_call
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/2' -f base=003-feature)
+$(json_argv pr merge 2 --merge)
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/3' -f base=003-feature)
+$(json_argv pr merge 3 --merge)
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/1' -f base=003-feature)
+$(json_argv pr merge 1 --merge)" ] ||
+  fail "merge-root-first: incorrect gh argv sequence"
+[ "$(cat "$git_calls")" = "$(json_argv worktree prune)" ] ||
+  fail "merge-root-first: incorrect git argv"
+grep -Fq -- '--delete-branch' "$gh_calls" &&
+  fail "merge-root-first: requested branch deletion"
+
+# A mid-stack failure (the second PR's merge) stops before the next PR's
+# retarget: #1's PATCH/merge never happen.
+reset_command_logs
+merge_status=0
+run_merge_root_first "$merge_root_first_pr_list" 3 >/dev/null 2>&1 || merge_status=$?
+[ "$merge_status" -eq 2 ] ||
+  fail "merge-root-first: forced merge failure exited $merge_status, expected 2"
+[ "$(cat "$gh_calls")" = "$merge_list_call
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/2' -f base=003-feature)
+$(json_argv pr merge 2 --merge)
+$(json_argv api -X PATCH 'repos/{owner}/{repo}/pulls/3' -f base=003-feature)
+$(json_argv pr merge 3 --merge)" ] ||
+  fail "merge-root-first: forced merge failure did not stop before the next retarget"
+
+echo "ok: merge-root-first"
+
+# --------------------------------------------------------------------------
+# 10. Ledger completeness gate before ready-for-review (plan D1;
+#     ledger_check.py): a checked task with real completion evidence
+#     passes; an unchecked task or one whose evidence is still "Pending"
+#     names exactly what is missing.
+# --------------------------------------------------------------------------
+
+run_ledger_check() {
+  (cd "$consumer_root" && SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
+    "$PYTHON" "$ledger_check_script" "$1")
+}
+
+output=$(run_ledger_check T001) || fail "ledger-check: checked task with evidence failed"
+[ "$output" = "ledger: T001 checked, completion evidence filled" ] ||
+  fail "ledger-check: checked task with evidence printed the wrong confirmation"
+
+ledger_err="$consumer_root/.conformance/ledger.err"
+ledger_status=0
+run_ledger_check T002 >/dev/null 2>"$ledger_err" || ledger_status=$?
+[ "$ledger_status" -eq 2 ] || fail "ledger-check: unchecked task exited $ledger_status, expected 2"
+grep -Fq 'is not checked' "$ledger_err" ||
+  fail "ledger-check: unchecked task did not name the gap"
+
+ledger_status=0
+run_ledger_check T005 >/dev/null 2>"$ledger_err" || ledger_status=$?
+[ "$ledger_status" -eq 2 ] || fail "ledger-check: pending evidence exited $ledger_status, expected 2"
+grep -Fq 'has no completion evidence' "$ledger_err" ||
+  fail "ledger-check: pending evidence did not name the gap"
+
+echo "ok: ledger-check"
 echo "conformance passed"

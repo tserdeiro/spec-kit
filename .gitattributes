@@ -1,0 +1,2 @@
+# git format-patch output carries the trailing spaces of diff context lines and its "-- " signature by design.
+docs/upstream/*.patch -whitespace

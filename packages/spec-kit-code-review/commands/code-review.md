@@ -90,9 +90,11 @@ delivery trunk is exempt.
 }
 ```
 
-Severities: `blocking`, `major`, `minor`, `nit`, `info`. Cite the exact lines
-that support each finding; anything that does not exist in the candidate is
-discarded.
+Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories:
+`correctness`, `security`, `contract`, `delivery`, `tests`,
+`maintainability`, `style` — any other value refuses the whole file. Cite
+the exact lines that support each finding; anything that does not exist in
+the candidate is discarded.
 
 ## Publishing
 

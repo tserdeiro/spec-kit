@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import unittest
 from pathlib import Path
 
 from spec_kit_code_review import __version__, cli
-from spec_kit_code_review.completions import collect_completion_tree
 from spec_kit_code_review.config import RULE_RELATIVE_PATH
 from spec_kit_code_review.doctor import RULE_TEMPLATE
 
@@ -14,7 +14,7 @@ from spec_kit_code_review.doctor import RULE_TEMPLATE
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = PACKAGE_ROOT / "extension.yml"
 COMMAND_NAMESPACE = "speckit.code-review"
-IMPLEMENTED_COMMANDS = {"review", "doctor", "completions"}
+IMPLEMENTED_COMMANDS = {"review", "doctor", "guard"}
 
 
 def _manifest_text() -> str:
@@ -28,7 +28,7 @@ class ManifestTests(unittest.TestCase):
         self.assertIn('schema_version: "1.0"', text)
         self.assertIn("id: code-review", text)
         self.assertIn(f'version: "{__version__}"', text)
-        self.assertIn('speckit_version: ">=1.0.1,<1.1.0"', text)
+        self.assertIn('speckit_version: ">=1.0.4,<1.1.0"', text)
 
     def test_the_doctor_derives_its_gate_from_this_manifest(self) -> None:
         # One source of truth: the doctor reads requires.speckit_version
@@ -48,21 +48,11 @@ class ManifestTests(unittest.TestCase):
             SPECKIT_SUPPORTED_MAJOR_MINOR,
         )
 
-    def test_hooks_are_a_top_level_key_never_nested_under_provides(self) -> None:
-        text = _manifest_text()
-
-        self.assertRegex(text, r"(?m)^hooks:$")
-        provides_block = text.split("\nprovides:\n", 1)[1].split("\nhooks:\n", 1)[0]
-        self.assertNotIn("hooks:", provides_block)
-
-    def test_the_single_lifecycle_hook_is_the_documented_one(self) -> None:
-        text = _manifest_text().split("\nhooks:\n", 1)[1]
-
-        self.assertIn("after_implement:", text)
-        self.assertIn("command: speckit.code-review", text)
-        self.assertIn("optional: true", text)
-        self.assertIn("priority: 30", text)
-        self.assertEqual(len(re.findall(r"(?m)^  [a-z_]+:$", text.split("\ntags:", 1)[0])), 1)
+    def test_no_hooks_key_is_declared_anywhere(self) -> None:
+        # The only hook this extension ever declared, `after_implement`, is
+        # gone outright (T017) -- no compatibility shim, no empty `hooks: {}`
+        # left behind for a concern nothing implements any more.
+        self.assertNotRegex(_manifest_text(), r"(?m)^hooks:$")
 
     def test_no_git_hooks_are_declared_anywhere(self) -> None:
         self.assertNotIn("git_hooks", _manifest_text())
@@ -71,7 +61,7 @@ class ManifestTests(unittest.TestCase):
         text = _manifest_text()
         entries = re.findall(r"- name: (\S+)\n\s+file: (\S+)", text)
 
-        self.assertEqual(len(entries), 3)
+        self.assertEqual(len(entries), 2)
         for name, relative in entries:
             with self.subTest(command=name):
                 self.assertTrue(name.startswith(COMMAND_NAMESPACE), name)
@@ -89,14 +79,14 @@ class LauncherTests(unittest.TestCase):
         self.assertIn('extension_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)', text)
         self.assertIn("exit 4", text)
         self.assertIn("uv run --frozen --offline --project", text)
-        self.assertIn("python -m spec_kit_code_review.cli", text)
+        self.assertIn(" -q python -m spec_kit_code_review.cli", text)  # uv quiet: a parsed --json starts with the JSON
 
     def test_the_powershell_launcher_mirrors_it_including_the_exit_code(self) -> None:
         text = (PACKAGE_ROOT / "scripts" / "powershell" / "run.ps1").read_text(encoding="utf-8")
 
         self.assertIn("exit 4", text)
         self.assertIn("uv run --frozen --offline --project", text)
-        self.assertIn("python -m spec_kit_code_review.cli", text)
+        self.assertIn(" -q python -m spec_kit_code_review.cli", text)
 
     def test_no_launcher_or_manifest_hardcodes_a_development_checkout(self) -> None:
         for relative in ("scripts/bash/run.sh", "scripts/powershell/run.ps1", "extension.yml"):
@@ -154,13 +144,16 @@ class PackagingTests(unittest.TestCase):
 
 class CommandSurfaceTests(unittest.TestCase):
     def test_only_the_implemented_commands_are_wired_into_the_cli(self) -> None:
-        self.assertEqual(set(collect_completion_tree(cli.build_parser())), IMPLEMENTED_COMMANDS)
+        parser = cli.build_parser()
+        action = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+
+        self.assertEqual(set(action.choices), IMPLEMENTED_COMMANDS)
 
     def test_the_manifest_and_the_cli_agree_on_the_surface(self) -> None:
-        commands = _manifest_text().split("\n  commands:\n", 1)[1].split("\nhooks:\n", 1)[0]
+        commands = _manifest_text().split("\n  commands:\n", 1)[1].split("\nevents:\n", 1)[0]
         declared = set(re.findall(r"- name: (\S+)", commands))
 
-        self.assertEqual(declared, {"speckit.code-review", "speckit.code-review.doctor", "speckit.code-review.completions"})
+        self.assertEqual(declared, {"speckit.code-review", "speckit.code-review.doctor"})
 
     def test_the_shared_configuration_template_is_loadable_and_valid(self) -> None:
         from spec_kit_code_review.config import load_config

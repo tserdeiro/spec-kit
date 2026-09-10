@@ -20,18 +20,13 @@ execute these steps in order and report each outcome.
 
 ## 2. Create the branch
 
-Resolve the repository's up-to-date **delivery base** and branch from it:
+Resolve the repository's up-to-date delivery base and branch from it by
+running `task_base.py`'s `work-item` mode — with the consumer's
+`.venv/bin/python` when it exists, else `python3` on PATH, the rule
+upstream's own `py` scripts follow:
 
 ```bash
-# work-item-branch:start
-set -e
-trunk=$(sed -nE '/^trunk:/{s/^trunk:[[:space:]]*["'"'"']?([^"'"'"'#[:space:]]*)["'"'"']?.*$/\1/p;q;}' \
-  .specify/extensions/git/git-config.yml 2>/dev/null || true)
-base=${trunk:-$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)}
-git check-ref-format --branch "$base" >/dev/null
-git fetch origin
-git switch -c wor-123-short-slug "origin/$base"
-# work-item-branch:end
+python3 .specify/presets/default/scripts/python/task_base.py work-item wor-123-short-slug
 ```
 
 - The slug is 2–4 words from the issue's title. If the user gave only the
@@ -40,10 +35,8 @@ git switch -c wor-123-short-slug "origin/$base"
 - If a branch for this key already exists (`git branch --all --list
   '*wor-123-*'`), switch to it instead and say so. Re-running this
   command must never create a duplicate.
-- The branch is what projects the issue to *In Progress*: run
-  `/speckit.linear.push --apply` — a branch alone is not a PR event, so
-  Linear's native integration has nothing to move yet — and report the
-  state.
+- The branch is what projects the issue to *In Progress*; the script
+  reconciles Linear itself. Report the state.
 
 ## 3. Triage, then deliver
 

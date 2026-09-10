@@ -9,9 +9,9 @@ from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from spec_kit_linear.cli import main
+from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, _is_reconcile_command, main, run_post_tool_use, run_session_start
 from spec_kit_linear.config import ROOT_CONFIG_FILENAME, load_config, repository_binding
 from spec_kit_linear.errors import Diagnostic
 from spec_kit_linear.github import PullRequest, PullRequestScan
@@ -1025,30 +1025,395 @@ class WorkItemTests(WorkStateTests):
         self.assertNotIn("Work items", text)
 
 
+def _command_flags(parser) -> dict[str, list[str]]:
+    """``{subcommand: [long flags]}`` -- introspects the parser tree directly,
+    now that `completions` (and its own tree-walker) is gone."""
+
+    import argparse
+
+    action = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    return {
+        name: sorted(o for act in sub._actions for o in act.option_strings if o.startswith("--"))
+        for name, sub in action.choices.items()
+    }
+
+
+class LauncherTests(unittest.TestCase):
+    """Both launchers run uv quietly, so a parsed `--json` starts with the JSON (dogfooding entry 56)."""
+
+    def test_both_launchers_pass_q_to_uv(self) -> None:
+        package_root = Path(__file__).resolve().parents[2]
+        for launcher in ("scripts/bash/run.sh", "scripts/powershell/run.ps1"):
+            with self.subTest(launcher=launcher):
+                text = (package_root / launcher).read_text(encoding="utf-8")
+                self.assertIn("uv run --frozen --offline --project", text)
+                self.assertIn(" -q python -m spec_kit_linear.cli", text)
+
+
 class CommandSurfaceTests(CliTestCase):
-    def test_only_five_commands_exist(self) -> None:
+    def test_only_six_commands_exist(self) -> None:
         from spec_kit_linear.cli import build_parser
-        from spec_kit_linear.completions import collect_completion_tree
 
-        tree = collect_completion_tree(build_parser())
+        tree = _command_flags(build_parser())
 
-        self.assertEqual(set(tree), {"onboard", "push", "status", "doctor", "completions"})
+        self.assertEqual(set(tree), {"onboard", "push", "status", "doctor", "session-start", "post-tool-use"})
 
     def test_the_whole_package_exposes_at_most_fifteen_user_flags(self) -> None:
         from spec_kit_linear.cli import build_parser
-        from spec_kit_linear.completions import collect_completion_tree
 
-        tree = collect_completion_tree(build_parser())
+        tree = _command_flags(build_parser())
         flags = {flag for flags in tree.values() for flag in flags if flag != "--help"}
 
         self.assertLessEqual(len(flags), 15, sorted(flags))
 
     def test_removed_commands_are_rejected(self) -> None:
-        for command in ("install", "seed", "pull", "propose", "start", "upgrade"):
+        for command in ("install", "seed", "pull", "propose", "start", "upgrade", "completions"):
             with self.subTest(command=command):
                 with self.assertRaises(SystemExit) as raised:
                     main([command, "--root", str(self.fixture_root)])
                 self.assertEqual(raised.exception.code, 2)
+
+
+def _task_row(
+    task: str,
+    *,
+    local_complete: bool,
+    derived_state: str | None = None,
+    state_source: str | None = None,
+    next: str | None = None,
+    pr_number: int | None = None,
+) -> dict[str, object]:
+    return {
+        "task": task,
+        "local_complete": local_complete,
+        "derived_state": derived_state,
+        "state_source": state_source,
+        "pr_number": pr_number,
+        "next": next,
+    }
+
+
+class SessionStartContextFormatterTests(unittest.TestCase):
+    """FR-003's context-line formatter, table-driven over both branch shapes."""
+
+    def test_feature_branch_without_open_prs(self) -> None:
+        tasks = [
+            _task_row("T001", local_complete=True, derived_state="completed", state_source="checkbox"),
+            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="/speckit.pr"),
+        ]
+
+        line = _format_feature_context("005-T002-thing", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T002 (unchecked); next: /speckit.pr")
+
+    def test_feature_branch_with_open_prs(self) -> None:
+        tasks = [
+            _task_row("T001", local_complete=False, derived_state="review", state_source="pr", next="wait for the human merge"),
+            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="/speckit.pr"),
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing — next T001 (unchecked); open task PRs: T001 (review); "
+            "next: wait for the human merge",
+        )
+
+    def test_a_merged_task_pr_is_excluded_from_open_task_prs(self) -> None:
+        tasks = [_task_row("T001", local_complete=True, derived_state="completed", state_source="pr")]
+
+        line = _format_feature_context("005-developer-experience", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-developer-experience")
+
+    def test_feature_branch_with_nothing_unchecked_omits_the_task_and_command(self) -> None:
+        tasks = [_task_row("T001", local_complete=True, derived_state="completed", state_source="checkbox")]
+
+        line = _format_feature_context("005-developer-experience", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-developer-experience")
+
+    def test_an_all_checked_stack_still_in_review_names_the_pr_number_and_the_wait_sentence(self) -> None:
+        """The reported finding: checking a task before its PR is ready for review
+        used to leave `next` empty because it was read only from the first
+        unchecked task. With every task checked, `next` must fall back to the
+        open PR's own next action, and the PR clause must name its number."""
+
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="review",
+                state_source="pr",
+                next="wait for the human merge",
+                pr_number=101,
+            )
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (review, #101); "
+            "next: wait for the human merge",
+        )
+
+    def test_a_checked_task_with_a_still_draft_pr_names_the_code_review_command(self) -> None:
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="started",
+                state_source="pr",
+                next="/speckit.code-review 101",
+                pr_number=101,
+            )
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (started, #101); "
+            "next: /speckit.code-review 101",
+        )
+
+    def test_an_unchecked_task_already_merged_yields_the_first_open_prs_next(self) -> None:
+        # A checkbox lagging a merge derives `completed` with no next of its
+        # own (next_action's documented edge); the open PR's next still lands.
+        tasks = [
+            _task_row("T001", local_complete=False, derived_state="completed", state_source="pr", next=None, pr_number=100),
+            _task_row("T002", local_complete=True, derived_state="review", state_source="pr", next="wait for the human merge", pr_number=101),
+        ]
+
+        line = _format_feature_context("005-T002-thing", "005", tasks)
+
+        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T001 (unchecked); open task PRs: T002 (review, #101); next: wait for the human merge")
+
+    def test_a_checked_task_in_review_alongside_an_unchecked_task_prefers_the_unchecked_next(self) -> None:
+        tasks = [
+            _task_row(
+                "T001",
+                local_complete=True,
+                derived_state="review",
+                state_source="pr",
+                next="wait for the human merge",
+                pr_number=101,
+            ),
+            _task_row("T002", local_complete=False, derived_state="unstarted", state_source="none", next="/speckit.implement 005"),
+        ]
+
+        line = _format_feature_context("005-T002-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T002-thing — next T002 (unchecked); open task PRs: T001 (review, #101); "
+            "next: /speckit.implement 005",
+        )
+
+    def test_an_open_task_pr_with_an_unknown_number_omits_the_hash(self) -> None:
+        tasks = [
+            _task_row("T001", local_complete=True, derived_state="review", state_source="pr", next="wait for the human merge")
+        ]
+
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+
+        self.assertEqual(
+            line,
+            "Linear: 005 on 005-T001-thing; open task PRs: T001 (review); next: wait for the human merge",
+        )
+
+    def test_work_item_branch(self) -> None:
+        row = {"identifier": "WOR-123", "derived_state": "started", "next": "/speckit.pr"}
+
+        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (started) — next: /speckit.pr")
+
+    def test_work_item_branch_with_no_next_omits_the_clause(self) -> None:
+        row = {"identifier": "WOR-123", "derived_state": "completed", "next": None}
+
+        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (completed)")
+
+
+class SessionStartTests(CliTestCase):
+    """The `session-start` subcommand's own exit-0 contract: no live Linear, no live `gh`."""
+
+    def _run(self, branch: str) -> tuple[int, str]:
+        with patch("spec_kit_linear.cli._current_branch", return_value=branch):
+            output = StringIO()
+            with redirect_stdout(output):
+                code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+        return code, output.getvalue()
+
+    def test_a_branch_matching_neither_shape_prints_nothing(self) -> None:
+        with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
+            code, output = self._run("main")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "")
+
+    def test_no_configuration_prints_nothing_and_never_raises(self) -> None:
+        (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
+
+        code, output = self._run("001-T001-parse-artifacts")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "")
+
+    def test_an_unexpected_failure_still_exits_zero_with_no_output(self) -> None:
+        output = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", side_effect=RuntimeError("boom")), patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
+            with redirect_stdout(output):
+                code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output.getvalue(), "")
+
+    def test_a_feature_branch_reconciles_and_prints_one_line(self) -> None:
+        client = _ApplyingClient()
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            with patch("spec_kit_linear.cli.known_branches", return_value=("001-T001-parse-artifacts",)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                    code, output = self._run("001-T001-parse-artifacts")
+
+        self.assertEqual(code, 0)
+        lines = output.splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], "Linear: 001 on 001-T001-parse-artifacts — next T001 (unchecked); next: /speckit.pr")
+        # `push --current --hook`'s own reconcile ran first.
+        self.assertEqual(client.mutations, ["project.create", "issue.create", "issue.create", "issue.create"])
+
+    def test_a_work_item_branch_prints_one_line(self) -> None:
+        client = _WorkItemClient((_matching_remote_project(self._desired()),), work_items=(_remote_work_item("WOR-123"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                    code, output = self._run("wor-123-fix-crash")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "Linear: WOR-123 (started) — next: /speckit.pr\n")
+
+    def test_a_work_item_branch_with_no_feature_directory_still_prints_one_line(self) -> None:
+        shutil.rmtree(self.fixture_root / "specs")
+        (self.fixture_root / ".specify" / "feature.json").unlink()
+        client = _WorkItemClient(work_items=(_remote_work_item("WOR-123"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=client):
+            with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                    code, output = self._run("wor-123-fix-crash")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "Linear: WOR-123 (started) — next: /speckit.pr\n")
+
+
+def _bash_payload(command: str) -> str:
+    return json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {"command": command}})
+
+
+# The payload matcher table (dogfooding-style, D4/T012): every stdin this
+# handler must reconcile on, and every one it must silently ignore. Includes
+# leading global options on both `git` and `gh` (with an attached `=value`,
+# a separate value token, or no value at all), plus the quoting, comment,
+# redirection, subshell, and wrapper-word cases a tokenizer must get right
+# where a plain regex cannot (it cannot see shell quoting: a quoted value
+# with a space defeats it, and shell metacharacters sitting inside a quoted
+# argument produce a spurious match).
+_RECONCILING_STDIN = [
+    _bash_payload(c)
+    for c in (
+        "git push origin HEAD",
+        "git push -u origin x",
+        "gh pr create",
+        "gh pr ready",
+        "gh pr merge",
+        "git commit -m 'fix(x): y' && git push",
+        "git -C . push origin HEAD",
+        "git -c core.x=y push",
+        "git --git-dir=/x push",
+        "git --no-pager push",
+        "gh --repo o/r pr ready 1",
+        "gh -R o/r pr merge 1",
+        "gh --hostname h pr create",
+        "git commit -m 'fix(x): y' && git -C x push",
+        "git fetch; git push",
+        "git fetch || git push",
+        "git status\ngit push origin HEAD",
+        "(cd sub && git push)",
+        "git push 2>&1 | tail -1",
+        "GIT_TRACE=1 git push",
+        "cd x && GH_TOKEN=t GH_HOST=h gh pr merge 1",
+        "time env FOO=1 git push",
+        "git commit -F - <<'EOF'\nnot a push\nEOF\ngit push",
+        "cat <<-'EOF'\n\tnot a push\n\tEOF\ngit push",
+        "git commit -F - <<'EOF'\nfix(x): don't crash\nEOF\ngit push",
+        "cat <<A <<B\nit's\nA\nwon't\nB\ngit push origin HEAD",
+        "cat <<< val\ngit push origin HEAD",
+        "cat <; git push origin HEAD",
+        "(git status)#note\ngit push",
+        'git -C "a b" push origin HEAD',
+        r"git -C \; push origin HEAD",
+        "git status # note\ngit push",
+        "git \\\npush origin HEAD",
+        "env FOO=1 gh pr ready 1",
+        "cd x && git push 2>&1 | tail -1",
+        "(cd x && git push)",
+    )
+]
+_SILENT_STDIN = [
+    _bash_payload(c)
+    for c in (
+        "gh pr view 99",
+        "git pushd /tmp",
+        "gitk push",
+        "gh pr view",
+        "gh pr list",
+        "echo git push",
+        'echo "a;git push origin HEAD"',
+        r"echo \; git push origin HEAD",
+        "git commit -m 'x; gh pr ready'",
+        'git push "unterminated',
+        "git commit -F - <<'EOF'\ngit push\nEOF",
+        "cat <<A <<B\ngit push\nA\ngh pr ready\nB",
+        "git commit -F - <<'EOF'\nfix(x): don't crash\nEOF",
+        "cat <<EOF | tee x\ngit push\nEOF",
+    )
+] + [
+    json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_input": {"file_path": "x"}}),
+    "{not json",
+    "",
+]
+
+
+class PostToolUseTests(CliTestCase):
+    """The `post-tool-use` subcommand's payload matcher: exit 0, no stdout, ever."""
+
+    def _run(self, stdin_text: str) -> tuple[int, str, MagicMock]:
+        output = StringIO()
+        with patch("spec_kit_linear.cli.run_push") as run_push, patch("sys.stdin", StringIO(stdin_text)), redirect_stdout(output):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        return code, output.getvalue(), run_push
+
+    def test_quoted_punctuation_only_argument_is_not_a_command_separator(self) -> None:
+        self.assertFalse(_is_reconcile_command('git commit -m ";" git push'))
+
+    def test_shell_continuations_and_quote_escape_semantics(self) -> None:
+        self.assertTrue(_is_reconcile_command("git \\\npush origin HEAD"))
+        self.assertFalse(_is_reconcile_command("git '\\\npush' origin HEAD"))
+        self.assertTrue(_is_reconcile_command('git -C "\\;" push origin HEAD'))
+
+    def test_matching_bash_commands_reconcile(self) -> None:
+        for stdin_text in _RECONCILING_STDIN:
+            with self.subTest(stdin_text=stdin_text):
+                code, output, run_push = self._run(stdin_text)
+                self.assertEqual((code, output), (0, ""))
+                run_push.assert_called_once()
+
+    def test_non_matching_or_malformed_input_never_reconciles(self) -> None:
+        for stdin_text in _SILENT_STDIN:
+            with self.subTest(stdin_text=stdin_text):
+                code, output, run_push = self._run(stdin_text)
+                self.assertEqual((code, output), (0, ""))
+                run_push.assert_not_called()
 
 
 if __name__ == "__main__":
