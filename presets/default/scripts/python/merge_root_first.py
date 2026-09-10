@@ -37,6 +37,16 @@ def _gh(repo_root: Path, number: int, *args: str) -> None:
         detail = result.stderr.strip() or f"gh {' '.join(args)} failed"
         die(f"#{number}: {detail}")
 
+def _base(repo_root: Path, number: int) -> str:
+    result = run_gh("api", f"repos/{{owner}}/{{repo}}/pulls/{number}", "--jq", ".base.ref", cwd=repo_root)
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"gh api pull request {number} failed"
+        die(f"#{number}: {detail}")
+    base = result.stdout.strip()
+    if not base:
+        die(f"#{number}: gh api returned an empty base branch")
+    return base
+
 def _child(prs: list[dict[str, Any]], base: str) -> dict[str, Any] | None:
     return next((pr for pr in prs if pr["baseRefName"] == base), None)
 
@@ -59,8 +69,17 @@ def merge_root_first(repo_root: Path) -> int:
     try:
         for pr in order:
             number = pr["number"]
-            _gh(repo_root, number, "api", "-X", "PATCH", f"repos/{{owner}}/{{repo}}/pulls/{number}",
-                "-f", f"base={feature_branch}")
+            current_base = _base(repo_root, number)
+            if current_base != feature_branch:
+                patch = run_gh("api", "-X", "PATCH", f"repos/{{owner}}/{{repo}}/pulls/{number}",
+                               "-f", f"base={feature_branch}", cwd=repo_root)
+                if patch.returncode != 0:
+                    original_error = patch.stderr.strip() or f"gh api PATCH pull request {number} failed"
+                    # GitHub may have retargeted the PR between the GET and PATCH.
+                    # Accept the race only after proving the remote base is correct.
+                    verify = run_gh("api", f"repos/{{owner}}/{{repo}}/pulls/{number}", "--jq", ".base.ref", cwd=repo_root)
+                    if verify.returncode != 0 or verify.stdout.strip() != feature_branch:
+                        die(f"#{number}: {original_error}")
             _gh(repo_root, number, "pr", "merge", str(number), "--merge")
             merged += 1
             print(f"merged #{number} {pr['headRefName']}")

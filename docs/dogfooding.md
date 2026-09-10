@@ -935,3 +935,14 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     PRs upstream y decisión de alcance de FR-016; runtime vivo de Codex y reconciliación observada
     en un proyecto de prueba de Linear. Ninguna prueba de dispatcher se
     presenta como ejecución real del agente.
+98. **Repetir un retarget automático abortaba el merge root-first.**
+    Tras mergear #87, GitHub cambió la base de #88 a la feature; el PATCH
+    redundante devolvió 422. El script consulta ahora la base antes de
+    cada merge y cambia solo una base distinta. Si PATCH falla, una nueva
+    lectura debe confirmar la feature para continuar; una base distinta
+    o no verificable conserva el error original y detiene la pila. Los
+    merges ya realizados se reconcilian igualmente. Verificación local:
+    71 tests del preset, conformance del consumidor con carrera aceptada
+    y rechazada, y ocho escenarios independientes. La revisión corrigió
+    una aserción que buscaba texto plano en el log JSON de argv y nunca
+    habría detectado el merge indebido. La publicación sigue pendiente.
