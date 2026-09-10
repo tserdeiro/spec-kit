@@ -1892,6 +1892,11 @@ _COMMIT_VALUE_FLAGS = frozenset({"c", "C", "t"})
 # run carrying `<` or `>` is a redirection (`2>&1`, `>/dev/null`, `<<EOF`): it
 # is dropped without ending the step; every other run separates steps.
 _CHAIN_PUNCTUATION = "();<>|&\n"
+# Preserve punctuation that was quoted or escaped until after ``shlex`` has
+# split the command.  Otherwise ``echo ";"`` looks like a command separator,
+# while ``git -C ";" push`` loses the option value and hides the push.
+_QUOTED_PUNCTUATION = {character: chr(0xE000 + index) for index, character in enumerate(_CHAIN_PUNCTUATION)}
+_QUOTED_PUNCTUATION_RESTORE = {value: key for key, value in _QUOTED_PUNCTUATION.items()}
 # The redirection operators a punctuation run may carry; whatever is left after
 # removing them (`;`, `&&`, `|`, `()`, a newline) is what separates steps, so
 # `2>&1` and `&>x` never split and `<;` still does.
@@ -1964,7 +1969,11 @@ def _shell_text(command: str) -> str:
         character = command[index]
         if quote is None:
             if character == "\\" and index + 1 < len(command):
-                out.append(command[index : index + 2]); index += 2; continue
+                escaped = command[index + 1]
+                if escaped == "\n":
+                    index += 2
+                    continue
+                out.append(_QUOTED_PUNCTUATION.get(escaped, "\\" + escaped)); index += 2; continue
             if character in "'\"":
                 quote = character
             elif character == "#" and (index == 0 or command[index - 1] in " \t\n;&|()"):
@@ -1984,10 +1993,23 @@ def _shell_text(command: str) -> str:
                 pending = []
                 continue
         elif character == "\\" and quote == '"' and index + 1 < len(command):
-            out.append(command[index : index + 2]); index += 2; continue
+            escaped = command[index + 1]
+            if escaped == "\n":
+                index += 2
+                continue
+            # Keep the pair for shlex to interpret: Bash preserves the slash
+            # before punctuation such as `;` inside double quotes, while shlex
+            # still needs it before `$`, `` ` ``, `"`, and `\\`.
+            out.append("\\" + escaped)
+            index += 2
+            continue
         elif character == quote:
             quote = None
-        out.append(character); index += 1
+        out.append(
+            _QUOTED_PUNCTUATION.get(character, character)
+            if quote is not None and character != "\n"
+            else character
+        ); index += 1
     return "".join(out)
 
 
@@ -2015,7 +2037,7 @@ def _split_chain(command: str) -> list[list[str]]:
                     steps.append(current)
                 current = []
         else:
-            current.append(token)
+            current.append("".join(_QUOTED_PUNCTUATION_RESTORE.get(character, character) for character in token))
     if current:
         steps.append(current)
     return steps
