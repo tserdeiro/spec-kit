@@ -1879,9 +1879,24 @@ def _authenticated_user(context: CommandContext, diagnostics: list[Diagnostic]) 
 
 # The same pattern `.github/workflows/conventions.yml` enforces server-side.
 _COMMIT_SUBJECT_RE = re.compile(r"^[a-z]+\([a-z0-9-]+\): .+$")
-_FORCE_FLAG_RE = re.compile(r"^(-f|--force|--force-with-lease(?:=.*)?|--force-if-includes)$")
-_DELETE_BRANCH_FLAGS = ("--delete-branch", "-d")
-_CHAIN_OPERATORS = frozenset({"&&", "||", ";", "|"})
+_FORCE_LONG_RE = re.compile(r"^--force(?:-with-lease|-if-includes)?(?:=.*)?$")
+# `gh pr merge`'s and `git commit`'s value-taking short flags -- a cluster stops
+# scanning at one of these, so a glued value is never misread as `-d`/`-m`/`-F`.
+_GH_MERGE_VALUE_FLAGS = frozenset({"R", "b", "F", "t", "A"})
+_COMMIT_VALUE_FLAGS = frozenset({"c", "C", "t"})
+# Every character a shell operator is made of: `&&`/`||`/`;`/`|`, `()` for a
+# subshell, `<>&` for a redirection, and a bare newline -- each run becomes its
+# own punctuation-only token below, so gluing (`true;git`) can't hide a step. A
+# run carrying `<` or `>` is a redirection (`2>&1`, `>/dev/null`, `<<EOF`): it
+# is dropped without ending the step; every other run separates steps.
+_CHAIN_PUNCTUATION = "();<>|&\n"
+_REDIRECTION_CHARACTERS = frozenset("<>")
+# The spellings Cobra's bool flags accept as false (`strconv.ParseBool`).
+_FALSE_SPELLINGS = frozenset({"0", "f", "false"})
+# `-m`/`-F`'s value as a `$(cat <<'DELIM' ... DELIM)` substitution, or a plain
+# `<<DELIM ... DELIM` redirection for `-F -`: the subject is the first
+# non-blank line of the body, not the literal text of the outer argument.
+_HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1\r?\n(.*?)\r?\n[ \t]*\2(?=\r?\n|\Z)", re.DOTALL)
 # The numeric-prefix task-branch shape `stack_propagate.py`/`pr_create.py` already match.
 _TASK_BRANCH_RE = re.compile(r"^[0-9]+-T[0-9]{3}-")
 
@@ -1893,19 +1908,25 @@ _GUARD_BLOCKED = 2
 
 
 def _split_chain(command: str) -> list[list[str]]:
-    """``command`` as one token list per ``&&``/``||``/``;``/``|``-separated step."""
+    """``command`` as one token list per step -- ``&&``/``||``/``;``/``|``, a
+    subshell's parentheses, or a bare newline all separate steps, even glued to
+    a word (``true;git``); a redirection (``2>&1``) is dropped, never a separator."""
 
     try:
-        tokens = shlex.split(command)
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=_CHAIN_PUNCTUATION)
+        lexer.whitespace_split = True
+        lexer.whitespace = " \t\r"
+        tokens = list(lexer)
     except ValueError:
         return []
     steps: list[list[str]] = []
     current: list[str] = []
     for token in tokens:
-        if token in _CHAIN_OPERATORS:
-            if current:
-                steps.append(current)
-            current = []
+        if token and all(character in _CHAIN_PUNCTUATION for character in token):
+            if _REDIRECTION_CHARACTERS.isdisjoint(token):
+                if current:
+                    steps.append(current)
+                current = []
         else:
             current.append(token)
     if current:
@@ -1913,15 +1934,84 @@ def _split_chain(command: str) -> list[list[str]]:
     return steps
 
 
-def _commit_message(step: list[str]) -> str | None:
-    """The value of a ``git commit`` step's ``-m``/``--message``, or ``None`` when absent."""
+def _commit_source(step: list[str]) -> tuple[str, str] | None:
+    """The first (``"message"``|``"file"``, value) a ``git commit`` step supplies --
+    however it names it: ``-m``/``--message``, ``-F``/``--file``, bundled into a
+    cluster (``-am``) or glued to one (``-mtext``) -- or ``None`` when absent."""
 
     for index, token in enumerate(step):
-        if token in ("-m", "--message") and index + 1 < len(step):
-            return step[index + 1]
+        if token in ("--message", "--file"):
+            if index + 1 >= len(step):
+                return None
+            return ("message" if token == "--message" else "file", step[index + 1])
         if token.startswith("--message="):
-            return token[len("--message=") :]
+            return ("message", token[len("--message=") :])
+        if token.startswith("--file="):
+            return ("file", token[len("--file=") :])
+        if token.startswith("--"):
+            continue
+        if not token.startswith("-") or len(token) < 2:
+            continue
+        for position, character in enumerate(token[1:], start=2):
+            if character in _COMMIT_VALUE_FLAGS:
+                break  # the rest of this token is that flag's value
+            if character not in "mF":
+                continue
+            kind = "message" if character == "m" else "file"
+            remainder = token[position:]
+            if remainder:
+                return (kind, remainder)
+            if index + 1 >= len(step):
+                return None
+            return (kind, step[index + 1])
     return None
+
+
+def _heredoc_body(text: str) -> str | None:
+    """The body of the first ``<<DELIM ... DELIM`` heredoc in ``text``, or ``None``."""
+
+    match = _HEREDOC_RE.search(text)
+    return match.group(3) if match else None
+
+
+def _first_nonblank_line(text: str) -> str:
+    """``text``'s first line that isn't empty once stripped, or ``""``."""
+
+    for line in text.splitlines():
+        if line.strip():
+            return line
+    return ""
+
+
+def _commit_subject(step: list[str], command: str, root: Path) -> str | None:
+    """The subject line to check for a ``git commit`` step, or ``None`` when the
+    step supplies no message the guard can resolve -- no flag, an unreadable or
+    missing ``-F`` file, or ``-F -`` with no heredoc anywhere in ``command``."""
+
+    source = _commit_source(step)
+    if source is None:
+        return None
+    kind, value = source
+    if kind == "message":
+        # The Claude Code default commit form: `-m "$(cat <<'EOF' ... EOF)"`.
+        # The subject is the heredoc body's first line, not the literal `$(cat <<'EOF'`.
+        body = _heredoc_body(value)
+        if body is not None:
+            return _first_nonblank_line(body)
+        return value.splitlines()[0] if value else ""
+    if value == "-":
+        # The heredoc that follows this step's own `-F -`, not an earlier one.
+        starts = [command.find(form) for form in ("-F -", "-F-", "--file -", "--file=-")]
+        body = _heredoc_body(command[max(starts):] if max(starts) >= 0 else command)
+        return _first_nonblank_line(body) if body is not None else None
+    path = Path(value)
+    if not path.is_absolute():
+        path = root / path
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return text.splitlines()[0] if text else ""
 
 
 _GIT_VALUE_FLAGS = frozenset({"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix"})
@@ -1937,8 +2027,52 @@ def _subcommand_index(step: list[str], value_flags: frozenset[str]) -> int:
     return index
 
 
-def _bash_violation(command: str) -> str | None:
-    """The fix message for the first of the three Bash rules ``command`` breaks (FR-007)."""
+def _push_is_force(step: list[str], index: int) -> bool:
+    """Whether the ``git push`` step's arguments past ``index`` force the update:
+    ``--force``/``-f`` alone or bundled (``-vf``), or a ``+refspec`` (git-push(1))."""
+
+    for token in step[index + 1 :]:
+        if token.startswith("+"):
+            return True
+        if token.startswith("--"):
+            if _FORCE_LONG_RE.match(token):
+                return True
+            continue
+        if token.startswith("-") and len(token) > 1:
+            for character in token[1:]:
+                if character == "o":
+                    break  # --push-option takes a value; the rest of this token is that value
+                if character == "f":
+                    return True
+    return False
+
+
+def _requests_branch_deletion(step: list[str], index: int) -> bool:
+    """Whether the ``gh pr merge`` step (``pr``/``merge`` at ``index``) requests
+    branch deletion -- the last such flag wins, matching Cobra's own left-to-right
+    parsing, so ``--delete-branch=false`` cancels an earlier ``-d`` and vice versa."""
+
+    requested = False
+    for token in step[index + 2 :]:
+        if token == "--delete-branch":
+            requested = True
+        elif token.startswith("--delete-branch="):
+            requested = token[len("--delete-branch=") :].strip().lower() not in _FALSE_SPELLINGS
+        elif token.startswith("--"):
+            continue
+        elif token.startswith("-") and len(token) > 1:
+            for character in token[1:]:
+                if character in _GH_MERGE_VALUE_FLAGS:
+                    break
+                if character == "d":
+                    requested = True
+                    break
+    return requested
+
+
+def _bash_violation(command: str, root: Path) -> str | None:
+    """The fix message for the first of FR-007's three Bash rules ``command``
+    breaks, or ``None``. ``root`` resolves a relative ``-F``/``--file`` path."""
 
     for step in _split_chain(command):
         if len(step) < 2:
@@ -1946,17 +2080,16 @@ def _bash_violation(command: str) -> str | None:
         if step[0] == "git":
             index = _subcommand_index(step, _GIT_VALUE_FLAGS)
             if index < len(step) and step[index] == "commit":
-                message = _commit_message(step)
-                if message is None:
+                subject = _commit_subject(step, command, root)
+                if subject is None:
                     continue
-                subject = message.splitlines()[0] if message else ""
                 if not _COMMIT_SUBJECT_RE.match(subject):
                     return f"blocked commit: subject `{subject}` does not match type(scope): subject; use type(scope): subject"
-            elif index < len(step) and step[index] == "push" and any(_FORCE_FLAG_RE.match(token) for token in step[index + 1 :]):
+            elif index < len(step) and step[index] == "push" and _push_is_force(step, index):
                 return "blocked push: a force push is never allowed; push without --force"
         elif step[0] == "gh":
             index = _subcommand_index(step, _GH_VALUE_FLAGS)
-            if step[index : index + 2] == ["pr", "merge"] and any(token in _DELETE_BRANCH_FLAGS for token in step[index + 2 :]):
+            if step[index : index + 2] == ["pr", "merge"] and _requests_branch_deletion(step, index):
                 return "blocked merge: merge without --delete-branch: the repository deletes merged branches itself"
     return None
 
@@ -1972,13 +2105,15 @@ def _current_branch(root: Path) -> str | None:
 
 
 def _repository_relative(file_path: str, root: Path) -> str:
-    """``file_path`` relative to ``root``; unchanged when it already is or lies outside it."""
+    """``file_path`` resolved against ``root`` and expressed relative to it, so
+    ``..``, ``.`` and ``//`` segments and a symlinked root all normalize to the
+    same repository-relative path; the original path when it resolves outside."""
 
     path = Path(file_path)
     if not path.is_absolute():
-        return path.as_posix()
+        path = root / path
     try:
-        return path.resolve().relative_to(root).as_posix()
+        return path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
 
@@ -2013,15 +2148,15 @@ def run_guard(args: argparse.Namespace) -> int:
         tool_input = payload.get("tool_input")
         tool_input = tool_input if isinstance(tool_input, Mapping) else {}
         tool_name = payload.get("tool_name")
+        root = Path(getattr(args, "root", None) or Path.cwd())
         message: str | None = None
         if tool_name == "Bash":
             command = tool_input.get("command")
             if isinstance(command, str):
-                message = _bash_violation(command)
+                message = _bash_violation(command, root)
         elif tool_name in ("Edit", "Write"):
             file_path = tool_input.get("file_path")
             if isinstance(file_path, str):
-                root = Path(getattr(args, "root", None) or Path.cwd())
                 message = _write_violation(root, file_path)
     except Exception:
         return _GUARD_ALLOWED

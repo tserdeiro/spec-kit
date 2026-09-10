@@ -1235,9 +1235,11 @@ def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
 def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, object]]) -> str:
     """FR-003's context line for a feature or task branch, from `status`'s own task rows.
 
-    Every field a `PullRequest` cannot yet name (its own `#<n>`, D6/T013) is
-    left out rather than guessed at; the open-PR clause names the task and
-    its derived state only.
+    The open-PR clause names each pull request's own `#<n>` when the row
+    carries it (D6/T013). The next command is the first unchecked task's
+    `next`, else the first open task PR's: a stack fully checked but still
+    in review or draft names the wait sentence or the review command, never
+    nothing (FR-004).
     """
 
     first_unchecked = next((task for task in tasks if not task["local_complete"]), None)
@@ -1246,9 +1248,16 @@ def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, obj
     if first_unchecked is not None:
         segments[0] += f" — next {first_unchecked['task']} (unchecked)"
     if open_prs:
-        pr_text = ", ".join(f"{task['task']} ({task['derived_state']})" for task in open_prs)
+        pr_text = ", ".join(
+            f"{task['task']} ({task['derived_state']}, #{task['pr_number']})"
+            if task.get("pr_number") is not None
+            else f"{task['task']} ({task['derived_state']})"
+            for task in open_prs
+        )
         segments.append(f"open task PRs: {pr_text}")
     next_command = first_unchecked.get("next") if first_unchecked is not None else None
+    if not next_command and open_prs:
+        next_command = open_prs[0].get("next")
     if next_command:
         segments.append(f"next: {next_command}")
     return "; ".join(segments)
@@ -1315,9 +1324,22 @@ def run_session_start(args: argparse.Namespace) -> int:
     return EXIT_SUCCESS
 
 
-# Word-boundaried so `git pushd`/`gh pr view` never match; `re.search`
-# since the loop chains commands with `&&`, anywhere in the string.
-_RECONCILE_COMMAND_RE = re.compile(r"\bgit\s+push\b|\bgh\s+pr\s+(?:create|ready|merge)\b")
+# A leading `-x`/`--xxx[=value]` global option, optionally followed by its
+# own value token (e.g. `-C .`, `-c core.x=y`, `--git-dir=/x`, `--no-pager`),
+# so `git`/`gh` invocations carrying global options still match below.
+_GLOBAL_OPTION = r"(?:-[A-Za-z]|--[A-Za-z][\w-]*(?:=\S+)?)(?:\s+[^\s-]\S*)?"
+
+# `git`/`gh` must open a command -- the string start, or a single `;`, `&`,
+# `|`, `(`, or newline, so `&&`/`||` count too -- optionally behind
+# `VAR=value` assignments, so `echo git push` never matches; word-boundaried
+# on `push`/`create|ready|merge` so `git pushd`/`gitk push`/`gh pr view`/`gh
+# pr list` never match either. `re.search` since the loop chains commands
+# with `&&`, anywhere in the string.
+_COMMAND_START = r"(?:^|[;&|(\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*"
+_RECONCILE_COMMAND_RE = re.compile(
+    rf"{_COMMAND_START}git(?:\s+{_GLOBAL_OPTION})*\s+push\b"
+    rf"|{_COMMAND_START}gh(?:\s+{_GLOBAL_OPTION})*\s+pr\s+(?:create|ready|merge)\b"
+)
 
 
 def run_post_tool_use(args: argparse.Namespace) -> int:
