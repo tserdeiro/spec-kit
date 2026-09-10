@@ -238,6 +238,7 @@ class RemoteDiscoveryTests(unittest.TestCase):
                 "local_complete": False,
                 "derived_state": None,
                 "state_source": None,
+                "pr_number": None,
                 "next": None,
                 "remote_identifier": "WOR-21",
                 "remote_state": "Done",
