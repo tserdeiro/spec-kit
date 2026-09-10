@@ -1103,10 +1103,10 @@ echo "ok: budget"
 # --------------------------------------------------------------------------
 
 doctor_skill="$consumer_root/.agents/skills/speckit-doctor/SKILL.md"
-skill_mirror=$(sed -n '/skill-mirror:start/,/skill-mirror:end/p' "$doctor_skill")
 ignore_entries=$(sed -n '/ignore-entries:start/,/ignore-entries:end/p' "$doctor_skill")
-[ -n "$skill_mirror" ] || fail "doctor: installed skill-mirror block is missing"
 [ -n "$ignore_entries" ] || fail "doctor: installed ignore-entries block is missing"
+skill_mirror_script="$consumer_root/.specify/presets/default/scripts/python/skill_mirror.py"
+[ -e "$skill_mirror_script" ] || fail "doctor: skill_mirror.py is not installed"
 
 render_fix() { printf '%s\n' "$1" | sed "s@<true|false>@$2@"; }
 dir_checksum() { (cd "$1" && find . -type f | sort && find . -type f | sort | xargs cat) | shasum -a 256 | awk '{print $1}'; }
@@ -1178,7 +1178,7 @@ printf 'stale content\n' > "$mirror_root/.claude/skills/speckit-pr/SKILL.md"
 checklist_before=$(shasum -a 256 < "$checklist_claude")
 
 before=$(dir_checksum "$mirror_root")
-mirror_report=$(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" false)") ||
+mirror_report=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" false) ||
   fail "mirror: fix=false run failed"
 [ "$(dir_checksum "$mirror_root")" = "$before" ] || fail "mirror: fix=false changed a file"
 for name in speckit-pr speckit-implement speckit-tasks; do
@@ -1188,7 +1188,7 @@ done
 printf '%s\n' "$mirror_report" | grep -Fq speckit-checklist &&
   fail "mirror: fix=false reported the untouchable core checklist"
 
-(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") ||
+(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) ||
   fail "mirror: fix=true run failed"
 
 cmp -s "$mirror_root/.agents/skills/speckit-pr/SKILL.md" \
@@ -1209,7 +1209,7 @@ for spec in "speckit-implement:claude implement body:implement-append.md" \
 done
 
 mid=$(dir_checksum "$mirror_root")
-second=$(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") ||
+second=$(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) ||
   fail "mirror: second fix=true run failed"
 [ "$second" = "mirror: nothing to do" ] || fail "mirror: second fix=true run was not a clean no-op: $second"
 [ "$(dir_checksum "$mirror_root")" = "$mid" ] || fail "mirror: second fix=true run changed a file"
@@ -1225,14 +1225,14 @@ cat >> "$mirror_root/.specify/presets/default/preset.yml" <<'YAML'
 YAML
 before=$(dir_checksum "$mirror_root")
 broken_status=0
-(cd "$mirror_root" && sh -c "$(render_fix "$skill_mirror" true)") >/dev/null 2>&1 || broken_status=$?
+(cd "$mirror_root" && "$PYTHON" "$skill_mirror_script" true) >/dev/null 2>&1 || broken_status=$?
 [ "$broken_status" -eq 2 ] || fail "mirror: a missing append file did not exit 2 (got $broken_status)"
 [ "$(dir_checksum "$mirror_root")" = "$before" ] || fail "mirror: a missing append file still wrote a file"
 
 single_root="$temporary_root/mirror-single"
 init_options "$single_root" codex '    "codex"'
 single_status=0
-single_out=$(cd "$single_root" && sh -c "$(render_fix "$skill_mirror" false)") || single_status=$?
+single_out=$(cd "$single_root" && "$PYTHON" "$skill_mirror_script" false) || single_status=$?
 [ "$single_status" -eq 0 ] && [ "$single_out" = "mirror: only one integration installed, skipped" ] ||
   fail "mirror: single-integration fixture did not skip cleanly"
 

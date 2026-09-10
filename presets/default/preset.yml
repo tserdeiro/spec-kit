@@ -109,6 +109,12 @@ provides:
       description: "Verify a task's ledger entry is checked with its Completion evidence filled"
       strategy: "replace"
 
+    - type: "script"
+      name: "skill-mirror"
+      file: "scripts/python/skill_mirror.py"
+      description: "Mirror extension and preset skills whole across installed integrations and append the preset's registered layer to each core render"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"

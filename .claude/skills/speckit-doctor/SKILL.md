@@ -84,120 +84,13 @@ overwriting one integration's own render with another's: extension and
 preset skills are copied whole from the default integration's directory;
 the five core commands with a registered preset append (`specify`, `plan`,
 `tasks`, `analyze`, `implement`) keep each integration's own render and
-receive that append. Run this block, replacing only the `fix` literal
-(`true` when the user asked to fix, else `false`):
+receive that append. Run `skill_mirror.py` — with the consumer's
+`.venv/bin/python` when it exists, else `python3` on PATH, the rule
+upstream's own `py` scripts follow. Its one argument replaces
+`<true|false>`: `true` when the user asked to fix, else `false`:
 
 ```bash
-# skill-mirror:start
-set -e
-fix="<true|false>"
-default_ai=$(sed -n 's/.*"ai": *"\([^"]*\)".*/\1/p' .specify/init-options.json | head -1)
-installed=$(awk '
-  /"installed_integrations":/ { inside = 1; next }
-  inside && /\]/ { exit }
-  inside { gsub(/[",]/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); if (length($0)) print }
-' .specify/integration.json)
-count=$(printf '%s\n' "$installed" | grep -c .)
-if [ "$count" -le 1 ]; then
-  echo "mirror: only one integration installed, skipped"
-  exit 0
-fi
-
-manifest_paths() {
-  grep -Eo '"[^"]*/speckit-[^"/]*/SKILL\.md"' "$1" | tr -d '"'
-}
-
-appends=$(mktemp)
-: > "$appends"
-for preset_yml in .specify/presets/*/preset.yml; do
-  [ -f "$preset_yml" ] || continue
-  preset_dir=$(dirname "$preset_yml")
-  awk -v dir="$preset_dir" '
-    function flush() {
-      if (t == "command" && s == "append" && n != "" && fl != "") {
-        gsub(/^speckit\./, "speckit-", n); print n, dir "/" fl
-      }
-    }
-    /^[ \t]*- type:/ { flush(); t = ($0 ~ /"command"/) ? "command" : ""; n = ""; fl = ""; s = ""; next }
-    /name:/     && t == "command" { n = $0;  sub(/^.*name:[ \t]*"/, "", n);     sub(/".*$/, "", n) }
-    /file:/     && t == "command" { fl = $0; sub(/^.*file:[ \t]*"/, "", fl);    sub(/".*$/, "", fl) }
-    /strategy:/ && t == "command" { s = $0;  sub(/^.*strategy:[ \t]*"/, "", s); sub(/".*$/, "", s) }
-    END { flush() }
-  ' "$preset_yml" >> "$appends"
-done
-
-default_paths=$(manifest_paths ".specify/integrations/$default_ai.manifest.json")
-default_dir=$(printf '%s\n' "$default_paths" | head -1 | sed -E 's#/speckit-[^/]*/SKILL\.md$##')
-if [ -z "$default_dir" ]; then
-  echo "mirror: default integration $default_ai has no skills to mirror"
-  exit 0
-fi
-
-acted=false
-for key in $installed; do
-  [ "$key" = "$default_ai" ] && continue
-  manifest=".specify/integrations/$key.manifest.json"
-  paths=$(manifest_paths "$manifest")
-  lag_dir=$(printf '%s\n' "$paths" | head -1 | sed -E 's#/speckit-[^/]*/SKILL\.md$##')
-  if [ -z "$lag_dir" ]; then
-    echo "mirror: $key is command-mode, no skills to mirror"
-    continue
-  fi
-  core=$(mktemp)
-  printf '%s\n' "$paths" | sed -E 's#.*/(speckit-[^/]*)/SKILL\.md$#\1#' > "$core"
-
-  for src in "$default_dir"/speckit-*/; do
-    [ -d "$src" ] || continue
-    name=$(basename "$src")
-    grep -qxF "$name" "$core" && continue
-    srcfile="$default_dir/$name"
-    dst="$lag_dir/$name"
-    if [ ! -f "$dst/SKILL.md" ] || ! cmp -s "$srcfile/SKILL.md" "$dst/SKILL.md"; then
-      acted=true
-      if [ "$fix" = "true" ]; then
-        mkdir -p "$lag_dir"
-        cp -R "$srcfile" "$lag_dir/"
-        echo "mirror: copied $name into $lag_dir ($key)"
-      else
-        echo "mirror: $name missing or differs in $lag_dir ($key) -- run with --fix"
-      fi
-    fi
-  done
-
-  while read -r name; do
-    [ -n "$name" ] || continue
-    append_file=$(awk -v n="$name" '$1 == n { print $2; exit }' "$appends")
-    [ -n "$append_file" ] || continue
-    render="$lag_dir/$name/SKILL.md"
-    if [ ! -f "$render" ]; then
-      acted=true
-      echo "mirror: $name missing in $lag_dir ($key) -- run: specify integration install $key"
-      continue
-    fi
-    heading=""
-    [ -f "$append_file" ] && heading=$(awk '/^## /{ print; exit }' "$append_file")
-    if [ -z "$heading" ]; then
-      echo "mirror: append $append_file for $name is missing or has no heading" >&2
-      exit 2
-    fi
-    prefix=$(awk -v h="$heading" '$0 == h { exit } { print }' "$render")
-    body=$(cat "$append_file")
-    expected=$(printf '%s\n\n\n%s\n' "$prefix" "$body")
-    actual=$(cat "$render")
-    if [ "$expected" != "$actual" ]; then
-      acted=true
-      if [ "$fix" = "true" ]; then
-        printf '%s\n\n\n%s\n' "$prefix" "$body" > "$render"
-        echo "mirror: appended the preset layer to $name in $lag_dir ($key)"
-      else
-        echo "mirror: $name in $lag_dir ($key) needs the preset append -- run with --fix"
-      fi
-    fi
-  done < "$core"
-done
-
-[ "$acted" = "true" ] || echo "mirror: nothing to do"
-# skill-mirror:end
+python3 .specify/presets/default/scripts/python/skill_mirror.py <true|false>
 ```
 
 A core render with no registered append (e.g. `checklist`) is never
