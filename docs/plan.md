@@ -66,7 +66,8 @@ taskstoissues).
   to write, idempotent): Project at plan, Issues at tasks, task/PR/review
   states through delivery, and work-item states for Issue-key branches
   (bugs and chores).
-- `status`, `doctor` (with `--fix`), `completions`.
+- `status`, `doctor` (with `--fix`); the internal `session-start` and
+  `post-tool-use` runtime-event handlers, never user commands.
 
 `spec-kit-code-review` extension:
 
@@ -79,7 +80,8 @@ taskstoissues).
   Delegates to pinned OCR; fails closed.
 - `doctor` (with `--fix`) — environment diagnosis; `--fix` installs the
   pinned engine into the distribution's data root and verifies its digest
-  against the pin the extension ships. `completions`.
+  against the pin the extension ships; the internal `guard` runtime-event
+  handler, never a user command.
 
 Anything not listed is out of surface. Flags follow the same rule: a
 command exposes only what its step needs.
@@ -362,6 +364,42 @@ code-review 0.4.0, preset 0.9.0, bundles 0.15.0; the consumer upgrade is
   script, the `wrap` composition fix, stable runtime events, presets that
   declare a required extension). Baseline assets refreshed; every
   `>=1.0.1,<1.1.0` range still holds, so no component is re-released.
+
+### Developer experience (2026-09-09 → in progress)
+
+[`005-developer-experience`](../specs/005-developer-experience/)
+(feature PR #86): the policy layer — stack, budgets, gates, derived
+states — was complete; the mechanism still lived in prose an agent had
+to remember and shell blocks it had to copy-edit by hand. Delivered
+through task PRs #87–#107 so far; T019 continues the stack.
+
+- **Scripts** — the default preset's eight repeatable procedures
+  (`task-base`, `pr-create`, `budget-stop`, `stack-propagate`,
+  `merge-root-first`, `ledger-check`, `skill-mirror`, `ignore-entries`)
+  ship as Python 3.11+ scripts with their own pytest suite; conformance
+  invokes the installed scripts directly instead of extracting prose
+  blocks; `implement` and `tasks` become authored replacements of the
+  upstream core instead of a base plus a contradicting append.
+- **Events** — `linear` gains `session_start` (context line, next
+  command) and `post_tool_use` (reconcile after `git push`/`gh pr`)
+  handlers, `next_action` returns runnable commands, and `push` archives
+  and restores the Issues its own tasks own as they leave and rejoin the
+  ledger; `code-review` gains one `pre_tool_use` guard blocking a
+  non-conventional commit, a force-push, a `--delete-branch` merge, or a
+  protected-path write, before any of the four takes effect.
+- **Onboarding** — the doctor reports every gap in one fixed order
+  (interpreter, `gh` auth, Linear key, Linear binding, review engine,
+  GitHub settings), plus the events-wiring per integration; the README
+  opens with the day in four commands.
+- **Hygiene** — `completions` and the unreachable `after_implement`
+  review hook are gone from both extensions; both require
+  `speckit_version >=1.0.4,<1.1.0`, where events ship.
+- **Process record** — `docs/dogfooding.md` section J, entries 36–80.
+
+Still to land in this feature: three upstream patches (T020–T022), live
+cross-agent verification in a temporary consumer (T023), and the release
+bump (T024) — preset 0.10.0, linear 0.13.0, code-review 0.5.0, bundles
+0.16.0.
 
 ## Releases
 
