@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -130,6 +132,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     session_start = subparsers.add_parser("session-start", help="internal: the session_start runtime-event handler")
     session_start.add_argument("--root", help="explicit consumer repository root")
+
+    post_tool_use = subparsers.add_parser("post-tool-use", help="internal: the post_tool_use runtime-event handler")
+    post_tool_use.add_argument("--root", help="explicit consumer repository root")
     return parser
 
 
@@ -1202,6 +1207,32 @@ def _current_branch(root: Path) -> str | None:
     return branch or None
 
 
+def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
+    """Resolve the branch shape and run `push --hook`; shared by both event handlers (D4, FR-006)."""
+    branch = work_item_identifier = None
+    try:
+        branch = _current_branch(root)
+        if branch and not FEATURE_RE.fullmatch(branch):
+            config, _shared_path = load_config(root, None)
+            _team_id, team_key = team_binding(config)
+            match = issue_key_pattern(team_key).fullmatch(branch)
+            work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
+    except Exception:
+        pass
+
+    # A work item resolves `--current` only through `.specify/feature.json`, often
+    # absent; a feature/task branch resolves it by name, so only the former skips it.
+    hook_args = argparse.Namespace(
+        root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
+        dry_run=False, apply=False, hook=True,
+    )
+    try:
+        run_push(hook_args)
+    except Exception:
+        pass
+    return branch, work_item_identifier
+
+
 def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, object]]) -> str:
     """FR-003's context line for a feature or task branch, from `status`'s own task rows.
 
@@ -1274,28 +1305,7 @@ def run_session_start(args: argparse.Namespace) -> int:
     except AppError:
         return EXIT_SUCCESS
 
-    branch = work_item_identifier = None
-    try:
-        branch = _current_branch(root)
-        if branch and not FEATURE_RE.fullmatch(branch):
-            config, _shared_path = load_config(root, None)
-            _team_id, team_key = team_binding(config)
-            match = issue_key_pattern(team_key).fullmatch(branch)
-            work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
-    except Exception:
-        pass
-
-    # A work item can only resolve `--current` through `.specify/feature.json`,
-    # which is often absent; a feature/task branch still resolves it through
-    # its own name, so only the former needs the feature-independent selector.
-    hook_args = argparse.Namespace(
-        root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
-        dry_run=False, apply=False, hook=True,
-    )
-    try:
-        run_push(hook_args)
-    except Exception:
-        pass
+    branch, work_item_identifier = _reconcile_hook(root)
 
     try:
         line = _session_start_context_line(root, branch, work_item_identifier)
@@ -1303,6 +1313,225 @@ def run_session_start(args: argparse.Namespace) -> int:
         line = None
     if line:
         sys.stdout.write(line + "\n")
+    return EXIT_SUCCESS
+
+
+# `run_post_tool_use` decides whether a finished Bash command ran `git push`
+# or `gh pr create|ready|merge` (FR-005) by tokenizing it the way a shell
+# would: a regex cannot see quoting, so `git -C "a b" push` (a real push) and
+# `echo "a;git push"` (no push at all) look alike to one. POSIX `shlex` with
+# `punctuation_chars` makes `();<>|&` and newline their own tokens (a run such
+# as `&&` stays one token); `commenters=""` keeps `#` from swallowing the
+# newline after `git status # note`. A punctuation-only token separates
+# steps, except one carrying `<` or `>`: a redirection (`2>&1`) is dropped
+# and the step continues. Each step is read the way a shell starts a process
+# -- leading `NAME=value` assignments and one bare wrapper word skipped -- so
+# the executable must be exactly `git` or `gh`; global options are skipped
+# up to the subcommand. `#` comments and heredocs (the `<<DELIM` operator,
+# body and terminator line) are removed from the text first (`_shell_text`),
+# so prose is never tokenized: an apostrophe in a commit message would
+# otherwise unbalance shlex's quotes and turn a real push into "no match".
+# Unbalanced quoting (`ValueError`) is "no match". Punctuation inside quoted
+# arguments is encoded before shlex so a quoted `;` is not mistaken for a
+# command separator.
+_STEP_PUNCTUATION = "();<>|&\n"
+# The redirection operators a punctuation run may carry; whatever is left after
+# removing them (`;`, `&&`, `|`, `()`, a newline) separates steps, so `2>&1`
+# and `&>x` never split and `<;` still does.
+_REDIRECTION_RE = re.compile(r"<<<|<<|>>|>&|&>|<&|<>|>|<")
+_ASSIGNMENT_RE = re.compile(r"[A-Za-z_]\w*=")
+_WRAPPER_WORDS = frozenset({"env", "command", "exec", "nohup", "time"})
+_GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"})
+_GH_VALUE_OPTIONS = frozenset({"-R", "--repo", "--hostname"})
+_GH_RECONCILE_SUBCOMMANDS = frozenset({"create", "ready", "merge"})
+_QUOTED_PUNCTUATION = {character: chr(0xE000 + index) for index, character in enumerate(_STEP_PUNCTUATION)}
+_QUOTED_PUNCTUATION_RESTORE = {value: key for key, value in _QUOTED_PUNCTUATION.items()}
+
+
+_HEREDOC_WORD_END = frozenset(" \t\r\n;&|()<>")
+
+
+def _heredoc_operator(command: str, index: int) -> tuple[str, bool, int]:
+    """Parse the ``<<`` operator whose ``<<`` ends at ``index``: the delimiter
+    (quotes stripped), whether it was ``<<-``, and the index past it."""
+
+    dashed = command.startswith("-", index)
+    index += dashed
+    while index < len(command) and command[index] in " \t":
+        index += 1
+    if index < len(command) and command[index] in "'\"":
+        close = command.find(command[index], index + 1)
+        if close < 0:
+            return "", dashed, index
+        return command[index + 1 : close], dashed, close + 1
+    if command.startswith("\\", index):
+        index += 1
+    start = index
+    while index < len(command) and command[index] not in _HEREDOC_WORD_END:
+        index += 1
+    return command[start:index], dashed, index
+
+
+def _skip_heredoc_bodies(command: str, index: int, pending: list[tuple[str, bool]]) -> int:
+    """Index past the bodies (and terminator lines) of ``pending`` heredocs starting at ``index``."""
+
+    for delimiter, dashed in pending:
+        while index < len(command):
+            end = command.find("\n", index)
+            line = command[index:] if end < 0 else command[index:end]
+            index = len(command) if end < 0 else end + 1
+            if (line.lstrip("\t") if dashed else line) == delimiter:
+                break
+    return index
+
+
+def _shell_text(command: str) -> str:
+    """``command`` as shlex should see it: ``#`` comments (a ``#`` starting a word
+    outside quotes, up to its newline) and every heredoc -- operator, body,
+    terminator line -- removed, so prose is never tokenized."""
+
+    out: list[str] = []
+    quote: str | None = None
+    pending: list[tuple[str, bool]] = []  # heredocs opened on the current line, in order
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if quote is None:
+            if character == "\\" and index + 1 < len(command):
+                escaped = command[index + 1]
+                if escaped == "\n":
+                    index += 2; continue
+                out.append(_QUOTED_PUNCTUATION.get(escaped, command[index : index + 2]))
+                index += 2; continue
+            if character in "'\"":
+                quote = character
+            elif character == "#" and (index == 0 or command[index - 1] in " \t\n;&|()"):
+                end = command.find("\n", index)
+                index = len(command) if end < 0 else end
+                continue
+            elif command.startswith("<<<", index):
+                out.append("<<<"); index += 3; continue  # a here-string: a word follows, never a body
+            elif command.startswith("<<", index):
+                delimiter, dashed, index = _heredoc_operator(command, index + 2)
+                if delimiter:
+                    pending.append((delimiter, dashed))
+                continue
+            elif character == "\n" and pending:
+                out.append(character)
+                index = _skip_heredoc_bodies(command, index + 1, pending)
+                pending = []
+                continue
+        elif character == "\\" and quote == '"' and index + 1 < len(command):
+            escaped = command[index + 1]
+            if escaped == "\n":
+                index += 2; continue
+            out.append("\\" + _QUOTED_PUNCTUATION.get(escaped, escaped)); index += 2; continue
+        elif character == quote:
+            quote = None
+        out.append(_QUOTED_PUNCTUATION.get(character, character) if quote is not None else character); index += 1
+    return "".join(out)
+
+
+def _command_steps(command: str) -> list[list[str]]:
+    """Tokenize ``command`` (comments and heredocs removed) into argv-shaped steps.
+
+    Raises ``ValueError`` on unbalanced quoting; the caller treats that as
+    "no match" rather than letting it propagate.
+    """
+
+    lexer = shlex.shlex(_shell_text(command), posix=True, punctuation_chars=_STEP_PUNCTUATION)
+    lexer.whitespace_split = True
+    lexer.whitespace = " \t\r"
+    lexer.commenters = ""
+    steps: list[list[str]] = [[]]
+    for token in lexer:
+        if token and all(character in _STEP_PUNCTUATION for character in token):
+            if _REDIRECTION_RE.sub("", token):
+                steps.append([])
+            continue  # a bare redirection (`2>&1`, `>out.log`) never starts a step
+        steps[-1].append("".join(_QUOTED_PUNCTUATION_RESTORE.get(character, character) for character in token))
+    return steps
+
+
+def _skip_leading_wrapper(tokens: list[str]) -> list[str]:
+    """Drop leading `NAME=value` assignments and bare wrapper words, in any order."""
+
+    index = 0
+    while index < len(tokens) and (_ASSIGNMENT_RE.match(tokens[index]) or tokens[index] in _WRAPPER_WORDS):
+        index += 1
+    return tokens[index:]
+
+
+def _skip_global_options(tokens: list[str], value_options: frozenset[str]) -> list[str]:
+    """Drop leading global options up to the subcommand.
+
+    A token in `value_options` consumes the next token as its separate value
+    (`-C .`, `--git-dir /x`); any other `-`-led token -- a bare flag or an
+    attached `--opt=value` -- consumes only itself.
+    """
+
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in value_options:
+            index += 2
+            continue
+        if token.startswith("-") and token != "-":
+            index += 1
+            continue
+        break
+    return tokens[index:]
+
+
+def _step_reconciles(tokens: list[str]) -> bool:
+    """Does this one step run `git push` or `gh pr create|ready|merge`?"""
+
+    tokens = _skip_leading_wrapper(tokens)
+    if not tokens:
+        return False
+    executable, *arguments = tokens
+    if executable == "git":
+        remainder = _skip_global_options(arguments, _GIT_VALUE_OPTIONS)
+        return bool(remainder) and remainder[0] == "push"
+    if executable == "gh":
+        remainder = _skip_global_options(arguments, _GH_VALUE_OPTIONS)
+        return len(remainder) >= 2 and remainder[0] == "pr" and remainder[1] in _GH_RECONCILE_SUBCOMMANDS
+    return False
+
+
+def _is_reconcile_command(command: str) -> bool:
+    """Does any step of `command` run `git push` or `gh pr create|ready|merge`?"""
+
+    try:
+        steps = _command_steps(command)
+    except ValueError:
+        return False
+    return any(_step_reconciles(step) for step in steps)
+
+
+def run_post_tool_use(args: argparse.Namespace) -> int:
+    """The `post_tool_use` event handler (D4): reconcile after `git push`/`gh pr`, else no-op.
+
+    Never raises, never prints, always exits 0 (FR-005, FR-006).
+    """
+    try:
+        payload = json.loads(sys.stdin.read() or "null")
+    except Exception:
+        payload = None
+    command = None
+    if isinstance(payload, Mapping) and payload.get("tool_name") == "Bash":
+        tool_input = payload.get("tool_input")
+        if isinstance(tool_input, Mapping):
+            value = tool_input.get("command")
+            command = value if isinstance(value, str) else None
+    if not command or not _is_reconcile_command(command):
+        return EXIT_SUCCESS
+
+    try:
+        root = _root_from_args(getattr(args, "root", None))
+    except AppError:
+        return EXIT_SUCCESS
+    _reconcile_hook(root)
     return EXIT_SUCCESS
 
 
@@ -1320,6 +1549,9 @@ def main(argv: list[str] | None = None) -> int:
         # Its own contract (one plain line or nothing, always exit 0) does not
         # fit the JSON/error result shape every other command renders below.
         return run_session_start(args)
+    if args.command == "post-tool-use":
+        # Same always-exit-0, no-JSON contract as `session-start`.
+        return run_post_tool_use(args)
     endpoint = DEFAULT_ENDPOINT
     _begin_invocation(endpoint)
     try:

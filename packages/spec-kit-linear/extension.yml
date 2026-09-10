@@ -38,6 +38,9 @@ provides:
 events:
   session_start:
     command: session-start
+  post_tool_use:
+    command: post-tool-use
+    matcher: "Bash"
 
 hooks:
   after_plan:
