@@ -70,9 +70,13 @@ class TaskWorkState:
     state: str
     source: str
     detail: str | None = None
+    # The observed pull request's own number (D6, T013): the one extra fact
+    # `next_action`'s `started`/`pr` case needs to print a runnable
+    # `/speckit.code-review <n>` instead of a gesture to translate.
+    pr_number: int | None = None
 
     def as_dict(self) -> dict[str, object]:
-        return {"state": self.state, "source": self.source, "detail": self.detail}
+        return {"state": self.state, "source": self.source, "detail": self.detail, "pr_number": self.pr_number}
 
 
 def derive_task_state(
@@ -88,7 +92,7 @@ def derive_task_state(
     pattern = branch_pattern(feature, task)
     pull_request = _strongest_pull_request(pattern, pull_requests)
     if pull_request is not None:
-        return TaskWorkState(pull_request_state(pull_request), SOURCE_PULL_REQUEST, pull_request.head_branch)
+        return TaskWorkState(pull_request_state(pull_request), SOURCE_PULL_REQUEST, pull_request.head_branch, pull_request.number)
     if completed:
         return TaskWorkState(STATE_COMPLETED, SOURCE_CHECKBOX)
     branch = next((name for name in branches if pattern.fullmatch(name)), None)
@@ -165,26 +169,37 @@ def next_action(
     checked: bool | None = None,
     feature: str | None = None,
     task: str | None = None,
+    pr_number: int | None = None,
 ) -> str | None:
-    """The suggested next step for a derived state (FR-001, Stage 6).
+    """The next runnable command for a derived state (FR-004, D6).
 
     Pure text over the observable state the derivation already computed —
-    it never adds signals and never mutates anything. ``checked`` applies
-    to feature tasks only (`tasks.md` is their durable record); work items
-    have no checkbox. Returns ``None`` when nothing is pending.
+    it never adds signals and never mutates anything. Every non-``None``
+    return is a slash command the agent can run verbatim, or the literal
+    "wait for the human merge" sentence — never a manual gesture to
+    translate, which is what this used to return for an unstarted task
+    (`"start: create branch ..."`, the exact gesture FR-004 forbids).
+    ``checked`` and ``task`` apply to feature tasks only (`tasks.md` is
+    their durable record; a work item has no checkbox and no ``Txxx`` id);
+    ``pr_number`` applies to the `started`/`pr` case alone, task or work
+    item alike. Returns ``None`` when nothing local is actionable.
     """
 
     if state == STATE_COMPLETED:
-        if checked is False:
-            return "record completion evidence and check the box in tasks.md"
+        # `checked is False` here means a merge outran the local sync
+        # (tasks.md's checkbox has not caught up yet) — nothing local is
+        # actionable either way, so both checked values return the same.
         return None
     if state == STATE_REVIEW:
-        return "await the final review and the human merge"
+        return "wait for the human merge"
     if state == STATE_STARTED:
         if source == SOURCE_PULL_REQUEST:
-            return "self-review (/speckit.code-review), then mark ready for review"
-        return "open the draft PR"
+            return f"/speckit.code-review {pr_number}"
+        return "/speckit.pr"
     if state == STATE_UNSTARTED:
-        prefix = f"{feature}-{task}" if feature and task else "NNN-T###"
-        return f"start: create branch {prefix}-<slug>"
+        # Feature tasks only: a work item never derives to this state at all
+        # (derive_work_items only ever observes a branch or a PR, both of
+        # which resolve to a concrete state), so this branch never runs
+        # without a `feature`.
+        return f"/speckit.implement {feature}"
     return None

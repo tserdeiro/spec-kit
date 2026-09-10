@@ -131,6 +131,14 @@ class BuildTaskRowsTests(unittest.TestCase):
             },
         )
 
+    def test_the_feature_row_carries_the_projects_desired_title(self) -> None:
+        """Dogfooding entry 56: the projection already knows this name; no new Linear read."""
+        desired = _desired_state(_task("T001", completed=False))
+
+        rows = build_task_rows(discovery=_FakeDiscovery(features=()), desired_states=(desired,))
+
+        self.assertEqual(rows[0]["project_title"], "001: Local projection")
+
     def test_adopted_task_with_no_assignee_or_state_reports_none(self) -> None:
         desired = _desired_state(_task("T003", completed=False))
         adoption = FeatureAdoption(
@@ -237,6 +245,20 @@ class RenderStatusTableTests(unittest.TestCase):
         assignee_offset = header_line.index("ASSIGNEE")
         for line in data_lines:
             self.assertGreaterEqual(len(line), assignee_offset)
+
+    def test_the_header_names_the_projects_title_when_known(self) -> None:
+        rows = [
+            {
+                "feature": "001",
+                "project_title": "001: Local projection",
+                "has_remote_project": True,
+                "tasks": [{"task": "T001", "local_complete": True, "remote_identifier": "WOR-1", "remote_state": "Done", "assignee": None}],
+            }
+        ]
+
+        rendered = render_status_table(rows)
+
+        self.assertEqual(rendered.splitlines()[0], "Feature 001: Local projection")
 
     def test_feature_without_a_remote_project_gets_an_explicit_note(self) -> None:
         rows = [

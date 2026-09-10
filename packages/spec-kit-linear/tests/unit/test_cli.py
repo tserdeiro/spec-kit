@@ -1061,17 +1061,17 @@ class SessionStartContextFormatterTests(unittest.TestCase):
     def test_feature_branch_without_open_prs(self) -> None:
         tasks = [
             _task_row("T001", local_complete=True, derived_state="completed", state_source="checkbox"),
-            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="open the draft PR"),
+            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="/speckit.pr"),
         ]
 
         line = _format_feature_context("005-T002-thing", "005", tasks)
 
-        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T002 (unchecked); next: open the draft PR")
+        self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T002 (unchecked); next: /speckit.pr")
 
     def test_feature_branch_with_open_prs(self) -> None:
         tasks = [
-            _task_row("T001", local_complete=False, derived_state="review", state_source="pr", next="await the final review and the human merge"),
-            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="open the draft PR"),
+            _task_row("T001", local_complete=False, derived_state="review", state_source="pr", next="wait for the human merge"),
+            _task_row("T002", local_complete=False, derived_state="started", state_source="branch", next="/speckit.pr"),
         ]
 
         line = _format_feature_context("005-T001-thing", "005", tasks)
@@ -1079,7 +1079,7 @@ class SessionStartContextFormatterTests(unittest.TestCase):
         self.assertEqual(
             line,
             "Linear: 005 on 005-T001-thing — next T001 (unchecked); open task PRs: T001 (review); "
-            "next: await the final review and the human merge",
+            "next: wait for the human merge",
         )
 
     def test_a_merged_task_pr_is_excluded_from_open_task_prs(self) -> None:
@@ -1097,9 +1097,9 @@ class SessionStartContextFormatterTests(unittest.TestCase):
         self.assertEqual(line, "Linear: 005 on 005-developer-experience")
 
     def test_work_item_branch(self) -> None:
-        row = {"identifier": "WOR-123", "derived_state": "started", "next": "open the draft PR"}
+        row = {"identifier": "WOR-123", "derived_state": "started", "next": "/speckit.pr"}
 
-        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (started) — next: open the draft PR")
+        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (started) — next: /speckit.pr")
 
     def test_work_item_branch_with_no_next_omits_the_clause(self) -> None:
         row = {"identifier": "WOR-123", "derived_state": "completed", "next": None}
@@ -1151,7 +1151,7 @@ class SessionStartTests(CliTestCase):
         self.assertEqual(code, 0)
         lines = output.splitlines()
         self.assertEqual(len(lines), 1)
-        self.assertEqual(lines[0], "Linear: 001 on 001-T001-parse-artifacts — next T001 (unchecked); next: open the draft PR")
+        self.assertEqual(lines[0], "Linear: 001 on 001-T001-parse-artifacts — next T001 (unchecked); next: /speckit.pr")
         # `push --current --hook`'s own reconcile ran first.
         self.assertEqual(client.mutations, ["project.create", "issue.create", "issue.create", "issue.create"])
 
@@ -1163,7 +1163,7 @@ class SessionStartTests(CliTestCase):
                     code, output = self._run("wor-123-fix-crash")
 
         self.assertEqual(code, 0)
-        self.assertEqual(output, "Linear: WOR-123 (started) — next: open the draft PR\n")
+        self.assertEqual(output, "Linear: WOR-123 (started) — next: /speckit.pr\n")
 
     def test_a_work_item_branch_with_no_feature_directory_still_prints_one_line(self) -> None:
         shutil.rmtree(self.fixture_root / "specs")
@@ -1175,7 +1175,7 @@ class SessionStartTests(CliTestCase):
                     code, output = self._run("wor-123-fix-crash")
 
         self.assertEqual(code, 0)
-        self.assertEqual(output, "Linear: WOR-123 (started) — next: open the draft PR\n")
+        self.assertEqual(output, "Linear: WOR-123 (started) — next: /speckit.pr\n")
 
 
 def _bash_payload(command: str) -> str:

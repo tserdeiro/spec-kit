@@ -116,14 +116,14 @@ Every `push` and every `status` re-derives each task's state from what can be
 observed right now. Nothing is remembered between runs and no event is
 listened for, so a missed webhook cannot desynchronize anything.
 
-| Observed | Derived state | Linear state |
-| --- | --- | --- |
-| A merged PR | `completed` | `completed_state_id` |
-| An open, ready-for-review PR | `review` | `review_state_id` |
-| An open draft PR | `started` | `started_state_id` |
-| `[x]` in `tasks.md` (no live PR) | `completed` | `completed_state_id` |
-| A branch | `started` | `started_state_id` |
-| Nothing | `unstarted` | `open_state_id` |
+| Observed | Derived state | Linear state | Next action |
+| --- | --- | --- | --- |
+| A merged PR | `completed` | `completed_state_id` | — |
+| An open, ready-for-review PR | `review` | `review_state_id` | wait for the human merge |
+| An open draft PR | `started` | `started_state_id` | `/speckit.code-review <n>` |
+| `[x]` in `tasks.md` (no live PR) | `completed` | `completed_state_id` | — |
+| A branch | `started` | `started_state_id` | `/speckit.pr` |
+| Nothing | `unstarted` | `open_state_id` | `/speckit.implement <feature>` |
 
 The first row that applies wins: the box is checked inside the task PR
 before `ready for review`, so an observable PR is always the fresher
@@ -131,6 +131,10 @@ witness and the checkbox decides only once no live PR remains. Branches and pull
 they follow the convention `NNN-Txxx`, optionally with a `-suffix`
 (`001-T004`, `001-T004-add-parser`); several PRs on one task — stacked PRs —
 report the furthest that task reached.
+
+`status` and the `session_start` context line print **Next action** as
+shown here: a runnable command, or the literal "wait for the human merge"
+— never a manual gesture to translate (FR-004).
 
 Branches are read from the refs Git already has (`refs/heads` and
 `refs/remotes/origin`): no fetch, no network. Pull requests are read with one
@@ -147,12 +151,13 @@ plan, and no `tasks.md` row. This extension never creates one and never edits
 its content — the only thing it projects is its workflow state, from the same
 two observations, on the same map minus the checkbox row:
 
-| Observed | Derived state |
-| --- | --- |
-| A merged PR | `completed` |
-| An open, ready-for-review PR | `review` |
-| An open draft PR, or a branch | `started` |
-| Nothing | *left untouched* |
+| Observed | Derived state | Next action |
+| --- | --- | --- |
+| A merged PR | `completed` | — |
+| An open, ready-for-review PR | `review` | wait for the human merge |
+| An open draft PR | `started` | `/speckit.code-review <n>` |
+| A branch | `started` | `/speckit.pr` |
+| Nothing | *left untouched* | — |
 
 The convention is the Issue key itself: a branch (local or `origin/`) named
 `<team key>-<number>`, optionally with a `-suffix` and optionally behind a

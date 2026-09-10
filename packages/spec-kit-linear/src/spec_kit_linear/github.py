@@ -23,7 +23,7 @@ from pathlib import Path
 from .errors import Diagnostic
 
 
-GH_JSON_FIELDS = "headRefName,isDraft,state"
+GH_JSON_FIELDS = "number,headRefName,isDraft,state"
 GH_PULL_REQUEST_LIMIT = "200"
 GH_TIMEOUT_SECONDS = 30
 
@@ -33,6 +33,10 @@ class PullRequest:
     head_branch: str
     is_draft: bool
     state: str
+    # The PR's own number, e.g. for `/speckit.code-review <n>` (D6, T013).
+    # Defaulted so a caller that only needs derivation, not next_action's
+    # command text, keeps constructing this unchanged.
+    number: int | None = None
 
     @property
     def is_merged(self) -> bool:
@@ -119,12 +123,13 @@ def _parse(payload: str) -> tuple[PullRequest, ...] | None:
     for item in data:
         if not isinstance(item, dict):
             return None
+        number = item.get("number")
         head_branch = item.get("headRefName")
         is_draft = item.get("isDraft")
         state = item.get("state")
-        if not isinstance(head_branch, str) or not isinstance(is_draft, bool) or not isinstance(state, str):
+        if not isinstance(number, int) or not isinstance(head_branch, str) or not isinstance(is_draft, bool) or not isinstance(state, str):
             return None
-        pull_requests.append(PullRequest(head_branch=head_branch, is_draft=is_draft, state=state))
+        pull_requests.append(PullRequest(head_branch=head_branch, is_draft=is_draft, state=state, number=number))
     return tuple(pull_requests)
 
 
