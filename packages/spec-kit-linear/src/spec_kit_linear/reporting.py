@@ -53,6 +53,7 @@ def build_task_rows(
                     "local_complete": task.completed,
                     "derived_state": derived.state if derived is not None else None,
                     "state_source": derived.source if derived is not None else None,
+                    "pr_number": derived.pr_number if derived is not None else None,
                     "next": next_action(
                         derived.state,
                         derived.source,
