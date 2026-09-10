@@ -103,6 +103,12 @@ provides:
       description: "Retarget and merge every open task PR onto the feature branch, root-first, on explicit human request"
       strategy: "replace"
 
+    - type: "script"
+      name: "ledger-check"
+      file: "scripts/python/ledger_check.py"
+      description: "Verify a task's ledger entry is checked with its Completion evidence filled"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"
