@@ -653,3 +653,16 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     commitea y pushea antes de abrir la sesión de review, que ancla el
     head. *Pendiente:* que `speckit.pr` rellene la fila de convergencia
     con la salida de los scripts.
+76. **Un `command` de `events:` que no coincide con el stem de su `.md`
+    falla en silencio.** Confirmado en `events.py` del CLI 1.0.4: el
+    dispatcher registra un aviso que ningún agente ve y devuelve 0; el
+    evento simplemente no dispara. La regla de la entrada 46 no tiene
+    diagnóstico: solo la verificación en vivo (T023) lo atraparía.
+    *Ronda 005 (T015):* el chequeo de cableado del doctor compara cada
+    `events.<evento>.command` del manifest con los stems de
+    `commands/*.md` de la extensión instalada y nombra el desajuste.
+77. **D4 dice `push --hook` y `status --current --json`.** El plan
+    mezcla la invocación con y sin `--current` para el mismo handler; el
+    ledger de T011, `push.md` y la entrada 52 dicen `--current` en las
+    dos. El implementador siguió a la mayoría. *Documentada:* el plan
+    describe la intención; el ledger es el contrato (entrada 61).

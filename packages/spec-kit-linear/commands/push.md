@@ -55,4 +55,6 @@ repository that has no `specs/NNN-*` directory.
 `--hook` marks a lifecycle-hook invocation. It is not meant for manual use: a
 missing configuration or `hooks.lifecycle_enabled: false` makes it a clean
 no-op (exit `0`) instead of an error, and it applies what it renders unless
-`hooks.auto_apply: false`.
+`hooks.auto_apply: false`. A runtime-event handler — `session_start` today,
+`post_tool_use` once it exists — runs `push --current --hook` this way,
+in-process, with no `run.sh`/`uv run` indirection.
