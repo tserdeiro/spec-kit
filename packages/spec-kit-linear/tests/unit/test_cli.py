@@ -1223,7 +1223,9 @@ _RECONCILING_STDIN = [
         "cat <; git push origin HEAD",
         "(git status)#note\ngit push",
         'git -C "a b" push origin HEAD',
+        r"git -C \; push origin HEAD",
         "git status # note\ngit push",
+        "git \\\npush origin HEAD",
         "env FOO=1 gh pr ready 1",
         "cd x && git push 2>&1 | tail -1",
         "(cd x && git push)",
@@ -1239,6 +1241,7 @@ _SILENT_STDIN = [
         "gh pr list",
         "echo git push",
         'echo "a;git push origin HEAD"',
+        r"echo \; git push origin HEAD",
         "git commit -m 'x; gh pr ready'",
         'git push "unterminated',
         "git commit -F - <<'EOF'\ngit push\nEOF",
@@ -1262,11 +1265,13 @@ class PostToolUseTests(CliTestCase):
             code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
         return code, output.getvalue(), run_push
 
-    def test_a_quoted_punctuation_only_argument_is_a_known_separator(self) -> None:
-        # shlex does not say what was quoted: `-m ";"` reads as a separator, so
-        # the pathspecs `git push` after it look like a step. Pinned as the
-        # documented gap; a spurious reconcile only costs a read-mostly hook run.
-        self.assertTrue(_is_reconcile_command('git commit -m ";" git push'))
+    def test_quoted_punctuation_only_argument_is_not_a_command_separator(self) -> None:
+        self.assertFalse(_is_reconcile_command('git commit -m ";" git push'))
+
+    def test_shell_continuations_and_quote_escape_semantics(self) -> None:
+        self.assertTrue(_is_reconcile_command("git \\\npush origin HEAD"))
+        self.assertFalse(_is_reconcile_command("git '\\\npush' origin HEAD"))
+        self.assertTrue(_is_reconcile_command('git -C "\\;" push origin HEAD'))
 
     def test_matching_bash_commands_reconcile(self) -> None:
         for stdin_text in _RECONCILING_STDIN:

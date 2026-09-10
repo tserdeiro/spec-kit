@@ -1331,9 +1331,9 @@ def run_session_start(args: argparse.Namespace) -> int:
 # body and terminator line) are removed from the text first (`_shell_text`),
 # so prose is never tokenized: an apostrophe in a commit message would
 # otherwise unbalance shlex's quotes and turn a real push into "no match".
-# Unbalanced quoting (`ValueError`) is "no match". Known gap: a quoted
-# argument that is only punctuation (`-m ";"`) still reads as a separator,
-# since shlex does not say what was quoted.
+# Unbalanced quoting (`ValueError`) is "no match". Punctuation inside quoted
+# arguments is encoded before shlex so a quoted `;` is not mistaken for a
+# command separator.
 _STEP_PUNCTUATION = "();<>|&\n"
 # The redirection operators a punctuation run may carry; whatever is left after
 # removing them (`;`, `&&`, `|`, `()`, a newline) separates steps, so `2>&1`
@@ -1344,6 +1344,8 @@ _WRAPPER_WORDS = frozenset({"env", "command", "exec", "nohup", "time"})
 _GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"})
 _GH_VALUE_OPTIONS = frozenset({"-R", "--repo", "--hostname"})
 _GH_RECONCILE_SUBCOMMANDS = frozenset({"create", "ready", "merge"})
+_QUOTED_PUNCTUATION = {character: chr(0xE000 + index) for index, character in enumerate(_STEP_PUNCTUATION)}
+_QUOTED_PUNCTUATION_RESTORE = {value: key for key, value in _QUOTED_PUNCTUATION.items()}
 
 
 _HEREDOC_WORD_END = frozenset(" \t\r\n;&|()<>")
@@ -1396,7 +1398,11 @@ def _shell_text(command: str) -> str:
         character = command[index]
         if quote is None:
             if character == "\\" and index + 1 < len(command):
-                out.append(command[index : index + 2]); index += 2; continue
+                escaped = command[index + 1]
+                if escaped == "\n":
+                    index += 2; continue
+                out.append(_QUOTED_PUNCTUATION.get(escaped, command[index : index + 2]))
+                index += 2; continue
             if character in "'\"":
                 quote = character
             elif character == "#" and (index == 0 or command[index - 1] in " \t\n;&|()"):
@@ -1416,10 +1422,13 @@ def _shell_text(command: str) -> str:
                 pending = []
                 continue
         elif character == "\\" and quote == '"' and index + 1 < len(command):
-            out.append(command[index : index + 2]); index += 2; continue
+            escaped = command[index + 1]
+            if escaped == "\n":
+                index += 2; continue
+            out.append("\\" + _QUOTED_PUNCTUATION.get(escaped, escaped)); index += 2; continue
         elif character == quote:
             quote = None
-        out.append(character); index += 1
+        out.append(_QUOTED_PUNCTUATION.get(character, character) if quote is not None else character); index += 1
     return "".join(out)
 
 
@@ -1440,7 +1449,7 @@ def _command_steps(command: str) -> list[list[str]]:
             if _REDIRECTION_RE.sub("", token):
                 steps.append([])
             continue  # a bare redirection (`2>&1`, `>out.log`) never starts a step
-        steps[-1].append(token)
+        steps[-1].append("".join(_QUOTED_PUNCTUATION_RESTORE.get(character, character) for character in token))
     return steps
 
 
