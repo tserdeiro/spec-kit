@@ -85,6 +85,12 @@ provides:
       description: "Resolve and print the delivery base for a feature, task, or work-item PR"
       strategy: "replace"
 
+    - type: "script"
+      name: "budget-stop"
+      file: "scripts/python/budget_stop.py"
+      description: "Stop a task before its authored lines pass the review budget"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"
