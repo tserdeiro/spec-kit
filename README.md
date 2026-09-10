@@ -341,7 +341,7 @@ queda en el repo y se commitea; quien clona recibe el producto instalado.
   al resto de los agentes instalados y, en los comandos core, mantiene
   el render propio de cada agente y le suma las capas del preset, sin
   pisar nunca el render de un agente con el de otro. Sumar un agente:
-  `specify integration upgrade <agente>`, `/speckit.doctor
+  `specify integration install <agente> --force`, `/speckit.doctor
   --fix`, y se commitea. Tras un `bundle update` o un `integration
   switch`, el mismo doctor re-espeja.
 
