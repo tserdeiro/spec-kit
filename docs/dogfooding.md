@@ -614,3 +614,32 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     de script se estima por su entregable completo (script + tests +
     manifiesto + conformance), nunca por el tamaño de lo que reemplaza;
     y una excepción explícita del humano en el PR vale como enmienda.
+71. **`strategy: replace` no llega a la integración no-default.** Tras
+    T008, `preset add --dev` compuso el `implement` reemplazado solo para
+    codex (el default); el render de Claude quedó en el core de upstream,
+    sin loop, y `specify integration install claude --force` re-renderizó
+    los core de Claude desde upstream (y registró los comandos de
+    extensión para Claude, que el registro no tenía) sin aplicar el
+    reemplazo. El espejo del doctor solo trataba `append`. *Ronda 005
+    (T008):* `skill_mirror.py` copia entero, como un skill de extensión,
+    todo core que el preset reemplaza. *Pendiente:* la composición para
+    todas las integraciones instaladas es el PR 1 a upstream (T020).
+72. **Un frontmatter YAML inválido falla en silencio.** Una
+    `description:` con dos puntos sin comillas hace que
+    `parse_frontmatter` devuelva `{}` sin aviso: `{SCRIPT}` queda sin
+    resolver y la descripción sale del catálogo interno del CLI, no del
+    archivo ni del preset. El síntoma no apunta a la causa.
+    *Pendiente:* aviso en upstream, o un check del doctor.
+73. **`preset add --dev` quita el bit ejecutable a
+    `.specify/scripts/bash/*.sh`.** Inofensivo (todo los invoca con
+    `bash <ruta>`), pero cada regeneración ensucia el diff con un cambio
+    de modo hasta restaurarlo a mano. *Documentada.*
+74. **La review excluye Markdown.** El motor deja fuera del packet todo
+    `.md` (`unsupported_ext`): en el PR de T008, cuyo entregable es el
+    comando `implement.md`, el packet incluyó 5 archivos y excluyó 37,
+    y el reviewer tuvo que leer el comando desde el worktree por
+    instrucción del orquestador. Para una distribución cuyo producto es
+    prosa que ejecuta un agente, el packet revisa el andamiaje y no el
+    producto. *Pendiente de decisión:* incluir `.md` en el alcance del
+    packet (al menos bajo `presets/` y `packages/*/commands/`), o un
+    brief fijo que mande leer los `.md` del worktree.

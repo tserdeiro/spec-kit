@@ -4,10 +4,8 @@ description: Print a bash or zsh completion script for the review CLI.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: extension:code-review
+  source: code-review:commands/completions.md
 ---
-
-# Code Review Completions Skill
 
 # Spec Kit code review completions
 

@@ -13,7 +13,6 @@ import pytest
 import skill_mirror
 
 _APPENDS = {
-    "implement-append.md": "## Loop (tserdeiro/spec-kit)\nline one\nline two\n",
     "tasks-append.md": "## Order (tserdeiro/spec-kit)\nline one\nline two\n",
 }
 _PRESET_YML = """provides:
@@ -24,15 +23,16 @@ _PRESET_YML = """provides:
       strategy: "append"
     - type: "command"
       name: "speckit.implement"
-      file: "commands/implement-append.md"
-      strategy: "append"
+      file: "commands/implement.md"
+      strategy: "replace"
 """
 
 def _fixture(root: Path) -> None:
     """codex (default) and claude (lagging), each with three core skills
     (implement, tasks, checklist) and codex's own extension skill, pr, not
-    yet mirrored into claude; claude's core renders carry no append yet
-    and its own speckit-pr is stale."""
+    yet mirrored into claude; claude's tasks render carries no append yet,
+    its implement render predates the preset's replace, and its own
+    speckit-pr is stale."""
     (root / ".specify").mkdir(parents=True)
     (root / ".specify/init-options.json").write_text('{"ai": "codex"}', encoding="utf-8")
     (root / ".specify/integration.json").write_text(
@@ -79,14 +79,16 @@ def test_report_then_fix_then_idempotent(tmp_path: Path, capsys: pytest.CaptureF
     assert skill_mirror.mirror_skills(tmp_path, True) == 0
     fixed = capsys.readouterr().out
     assert "copied speckit-pr" in fixed
-    assert "appended the preset layer to speckit-implement" in fixed
+    assert "copied speckit-implement" in fixed
     assert "appended the preset layer to speckit-tasks" in fixed
     mirrored_pr = tmp_path / ".claude/skills/speckit-pr/SKILL.md"
     assert mirrored_pr.read_bytes() == (tmp_path / ".agents/skills/speckit-pr/SKILL.md").read_bytes()
-    implement = (tmp_path / ".claude/skills/speckit-implement/SKILL.md").read_text(encoding="utf-8")
-    assert implement == (
-        '---\nname: "speckit-implement"\nframework: "claude"\n---\nclaude implement body'
-        "\n\n\n## Loop (tserdeiro/spec-kit)\nline one\nline two\n"
+    mirrored_implement = tmp_path / ".claude/skills/speckit-implement/SKILL.md"
+    assert mirrored_implement.read_bytes() == (tmp_path / ".agents/skills/speckit-implement/SKILL.md").read_bytes()
+    tasks = (tmp_path / ".claude/skills/speckit-tasks/SKILL.md").read_text(encoding="utf-8")
+    assert tasks == (
+        '---\nname: "speckit-tasks"\nframework: "claude"\n---\nclaude tasks body'
+        "\n\n\n## Order (tserdeiro/spec-kit)\nline one\nline two\n"
     )
     checklist = tmp_path / ".claude/skills/speckit-checklist/SKILL.md"
     assert checklist.read_text(encoding="utf-8") == "claude checklist body, core, no append\n"

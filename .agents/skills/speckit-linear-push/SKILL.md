@@ -4,10 +4,8 @@ description: Project the current feature state into Linear.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: extension:linear
+  source: linear:commands/push.md
 ---
-
-# Linear Push Skill
 
 # Spec Kit Linear push
 
