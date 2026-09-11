@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.13.0
+
+- A `session_start` handler reconciles Linear and prints one context
+  line — the branch's feature or work-item state and the next command —
+  before the agent does anything else, wherever upstream wires runtime
+  events (Claude Code, Codex, Cursor, …); silent on any other branch
+  shape or without configuration.
+- A `post_tool_use` handler reconciles automatically after `git push` or
+  `gh pr create`/`ready`/`merge`; the loop no longer needs a prose
+  reminder to reconcile.
+- `status`'s `NEXT` column and the session-start context line now print
+  a runnable command (`/speckit.pr`, `/speckit.implement <feature>`,
+  `/speckit.code-review <n>`) or "wait for the human merge" — never a
+  manual gesture to translate.
+- An open task or work-item pull request's own number now drives
+  `/speckit.code-review <n>` and appears in `status`'s underlying state.
+- `status`'s feature header now prints the Linear Project's name
+  (`Feature <n>: <title>`) instead of the bare feature identifier.
+- A task removed from `tasks.md` now archives its Issue on the next
+  push, and a task that returns unarchives it — the one reversible
+  removal `push` performs, and only on Issues it created; a person's
+  own Issue is never touched.
+- The `completions` CLI subcommand is gone.
+- The manifest now requires specify-cli `>=1.0.4,<1.1.0` (up from
+  `>=1.0.1`), the floor where runtime events ship.
+- The `uv run` launcher now runs quietly (`-q`), so a `--json`
+  invocation's output is no longer prefixed by uv's own sync chatter.
+- `issueArchive`/`issueUnarchive` select `entity { id }`, the archive payload's real field; the previous `issue { id }` selection failed Linear's validation, so no Issue was ever archived or restored.
+- The `post_tool_use` matcher accepts leading global options (`git -C`, `-c`, `gh --repo`, `-R`), `VAR=value` prefixes, and every command separator.
+- The session line names each open PR's `#<n>` and keeps a NEXT once every task is checked; task rows carry `pr_number`.
+
 ## 0.12.0
 
 - In a Git worktree without its own `speckit-linear.yml` or

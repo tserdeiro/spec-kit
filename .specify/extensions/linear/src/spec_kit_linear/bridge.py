@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 
 from .errors import AppError, Diagnostic
 
@@ -77,6 +78,13 @@ def block_bounded(existing: str, marker: str) -> bool:
     """
 
     return any(match.group("marker") == marker for match in _BLOCK_RE.finditer(existing))
+
+
+def marker_identities(existing: str) -> Iterator[str]:
+    """Every marker in ``existing``, ``speckit-linear:`` prefix stripped, in document order."""
+
+    for match in _MARKER_LINE_RE.finditer(existing):
+        yield match.group("marker").removeprefix("speckit-linear:")
 
 
 def _duplicate_marker_error() -> AppError:

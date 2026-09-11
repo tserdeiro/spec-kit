@@ -1,0 +1,29 @@
+
+
+[[hooks.PreToolUse]]
+matcher = "Bash|Edit|Write"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = ".venv/bin/python .specify/events.py guard pre_tool_use 60"
+timeout = 65
+speckit_marker = true
+
+[[hooks.SessionStart]]
+matcher = "*"
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = ".venv/bin/python .specify/events.py session-start session_start 60"
+timeout = 65
+speckit_marker = true
+
+[[hooks.PostToolUse]]
+matcher = "Bash"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = ".venv/bin/python .specify/events.py post-tool-use post_tool_use 60"
+timeout = 65
+speckit_marker = true
+

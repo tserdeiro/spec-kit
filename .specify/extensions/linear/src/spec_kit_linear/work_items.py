@@ -76,13 +76,16 @@ class WorkItemState:
     state: str
     source: str
     detail: str
+    # The observed pull request's own number; see TaskWorkState.pr_number
+    # (work_state.py) for why -- the same field, threaded the same way.
+    pr_number: int | None = None
 
     @property
     def identity(self) -> str:
         return work_item_identity(self.identifier)
 
     def as_dict(self) -> dict[str, object]:
-        return {"identifier": self.identifier, "state": self.state, "source": self.source, "detail": self.detail}
+        return {"identifier": self.identifier, "state": self.state, "source": self.source, "detail": self.detail, "pr_number": self.pr_number}
 
 
 def derive_work_items(
@@ -119,7 +122,7 @@ def derive_work_items(
         # as it does for a task.
         pull_request = strongest_pull_request(pull_requests_by_key.get(identifier, ()))
         if pull_request is not None:
-            derived.append(WorkItemState(identifier, pull_request_state(pull_request), SOURCE_PULL_REQUEST, pull_request.head_branch))
+            derived.append(WorkItemState(identifier, pull_request_state(pull_request), SOURCE_PULL_REQUEST, pull_request.head_branch, pull_request.number))
             continue
         branch = branches_by_key.get(identifier)
         if branch is not None:

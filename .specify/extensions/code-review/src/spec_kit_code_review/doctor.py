@@ -96,9 +96,6 @@ def _speckit_requirement() -> tuple[tuple[str, ...], tuple[int, int] | None]:
 
 
 SPECKIT_VERSION_RANGE, SPECKIT_SUPPORTED_MAJOR_MINOR = _speckit_requirement()
-MANAGED_LIFECYCLE_EVENT = "after_implement"
-MANAGED_LIFECYCLE_COMMAND = "speckit.code-review"
-REGISTRY_RELATIVE_PATH = Path(".specify/extensions.yml")
 
 # The default rule set written by `--fix` when the repository has none.
 RULE_TEMPLATE = """\
@@ -661,41 +658,6 @@ def _check_evidence(options: DoctorOptions, config: ResolvedConfig | None) -> Gr
     return result
 
 
-def lifecycle_hook_diagnostics(root: Path) -> list[Diagnostic]:
-    """Validate -- never register -- the lifecycle hook declared in the manifest."""
-
-    registry = root / REGISTRY_RELATIVE_PATH
-    if not registry.is_file():
-        return [
-            Diagnostic(
-                "lifecycle_registry_missing",
-                f"{REGISTRY_RELATIVE_PATH} was not found; lifecycle hooks may not be registered yet",
-                severity="info",
-            )
-        ]
-    try:
-        text = registry.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        text = ""
-    if MANAGED_LIFECYCLE_COMMAND in text:
-        return [
-            Diagnostic(
-                "lifecycle_hook_registered",
-                f"{MANAGED_LIFECYCLE_EVENT} -> {MANAGED_LIFECYCLE_COMMAND} is registered",
-                severity="info",
-            )
-        ]
-    return [
-        Diagnostic(
-            "lifecycle_hook_unregistered",
-            f"{MANAGED_LIFECYCLE_EVENT} -> {MANAGED_LIFECYCLE_COMMAND} is not registered yet; re-run "
-            "`specify extension add` -- this extension never registers hooks itself",
-            str(registry),
-            severity="warning",
-        )
-    ]
-
-
 def git_hook_diagnostics(root: Path) -> list[Diagnostic]:
     """Report any Git hook referencing this extension; it installs none by design."""
 
@@ -714,8 +676,6 @@ def git_hook_diagnostics(root: Path) -> list[Diagnostic]:
 
 def _check_hooks(options: DoctorOptions) -> GroupResult:
     result = GroupResult("hooks")
-    for diagnostic in lifecycle_hook_diagnostics(options.root):
-        result.diagnostics.append(diagnostic)
     for diagnostic in git_hook_diagnostics(options.root):
         if diagnostic.severity == "error":
             result.error(EXIT_CONFIGURATION, diagnostic)

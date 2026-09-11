@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 
 from .allowlist import assert_allowed, forbidden_operations
-from .bridge import block_bounded, marker_present, merge_managed_block
+from .bridge import block_bounded, marker_identities, marker_present, merge_managed_block
 from .domain import DesiredState, DesiredTask
 from .errors import AppError, Diagnostic
 from .linear_client import RemoteWorkItem
@@ -44,6 +44,16 @@ def snapshot_from_discovery(discovery: RemoteDiscovery, desired: DesiredState) -
     if feature.project is not None:
         resources.append(_snapshot_resource(feature.project.desired_identity, feature.project.remote_id, feature.project.updated_at))
     resources.extend(_snapshot_resource(item.desired_identity, item.remote_id, item.updated_at) for item in feature.tasks.values())
+    # An orphaned marker (its task since removed from tasks.md) is never in
+    # feature.tasks -- that map is built by iterating desired tasks -- so its
+    # own Issue needs its own resource entry for build_push_plan's archive
+    # operation to have a precondition to check at apply time.
+    project = _project_for(feature, discovery)
+    resources.extend(
+        _snapshot_resource(identity, issue.id, issue.updated_at)
+        for identity, issue in _marked_task_issues(project, feature.feature)
+        if identity not in feature.tasks
+    )
     resources.sort(key=lambda item: str(item["identity"]))
     snapshot = {"kind": "linear-remote-v1", "resources": resources}
     return {**snapshot, "hash": canonical_hash(snapshot)}
@@ -183,6 +193,28 @@ def build_push_plan(
                 reason="managed_task_lifecycle_changed", input_values={"stateId": desired_state},
                 preconditions=ref,
             )
+
+    # Orphan Issues (FR-020): scan the adopted Project's Issues directly for
+    # this feature's task marker, not only through FeatureAdoption.tasks --
+    # that map is built by iterating desired tasks and so can never surface a
+    # marker whose task left tasks.md. An Issue with no such marker is never
+    # a candidate, so a person's own Issue is never touched. Appended last so
+    # a --dry-run preview reads the normal per-task operations first.
+    desired_task_ids = frozenset(task.identity for task in desired.feature.tasks)
+    for identity, issue in _marked_task_issues(project, desired.feature.identifier):
+        active = issue.archived_at is None
+        if identity in desired_task_ids:
+            if active:
+                continue  # the per-task loop above already re-adopted it
+            kind, reason = "issue.unarchive", "task_returned_to_ledger"
+        elif active:
+            kind, reason = "issue.archive", "task_removed_from_ledger"
+        else:
+            continue  # already gone from the ledger and already archived
+        _append_operation(
+            operations, kind=kind, target=identity, reason=reason,
+            input_values={}, preconditions={"id": issue.id, "updated_at": issue.updated_at},
+        )
 
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
@@ -337,6 +369,27 @@ def _project_for(adoption: FeatureAdoption, discovery: RemoteDiscovery):
     if len(matches) != 1:
         raise AppError("adopted Feature Project could not be re-read", code=6, category="remote_identity", diagnostics=[Diagnostic("feature_project_missing", "adopted Feature Project is not in the remote snapshot")])
     return matches[0]
+
+
+def _marked_task_issues(project: object, feature_identifier: str) -> list[tuple[str, object]]:
+    """Every Issue in ``project`` carrying this feature's own task marker.
+
+    Scans Issue descriptions directly instead of ``FeatureAdoption.tasks``,
+    which is built by iterating desired tasks and so can never surface a
+    marker whose task left ``tasks.md`` -- the orphaned-marker seam
+    ``remote_discovery._TASK_MARKER_PREFIX``'s own comment names. Reuses bridge.py's marker grammar instead of a second regex.
+    """
+
+    if project is None:
+        return []
+    prefix = f"task:{feature_identifier}:"
+    result: list[tuple[str, object]] = []
+    for issue in project.issues:
+        for identity in marker_identities(issue.description):
+            if identity.startswith(prefix) and identity != prefix:
+                result.append((identity, issue))
+                break
+    return result
 
 
 def _issue_for(adoption: FeatureAdoption, project: object, desired: DesiredTask):

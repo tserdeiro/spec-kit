@@ -33,9 +33,9 @@
       "installed_at": "2026-08-29T18:15:03.051790+00:00"
     },
     "linear": {
-      "version": "0.12.0",
+      "version": "0.13.0",
       "source": "local",
-      "manifest_hash": "sha256:fbc150f4cdf83e31669e85b6681e440b4325a33be88bea765b664cd9de462683",
+      "manifest_hash": "sha256:8f4d1a5ec08cc7fdc117b337db138a03c43b4f289ca8ddb071f558cf54e3935e",
       "enabled": true,
       "priority": 10,
       "registered_commands": {
@@ -44,45 +44,24 @@
           "speckit.linear.push",
           "speckit.linear.status",
           "speckit.linear.doctor"
-        ],
-        "claude": [
-          "speckit.linear.onboard",
-          "speckit.linear.push",
-          "speckit.linear.status",
-          "speckit.linear.doctor"
         ]
       },
-      "registered_skills": [
-        "speckit-linear-onboard",
-        "speckit-linear-push",
-        "speckit-linear-status",
-        "speckit-linear-doctor"
-      ],
+      "registered_skills": [],
       "installed_at": "2026-09-01T00:07:01.066442+00:00"
     },
     "code-review": {
-      "version": "0.4.0",
+      "version": "0.5.0",
       "source": "local",
-      "manifest_hash": "sha256:03af338493759a64db4c0cf260ae7156c60505cc2f5aa90e18f941fee9530fc8",
+      "manifest_hash": "sha256:b6206268c2929168daeaaee6ef2eb35e9080726fb9ce414d302da6f5a4eccfa3",
       "enabled": true,
       "priority": 10,
       "registered_commands": {
         "codex": [
           "speckit.code-review.code-review",
-          "speckit.code-review.doctor",
-          "speckit.code-review.completions"
-        ],
-        "claude": [
-          "speckit.code-review.code-review",
-          "speckit.code-review.doctor",
-          "speckit.code-review.completions"
+          "speckit.code-review.doctor"
         ]
       },
-      "registered_skills": [
-        "speckit-code-review-code-review",
-        "speckit-code-review-doctor",
-        "speckit-code-review-completions"
-      ],
+      "registered_skills": [],
       "installed_at": "2026-09-01T00:07:02.311585+00:00"
     }
   }
