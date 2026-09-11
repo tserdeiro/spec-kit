@@ -107,13 +107,13 @@ runtime handlers report failures and return control to delivery.
 
 ## Phase 5: Cross-cutting verification
 
-- [ ] T007 Document the implemented contract and local acceptance in packages/spec-kit-linear/README.md and this ledger
+- [x] T007 Document the implemented contract and local acceptance in packages/spec-kit-linear/README.md and this ledger
   - **Traces**: FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007, FR-008, FR-009, SC-001, SC-002, SC-003, SC-004, SC-005, C-001, C-002, C-003; outcome: document precedence, complete/failed/incomplete observations, creation defaults, recovery, and visible handler failures; record full-suite and installed-artifact results, distinguishing local conformance from entry 23's pending live acceptance.
   - **Depends on**: T006
   - **Boundaries**: update `packages/spec-kit-linear/{README.md,CHANGELOG.md}`, `packages/spec-kit-linear/commands/{push,status,session-start,post-tool-use}.md`, and this task's completion evidence. Run existing conformance in a temporary consumer. Preserve distribution pins, generated assets, human fields, and the separate release workflow.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> all package tests pass; `bash packages/spec-kit-linear/scripts/conformance/installed-artifact.sh` -> installed-consumer checks pass; `git diff --check` -> clean. Review docs against the implemented state table and error output.
   - **Delivery**: single PR (~120 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR [#125](https://github.com/tserdeiro/spec-kit/pull/125); full package: 505 passed, 286 subtests, no skips; installed-artifact conformance passed in a temporary consumer; `git diff --check` clean. These are local acceptance results; reliability entry 23 live acceptance remains pending. Final candidate review required before ready.
 
 ## Dependencies and stack order
 
@@ -122,6 +122,5 @@ runtime handlers report failures and return control to delivery.
 - **MVP**: T001-T004 deliver complete observations, safe preservation/defaults,
   correct precedence, and large-repository evidence. T005-T007 complete failure
   visibility, retry acceptance, and documentation.
-- **Story totals**: US1: 1; US2: 4; US3: 1; cross-cutting: 1. All seven tasks
-  remain unchecked. Handoff, assignment, and live acceptance retain the gates
-  recorded in `plan.md`.
+- **Story totals**: US1: 1; US2: 4; US3: 1; cross-cutting: 1. Checked tasks on delivery branches await human merge into the feature branch.
+  Handoff, assignment, and live acceptance retain the gates recorded in `plan.md`.
