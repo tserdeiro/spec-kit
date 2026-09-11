@@ -18,21 +18,23 @@ Linear's limits — Project names at 80 characters, Issue titles at 255 —
 deterministically, with a warning naming the artifact line to shorten. A Project appears when the
 feature is planned and an Issue per task when tasks are generated.
 
-Each Issue's workflow state is re-derived on every push from what can be
-observed right now, never from an event. An observable pull request speaks
-first: merged is *completed*, open ready-for-review is *In Review*, open
-draft is *In Progress*. With no live PR, a `[x]` checkbox in `tasks.md` is
-*completed*, an existing branch is *In Progress*, and nothing is *Todo* —
-the box is checked inside the task PR before `ready for review`, so an
-open PR is always the fresher witness. Branches and pull
-requests count when they are named `NNN-Txxx` (optionally `-suffix`), e.g.
-`001-T004-add-parser`. Branch reads never fetch; pull requests need `gh` and
-are simply skipped, with one warning, when it is missing or unauthenticated.
-States are written only where the `lifecycle` config section has an ID.
+Each Issue's workflow state is re-derived on every push from a fresh
+observation. The paginated pull-request scan is `complete`, `failed`, or
+`incomplete`; only `complete` permits lifecycle derivation, including verified
+empty. Failed or incomplete scans preserve existing remote states, including
+items absent from partial output, and report the uncertainty.
+
+Complete evidence uses open draft → open ready → merged precedence, yielding
+*In Progress* → *In Review* → *Done*. The lowest PR number is the witness
+within a rank; closed unmerged PRs are ignored. Checkbox and branch rules apply
+only when no open or merged PR exists. States are written only where the
+`lifecycle` config section has an ID.
 
 Preview is the default; `--apply` writes. Both are idempotent: the plan is the
 difference, so applying it twice is a no-op and every mutation is preceded by
-a fresh read of the exact resources it touches. The repository is the sole
+a fresh read of the exact resources it touches. A task created during
+uncertainty omits `stateId`, leaving its workflow state to Linear's configured
+default. The repository is the sole
 authority — `push` never changes assignees after creation, project leads,
 members, human comments, or any local file.
 
