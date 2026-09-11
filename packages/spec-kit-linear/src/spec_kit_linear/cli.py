@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 import re
 import shlex
@@ -43,7 +44,7 @@ from .endpoint import (
 from .env_files import REPO_ENV_FILENAME, credential_source, load_dotenv_files, persist_process_credential, repo_env_path
 from .errors import AppError, Diagnostic
 from .git_refs import known_branches
-from .github import cli_diagnostic as github_cli_diagnostic, scan_pull_requests
+from .github import PullRequestScan, cli_diagnostic as github_cli_diagnostic, scan_pull_requests
 from .gitignore import ensure_entries as ensure_gitignore_entries, has_entry as has_gitignore_entry
 from .lifecycle_registry import load_registry as load_lifecycle_registry, registry_diagnostics as lifecycle_registry_diagnostics
 from .linear_client import LinearClient, RemoteTeamSummary, RemoteWorkflowState, RemoteWorkItem
@@ -51,9 +52,10 @@ from .mutation_executor import LinearMutationExecutor
 from .parser import parse_feature
 from .planner import build_push_plan, build_work_item_plan, snapshot_from_discovery
 from .projection import project_feature
+from .redaction import redact_structure, redact_text
 from .reconciler import apply_plan
 from .remote_discovery import RemoteDiscovery, discover_and_adopt
-from .reporting import render_status_table, render_work_item_table, status_report
+from .reporting import observation_report, render_status_table, render_work_item_table, status_report
 from .view_discovery import conventional_view_name, resolve_shared_views_by_name
 from .work_items import WorkItemState, derive_work_items, issue_key_pattern, issue_numbers
 from .work_state import TaskWorkState, derive_task_states
@@ -930,7 +932,7 @@ def _observe(
     config: Mapping[str, Any],
     desired_states: tuple[DesiredState, ...],
     diagnostics: list[Diagnostic],
-) -> tuple[dict[str, TaskWorkState], tuple[WorkItemState, ...]]:
+) -> tuple[dict[str, TaskWorkState], tuple[WorkItemState, ...], PullRequestScan]:
     """Observe the repository once and derive everything that follows from it.
 
     One `git for-each-ref` and one `gh pr list` per invocation, never one per
@@ -946,9 +948,20 @@ def _observe(
     diagnostics.extend(scan.diagnostics)
     branches = known_branches(root)
     _team_id, team_key = team_binding(config)
-    work_states = derive_task_states(desired_states, branches=branches, pull_requests=scan.pull_requests)
-    work_items = derive_work_items(team_key, branches=branches, pull_requests=scan.pull_requests)
-    return work_states, work_items
+    work_states = derive_task_states(
+        desired_states, branches=branches, scan=scan
+    )
+    work_items = derive_work_items(
+        team_key, branches=branches, scan=scan
+    )
+    if scan.outcome != "complete":
+        names = ", ".join(desired.feature.identifier for desired in desired_states) or "none"
+        diagnostics.append(Diagnostic(
+            "observation_unknown",
+            f"GitHub pull-request observation is {scan.outcome}; selected features [{names}] and all repository work items remain unverified, including items absent from partial output",
+            severity="warning",
+        ))
+    return work_states, work_items, scan
 
 
 def _remote_work_items(client: LinearClient, config: Mapping[str, Any], work_items: tuple[WorkItemState, ...]) -> dict[str, RemoteWorkItem]:
@@ -1027,7 +1040,7 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
             diagnostics.append(_tasks_pending(feature_dir))
     desired_states = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
-    work_states, work_items = _observe(root, config, desired_states, diagnostics)
+    work_states, work_items, scan = _observe(root, config, desired_states, diagnostics)
     client = _linear_client()
     discovery = discover_and_adopt(client, config, desired_states)
     plans = [build_push_plan(desired, discovery, config=config, work_states=work_states) for desired in desired_states]
@@ -1039,6 +1052,9 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
     work_item_plan, work_item_diagnostics = build_work_item_plan(work_items, _remote_work_items(client, config, work_items), config=config)
     diagnostics.extend(work_item_diagnostics)
     operations = [operation for plan in plans for operation in plan["operations"]] + list(work_item_plan["operations"])
+    observation = observation_report(scan, desired_states, work_items)
+    if scan.outcome != "complete" and any(operation.get("kind") == "issue.create" for operation in operations):
+        diagnostics.append(Diagnostic("linear_default_state", "uncertain tasks are created without a derived state; Linear will apply its configured default workflow state", severity="warning"))
 
     apply_changes = bool(args.apply)
     if args.hook and not args.dry_run:
@@ -1051,21 +1067,48 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
         payload["work_item_plan"] = work_item_plan
         payload["dry_run"] = True
         payload["hook_invocation"] = bool(args.hook)
+        payload["observation"] = observation
         return payload
 
-    results = [
-        _apply_push_plan(config, client, desired, plan, work_states)
-        for desired, plan in zip(desired_states, plans)
-        if plan["operations"]
-    ]
-    if work_item_plan["operations"]:
-        results.append(_apply_work_item_plan(config, client, work_items, work_item_plan))
+    results = []
+    failure: AppError | None = None
+    failed_plan_index: int | None = None
+    for plan_index, (desired, plan) in enumerate(zip(desired_states, plans)):
+        if not plan["operations"]:
+            continue
+        try:
+            results.append(_apply_push_plan(config, client, desired, plan, work_states))
+        except AppError as error:
+            results.extend(error.apply_results)
+            error.apply_results = list(results)
+            failure = error
+            failed_plan_index = plan_index
+            break
+    if failure is None and work_item_plan["operations"]:
+        try:
+            results.append(_apply_work_item_plan(config, client, work_items, work_item_plan))
+        except AppError as error:
+            results.extend(error.apply_results)
+            error.apply_results = list(results)
+            failure = error
+    if failure is not None:
+        # Keep every later plan visible as unattempted in this invocation.
+        remaining = []
+        if failed_plan_index is not None:
+            for plan in plans[failed_plan_index + 1:]:
+                remaining.extend(str(item["id"]) for item in plan["operations"])
+            remaining.extend(str(item["id"]) for item in work_item_plan["operations"])
+        if failure.apply_results and remaining:
+            last = failure.apply_results[-1]
+            failure.apply_results[-1] = replace(last, unattempted_operation_ids=tuple(last.unattempted_operation_ids) + tuple(remaining))
+        raise failure
     diagnostics.append(Diagnostic("push_apply", "post-apply read verification passed", severity="info"))
     payload = _success(f"push applied {sum(result.writes for result in results)} operation(s)", diagnostics=diagnostics, operations=operations)
     payload["apply"] = [result.as_dict() for result in results]
     payload["work_item_plan"] = work_item_plan
     payload["dry_run"] = False
     payload["hook_invocation"] = bool(args.hook)
+    payload["observation"] = observation
     return payload
 
 
@@ -1170,7 +1213,7 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
             diagnostics.append(_tasks_pending(feature_dir))
     desired = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
-    work_states, work_items = _observe(root, config, desired, diagnostics)
+    work_states, work_items, scan = _observe(root, config, desired, diagnostics)
     client = _linear_client()
     discovery = discover_and_adopt(client, config, desired)
     for diagnostic in (item for feature in discovery.features for item in feature.drift):
@@ -1183,7 +1226,9 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
     )
     payload = _success("read-only Linear status rendered", diagnostics=diagnostics)
     payload["read_only"] = True
-    payload["status"] = status_report(discovery, desired, work_states, work_items, remote_work_items)
+    observation = observation_report(scan, desired, work_items)
+    payload["observation"] = observation
+    payload["status"] = status_report(discovery, desired, work_states, work_items, remote_work_items, observation)
     return payload
 
 
@@ -1203,29 +1248,113 @@ def _current_branch(root: Path) -> str | None:
     return branch or None
 
 
+def _emit_hook_result_warning(payload: Mapping[str, object]) -> None:
+    diagnostics = payload.get("diagnostics")
+    if isinstance(diagnostics, list):
+        for diagnostic in diagnostics:
+            if not isinstance(diagnostic, Mapping) or diagnostic.get("severity") == "info":
+                continue
+            safe = redact_structure(diagnostic)
+            if isinstance(safe, Mapping):
+                sys.stderr.write(f"warning: reconciliation {_format_diagnostic_warning(safe)}\n")
+    observation = payload.get("observation")
+    if isinstance(observation, Mapping) and observation.get("outcome") != "complete":
+        outcome = redact_text(observation.get("outcome", "unknown"))
+        sys.stderr.write(f"warning: reconciliation GitHub observation {outcome}; state derivation is unverified\n")
+    sys.stderr.flush()
+
+
+def _emit_hook_error_warning(error: AppError) -> None:
+    sys.stderr.write(f"warning: reconciliation failure: {redact_text(str(error))}\n")
+    for diagnostic in error.diagnostics:
+        safe = redact_structure(diagnostic.as_dict())
+        if isinstance(safe, Mapping):
+            sys.stderr.write(f"warning: reconciliation {_format_diagnostic_warning(safe)}\n")
+    for result in error.apply_results:
+        line = _format_apply_evidence(result)
+        if line:
+            sys.stderr.write(f"warning: reconciliation partial failure: {line}\n")
+    sys.stderr.flush()
+
+
+def _format_diagnostic_warning(diagnostic: Mapping[str, object]) -> str:
+    location = ""
+    if diagnostic.get("path") is not None:
+        location = f" ({redact_text(diagnostic['path'])}"
+        if diagnostic.get("line") is not None:
+            location += f":{redact_text(diagnostic['line'])}"
+        location += ")"
+    return f"{diagnostic.get('code', 'failure')}{location}: {redact_text(diagnostic.get('message', 'operation failed'))}"
+
+
+def _load_hook_config(root: Path) -> Mapping[str, object] | None:
+    try:
+        config, _shared_path = load_config(root, None)
+    except AppError as error:
+        if not any(diagnostic.code == "config_missing" for diagnostic in error.diagnostics):
+            _emit_hook_error_warning(error)
+        return None
+    except OSError:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured I/O error\n")
+        sys.stderr.flush()
+        return None
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured configuration error\n")
+        sys.stderr.flush()
+        return None
+    return config
+
+
+def _format_apply_evidence(result: object) -> str | None:
+    safe = redact_structure(result.as_dict() if hasattr(result, "as_dict") else result)
+    if not isinstance(safe, Mapping):
+        return None
+    applied = ",".join(map(str, safe.get("applied_operation_ids", []))) or "none"
+    recovered = ",".join(map(str, safe.get("recovered_operation_ids", []))) or "none"
+    remaining = ",".join(map(str, safe.get("unattempted_operation_ids", []))) or "none"
+    line = f"applied [{applied}], recovered [{recovered}], unattempted [{remaining}]"
+    operation = " ".join(str(safe.get(key)) for key in ("failed_operation_id", "failed_operation_kind", "failed_operation_target") if safe.get(key))
+    if operation:
+        line += f", failed {operation}"
+    if safe.get("failure_phase") is not None:
+        line += f", failure {safe.get('failure_phase')} ({safe.get('failure_status')})"
+    return line
+
+
 def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
     """Resolve the branch shape and run `push --hook`; shared by both event handlers (D4, FR-006)."""
+    config = _load_hook_config(root)
+    if config is None or not hooks_gate(config, "lifecycle_enabled"):
+        return None, None
     branch = work_item_identifier = None
+    branch_error = False
     try:
         branch = _current_branch(root)
         if branch and not FEATURE_RE.fullmatch(branch):
-            config, _shared_path = load_config(root, None)
             _team_id, team_key = team_binding(config)
             match = issue_key_pattern(team_key).fullmatch(branch)
             work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
     except Exception:
-        pass
+        branch_error = True
 
     # A work item resolves `--current` only through `.specify/feature.json`, often
     # absent; a feature/task branch resolves it by name, so only the former skips it.
+    if branch_error:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured branch error\n")
+        sys.stderr.flush()
+
     hook_args = argparse.Namespace(
         root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
         dry_run=False, apply=False, hook=True,
     )
     try:
-        run_push(hook_args)
+        result = run_push(hook_args)
+        _emit_hook_result_warning(result)
+    except AppError as error:
+        _emit_hook_error_warning(error)
     except Exception:
-        pass
+        sys.stderr.write("warning: reconciliation failure: unexpected configured hook error\n")
+        sys.stderr.flush()
     return branch, work_item_identifier
 
 
@@ -1239,9 +1368,13 @@ def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, obj
     nothing (FR-004).
     """
 
-    first_unchecked = next((task for task in tasks if not task["local_complete"]), None)
+    first_unchecked = next((task for task in tasks if not task["local_complete"] and task.get("state_source") != "unknown"), None)
+    unknown = next((task for task in tasks if task.get("state_source") == "unknown"), None)
     open_prs = [task for task in tasks if task.get("state_source") == "pr" and task.get("derived_state") != "completed"]
     segments = [f"Linear: {feature} on {branch}"]
+    if unknown is not None:
+        remote = unknown.get("remote_state") or "unavailable"
+        segments.append(f"{unknown['task']} state unknown (remote: {remote})")
     if first_unchecked is not None:
         segments[0] += f" — next {first_unchecked['task']} (unchecked)"
     if open_prs:
@@ -1263,7 +1396,10 @@ def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, obj
 def _format_work_item_context(row: Mapping[str, object]) -> str:
     """FR-003's context line for a work-item branch, from `status`'s own work-item row."""
 
-    line = f"Linear: {row['identifier']} ({row['derived_state']})"
+    state = "unknown (unverified)" if row.get("state_source") == "unknown" else str(row["derived_state"])
+    line = f"Linear: {row['identifier']} ({state})"
+    if row.get("state_source") == "unknown":
+        line += f"; remote: {row.get('remote_state') or 'unavailable'}"
     if row.get("next"):
         line += f" — next: {row['next']}"
     return line
@@ -1278,6 +1414,8 @@ def _session_start_context_line(root: Path, branch: str, work_item_identifier: s
     is treated identically by the caller (FR-006).
     """
 
+    if not branch:
+        return None
     feature_match = FEATURE_RE.fullmatch(branch)
     if feature_match is None and work_item_identifier is None:
         return None
@@ -1286,7 +1424,9 @@ def _session_start_context_line(root: Path, branch: str, work_item_identifier: s
     # item has no feature to resolve, so `current` is False for it and this
     # lookup never raises for that reason (caller already resolved the id).
     status_args = argparse.Namespace(root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False)
-    status = run_status(status_args)["status"]
+    status_payload = run_status(status_args)
+    _emit_hook_result_warning(status_payload)
+    status = status_payload["status"]
 
     if work_item_identifier is not None:
         row = next((item for item in status["work_items"] if item["identifier"] == work_item_identifier), None)
@@ -1300,21 +1440,31 @@ def run_session_start(args: argparse.Namespace) -> int:
     """The `session_start` event handler (plan D4): reconcile, then one context line.
 
     Never raises and never exits nonzero: a session must not be blocked,
-    slowed down, or spammed by tracking. Every failure -- no configuration, an
-    unrecognized branch shape, a Linear or `gh` error -- degrades to silence
-    (FR-006); diagnostics are discarded, never surfaced.
+    slowed down, or spammed by tracking. Missing or disabled configuration is
+    silent; configured failures become sanitized stderr warnings (FR-006).
     """
 
     try:
         root = _root_from_args(getattr(args, "root", None))
     except AppError:
         return EXIT_SUCCESS
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured root error\n")
+        sys.stderr.flush()
+        return EXIT_SUCCESS
 
     branch, work_item_identifier = _reconcile_hook(root)
+    if not branch:
+        return EXIT_SUCCESS
 
     try:
         line = _session_start_context_line(root, branch, work_item_identifier)
+    except AppError as error:
+        _emit_hook_error_warning(error)
+        line = None
     except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured context error\n")
+        sys.stderr.flush()
         line = None
     if line:
         sys.stdout.write(line + "\n")
@@ -1536,6 +1686,10 @@ def run_post_tool_use(args: argparse.Namespace) -> int:
         root = _root_from_args(getattr(args, "root", None))
     except AppError:
         return EXIT_SUCCESS
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured root error\n")
+        sys.stderr.flush()
+        return EXIT_SUCCESS
     _reconcile_hook(root)
     return EXIT_SUCCESS
 
@@ -1613,6 +1767,14 @@ def main(argv: list[str] | None = None) -> int:
             "operations": [],
             "diagnostics": [diagnostic.as_dict() for diagnostic in error.diagnostics],
         }
+        if error.apply_results:
+            payload["apply"] = [result.as_dict() for result in error.apply_results]
+            payload["partial"] = True
+            if payload["apply"]:
+                evidence = payload["apply"][-1]
+                for key in ("failed_operation_id", "failed_operation_kind", "failed_operation_target", "failure_phase", "failure_status"):
+                    if key in evidence:
+                        payload[key] = evidence[key]
         _attach_endpoint_field(payload, args.command, endpoint)
         if getattr(args, "json", False):
             _write_json(payload)
@@ -1625,6 +1787,10 @@ def main(argv: list[str] | None = None) -> int:
                 location = f" ({diagnostic.path})" if diagnostic.path else ""
                 line = f":{diagnostic.line}" if diagnostic.line else ""
                 sys.stderr.write(f"  {diagnostic.code}{location}{line}: {diagnostic.message}\n")
+            for evidence in error.apply_results:
+                line = _format_apply_evidence(evidence)
+                if line:
+                    sys.stderr.write(f"  partial apply: {line}\n")
         return error.code
 
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import unittest
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from dataclasses import replace
 from io import StringIO
 from pathlib import Path
@@ -13,11 +14,12 @@ from unittest.mock import MagicMock, patch
 
 from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, _is_reconcile_command, main, run_post_tool_use, run_session_start
 from spec_kit_linear.config import ROOT_CONFIG_FILENAME, load_config, repository_binding
-from spec_kit_linear.errors import Diagnostic
+from spec_kit_linear.errors import AppError, Diagnostic
 from spec_kit_linear.github import PullRequest, PullRequestScan
 from spec_kit_linear.linear_client import RemoteBinding, RemoteIssue, RemoteProject, RemoteWorkItem
 from spec_kit_linear.parser import parse_feature
 from spec_kit_linear.projection import project_feature
+from spec_kit_linear.reconciler import ApplyResult
 from tests.support.fixtures import copy_consumer_fixture, isolate_operator_global_env
 
 
@@ -92,11 +94,12 @@ class _FakeClient:
 class _ApplyingClient(_FakeClient):
     """Materializes creates so a second discovery reflects the applied state."""
 
-    def __init__(self, projects: tuple[RemoteProject, ...] = ()) -> None:
+    def __init__(self, projects: tuple[RemoteProject, ...] = (), *, default_state: str = "Backlog") -> None:
         super().__init__(projects)
         self.mutations: list[str] = []
         self._created_project: RemoteProject | None = None
         self._created_issues: list[RemoteIssue] = []
+        self.default_state = default_state
 
     def discover_projects(self, _project_label_id: str) -> tuple[RemoteProject, ...]:
         if self._created_project is None:
@@ -107,7 +110,7 @@ class _ApplyingClient(_FakeClient):
         self.mutations.append(operation_kind)
         input_values = variables.get("input")
         assert isinstance(input_values, dict)
-        remote_id = str(input_values["id"])
+        remote_id = str(variables.get("id") or input_values.get("id"))
         if operation_kind == "project.create":
             self._created_project = RemoteProject(
                 id=remote_id,
@@ -121,6 +124,7 @@ class _ApplyingClient(_FakeClient):
             )
             return {"projectCreate": {"success": True, "project": {"id": remote_id}}}
         if operation_kind == "issue.create":
+            default_state = f"state-{self.default_state.lower()}" if "stateId" not in input_values else input_values["stateId"]
             self._created_issues.append(
                 RemoteIssue(
                     id=remote_id,
@@ -132,10 +136,16 @@ class _ApplyingClient(_FakeClient):
                     parent_id=None,
                     assignee_id=input_values.get("assigneeId"),
                     label_ids=(),
-                    state_id=input_values.get("stateId"),
+                    state_id=default_state,
+                    state_name=self.default_state if "stateId" not in input_values else None,
                 )
             )
             return {"issueCreate": {"success": True, "issue": {"id": remote_id}}}
+        if operation_kind == "issue.lifecycle.update":
+            remote_id = str(variables["id"])
+            state_id = str(variables["input"]["stateId"])
+            self._created_issues[:] = [replace(issue, state_id=state_id) if issue.id == remote_id else issue for issue in self._created_issues]
+            return {"issueUpdate": {"success": True, "issue": {"id": remote_id}}}
         raise AssertionError(f"unexpected mutation kind: {operation_kind}")
 
 
@@ -174,6 +184,27 @@ def _fake_gh(*, installed: bool = True, returncode: int = 0, stdout: str = "[]")
         yield calls
 
 
+@contextmanager
+def _subprocess_fake_gh(tmp_path: Path, *, stdout: str, returncode: int = 0, sleep: float = 0, log_path: Path | None = None) -> object:
+    """Install a real executable so scanner tests cross the subprocess boundary."""
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    script = bin_dir / "gh"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, time\n"
+        f"time.sleep({sleep!r})\n"
+        + (f"open({str(log_path)!r}, 'a').write(__import__('os').getcwd() + '|' + ' '.join(sys.argv[1:]) + '\\n')\n" if log_path else "")
+        + f"sys.stdout.write({stdout!r})\n"
+        + f"sys.exit({returncode})\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    with patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}):
+        yield script
+
+
 class CliTestCase(unittest.TestCase):
     def setUp(self) -> None:
         isolate_operator_global_env(self)
@@ -209,6 +240,42 @@ class CliTestCase(unittest.TestCase):
 
 
 class PushTests(CliTestCase):
+    def test_public_failure_renders_partial_evidence_and_nonzero_exit(self) -> None:
+        first = ApplyResult(("first",), (), 1)
+        failed = ApplyResult(("second",), (), 1, "third", "issue.create", "task:002", ("fourth", "work-item"), "mutation", "unconfirmed")
+        error = AppError("later plan failed", code=8, category="mutation", diagnostics=[Diagnostic("mutation_failed", "later plan failed")], apply_results=[first, failed])
+        with patch("spec_kit_linear.cli.run_push", side_effect=error):
+            output = StringIO()
+            with redirect_stdout(output):
+                code = main(["push", "--root", str(self.fixture_root), "--json"])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 8)
+        self.assertEqual(payload["apply"][0]["applied_operation_ids"], ["first"])
+        self.assertEqual(payload["apply"][1]["unattempted_operation_ids"], ["fourth", "work-item"])
+        self.assertEqual(payload["failure_status"], "unconfirmed")
+        human = StringIO()
+        with patch("spec_kit_linear.cli.run_push", side_effect=error), redirect_stderr(human):
+            self.assertEqual(main(["push", "--root", str(self.fixture_root)]), 8)
+        human_text = human.getvalue()
+        self.assertIn("applied [first]", human_text)
+        self.assertIn("unattempted [fourth,work-item]", human_text)
+        self.assertIn("failure mutation (unconfirmed)", human_text)
+        self.assertIn("failed third issue.create task:002", human_text)
+        self.assertNotIn("failure None (None)", human_text)
+
+    def test_real_push_aggregates_prior_failed_and_later_plan_evidence(self) -> None:
+        plans = [{"snapshot": {"resources": []}, "operations": [{"id": name}]} for name in ("first", "second", "third")]
+        failure = AppError("second failed", code=8, category="mutation", diagnostics=[], apply_results=[ApplyResult((), (), 0, "second", "issue.create", "task:002", (), "mutation", "unconfirmed")])
+        work_plan = {"snapshot": {"resources": []}, "operations": [{"id": "work-item"}]}
+        with patch("spec_kit_linear.cli._select_feature_directories", return_value=(self.fixture_root / "specs/001-local-projection",) * 3), patch("spec_kit_linear.cli._observe", return_value=({}, (), PullRequestScan("complete"))), patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()), patch("spec_kit_linear.cli.build_push_plan", side_effect=plans), patch("spec_kit_linear.cli._remote_work_items", return_value={}), patch("spec_kit_linear.cli.build_work_item_plan", return_value=(work_plan, ())), patch("spec_kit_linear.cli._apply_push_plan", side_effect=[ApplyResult(("first",), (), 1), failure]):
+            output = StringIO()
+            with redirect_stdout(output):
+                code = main(["push", "--root", str(self.fixture_root), "--apply", "--json"])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 8)
+        self.assertEqual([item["applied_operation_ids"] for item in payload["apply"]], [["first"], []])
+        self.assertEqual(payload["apply"][-1]["unattempted_operation_ids"], ["third", "work-item"])
+
     def test_dry_run_renders_project_then_issues_and_writes_nothing(self) -> None:
         before = self._files()
 
@@ -618,11 +685,122 @@ class WorkStateTests(CliTestCase):
     def _observe(self, arguments: list[str], *, branches: tuple[str, ...] = (), pull_requests: tuple[PullRequest, ...] = (), scan: PullRequestScan | None = None):
         with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((_matching_remote_project(self._desired()),))):
             with patch("spec_kit_linear.cli.known_branches", return_value=branches):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan or PullRequestScan(pull_requests=pull_requests)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan or PullRequestScan("complete", pull_requests)):
                     return self._invoke(arguments)
 
     def _lifecycle_updates(self, payload: dict[str, object]) -> dict[str, str]:
         return {item["target"]: item["input"]["stateId"] for item in payload["operations"] if item["kind"] == "issue.lifecycle.update"}
+
+    def _large_pr_payload(self) -> str:
+        rows = [{"number": number, "head": {"ref": f"unrelated-{number}"}, "draft": False, "state": "closed", "merged_at": None} for number in range(1, 299)]
+        rows.extend([
+            {"number": 299, "head": {"ref": "001-T001-history"}, "draft": False, "state": "closed", "merged_at": "2026-01-01T00:00:00Z"},
+            {"number": 300, "head": {"ref": "001-T002-review"}, "draft": False, "state": "open", "merged_at": None},
+            {"number": 301, "head": {"ref": "001-T003-finished"}, "draft": False, "state": "closed", "merged_at": "2026-01-01T00:00:00Z"},
+            {"number": 302, "head": {"ref": "001-T001-late-draft"}, "draft": True, "state": "open", "merged_at": None},
+            {"number": 303, "head": {"ref": "WOR-41-bug"}, "draft": False, "state": "open", "merged_at": None},
+            {"number": 304, "head": {"ref": "WOR-42-chore"}, "draft": True, "state": "open", "merged_at": None},
+            # An identical record may occur when a paginated listing overlaps.
+            {"number": 302, "head": {"ref": "001-T001-late-draft"}, "draft": True, "state": "open", "merged_at": None},
+        ])
+        pages = [rows[index:index + 100] for index in range(0, len(rows), 100)]
+        return json.dumps(pages)
+
+    def _init_branches(self, *names: str) -> None:
+        subprocess.run(["git", "-C", str(self.fixture_root), "init", "-q", "-b", "main"], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.fixture_root), "config", "user.email", "test@example.com"], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.fixture_root), "config", "user.name", "Test"], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.fixture_root), "add", "."], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.fixture_root), "commit", "-qm", "fixture"], check=True, capture_output=True, text=True)
+        for name in names:
+            subprocess.run(["git", "-C", str(self.fixture_root), "branch", name], check=True, capture_output=True, text=True)
+
+    def test_cli_uses_all_paginated_prs_for_tasks_bugs_and_chores(self) -> None:
+        self._configure_lifecycle()
+        self._init_branches("WOR-41-bug", "WOR-42-chore")
+        project = _matching_remote_project(self._desired())
+        with _subprocess_fake_gh(Path(self.temporary.name), stdout=self._large_pr_payload()):
+            with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,))):
+                status_code, status_payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+            with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,), work_items=(_remote_work_item("WOR-41"), _remote_work_item("WOR-42")))):
+                push_code, push_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+
+        self.assertEqual((status_code, push_code), (0, 0))
+        tasks = {row["task"]: row for row in status_payload["status"]["task_rows"][0]["tasks"]}
+        self.assertEqual({key: tasks[key]["derived_state"] for key in ("T001", "T002", "T003")}, {"T001": "started", "T002": "review", "T003": "completed"})
+        self.assertEqual({row["identifier"]: row["derived_state"] for row in status_payload["status"]["work_items"]}, {"WOR-41": "review", "WOR-42": "started"})
+        updates = self._lifecycle_updates(push_payload)
+        self.assertEqual(updates["task:001:T001"], STARTED_STATE_ID)
+        self.assertEqual(updates["task:001:T002"], REVIEW_STATE_ID)
+        self.assertEqual(updates["task:001:T003"], COMPLETED_STATE_ID)
+        self.assertEqual(updates["workitem:WOR-41"], REVIEW_STATE_ID)
+        self.assertEqual(updates["workitem:WOR-42"], STARTED_STATE_ID)
+
+    def test_uncertain_subprocess_observation_preserves_existing_states_and_scope(self) -> None:
+        self._configure_lifecycle()
+        self._init_branches("WOR-99-absent-from-prefix")
+        prefix = json.dumps([[{"number": 1, "head": {"ref": "unrelated"}, "draft": False, "state": "closed", "merged_at": None}]])
+        project = _matching_remote_project(self._desired())
+        project = replace(project, issues=tuple(replace(issue, state_id=COMPLETED_STATE_ID, state_name="Done") for issue in project.issues))
+        remote_item = replace(_remote_work_item("WOR-99", state_id=COMPLETED_STATE_ID), state_name="Done")
+        with _subprocess_fake_gh(Path(self.temporary.name), stdout=prefix, returncode=1):
+            with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,), work_items=(remote_item,))):
+                status_code, status_payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                code, payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+        row = status_payload["status"]["work_items"][0]
+        self.assertEqual((status_code, row["known_remotely"], row["remote_state"], row["derived_state"]), (0, True, "Done", None))
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["observation"]["outcome"], "failed")
+        self.assertEqual(self._lifecycle_updates(payload), {})
+        self.assertIn("absent from partial output", " ".join(item["message"] for item in payload["diagnostics"]))
+
+    def test_malformed_later_page_and_contradictory_duplicate_are_incomplete(self) -> None:
+        self._configure_lifecycle()
+        self._init_branches("WOR-7-work")
+        malformed = json.dumps([[{"number": 1, "head": {"ref": "WOR-7-work"}, "draft": False, "state": "open", "merged_at": None}], ["bad-page"]])
+        project = _matching_remote_project(self._desired())
+        contradictory = json.dumps([[{"number": 1, "head": {"ref": "WOR-7-work"}, "draft": False, "state": "open", "merged_at": None}, {"number": 1, "head": {"ref": "WOR-7-work"}, "draft": True, "state": "open", "merged_at": None}]])
+        remote_item = _remote_work_item("WOR-7", state_id=COMPLETED_STATE_ID)
+        for response in (malformed, contradictory):
+            with self.subTest(response=response):
+                with _subprocess_fake_gh(Path(self.temporary.name), stdout=response):
+                    with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,), work_items=(remote_item,))):
+                        code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                        push_code, push_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+                self.assertEqual(code, 0)
+                self.assertEqual(push_code, 0)
+                self.assertEqual(payload["observation"]["outcome"], "incomplete")
+                self.assertIsNone(payload["status"]["work_items"][0]["derived_state"])
+                self.assertEqual(self._lifecycle_updates(push_payload), {})
+
+    def test_timeout_and_truncated_json_never_become_empty_complete_scans(self) -> None:
+        project = _matching_remote_project(self._desired())
+        cases = (("timeout", "[]", 0, 0.05), ("truncated", "[[{\"number\": 1", 0, 0))
+        for name, output, returncode, delay in cases:
+            with self.subTest(name=name):
+                with _subprocess_fake_gh(Path(self.temporary.name), stdout=output, returncode=returncode, sleep=delay):
+                    timeout_patch = patch("spec_kit_linear.github.GH_TIMEOUT_SECONDS", 0.01) if name == "timeout" else patch("spec_kit_linear.github.GH_TIMEOUT_SECONDS", 30)
+                    with timeout_patch, patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,))):
+                        code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                self.assertEqual(code, 0)
+                self.assertEqual(payload["observation"]["outcome"], "failed" if name == "timeout" else "incomplete")
+
+    def test_identical_feature_numbers_use_each_repository_cwd(self) -> None:
+        second_root = Path(self.temporary.name) / "consumer-two"
+        shutil.copytree(self.fixture_root, second_root)
+        log_path = Path(self.temporary.name) / "gh-cwds.log"
+        responses = (json.dumps([[{"number": 9, "head": {"ref": "001-T001"}, "draft": True, "state": "open", "merged_at": None}]]), json.dumps([[{"number": 9, "head": {"ref": "001-T001"}, "draft": False, "state": "open", "merged_at": None}]]))
+        for root, response, expected in zip((self.fixture_root, second_root), responses, ("started", "review")):
+            with _subprocess_fake_gh(Path(self.temporary.name), stdout=response, log_path=log_path):
+                with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((_matching_remote_project(self._desired()),))):
+                    code, payload = self._invoke(["status", "--root", str(root), "--feature", "001", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["status"]["task_rows"][0]["tasks"][0]["derived_state"], expected)
+        entries = [line.strip().split("|", 1) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual({Path(entry[0]).resolve() for entry in entries}, {self.fixture_root.resolve(), second_root.resolve()})
+        for _cwd, argv in entries:
+            self.assertIn("api repos/{owner}/{repo}/pulls", argv)
+            self.assertIn("--paginate", argv)
 
     def test_push_derives_started_from_a_branch_and_completed_from_the_checkbox(self) -> None:
         self._configure_lifecycle()
@@ -650,6 +828,20 @@ class WorkStateTests(CliTestCase):
         self.assertEqual(updates["task:001:T001"], REVIEW_STATE_ID)
         self.assertEqual(updates["task:001:T003"], STARTED_STATE_ID)
 
+    def test_status_reopens_remote_done_from_open_work_and_reports_next_action(self) -> None:
+        self._configure_lifecycle()
+        base = _matching_remote_project(self._desired())
+        project = replace(base, issues=tuple(replace(issue, state_id=COMPLETED_STATE_ID, state_name="Done") for issue in base.issues))
+        for draft, expected_state, expected_next in ((True, "started", "/speckit.code-review 17"), (False, "review", "wait for the human merge")):
+            with self.subTest(draft=draft):
+                scan = PullRequestScan("complete", (PullRequest("001-T001-old", False, "MERGED", 3), PullRequest("001-T001", draft, "OPEN", 17)))
+                with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((project,))), patch("spec_kit_linear.cli.known_branches", return_value=()), patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan):
+                    code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                    push_code, push_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+                row = next(row for row in payload["status"]["task_rows"][0]["tasks"] if row["task"] == "T001")
+                self.assertEqual((code, row["derived_state"], row["next"]), (0, expected_state, expected_next))
+                self.assertEqual((push_code, self._lifecycle_updates(push_payload)["task:001:T001"]), (0, STARTED_STATE_ID if draft else REVIEW_STATE_ID))
+
     def test_push_degrades_to_the_started_state_when_the_team_has_no_review_state(self) -> None:
         self._configure_lifecycle(review_state_id="")
 
@@ -660,9 +852,9 @@ class WorkStateTests(CliTestCase):
 
         self.assertEqual(self._lifecycle_updates(payload)["task:001:T001"], STARTED_STATE_ID)
 
-    def test_push_without_gh_still_derives_from_the_checkbox_and_branches_and_warns_once(self) -> None:
+    def test_push_without_gh_preserves_states_and_warns_once(self) -> None:
         self._configure_lifecycle()
-        scan = PullRequestScan(available=False, diagnostics=(Diagnostic("github_cli_missing", "`gh` was not found on PATH", severity="warning"),))
+        scan = PullRequestScan("failed", diagnostics=(Diagnostic("github_cli_missing", "`gh` was not found on PATH", severity="warning"),))
 
         _result, payload = self._observe(
             ["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"],
@@ -672,9 +864,14 @@ class WorkStateTests(CliTestCase):
 
         codes = [item["code"] for item in payload["diagnostics"]]
         self.assertEqual(codes.count("github_cli_missing"), 1)
-        updates = self._lifecycle_updates(payload)
-        self.assertEqual(updates["task:001:T001"], STARTED_STATE_ID)
-        self.assertEqual(updates["task:001:T002"], COMPLETED_STATE_ID)
+        self.assertEqual(self._lifecycle_updates(payload), {})
+
+    def test_human_uncertain_creation_preview_explains_the_linear_default(self) -> None:
+        scan = PullRequestScan("incomplete", diagnostics=(Diagnostic("github_cli_unavailable", "GitHub unavailable", severity="warning"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()), patch("spec_kit_linear.cli.known_branches", return_value=()), patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan):
+            code, output = self._invoke_text(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run"])
+        self.assertEqual(code, 0)
+        self.assertIn("Linear will apply its configured default workflow state", output)
 
     def test_a_branch_that_only_looks_like_the_convention_moves_nothing(self) -> None:
         self._configure_lifecycle()
@@ -699,7 +896,7 @@ class WorkStateTests(CliTestCase):
 
         with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((settled,))):
             with patch("spec_kit_linear.cli.known_branches", return_value=("001-T001",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete")):
                     result, payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
 
         self.assertEqual(result, 0)
@@ -708,7 +905,7 @@ class WorkStateTests(CliTestCase):
     def test_status_shows_each_task_derived_state_and_where_it_came_from(self) -> None:
         with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((_matching_remote_project(self._desired()),))):
             with patch("spec_kit_linear.cli.known_branches", return_value=("001-T003-render",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan(pull_requests=(PullRequest("001-T001", False, "OPEN"),))):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete", (PullRequest("001-T001", False, "OPEN"),))):
                     text_code, text = self._invoke_text(["status", "--root", str(self.fixture_root), "--feature", "001"])
                     json_code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
 
@@ -722,6 +919,34 @@ class WorkStateTests(CliTestCase):
         self.assertEqual((rows["T001"]["derived_state"], rows["T001"]["state_source"]), ("review", "pr"))
         self.assertEqual((rows["T002"]["derived_state"], rows["T002"]["state_source"]), ("completed", "checkbox"))
         self.assertEqual((rows["T003"]["derived_state"], rows["T003"]["state_source"]), ("started", "branch"))
+
+    def test_status_exposes_unknown_observation_separately_from_remote_state(self) -> None:
+        project = _matching_remote_project(self._desired())
+        client = _FakeClient((replace(project, issues=tuple(replace(issue, state_name="Todo") for issue in project.issues)),))
+        scan = PullRequestScan("incomplete", diagnostics=(Diagnostic("github_cli_unavailable", "GitHub unavailable", severity="warning"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=client), patch("spec_kit_linear.cli.known_branches", return_value=("001-T001",)), patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan):
+            code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["observation"]["outcome"], "incomplete")
+        self.assertIn("selected features [001]", " ".join(item["message"] for item in payload["diagnostics"]))
+        row = payload["status"]["task_rows"][0]["tasks"][0]
+        self.assertIsNone(row["derived_state"])
+        self.assertEqual(row["remote_state"], "Todo")
+
+    def test_uncertain_create_uses_linear_default_then_recovery_converges_once(self) -> None:
+        self._configure_lifecycle()
+        for default in ("Backlog", "Triage"):
+            with self.subTest(default=default):
+                client = _ApplyingClient(default_state=default)
+                uncertain = PullRequestScan("incomplete", diagnostics=(Diagnostic("github_cli_unavailable", "GitHub unavailable", severity="warning"),))
+                with patch("spec_kit_linear.cli._linear_client", return_value=client), patch("spec_kit_linear.cli.known_branches", return_value=()), patch("spec_kit_linear.cli.scan_pull_requests", side_effect=[uncertain, PullRequestScan("complete"), PullRequestScan("complete")]):
+                    first, first_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
+                    recovered, recovered_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
+                    repeated, repeated_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
+                self.assertEqual((first, recovered, repeated), (0, 0, 0))
+                self.assertNotIn("stateId", first_payload["operations"][1]["input"])
+                self.assertEqual(len([item for item in recovered_payload["operations"] if item["kind"] == "issue.lifecycle.update"]), 3)
+                self.assertEqual(repeated_payload["operations"], [])
 
     def test_status_never_writes_while_deriving(self) -> None:
         before = self._files()
@@ -794,7 +1019,7 @@ class WorkItemTests(WorkStateTests):
     ):
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=branches):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan or PullRequestScan(pull_requests=pull_requests)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan or PullRequestScan("complete", pull_requests)):
                     return self._invoke_text(arguments) if text else self._invoke(arguments)
 
     def _work_item_updates(self, payload: dict[str, object]) -> dict[str, str]:
@@ -970,10 +1195,10 @@ class WorkItemTests(WorkStateTests):
 
         self.assertEqual(self._files(), before)
 
-    def test_without_gh_a_branch_derived_work_item_still_projects_and_warns_once(self) -> None:
+    def test_without_gh_a_branch_derived_work_item_preserves_state_and_warns_once(self) -> None:
         self._configure_lifecycle()
         client = self._matching_client(_remote_work_item("WOR-123", state_id=OPEN_STATE_ID))
-        scan = PullRequestScan(available=False, diagnostics=(Diagnostic("github_cli_missing", "`gh` was not found on PATH", severity="warning"),))
+        scan = PullRequestScan("failed", diagnostics=(Diagnostic("github_cli_missing", "`gh` was not found on PATH", severity="warning"),))
 
         _result, payload = self._observe_work_items(
             ["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"],
@@ -983,7 +1208,7 @@ class WorkItemTests(WorkStateTests):
         )
 
         self.assertEqual([item["code"] for item in payload["diagnostics"]].count("github_cli_missing"), 1)
-        self.assertEqual(self._work_item_updates(payload), {"workitem:WOR-123": STARTED_STATE_ID})
+        self.assertEqual(self._work_item_updates(payload), {})
 
     def test_status_reports_the_observed_work_items(self) -> None:
         client = self._matching_client(_remote_work_item("WOR-123", state_id=OPEN_STATE_ID))
@@ -1082,6 +1307,7 @@ def _task_row(
     state_source: str | None = None,
     next: str | None = None,
     pr_number: int | None = None,
+    remote_state: str | None = None,
 ) -> dict[str, object]:
     return {
         "task": task,
@@ -1090,6 +1316,7 @@ def _task_row(
         "state_source": state_source,
         "pr_number": pr_number,
         "next": next,
+        "remote_state": remote_state,
     }
 
 
@@ -1105,6 +1332,12 @@ class SessionStartContextFormatterTests(unittest.TestCase):
         line = _format_feature_context("005-T002-thing", "005", tasks)
 
         self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T002 (unchecked); next: /speckit.pr")
+
+    def test_unknown_feature_state_shows_remote_state_without_next_action(self) -> None:
+        tasks = [_task_row("T001", local_complete=True, derived_state=None, state_source="unknown", next=None, remote_state="Triage")]
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+        self.assertIn("state unknown (remote: Triage)", line)
+        self.assertNotIn("next:", line)
 
     def test_feature_branch_with_open_prs(self) -> None:
         tasks = [
@@ -1234,6 +1467,10 @@ class SessionStartContextFormatterTests(unittest.TestCase):
 
         self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (completed)")
 
+    def test_unknown_work_item_state_shows_remote_state_without_next_action(self) -> None:
+        row = {"identifier": "WOR-123", "derived_state": None, "state_source": "unknown", "remote_state": "Backlog", "next": None}
+        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (unknown (unverified)); remote: Backlog")
+
 
 class SessionStartTests(CliTestCase):
     """The `session-start` subcommand's own exit-0 contract: no live Linear, no live `gh`."""
@@ -1255,10 +1492,61 @@ class SessionStartTests(CliTestCase):
     def test_no_configuration_prints_nothing_and_never_raises(self) -> None:
         (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
 
-        code, output = self._run("001-T001-parse-artifacts")
+        errors = StringIO()
+        with redirect_stderr(errors), patch("spec_kit_linear.cli.run_status") as status:
+            code, output = self._run("001-T001-parse-artifacts")
 
         self.assertEqual(code, 0)
         self.assertEqual(output, "")
+        self.assertEqual(errors.getvalue(), "")
+        status.assert_not_called()
+
+    def test_disabled_configuration_skips_context_without_warning(self) -> None:
+        self._set_hooks(lifecycle_enabled=False)
+        errors = StringIO()
+        with redirect_stderr(errors), patch("spec_kit_linear.cli.run_status") as status:
+            code, output = self._run("001-T001-parse-artifacts")
+        self.assertEqual((code, output, errors.getvalue()), (0, "", ""))
+        status.assert_not_called()
+
+    def test_malformed_configuration_warns_once_and_skips_context(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.write_text(config_path.read_text(encoding="utf-8") + "\nhooks:\n  lifecycle_enabled: [\n", encoding="utf-8")
+        errors = StringIO()
+        with redirect_stderr(errors), patch("spec_kit_linear.cli.run_status") as status:
+            code, output = self._run("001-T001-parse-artifacts")
+        self.assertEqual((code, output), (0, ""))
+        self.assertIn("configuration", errors.getvalue())
+        status.assert_not_called()
+
+    def test_configuration_io_error_is_nonblocking_and_generic(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.unlink()
+        config_path.mkdir()
+        errors = StringIO()
+        with redirect_stderr(errors), patch("spec_kit_linear.cli.run_status") as status:
+            code, output = self._run("001-T001-parse-artifacts")
+        self.assertEqual((code, output), (0, ""))
+        self.assertIn("unexpected configured I/O error", errors.getvalue())
+        status.assert_not_called()
+
+    def test_detached_head_skips_context_quietly(self) -> None:
+        errors = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value=None), patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": []}), patch("spec_kit_linear.cli.run_status") as status, redirect_stderr(errors):
+            code, output = self._run("ignored")
+        self.assertEqual((code, output, errors.getvalue()), (0, "", ""))
+        status.assert_not_called()
+
+    def test_external_invalid_utf8_configuration_warns_without_raw_error(self) -> None:
+        external = Path(self.temporary.name) / "external.yml"
+        external.write_bytes(b"\xff")
+        (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
+        errors = StringIO()
+        with patch.dict(os.environ, {"SPECKIT_LINEAR_CONFIG": str(external)}), redirect_stderr(errors):
+            code, output = self._run("001-T001-parse-artifacts")
+        self.assertEqual((code, output), (0, ""))
+        self.assertIn("configuration", errors.getvalue())
+        self.assertNotIn("UnicodeDecodeError", errors.getvalue())
 
     def test_an_unexpected_failure_still_exits_zero_with_no_output(self) -> None:
         output = StringIO()
@@ -1273,7 +1561,7 @@ class SessionStartTests(CliTestCase):
         client = _ApplyingClient()
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=("001-T001-parse-artifacts",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete")):
                     code, output = self._run("001-T001-parse-artifacts")
 
         self.assertEqual(code, 0)
@@ -1287,7 +1575,7 @@ class SessionStartTests(CliTestCase):
         client = _WorkItemClient((_matching_remote_project(self._desired()),), work_items=(_remote_work_item("WOR-123"),))
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete")):
                     code, output = self._run("wor-123-fix-crash")
 
         self.assertEqual(code, 0)
@@ -1299,11 +1587,38 @@ class SessionStartTests(CliTestCase):
         client = _WorkItemClient(work_items=(_remote_work_item("WOR-123"),))
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete")):
                     code, output = self._run("wor-123-fix-crash")
 
         self.assertEqual(code, 0)
         self.assertEqual(output, "Linear: WOR-123 (started) — next: /speckit.pr\n")
+
+    def test_configured_github_uncertainty_warns_on_stderr_and_keeps_stdout_context(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        result = {"diagnostics": [{"code": "observation_unknown", "severity": "warning", "message": "Authorization: Bearer secret", "path": "specs/006/tasks.md?token=secret", "line": 17}], "observation": {"outcome": "failed"}}
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value="main"), patch("spec_kit_linear.cli.run_push", return_value=result), redirect_stdout(output), redirect_stderr(errors):
+            code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual((code, output.getvalue()), (0, ""))
+        self.assertIn("GitHub observation failed", errors.getvalue())
+        self.assertIn("specs/006/tasks.md?token=[REDACTED]:17", errors.getvalue())
+        self.assertNotIn("secret", errors.getvalue())
+
+    def test_configured_partial_failure_warns_with_sanitized_evidence(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        error = AppError(
+            "write failed Authorization: Bearer secret-value", code=8, category="mutation",
+            diagnostics=[Diagnostic("mutation_failed", "WOR-1", "specs/006/tasks.md?token=secret", 23)],
+            apply_results=[ApplyResult(("ok",), (), 1, "id?token=secret-value", "issue.update", "WOR-1", (), "mutation", "unconfirmed")],
+        )
+        errors = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value="main"), patch("spec_kit_linear.cli.run_push", side_effect=error), redirect_stderr(errors):
+            code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual(code, 0)
+        self.assertIn("issue.update WOR-1", errors.getvalue())
+        self.assertIn("specs/006/tasks.md?token=[REDACTED]:23", errors.getvalue())
+        self.assertIn("failure mutation (unconfirmed)", errors.getvalue())
+        self.assertNotIn("secret-value", errors.getvalue())
 
 
 def _bash_payload(command: str) -> str:
@@ -1414,6 +1729,73 @@ class PostToolUseTests(CliTestCase):
                 code, output, run_push = self._run(stdin_text)
                 self.assertEqual((code, output), (0, ""))
                 run_push.assert_not_called()
+
+    def test_configured_partial_failure_warns_with_operation_and_sanitized_evidence(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        error = AppError(
+            "write failed Authorization: Bearer secret-value",
+            code=8,
+            category="mutation",
+            diagnostics=[Diagnostic("mutation_failed", "target?token=secret-value", "specs/006/tasks.md?token=secret-value", 31)],
+            apply_results=[ApplyResult(("ok",), (), 1, "id?api_key=secret-value", "issue.update", "WOR-1", ("later",), "mutation", "unconfirmed")],
+        )
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli.run_push", side_effect=error), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stdout(output), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        text = errors.getvalue()
+        self.assertEqual((code, output.getvalue()), (0, ""))
+        self.assertIn("issue.update WOR-1", text)
+        self.assertIn("specs/006/tasks.md?token=[REDACTED]:31", text)
+        self.assertIn("unattempted [later]", text)
+        self.assertNotIn("secret-value", text)
+
+    def test_disabled_hooks_and_successful_reconciliation_are_quiet(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": [{"code": "ok", "severity": "info", "message": "done"}]}), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stdout(output), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual((code, output.getvalue(), errors.getvalue()), (0, "", ""))
+
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        text = config_path.read_text(encoding="utf-8")
+        config_path.write_text(text.rsplit("hooks:\n", 1)[0] + "hooks:\n  lifecycle_enabled: false\n", encoding="utf-8")
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli.run_push", side_effect=AssertionError("disabled hook ran")), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stdout(output), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual((code, output.getvalue(), errors.getvalue()), (0, "", ""))
+
+    def test_main_manual_error_remains_nonzero(self) -> None:
+        error = AppError("manual failure", code=8, category="mutation")
+        with patch("spec_kit_linear.cli.run_push", side_effect=error):
+            code = main(["push", "--root", str(self.fixture_root)])
+        self.assertEqual(code, 8)
+
+    def test_configuration_io_error_is_nonblocking_for_post_tool_use(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.unlink()
+        config_path.mkdir()
+        errors = StringIO()
+        with patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual(code, 0)
+        self.assertIn("unexpected configured I/O error", errors.getvalue())
+
+    def test_detached_head_is_quiet_for_post_tool_use(self) -> None:
+        errors = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value=None), patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": []}), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual((code, errors.getvalue()), (0, ""))
+
+    def test_external_invalid_utf8_configuration_warns_for_post_tool_use(self) -> None:
+        external = Path(self.temporary.name) / "external.yml"
+        external.write_bytes(b"\xff")
+        (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
+        errors = StringIO()
+        with patch.dict(os.environ, {"SPECKIT_LINEAR_CONFIG": str(external)}), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual(code, 0)
+        self.assertIn("configuration", errors.getvalue())
+        self.assertNotIn("UnicodeDecodeError", errors.getvalue())
 
 
 if __name__ == "__main__":

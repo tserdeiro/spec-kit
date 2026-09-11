@@ -9,7 +9,8 @@ description: Report the local feature state and its Linear projection. Never wri
 bash .specify/extensions/linear/scripts/bash/run.sh status --current
 ```
 
-`status` uses GraphQL queries only. It renders one row per `Txxx` with its
+`status` uses GraphQL queries plus the same fresh paginated GitHub observation
+as `push`. It renders one row per `Txxx` with its
 local checkbox, the state derived from observable reality and what produced
 it (`checkbox`, `branch`, or `pr`), the remote Issue identifier, workflow
 state, and assignee (`—` where not applicable), plus any Issue living in the
@@ -21,5 +22,9 @@ bug or chore with its derived state, the observation and branch it came from,
 and the Issue's current title and state — or a note that no such Issue exists.
 The block is omitted when nothing was observed. `--json` exposes the same
 data as `status.task_rows`/`status.remote_only_issues`/`status.work_items`.
+Failed or incomplete observations render `UNKNOWN (unverified)` and preserve
+the remote state; they never substitute checkbox, branch, or partial PR
+evidence. Complete observations use draft → ready → merged precedence and the
+same lowest-number witness as `push`.
 
 Set exactly one of `LINEAR_API_KEY` or `LINEAR_OAUTH_ACCESS_TOKEN`.

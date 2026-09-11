@@ -9,7 +9,9 @@ from spec_kit_linear.allowlist import ALLOWED_INPUTS, PUSH_MUTATIONS
 from spec_kit_linear.bridge import merge_managed_block
 from spec_kit_linear.config import load_config, repository_binding
 from spec_kit_linear.errors import AppError, Diagnostic
-from spec_kit_linear.linear_client import RemoteBinding, RemoteIssue, RemoteProject
+from spec_kit_linear.credentials import Credentials
+from spec_kit_linear.linear_client import LinearClient, RemoteBinding, RemoteIssue, RemoteProject
+from spec_kit_linear.mutation_executor import LinearMutationExecutor
 from spec_kit_linear.parser import parse_feature
 from spec_kit_linear.planner import build_push_plan, snapshot_from_discovery
 from spec_kit_linear.projection import project_feature
@@ -17,6 +19,7 @@ from spec_kit_linear.reconciler import apply_plan
 from spec_kit_linear.remote_discovery import AdoptedResource, FeatureAdoption, RemoteDiscovery
 from spec_kit_linear.work_state import STATE_COMPLETED, STATE_REVIEW, STATE_STARTED, STATE_UNSTARTED, TaskWorkState
 from tests.support.fixtures import copy_consumer_fixture
+from tests.support.linear_transport import MemoryResponse, ScriptedOpener
 
 
 COMPLETED_STATE_ID = "77777777-7777-4777-8777-777777777777"
@@ -60,6 +63,20 @@ class _TimeoutUpdateTransport:
     def execute(self, operation: dict[str, object]) -> dict[str, object]:
         self.operations.append(copy.deepcopy(operation))
         raise AppError("simulated update response loss", code=8, category="transport", diagnostics=[])
+
+
+class _FailAfterSuccessTransport(_MemoryApplyTransport):
+    def execute(self, operation: dict[str, object]) -> dict[str, object]:
+        if len(self.operations) == 1:
+            super().execute(operation)
+            raise AppError("simulated later failure", code=8, category="mutation", diagnostics=[])
+        return super().execute(operation)
+
+
+class _RejectedTransport(_MemoryApplyTransport):
+    def execute(self, operation: dict[str, object]) -> dict[str, object]:
+        self.operations.append(copy.deepcopy(operation))
+        raise AppError("request rejected", code=6, category="mutation", diagnostics=[Diagnostic("mutation_rejected", "declined")])
 
 
 class PlannerApplyTests(unittest.TestCase):
@@ -124,7 +141,10 @@ class PlannerApplyTests(unittest.TestCase):
         return RemoteDiscovery(binding=self.binding, projects=(project,), features=(adoption,))
 
     def _push_plan(self, discovery: RemoteDiscovery | None = None) -> dict[str, object]:
-        return build_push_plan(self.desired, discovery or self._missing_discovery(), config=self.config)
+        return build_push_plan(self.desired, discovery or self._missing_discovery(), config=self.config, work_states=self._states_for(self.desired))
+
+    def _states_for(self, desired):
+        return {task.identity: TaskWorkState(STATE_COMPLETED if task.completed else STATE_UNSTARTED, "checkbox") for task in desired.feature.tasks}
 
     def test_plan_is_project_then_issues_and_only_uses_allowlisted_inputs(self) -> None:
         plan = self._push_plan()
@@ -181,7 +201,7 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertEqual(len(transport.operations), 4)
         # Idempotence: against the resulting remote state the next plan has
         # nothing left to do.
-        self.assertEqual(build_push_plan(self.desired, self._complete_discovery(), config=self.config)["operations"], [])
+        self.assertEqual(build_push_plan(self.desired, self._complete_discovery(), config=self.config, work_states=self._states_for(self.desired))["operations"], [])
 
     def test_a_stale_snapshot_fails_before_any_write(self) -> None:
         plan = self._push_plan()
@@ -194,6 +214,72 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 6)
         self.assertEqual(raised.exception.diagnostics[0].code, "snapshot_stale")
         self.assertEqual(transport.operations, [])
+
+    def test_initial_snapshot_failure_lists_every_operation_as_unattempted(self) -> None:
+        plan = self._push_plan()
+        calls = 0
+        def provider():
+            nonlocal calls
+            calls += 1
+            raise AppError("snapshot unavailable", code=8, category="transport", diagnostics=[])
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=provider, transport=_MemoryApplyTransport(copy.deepcopy(plan["snapshot"])))
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.unattempted_operation_ids, tuple(str(item["id"]) for item in plan["operations"]))
+
+    def test_mutation_rejection_is_rejected_but_was_attempted(self) -> None:
+        plan = self._push_plan()
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=lambda: copy.deepcopy(plan["snapshot"]), transport=_RejectedTransport(copy.deepcopy(plan["snapshot"])))
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.failure_status, "rejected")
+        self.assertNotIn(evidence.failed_operation_id, evidence.unattempted_operation_ids)
+
+    def test_real_linear_auth_and_rate_limit_errors_are_rejected_writes(self) -> None:
+        operation = {"id": "op", "kind": "project.create", "target": "feature:001", "input": {"id": str(uuid.uuid4()), "name": "x"}, "preconditions": {"absent": True}}
+        plan = {"snapshot": {"resources": []}, "operations": [operation]}
+        for status in (401, 403, 429):
+            with self.subTest(status=status):
+                client = LinearClient(Credentials("api", "secret"), endpoint="http://127.0.0.1/graphql", opener=ScriptedOpener([MemoryResponse({}, status=status)]), max_attempts=1, sleeper=lambda _delay: None, jitter=lambda _a, _b: 0.0)
+                with self.assertRaises(AppError) as raised:
+                    apply_plan(plan, snapshot_provider=lambda: {"resources": []}, transport=LinearMutationExecutor(client))
+                evidence = raised.exception.apply_results[0]
+                self.assertEqual(evidence.failure_status, "rejected")
+                self.assertEqual(evidence.applied_operation_ids, ())
+                self.assertEqual(evidence.recovered_operation_ids, ())
+
+    def test_real_executor_distinguishes_explicit_rejection_from_malformed_success(self) -> None:
+        operation = {"id": "op", "kind": "project.create", "target": "feature:001", "input": {"id": str(uuid.uuid4()), "name": "x"}, "preconditions": {"absent": True}}
+        plan = {"snapshot": {"resources": []}, "operations": [operation]}
+        for success, expected in ((False, "rejected"), (None, "unconfirmed"), ("missing", "unconfirmed")):
+            with self.subTest(success=success):
+                result = {} if success == "missing" else {"success": success}
+                response = MemoryResponse({"data": {"projectCreate": result}})
+                client = LinearClient(Credentials("api", "secret"), endpoint="http://127.0.0.1/graphql", opener=ScriptedOpener([response]), max_attempts=1)
+                with self.assertRaises(AppError) as raised:
+                    apply_plan(plan, snapshot_provider=lambda: {"resources": []}, transport=LinearMutationExecutor(client))
+                evidence = raised.exception.apply_results[0]
+                self.assertEqual(evidence.failure_status, expected)
+                self.assertEqual(evidence.applied_operation_ids, ())
+                self.assertEqual(evidence.recovered_operation_ids, ())
+
+    def test_known_graphql_invalid_input_is_a_rejected_write(self) -> None:
+        operation = {"id": "op", "kind": "project.create", "target": "feature:001", "input": {"id": str(uuid.uuid4()), "name": "x"}, "preconditions": {"absent": True}}
+        response = MemoryResponse({"errors": [{"message": "Argument Validation Error", "extensions": {"code": "INVALID_INPUT"}}], "data": None})
+        client = LinearClient(Credentials("api", "secret"), endpoint="http://127.0.0.1/graphql", opener=ScriptedOpener([response]), max_attempts=1)
+        with self.assertRaises(AppError) as raised:
+            apply_plan({"snapshot": {"resources": []}, "operations": [operation]}, snapshot_provider=lambda: {"resources": []}, transport=LinearMutationExecutor(client))
+        self.assertEqual(raised.exception.apply_results[0].failure_status, "rejected")
+
+    def test_postverification_failure_retains_all_confirmed_ids_without_failed_operation(self) -> None:
+        plan = self._push_plan()
+        transport = _MemoryApplyTransport(copy.deepcopy(plan["snapshot"]))
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=transport.provider, transport=transport, post_verify=lambda _snapshot: False)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.writes, len(plan["operations"]))
+        self.assertIsNone(evidence.failed_operation_id)
+        self.assertEqual(evidence.failure_phase, "postverification")
 
     def test_post_apply_visibility_failure_uses_code_10(self) -> None:
         plan = self._push_plan()
@@ -253,6 +339,74 @@ class PlannerApplyTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.category, "transport")
         self.assertEqual(len(transport.operations), 1)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.failure_status, "unconfirmed")
+        self.assertEqual(evidence.recovered_operation_ids, ())
+
+    def test_failure_after_success_retains_confirmed_and_unattempted_evidence(self) -> None:
+        plan = self._push_plan()
+        transport = _FailAfterSuccessTransport(copy.deepcopy(plan["snapshot"]))
+
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=transport.provider, transport=transport)
+
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.applied_operation_ids, (str(plan["operations"][0]["id"]),))
+        self.assertEqual(evidence.failed_operation_id, str(plan["operations"][1]["id"]))
+        self.assertEqual(evidence.failure_phase, "mutation")
+        self.assertEqual(evidence.failure_status, "unconfirmed")
+        self.assertEqual(evidence.unattempted_operation_ids, tuple(str(item["id"]) for item in plan["operations"][2:]))
+
+    def test_recovered_create_then_failure_retains_recovery(self) -> None:
+        plan = self._push_plan()
+        transport = _MemoryApplyTransport(copy.deepcopy(plan["snapshot"]), timeout_first_create=True)
+        original = transport.execute
+        def fail_after_recovery(operation):
+            if len(transport.operations) == 0:
+                return original(operation)
+            raise AppError("later failure", code=8, category="mutation", diagnostics=[])
+        transport.execute = fail_after_recovery
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=transport.provider, transport=transport)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.recovered_operation_ids, (str(plan["operations"][0]["id"]),))
+        self.assertEqual(evidence.failed_operation_id, str(plan["operations"][1]["id"]))
+
+    def test_snapshot_failure_before_second_mutation_keeps_current_unattempted(self) -> None:
+        plan = self._push_plan()
+        transport = _MemoryApplyTransport(copy.deepcopy(plan["snapshot"]))
+        calls = 0
+        def provider():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise AppError("precondition read failed", code=8, category="transport", diagnostics=[])
+            return transport.provider()
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=provider, transport=transport)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.applied_operation_ids, (str(plan["operations"][0]["id"]),))
+        self.assertEqual(evidence.unattempted_operation_ids, tuple(str(item["id"]) for item in plan["operations"][1:]))
+
+    def test_readback_failure_after_request_is_unconfirmed(self) -> None:
+        plan = self._push_plan()
+        class ReadbackTransport(_MemoryApplyTransport):
+            def execute(self, operation):
+                super().execute(operation)
+                return {}
+        transport = ReadbackTransport(copy.deepcopy(plan["snapshot"]))
+        calls = 0
+        def provider():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise AppError("readback failed", code=8, category="transport", diagnostics=[])
+            return transport.provider()
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=provider, transport=transport)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.failure_status, "unconfirmed")
+        self.assertEqual(evidence.failed_operation_id, str(plan["operations"][0]["id"]))
 
     def test_duplicate_or_backward_drift_fails_closed_with_no_mutation_path(self) -> None:
         drift = (Diagnostic("remote_marker_duplicate", "duplicate bridge marker"),)
@@ -275,12 +429,26 @@ class PlannerApplyTests(unittest.TestCase):
             "completed_state_id": "77777777-7777-4777-8777-777777777777",
             "open_state_id": "88888888-8888-4888-8888-888888888888",
         }
-        plan = build_push_plan(self.desired, self._complete_discovery(), config=config)
+        plan = build_push_plan(self.desired, self._complete_discovery(), config=config, work_states=self._states_for(self.desired))
 
         lifecycle_updates = {item["target"]: item["input"]["stateId"] for item in plan["operations"] if item["kind"] == "issue.lifecycle.update"}
         # T002 is the only checked task in the fixture.
         self.assertEqual(lifecycle_updates["task:001:T002"], "77777777-7777-4777-8777-777777777777")
         self.assertEqual(lifecycle_updates["task:001:T001"], "88888888-8888-4888-8888-888888888888")
+
+    def test_unknown_task_creation_omits_state_and_missing_mapping_fails(self) -> None:
+        unknown = {task.identity: TaskWorkState(None, "unknown") for task in self.desired.feature.tasks}
+        plan = build_push_plan(self.desired, self._missing_discovery(), config=self._lifecycle_config(), work_states=unknown)
+        creates = {operation["target"]: operation["input"] for operation in plan["operations"] if operation["kind"] == "issue.create"}
+        self.assertNotIn("stateId", creates["task:001:T001"])
+        self.assertNotIn("stateId", creates["task:001:T002"])
+        complete = self._states_for(self.desired)
+        settled = build_push_plan(self.desired, self._missing_discovery(), config=self._lifecycle_config(), work_states=complete)
+        settled_creates = {operation["target"]: operation["input"] for operation in settled["operations"] if operation["kind"] == "issue.create"}
+        self.assertEqual(settled_creates["task:001:T001"]["stateId"], OPEN_STATE_ID)
+        self.assertEqual(settled_creates["task:001:T002"]["stateId"], COMPLETED_STATE_ID)
+        with self.assertRaises(AppError):
+            build_push_plan(self.desired, self._missing_discovery(), config=self._lifecycle_config(), work_states={})
 
     def _lifecycle_config(self, **overrides: str) -> dict[str, object]:
         config = dict(self.config)
@@ -474,7 +642,7 @@ class PlannerApplyTests(unittest.TestCase):
         desired_without_summary = replace(self.desired, feature=replace(self.desired.feature, content_block="", summary_hash=""))
         complete = self._complete_discovery()
 
-        plan = build_push_plan(desired_without_summary, complete, config=self.config)
+        plan = build_push_plan(desired_without_summary, complete, config=self.config, work_states=self._states_for(desired_without_summary))
 
         update = next(item for item in plan["operations"] if item["kind"] == "project.update")
         self.assertEqual(update["input"]["content"], " ")
@@ -522,7 +690,7 @@ class PlannerApplyTests(unittest.TestCase):
         # what a ledger edit after the gate looks like (dogfooding entry 54).
         without_t003 = replace(self.desired, feature=replace(self.desired.feature, tasks=tuple(t for t in self.desired.feature.tasks if t.identity != "task:001:T003")))
 
-        plan = build_push_plan(without_t003, self._complete_discovery(), config=self.config)
+        plan = build_push_plan(without_t003, self._complete_discovery(), config=self.config, work_states=self._states_for(without_t003))
 
         archives = [item for item in plan["operations"] if item["kind"] == "issue.archive"]
         self.assertEqual([item["target"] for item in archives], ["task:001:T003"])
@@ -532,7 +700,7 @@ class PlannerApplyTests(unittest.TestCase):
     def test_a_task_returned_to_the_ledger_unarchives_its_issue(self) -> None:
         discovery = self._with_archived(self._complete_discovery(), "issue-task:001:T003", "2099-06-01T00:00:00Z")
 
-        plan = build_push_plan(self.desired, discovery, config=self.config)
+        plan = build_push_plan(self.desired, discovery, config=self.config, work_states=self._states_for(self.desired))
 
         self.assertEqual([(item["kind"], item["target"]) for item in plan["operations"]], [("issue.unarchive", "task:001:T003")])
         self.assertEqual(plan["operations"][0]["input"], {})
@@ -546,7 +714,7 @@ class PlannerApplyTests(unittest.TestCase):
         )
         discovery = replace(complete, projects=(replace(complete.projects[0], issues=complete.projects[0].issues + (human_issue,)),))
 
-        plan = build_push_plan(self.desired, discovery, config=self.config)
+        plan = build_push_plan(self.desired, discovery, config=self.config, work_states=self._states_for(self.desired))
 
         self.assertEqual(plan["operations"], [])
 
@@ -554,7 +722,7 @@ class PlannerApplyTests(unittest.TestCase):
         without_t003 = replace(self.desired, feature=replace(self.desired.feature, tasks=tuple(t for t in self.desired.feature.tasks if t.identity != "task:001:T003")))
         discovery = self._with_archived(self._complete_discovery(), "issue-task:001:T003", "2099-06-01T00:00:00Z")
 
-        plan = build_push_plan(without_t003, discovery, config=self.config)
+        plan = build_push_plan(without_t003, discovery, config=self.config, work_states=self._states_for(without_t003))
 
         self.assertEqual(plan["operations"], [])
 
