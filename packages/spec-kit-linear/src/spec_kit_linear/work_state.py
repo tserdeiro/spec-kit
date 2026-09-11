@@ -14,17 +14,17 @@ The map, highest priority first -- the first rule that applies wins:
 
 | observation                        | state       |
 | ---------------------------------- | ----------- |
-| a merged PR                        | `completed` |
-| an open, ready-for-review PR       | `review`    |
 | an open draft PR                   | `started`   |
+| an open, ready-for-review PR       | `review`    |
+| a merged PR                        | `completed` |
 | `[x]` checkbox (no live PR)        | `completed` |
 | a branch                           | `started`   |
 | nothing at all                     | `unstarted` |
 
-The pull request, when one is observable, is the fresher witness: the box
-is checked inside the task PR before `ready for review`, so while that PR
-is open the checkbox is a delivery in flight, not a completion. Merged --
-or with no live PR left -- the checkbox is the durable truth.
+The pull request, when one is observable, is the fresher witness: any open
+PR outranks merged history and a draft outranks ready PRs. Within one rank,
+the lowest PR number is the witness. Merged -- or with no live PR left -- the
+checkbox is the durable truth.
 
 Which Linear workflow state each of those four names writes to is
 configuration (`lifecycle` in `speckit-linear.yml`), resolved by `onboard`;
@@ -128,10 +128,9 @@ def derive_task_states(
 
 # A closed-but-unmerged pull request is not an observation about the task's
 # state at all -- the work was abandoned or superseded -- so it is ignored and
-# the branch (or the checkbox) decides. Among the rest the strongest signal
-# wins, which is also what makes stacked PRs behave: several PRs on one task
-# report the furthest that task has actually got.
-_PULL_REQUEST_RANK = {"merged": 3, "ready": 2, "draft": 1}
+# the branch (or the checkbox) decides. Among the rest open work outranks old
+# merges. A deterministic witness makes reports stable for same-rank PRs.
+_PULL_REQUEST_RANK = {"draft": 3, "ready": 2, "merged": 1}
 
 
 def strongest_pull_request(matches: Sequence[PullRequest]) -> PullRequest | None:
@@ -144,7 +143,14 @@ def strongest_pull_request(matches: Sequence[PullRequest]) -> PullRequest | None
     relevant = [item for item in matches if item.is_merged or item.is_open]
     if not relevant:
         return None
-    return max(relevant, key=lambda item: _PULL_REQUEST_RANK[_rank_key(item)])
+    return min(
+        relevant,
+        key=lambda item: (
+            -_PULL_REQUEST_RANK[_rank_key(item)],
+            item.number if item.number is not None else float("inf"),
+            item.head_branch,
+        ),
+    )
 
 
 def pull_request_state(pull_request: PullRequest) -> str:

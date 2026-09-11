@@ -61,13 +61,13 @@ Issues use Linear's default. Complete scanning and preservation form one slice.
 Equivalent inputs choose the same PR witness.
 **Independent evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_work_state.py packages/spec-kit-linear/tests/unit/test_work_items.py packages/spec-kit-linear/tests/unit/test_cli.py -q` -> every FR-003/FR-004 combination matches for tasks, bugs, and chores.
 
-- [ ] T003 [US1] Make remaining open work determine state in packages/spec-kit-linear/src/spec_kit_linear/work_state.py
+- [x] T003 [US1] Make remaining open work determine state in packages/spec-kit-linear/src/spec_kit_linear/work_state.py
   - **Traces**: FR-003, FR-004, FR-007, SC-001, C-001; plan D3; outcome: shared selector ranks draft before ready before merged, chooses the lowest PR number within a rank, and ignores closed/unmerged PRs. Test reordered/repeated evidence, merged+draft, merged+ready, draft+ready, all-ready, and complete-empty cases; checked/unchecked tasks, branch-only bugs/chores, unrelated feature/task names, and a remotely Done item returning to In Progress or In Review. Assert the PR witness and next action alongside state.
   - **Depends on**: T002
   - **Boundaries**: change `packages/spec-kit-linear/src/spec_kit_linear/{work_state,work_items}.py` and `packages/spec-kit-linear/tests/unit/{test_work_state,test_work_items,test_cli}.py`; preserve complete-observation gating and exact branch associations.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_work_state.py packages/spec-kit-linear/tests/unit/test_work_items.py packages/spec-kit-linear/tests/unit/test_cli.py -q` -> no open item is Done, no draft item is entirely reviewable, and permutations yield identical state/witness.
   - **Delivery**: single PR (~170 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR [#121](https://github.com/tserdeiro/spec-kit/pull/121); exact work-state/work-item/CLI suite: 153 passed, 141 subtests; historical merge plus open work yields correct state, witness and next action; `git diff --check` clean. Final candidate review required before ready.
 
 ## Phase 3: User Story 3 - Keep all relevant work visible at scale (P2)
 

@@ -658,6 +658,20 @@ class WorkStateTests(CliTestCase):
         self.assertEqual(updates["task:001:T001"], REVIEW_STATE_ID)
         self.assertEqual(updates["task:001:T003"], STARTED_STATE_ID)
 
+    def test_status_reopens_remote_done_from_open_work_and_reports_next_action(self) -> None:
+        self._configure_lifecycle()
+        base = _matching_remote_project(self._desired())
+        project = replace(base, issues=tuple(replace(issue, state_id=COMPLETED_STATE_ID, state_name="Done") for issue in base.issues))
+        for draft, expected_state, expected_next in ((True, "started", "/speckit.code-review 17"), (False, "review", "wait for the human merge")):
+            with self.subTest(draft=draft):
+                scan = PullRequestScan("complete", (PullRequest("001-T001-old", False, "MERGED", 3), PullRequest("001-T001", draft, "OPEN", 17)))
+                with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((project,))), patch("spec_kit_linear.cli.known_branches", return_value=()), patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan):
+                    code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                    push_code, push_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+                row = next(row for row in payload["status"]["task_rows"][0]["tasks"] if row["task"] == "T001")
+                self.assertEqual((code, row["derived_state"], row["next"]), (0, expected_state, expected_next))
+                self.assertEqual((push_code, self._lifecycle_updates(push_payload)["task:001:T001"]), (0, STARTED_STATE_ID if draft else REVIEW_STATE_ID))
+
     def test_push_degrades_to_the_started_state_when_the_team_has_no_review_state(self) -> None:
         self._configure_lifecycle(review_state_id="")
 
