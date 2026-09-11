@@ -405,8 +405,25 @@ Published ZIPs and extension manifests were verified against their
 checksums and `versions.lock.yml`; bundle conformance passed. T023 has
 ten Claude Code headless sessions with the context line present in all ten.
 Remaining acceptance: live Codex execution and observed reconciliation in
-a test Linear project. Opening the upstream PRs and confirming the FR-016
-scope decision also remain pending; publication does not close them.
+a test Linear project. Opening the upstream PRs remains pending; publication
+does not close that acceptance. FR-016's scope was resolved on 2026-09-11:
+preserve installed integrations and their settings; keep upstream's active-only
+command registration and this distribution's doctor mirror.
+
+### Workflow reliability (agreed 2026-09-11)
+
+The next round, designed in [`reliability.md`](reliability.md) (Spanish,
+for the consuming team) with one file per phase under
+[`reliability/`](reliability/): a Linear derivation that never invents a
+completion, a resumable loop with a verifiable `ready`, a review that can
+close, native guarantees in Git and GitHub, a guided product path,
+one-command install and update, and multi-developer coordination. Phase 0
+runs without spec-kit: the consumer upgrade landed as #116 (dogfooding
+entry 102); the upstream patch series 0001–0009 is prepared and verified
+under [`upstream/`](upstream/README.md), with 0003/0004 replaced by the
+portable hook resolver design and parked until this round closes; the
+round's decisions were recorded on 2026-09-11. Round names and `specs/`
+numbers are independent. Releases keeps its own design.
 
 ## Releases
 
