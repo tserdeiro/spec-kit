@@ -24,7 +24,7 @@ from .errors import Diagnostic
 
 
 GH_JSON_FIELDS = "number,headRefName,isDraft,state"
-GH_PULL_REQUEST_LIMIT = "200"
+GH_API_VERSION = "2022-11-28"
 GH_TIMEOUT_SECONDS = 30
 
 
@@ -51,17 +51,17 @@ class PullRequest:
 class PullRequestScan:
     """Every pull request `gh` reported, plus whether the scan happened at all.
 
-    ``available`` is false whenever the derivation must proceed without
-    GitHub; ``diagnostics`` then carries exactly one warning explaining why.
+    ``outcome`` is always ``complete``, ``failed``, or ``incomplete``;
+    diagnostics explain every non-complete result.
     """
 
+    outcome: str
     pull_requests: tuple[PullRequest, ...] = ()
-    available: bool = True
     diagnostics: tuple[Diagnostic, ...] = ()
 
 
 def scan_pull_requests(root: Path) -> PullRequestScan:
-    """List the repository's pull requests, degrading to an empty scan."""
+    """List every repository pull request, preserving uncertainty."""
 
     if shutil.which("gh") is None:
         return _unavailable(
@@ -70,7 +70,11 @@ def scan_pull_requests(root: Path) -> PullRequestScan:
         )
     try:
         result = subprocess.run(
-            ["gh", "pr", "list", "--state", "all", "--limit", GH_PULL_REQUEST_LIMIT, "--json", GH_JSON_FIELDS],
+            [
+                "gh", "api", "repos/{owner}/{repo}/pulls", "--paginate", "--slurp",
+                "--method", "GET", "-H", f"X-GitHub-Api-Version: {GH_API_VERSION}",
+                "-f", "state=all", "-f", "per_page=100",
+            ],
             cwd=str(root),
             check=False,
             text=True,
@@ -86,10 +90,13 @@ def scan_pull_requests(root: Path) -> PullRequestScan:
             "github_cli_unavailable",
             "`gh pr list` failed (no GitHub remote, or not authenticated); pull-request states are not derived. Run `gh auth login` in this repository",
         )
-    pull_requests = _parse(result.stdout)
+    pull_requests = _parse_pages(result.stdout)
     if pull_requests is None:
-        return _unavailable("github_cli_malformed", "`gh pr list --json` returned output this extension could not read; pull-request states are not derived")
-    return PullRequestScan(pull_requests=pull_requests)
+        return PullRequestScan(
+            outcome="incomplete",
+            diagnostics=(Diagnostic("github_cli_malformed", "`gh api` returned output this extension could not read; pull-request states are not derived", severity="warning"),),
+        )
+    return PullRequestScan("complete", pull_requests)
 
 
 def cli_diagnostic(root: Path, *, offline: bool) -> Diagnostic:
@@ -112,26 +119,46 @@ def cli_diagnostic(root: Path, *, offline: bool) -> Diagnostic:
     return Diagnostic("github_cli", "`gh` is installed and authenticated", severity="info")
 
 
-def _parse(payload: str) -> tuple[PullRequest, ...] | None:
+def _parse_pages(payload: str) -> tuple[PullRequest, ...] | None:
     try:
         data = json.loads(payload)
     except (json.JSONDecodeError, ValueError):
         return None
-    if not isinstance(data, list):
+    if not isinstance(data, list) or not data or any(not isinstance(page, list) for page in data):
         return None
     pull_requests: list[PullRequest] = []
-    for item in data:
-        if not isinstance(item, dict):
-            return None
-        number = item.get("number")
-        head_branch = item.get("headRefName")
-        is_draft = item.get("isDraft")
-        state = item.get("state")
-        if not isinstance(number, int) or not isinstance(head_branch, str) or not isinstance(is_draft, bool) or not isinstance(state, str):
-            return None
-        pull_requests.append(PullRequest(head_branch=head_branch, is_draft=is_draft, state=state, number=number))
+    by_number: dict[int, PullRequest] = {}
+    for page in data:
+        for item in page:
+            if not isinstance(item, dict):
+                return None
+            number = item.get("number")
+            head = item.get("head")
+            head_branch = head.get("ref") if isinstance(head, dict) else None
+            is_draft = item.get("draft")
+            state = item.get("state")
+            merged_at = item.get("merged_at")
+            if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
+                return None
+            if not isinstance(head_branch, str) or not head_branch:
+                return None
+            if not isinstance(is_draft, bool) or state not in ("open", "closed"):
+                return None
+            if merged_at is not None and (not isinstance(merged_at, str) or not merged_at):
+                return None
+            if merged_at is not None and state != "closed":
+                return None
+            if merged_at is not None:
+                state = "MERGED"
+            observed = PullRequest(head_branch=head_branch, is_draft=is_draft, state=state, number=number)
+            previous = by_number.get(number)
+            if previous is not None and previous != observed:
+                return None
+            if previous is None:
+                by_number[number] = observed
+                pull_requests.append(observed)
     return tuple(pull_requests)
 
 
 def _unavailable(code: str, message: str) -> PullRequestScan:
-    return PullRequestScan(pull_requests=(), available=False, diagnostics=(Diagnostic(code, message, severity="warning"),))
+    return PullRequestScan("failed", diagnostics=(Diagnostic(code, message, severity="warning"),))

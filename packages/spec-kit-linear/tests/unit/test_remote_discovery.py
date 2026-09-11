@@ -9,6 +9,7 @@ from spec_kit_linear.errors import AppError
 from spec_kit_linear.linear_client import LinearClient, RemoteIssue, RemoteProject
 from spec_kit_linear.parser import parse_feature
 from spec_kit_linear.planner import build_push_plan
+from spec_kit_linear.work_state import TaskWorkState
 from spec_kit_linear.projection import project_feature
 from spec_kit_linear.remote_discovery import _unmanaged_issues, discover_and_adopt
 from spec_kit_linear.reporting import status_report
@@ -305,7 +306,10 @@ class RemoteDiscoveryTests(unittest.TestCase):
         self.assertEqual(unmanaged.assignee_name, "Jane Doe")
         self.assertEqual(unmanaged.url, "https://linear.app/example/issue/WOR-99")
 
-        plan = build_push_plan(self.desired, discovery)
+        plan = build_push_plan(
+            self.desired, discovery,
+            work_states={task.identity: TaskWorkState("unstarted", "none") for task in self.desired.feature.tasks},
+        )
 
         # Structural guarantee, not a fragile string search: build_push_plan
         # (planner.py) only ever reads `.project`/`.tasks` off a

@@ -38,7 +38,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .domain import DesiredState
-from .github import PullRequest
+from .github import PullRequest, PullRequestScan
 
 
 STATE_COMPLETED = "completed"
@@ -50,6 +50,7 @@ SOURCE_CHECKBOX = "checkbox"
 SOURCE_PULL_REQUEST = "pr"
 SOURCE_BRANCH = "branch"
 SOURCE_NONE = "none"
+SOURCE_UNKNOWN = "unknown"
 
 
 def branch_pattern(feature: str, task: str) -> re.Pattern[str]:
@@ -67,7 +68,7 @@ def branch_pattern(feature: str, task: str) -> re.Pattern[str]:
 class TaskWorkState:
     """One task's derived state, with the observation that produced it."""
 
-    state: str
+    state: str | None
     source: str
     detail: str | None = None
     # The observed pull request's own number (D6, T013): the one extra fact
@@ -85,12 +86,14 @@ def derive_task_state(
     *,
     completed: bool,
     branches: Sequence[str] = (),
-    pull_requests: Sequence[PullRequest] = (),
+    scan: PullRequestScan,
 ) -> TaskWorkState:
     """Apply the priority map above to one task."""
 
+    if scan.outcome != "complete":
+        return TaskWorkState(None, SOURCE_UNKNOWN, "pull-request observation is incomplete")
     pattern = branch_pattern(feature, task)
-    pull_request = _strongest_pull_request(pattern, pull_requests)
+    pull_request = _strongest_pull_request(pattern, scan.pull_requests)
     if pull_request is not None:
         return TaskWorkState(pull_request_state(pull_request), SOURCE_PULL_REQUEST, pull_request.head_branch, pull_request.number)
     if completed:
@@ -105,7 +108,7 @@ def derive_task_states(
     desired_states: Sequence[DesiredState],
     *,
     branches: Sequence[str] = (),
-    pull_requests: Sequence[PullRequest] = (),
+    scan: PullRequestScan,
 ) -> dict[str, TaskWorkState]:
     """Derive every selected feature's tasks, keyed by `DesiredTask.identity`."""
 
@@ -118,7 +121,7 @@ def derive_task_states(
                 task.identity.rsplit(":", 1)[-1],
                 completed=task.completed,
                 branches=branches,
-                pull_requests=pull_requests,
+                scan=scan,
             )
     return derived
 

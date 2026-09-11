@@ -68,7 +68,7 @@ def build_push_plan(
     discovery: RemoteDiscovery,
     *,
     config: Mapping[str, object] | None = None,
-    work_states: Mapping[str, TaskWorkState] | None = None,
+    work_states: Mapping[str, TaskWorkState],
 ) -> dict[str, object]:
     """Diff one feature against an adopted, versioned remote snapshot.
 
@@ -471,14 +471,17 @@ _LIFECYCLE_FIELDS_BY_STATE: dict[str, tuple[str, ...]] = {
 }
 
 
-def _task_state(work_states: Mapping[str, TaskWorkState] | None, task: DesiredTask) -> str:
-    derived = (work_states or {}).get(task.identity)
-    if derived is not None:
-        return derived.state
-    return STATE_COMPLETED if task.completed else STATE_UNSTARTED
+def _task_state(work_states: Mapping[str, TaskWorkState], task: DesiredTask) -> str | None:
+    if task.identity not in work_states:
+        raise AppError(
+            f"missing derived state for task {task.identity}",
+            code=6,
+            category="observation",
+        )
+    return work_states[task.identity].state
 
 
-def _desired_state_id(config: Mapping[str, object] | None, state: str) -> str | None:
+def _desired_state_id(config: Mapping[str, object] | None, state: str | None) -> str | None:
     """Resolve a derived state to a configured Linear workflow state id.
 
     ``None`` -- an unconfigured `lifecycle` section, or a state the Team has

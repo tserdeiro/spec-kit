@@ -124,7 +124,10 @@ class PlannerApplyTests(unittest.TestCase):
         return RemoteDiscovery(binding=self.binding, projects=(project,), features=(adoption,))
 
     def _push_plan(self, discovery: RemoteDiscovery | None = None) -> dict[str, object]:
-        return build_push_plan(self.desired, discovery or self._missing_discovery(), config=self.config)
+        return build_push_plan(self.desired, discovery or self._missing_discovery(), config=self.config, work_states=self._states_for(self.desired))
+
+    def _states_for(self, desired):
+        return {task.identity: TaskWorkState(STATE_COMPLETED if task.completed else STATE_UNSTARTED, "checkbox") for task in desired.feature.tasks}
 
     def test_plan_is_project_then_issues_and_only_uses_allowlisted_inputs(self) -> None:
         plan = self._push_plan()
@@ -181,7 +184,7 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertEqual(len(transport.operations), 4)
         # Idempotence: against the resulting remote state the next plan has
         # nothing left to do.
-        self.assertEqual(build_push_plan(self.desired, self._complete_discovery(), config=self.config)["operations"], [])
+        self.assertEqual(build_push_plan(self.desired, self._complete_discovery(), config=self.config, work_states=self._states_for(self.desired))["operations"], [])
 
     def test_a_stale_snapshot_fails_before_any_write(self) -> None:
         plan = self._push_plan()
@@ -275,7 +278,7 @@ class PlannerApplyTests(unittest.TestCase):
             "completed_state_id": "77777777-7777-4777-8777-777777777777",
             "open_state_id": "88888888-8888-4888-8888-888888888888",
         }
-        plan = build_push_plan(self.desired, self._complete_discovery(), config=config)
+        plan = build_push_plan(self.desired, self._complete_discovery(), config=config, work_states=self._states_for(self.desired))
 
         lifecycle_updates = {item["target"]: item["input"]["stateId"] for item in plan["operations"] if item["kind"] == "issue.lifecycle.update"}
         # T002 is the only checked task in the fixture.
@@ -474,7 +477,7 @@ class PlannerApplyTests(unittest.TestCase):
         desired_without_summary = replace(self.desired, feature=replace(self.desired.feature, content_block="", summary_hash=""))
         complete = self._complete_discovery()
 
-        plan = build_push_plan(desired_without_summary, complete, config=self.config)
+        plan = build_push_plan(desired_without_summary, complete, config=self.config, work_states=self._states_for(desired_without_summary))
 
         update = next(item for item in plan["operations"] if item["kind"] == "project.update")
         self.assertEqual(update["input"]["content"], " ")
@@ -522,7 +525,7 @@ class PlannerApplyTests(unittest.TestCase):
         # what a ledger edit after the gate looks like (dogfooding entry 54).
         without_t003 = replace(self.desired, feature=replace(self.desired.feature, tasks=tuple(t for t in self.desired.feature.tasks if t.identity != "task:001:T003")))
 
-        plan = build_push_plan(without_t003, self._complete_discovery(), config=self.config)
+        plan = build_push_plan(without_t003, self._complete_discovery(), config=self.config, work_states=self._states_for(without_t003))
 
         archives = [item for item in plan["operations"] if item["kind"] == "issue.archive"]
         self.assertEqual([item["target"] for item in archives], ["task:001:T003"])
@@ -532,7 +535,7 @@ class PlannerApplyTests(unittest.TestCase):
     def test_a_task_returned_to_the_ledger_unarchives_its_issue(self) -> None:
         discovery = self._with_archived(self._complete_discovery(), "issue-task:001:T003", "2099-06-01T00:00:00Z")
 
-        plan = build_push_plan(self.desired, discovery, config=self.config)
+        plan = build_push_plan(self.desired, discovery, config=self.config, work_states=self._states_for(self.desired))
 
         self.assertEqual([(item["kind"], item["target"]) for item in plan["operations"]], [("issue.unarchive", "task:001:T003")])
         self.assertEqual(plan["operations"][0]["input"], {})
@@ -546,7 +549,7 @@ class PlannerApplyTests(unittest.TestCase):
         )
         discovery = replace(complete, projects=(replace(complete.projects[0], issues=complete.projects[0].issues + (human_issue,)),))
 
-        plan = build_push_plan(self.desired, discovery, config=self.config)
+        plan = build_push_plan(self.desired, discovery, config=self.config, work_states=self._states_for(self.desired))
 
         self.assertEqual(plan["operations"], [])
 
@@ -554,7 +557,7 @@ class PlannerApplyTests(unittest.TestCase):
         without_t003 = replace(self.desired, feature=replace(self.desired.feature, tasks=tuple(t for t in self.desired.feature.tasks if t.identity != "task:001:T003")))
         discovery = self._with_archived(self._complete_discovery(), "issue-task:001:T003", "2099-06-01T00:00:00Z")
 
-        plan = build_push_plan(without_t003, discovery, config=self.config)
+        plan = build_push_plan(without_t003, discovery, config=self.config, work_states=self._states_for(without_t003))
 
         self.assertEqual(plan["operations"], [])
 
