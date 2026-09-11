@@ -1052,7 +1052,7 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
     operations = [operation for plan in plans for operation in plan["operations"]] + list(work_item_plan["operations"])
     observation = observation_report(scan, desired_states, work_items)
     if scan.outcome != "complete" and any(operation.get("kind") == "issue.create" for operation in operations):
-        diagnostics.append(Diagnostic("linear_default_state", "uncertain tasks are created without a derived state; Linear will apply its configured default workflow state", severity="info"))
+        diagnostics.append(Diagnostic("linear_default_state", "uncertain tasks are created without a derived state; Linear will apply its configured default workflow state", severity="warning"))
 
     apply_changes = bool(args.apply)
     if args.hook and not args.dry_run:

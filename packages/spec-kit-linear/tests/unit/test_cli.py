@@ -682,6 +682,13 @@ class WorkStateTests(CliTestCase):
         self.assertEqual(codes.count("github_cli_missing"), 1)
         self.assertEqual(self._lifecycle_updates(payload), {})
 
+    def test_human_uncertain_creation_preview_explains_the_linear_default(self) -> None:
+        scan = PullRequestScan("incomplete", diagnostics=(Diagnostic("github_cli_unavailable", "GitHub unavailable", severity="warning"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()), patch("spec_kit_linear.cli.known_branches", return_value=()), patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan):
+            code, output = self._invoke_text(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run"])
+        self.assertEqual(code, 0)
+        self.assertIn("Linear will apply its configured default workflow state", output)
+
     def test_a_branch_that_only_looks_like_the_convention_moves_nothing(self) -> None:
         self._configure_lifecycle()
 

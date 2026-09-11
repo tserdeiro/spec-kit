@@ -53,7 +53,7 @@ Issues use Linear's default. Complete scanning and preservation form one slice.
   - **Boundaries**: change `packages/spec-kit-linear/src/spec_kit_linear/{reporting,cli,work_state}.py` and `packages/spec-kit-linear/tests/unit/{test_reporting,test_cli,test_work_state}.py`; preserve T001's scan/mutation contracts and remote-owned defaults.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_reporting.py packages/spec-kit-linear/tests/unit/test_cli.py packages/spec-kit-linear/tests/unit/test_work_state.py -q` -> reports distinguish unknown from defaults, name affected scope, and recovery plus an unchanged repeat performs only the required transition.
   - **Delivery**: single PR (~200 authored lines)
-  - **Completion evidence**: PR [#120](https://github.com/tserdeiro/spec-kit/pull/120); focused reporting/CLI/work-state suite: 143 passed, 104 subtests; configured Backlog/Triage creation and recovery converge with zero repeat operations; `git diff --check` clean. Final candidate review required before ready.
+  - **Completion evidence**: PR [#120](https://github.com/tserdeiro/spec-kit/pull/120); focused reporting/CLI/work-state suite: 145 passed, 104 subtests; configured Backlog/Triage creation and recovery converge with zero repeat operations; `git diff --check` clean. Final candidate review required before ready.
 
 ## Phase 2: User Story 1 - Trust the state of ongoing work (P1)
 
