@@ -248,6 +248,21 @@ class PlannerApplyTests(unittest.TestCase):
                 self.assertEqual(evidence.applied_operation_ids, ())
                 self.assertEqual(evidence.recovered_operation_ids, ())
 
+    def test_real_executor_distinguishes_explicit_rejection_from_malformed_success(self) -> None:
+        operation = {"id": "op", "kind": "project.create", "target": "feature:001", "input": {"id": str(uuid.uuid4()), "name": "x"}, "preconditions": {"absent": True}}
+        plan = {"snapshot": {"resources": []}, "operations": [operation]}
+        for success, expected in ((False, "rejected"), (None, "unconfirmed"), ("missing", "unconfirmed")):
+            with self.subTest(success=success):
+                result = {} if success == "missing" else {"success": success}
+                response = MemoryResponse({"data": {"projectCreate": result}})
+                client = LinearClient(Credentials("api", "secret"), endpoint="http://127.0.0.1/graphql", opener=ScriptedOpener([response]), max_attempts=1)
+                with self.assertRaises(AppError) as raised:
+                    apply_plan(plan, snapshot_provider=lambda: {"resources": []}, transport=LinearMutationExecutor(client))
+                evidence = raised.exception.apply_results[0]
+                self.assertEqual(evidence.failure_status, expected)
+                self.assertEqual(evidence.applied_operation_ids, ())
+                self.assertEqual(evidence.recovered_operation_ids, ())
+
     def test_postverification_failure_retains_all_confirmed_ids_without_failed_operation(self) -> None:
         plan = self._push_plan()
         transport = _MemoryApplyTransport(copy.deepcopy(plan["snapshot"]))

@@ -61,8 +61,10 @@ class LinearMutationExecutor:
         result = data.get(result_key)
         if not isinstance(result, Mapping):
             raise _mutation_error("mutation_response", "Linear mutation response is missing its result")
-        if result.get("success") is not True:
+        if result.get("success") is False:
             raise _mutation_error("mutation_rejected", "Linear mutation did not report success")
+        if result.get("success") is not True:
+            raise _mutation_error("mutation_response", "Linear mutation response has no valid success flag")
         resource = result.get(resource_key)
         if resource is not None and not isinstance(resource, Mapping):
             raise _mutation_error("mutation_response", "Linear mutation resource must be an object when present")
