@@ -1256,10 +1256,7 @@ def _emit_hook_result_warning(payload: Mapping[str, object]) -> None:
                 continue
             safe = redact_structure(diagnostic)
             if isinstance(safe, Mapping):
-                sys.stderr.write(
-                    f"warning: reconciliation {safe.get('code', 'failure')}: "
-                    f"{redact_text(safe.get('message', 'operation failed'))}\n"
-                )
+                sys.stderr.write(f"warning: reconciliation {_format_diagnostic_warning(safe)}\n")
     observation = payload.get("observation")
     if isinstance(observation, Mapping) and observation.get("outcome") != "complete":
         outcome = redact_text(observation.get("outcome", "unknown"))
@@ -1272,15 +1269,22 @@ def _emit_hook_error_warning(error: AppError) -> None:
     for diagnostic in error.diagnostics:
         safe = redact_structure(diagnostic.as_dict())
         if isinstance(safe, Mapping):
-            sys.stderr.write(
-                f"warning: reconciliation {safe.get('code', 'failure')}: "
-                f"{redact_text(safe.get('message', 'operation failed'))}\n"
-            )
+            sys.stderr.write(f"warning: reconciliation {_format_diagnostic_warning(safe)}\n")
     for result in error.apply_results:
         line = _format_apply_evidence(result)
         if line:
             sys.stderr.write(f"warning: reconciliation partial failure: {line}\n")
     sys.stderr.flush()
+
+
+def _format_diagnostic_warning(diagnostic: Mapping[str, object]) -> str:
+    location = ""
+    if diagnostic.get("path") is not None:
+        location = f" ({redact_text(diagnostic['path'])}"
+        if diagnostic.get("line") is not None:
+            location += f":{redact_text(diagnostic['line'])}"
+        location += ")"
+    return f"{diagnostic.get('code', 'failure')}{location}: {redact_text(diagnostic.get('message', 'operation failed'))}"
 
 
 def _format_apply_evidence(result: object) -> str | None:

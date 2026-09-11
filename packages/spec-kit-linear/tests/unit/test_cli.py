@@ -1566,19 +1566,20 @@ class SessionStartTests(CliTestCase):
 
     def test_configured_github_uncertainty_warns_on_stderr_and_keeps_stdout_context(self) -> None:
         self._set_hooks(lifecycle_enabled=True)
-        result = {"diagnostics": [{"code": "observation_unknown", "severity": "warning", "message": "Authorization: Bearer secret"}], "observation": {"outcome": "failed"}}
+        result = {"diagnostics": [{"code": "observation_unknown", "severity": "warning", "message": "Authorization: Bearer secret", "path": "specs/006/tasks.md?token=secret", "line": 17}], "observation": {"outcome": "failed"}}
         output, errors = StringIO(), StringIO()
         with patch("spec_kit_linear.cli._current_branch", return_value="main"), patch("spec_kit_linear.cli.run_push", return_value=result), redirect_stdout(output), redirect_stderr(errors):
             code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
         self.assertEqual((code, output.getvalue()), (0, ""))
         self.assertIn("GitHub observation failed", errors.getvalue())
+        self.assertIn("specs/006/tasks.md?token=[REDACTED]:17", errors.getvalue())
         self.assertNotIn("secret", errors.getvalue())
 
     def test_configured_partial_failure_warns_with_sanitized_evidence(self) -> None:
         self._set_hooks(lifecycle_enabled=True)
         error = AppError(
             "write failed Authorization: Bearer secret-value", code=8, category="mutation",
-            diagnostics=[Diagnostic("mutation_failed", "WOR-1")],
+            diagnostics=[Diagnostic("mutation_failed", "WOR-1", "specs/006/tasks.md?token=secret", 23)],
             apply_results=[ApplyResult(("ok",), (), 1, "id?token=secret-value", "issue.update", "WOR-1", (), "mutation", "unconfirmed")],
         )
         errors = StringIO()
@@ -1586,6 +1587,7 @@ class SessionStartTests(CliTestCase):
             code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
         self.assertEqual(code, 0)
         self.assertIn("issue.update WOR-1", errors.getvalue())
+        self.assertIn("specs/006/tasks.md?token=[REDACTED]:23", errors.getvalue())
         self.assertIn("failure mutation (unconfirmed)", errors.getvalue())
         self.assertNotIn("secret-value", errors.getvalue())
 
@@ -1705,7 +1707,7 @@ class PostToolUseTests(CliTestCase):
             "write failed Authorization: Bearer secret-value",
             code=8,
             category="mutation",
-            diagnostics=[Diagnostic("mutation_failed", "target?token=secret-value")],
+            diagnostics=[Diagnostic("mutation_failed", "target?token=secret-value", "specs/006/tasks.md?token=secret-value", 31)],
             apply_results=[ApplyResult(("ok",), (), 1, "id?api_key=secret-value", "issue.update", "WOR-1", ("later",), "mutation", "unconfirmed")],
         )
         output, errors = StringIO(), StringIO()
@@ -1714,6 +1716,7 @@ class PostToolUseTests(CliTestCase):
         text = errors.getvalue()
         self.assertEqual((code, output.getvalue()), (0, ""))
         self.assertIn("issue.update WOR-1", text)
+        self.assertIn("specs/006/tasks.md?token=[REDACTED]:31", text)
         self.assertIn("unattempted [later]", text)
         self.assertNotIn("secret-value", text)
 
