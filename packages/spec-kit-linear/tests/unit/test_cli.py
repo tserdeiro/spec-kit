@@ -92,11 +92,12 @@ class _FakeClient:
 class _ApplyingClient(_FakeClient):
     """Materializes creates so a second discovery reflects the applied state."""
 
-    def __init__(self, projects: tuple[RemoteProject, ...] = ()) -> None:
+    def __init__(self, projects: tuple[RemoteProject, ...] = (), *, default_state: str = "Backlog") -> None:
         super().__init__(projects)
         self.mutations: list[str] = []
         self._created_project: RemoteProject | None = None
         self._created_issues: list[RemoteIssue] = []
+        self.default_state = default_state
 
     def discover_projects(self, _project_label_id: str) -> tuple[RemoteProject, ...]:
         if self._created_project is None:
@@ -107,7 +108,7 @@ class _ApplyingClient(_FakeClient):
         self.mutations.append(operation_kind)
         input_values = variables.get("input")
         assert isinstance(input_values, dict)
-        remote_id = str(input_values["id"])
+        remote_id = str(variables.get("id") or input_values.get("id"))
         if operation_kind == "project.create":
             self._created_project = RemoteProject(
                 id=remote_id,
@@ -121,6 +122,7 @@ class _ApplyingClient(_FakeClient):
             )
             return {"projectCreate": {"success": True, "project": {"id": remote_id}}}
         if operation_kind == "issue.create":
+            default_state = f"state-{self.default_state.lower()}" if "stateId" not in input_values else input_values["stateId"]
             self._created_issues.append(
                 RemoteIssue(
                     id=remote_id,
@@ -132,10 +134,16 @@ class _ApplyingClient(_FakeClient):
                     parent_id=None,
                     assignee_id=input_values.get("assigneeId"),
                     label_ids=(),
-                    state_id=input_values.get("stateId"),
+                    state_id=default_state,
+                    state_name=self.default_state if "stateId" not in input_values else None,
                 )
             )
             return {"issueCreate": {"success": True, "issue": {"id": remote_id}}}
+        if operation_kind == "issue.lifecycle.update":
+            remote_id = str(variables["id"])
+            state_id = str(variables["input"]["stateId"])
+            self._created_issues[:] = [replace(issue, state_id=state_id) if issue.id == remote_id else issue for issue in self._created_issues]
+            return {"issueUpdate": {"success": True, "issue": {"id": remote_id}}}
         raise AssertionError(f"unexpected mutation kind: {operation_kind}")
 
 
@@ -674,6 +682,13 @@ class WorkStateTests(CliTestCase):
         self.assertEqual(codes.count("github_cli_missing"), 1)
         self.assertEqual(self._lifecycle_updates(payload), {})
 
+    def test_human_uncertain_creation_preview_explains_the_linear_default(self) -> None:
+        scan = PullRequestScan("incomplete", diagnostics=(Diagnostic("github_cli_unavailable", "GitHub unavailable", severity="warning"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()), patch("spec_kit_linear.cli.known_branches", return_value=()), patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan):
+            code, output = self._invoke_text(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run"])
+        self.assertEqual(code, 0)
+        self.assertIn("Linear will apply its configured default workflow state", output)
+
     def test_a_branch_that_only_looks_like_the_convention_moves_nothing(self) -> None:
         self._configure_lifecycle()
 
@@ -720,6 +735,34 @@ class WorkStateTests(CliTestCase):
         self.assertEqual((rows["T001"]["derived_state"], rows["T001"]["state_source"]), ("review", "pr"))
         self.assertEqual((rows["T002"]["derived_state"], rows["T002"]["state_source"]), ("completed", "checkbox"))
         self.assertEqual((rows["T003"]["derived_state"], rows["T003"]["state_source"]), ("started", "branch"))
+
+    def test_status_exposes_unknown_observation_separately_from_remote_state(self) -> None:
+        project = _matching_remote_project(self._desired())
+        client = _FakeClient((replace(project, issues=tuple(replace(issue, state_name="Todo") for issue in project.issues)),))
+        scan = PullRequestScan("incomplete", diagnostics=(Diagnostic("github_cli_unavailable", "GitHub unavailable", severity="warning"),))
+        with patch("spec_kit_linear.cli._linear_client", return_value=client), patch("spec_kit_linear.cli.known_branches", return_value=("001-T001",)), patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan):
+            code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["observation"]["outcome"], "incomplete")
+        self.assertIn("selected features [001]", " ".join(item["message"] for item in payload["diagnostics"]))
+        row = payload["status"]["task_rows"][0]["tasks"][0]
+        self.assertIsNone(row["derived_state"])
+        self.assertEqual(row["remote_state"], "Todo")
+
+    def test_uncertain_create_uses_linear_default_then_recovery_converges_once(self) -> None:
+        self._configure_lifecycle()
+        for default in ("Backlog", "Triage"):
+            with self.subTest(default=default):
+                client = _ApplyingClient(default_state=default)
+                uncertain = PullRequestScan("incomplete", diagnostics=(Diagnostic("github_cli_unavailable", "GitHub unavailable", severity="warning"),))
+                with patch("spec_kit_linear.cli._linear_client", return_value=client), patch("spec_kit_linear.cli.known_branches", return_value=()), patch("spec_kit_linear.cli.scan_pull_requests", side_effect=[uncertain, PullRequestScan("complete"), PullRequestScan("complete")]):
+                    first, first_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
+                    recovered, recovered_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
+                    repeated, repeated_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
+                self.assertEqual((first, recovered, repeated), (0, 0, 0))
+                self.assertNotIn("stateId", first_payload["operations"][1]["input"])
+                self.assertEqual(len([item for item in recovered_payload["operations"] if item["kind"] == "issue.lifecycle.update"]), 3)
+                self.assertEqual(repeated_payload["operations"], [])
 
     def test_status_never_writes_while_deriving(self) -> None:
         before = self._files()
@@ -1080,6 +1123,7 @@ def _task_row(
     state_source: str | None = None,
     next: str | None = None,
     pr_number: int | None = None,
+    remote_state: str | None = None,
 ) -> dict[str, object]:
     return {
         "task": task,
@@ -1088,6 +1132,7 @@ def _task_row(
         "state_source": state_source,
         "pr_number": pr_number,
         "next": next,
+        "remote_state": remote_state,
     }
 
 
@@ -1103,6 +1148,12 @@ class SessionStartContextFormatterTests(unittest.TestCase):
         line = _format_feature_context("005-T002-thing", "005", tasks)
 
         self.assertEqual(line, "Linear: 005 on 005-T002-thing — next T002 (unchecked); next: /speckit.pr")
+
+    def test_unknown_feature_state_shows_remote_state_without_next_action(self) -> None:
+        tasks = [_task_row("T001", local_complete=True, derived_state=None, state_source="unknown", next=None, remote_state="Triage")]
+        line = _format_feature_context("005-T001-thing", "005", tasks)
+        self.assertIn("state unknown (remote: Triage)", line)
+        self.assertNotIn("next:", line)
 
     def test_feature_branch_with_open_prs(self) -> None:
         tasks = [
@@ -1231,6 +1282,10 @@ class SessionStartContextFormatterTests(unittest.TestCase):
         row = {"identifier": "WOR-123", "derived_state": "completed", "next": None}
 
         self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (completed)")
+
+    def test_unknown_work_item_state_shows_remote_state_without_next_action(self) -> None:
+        row = {"identifier": "WOR-123", "derived_state": None, "state_source": "unknown", "remote_state": "Backlog", "next": None}
+        self.assertEqual(_format_work_item_context(row), "Linear: WOR-123 (unknown (unverified)); remote: Backlog")
 
 
 class SessionStartTests(CliTestCase):

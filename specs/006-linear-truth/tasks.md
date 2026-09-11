@@ -47,13 +47,13 @@ Issues use Linear's default. Complete scanning and preservation form one slice.
   - **Delivery**: single PR (~380 authored lines)
   - **Completion evidence**: PR [#119](https://github.com/tserdeiro/spec-kit/pull/119); full package suite: 452 passed, 252 subtests; strengthened lifecycle/default assertions: 34 planner tests passed; `git diff --check` clean. Independent review findings corrected; final candidate review required before ready.
 
-- [ ] T002 [US2] Explain unknown and default states in packages/spec-kit-linear/src/spec_kit_linear/reporting.py and cli.py
+- [x] T002 [US2] Explain unknown and default states in packages/spec-kit-linear/src/spec_kit_linear/reporting.py and cli.py
   - **Traces**: FR-005, FR-006, FR-007, FR-008, SC-002, SC-004; plan D4, D5; outcome: human tables, JSON, creation previews, and session context distinguish unverified derived state from remote state; unknown rows have no progress-based next action. Diagnostics name selected features and repository-wide work-item scope, including items absent from partial output. Model non-null Backlog and Triage defaults in the existing fake client; a checked task created under uncertainty adopts that default, reports null derived state, and reaches the correct state on recovery with zero operations on the subsequent unchanged run.
   - **Depends on**: T001
   - **Boundaries**: change `packages/spec-kit-linear/src/spec_kit_linear/{reporting,cli,work_state}.py` and `packages/spec-kit-linear/tests/unit/{test_reporting,test_cli,test_work_state}.py`; preserve T001's scan/mutation contracts and remote-owned defaults.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_reporting.py packages/spec-kit-linear/tests/unit/test_cli.py packages/spec-kit-linear/tests/unit/test_work_state.py -q` -> reports distinguish unknown from defaults, name affected scope, and recovery plus an unchanged repeat performs only the required transition.
   - **Delivery**: single PR (~200 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR [#120](https://github.com/tserdeiro/spec-kit/pull/120); focused reporting/CLI/work-state suite: 145 passed, 104 subtests; configured Backlog/Triage creation and recovery converge with zero repeat operations; `git diff --check` clean. Final candidate review required before ready.
 
 ## Phase 2: User Story 1 - Trust the state of ongoing work (P1)
 
