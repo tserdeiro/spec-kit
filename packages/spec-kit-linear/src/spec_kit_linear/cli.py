@@ -307,12 +307,6 @@ def _render_push(payload: dict[str, Any]) -> None:
         target = str(operation.get("target", ""))
         sys.stdout.write(f"  {kind:<22} {target:<34} {_operation_display_name(operation)}\n")
     _write_non_info_diagnostics(payload)
-    for evidence in payload.get("apply", []):
-        if isinstance(evidence, Mapping) and evidence.get("failure_phase"):
-            sys.stdout.write(
-                f"partial apply: confirmed {evidence.get('writes', 0)}, "
-                f"failure {evidence.get('failure_phase')} ({evidence.get('failure_status')})\n"
-            )
 
 
 def _operation_display_name(operation: Mapping[str, object]) -> str:
