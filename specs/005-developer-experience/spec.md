@@ -388,9 +388,11 @@ one removes.
   of the working tree the loop's own flow never reaches — MUST be
   dropped from the hook registry.
 - **FR-016**: This round MUST open an upstream pull request against
-  `github/spec-kit` that registers extension and preset commands across
-  every installed integration, not only the default one, and preserves
-  `installed_integrations` across `init --force`.
+  `github/spec-kit` that preserves `installed_integrations` and each
+  integration's settings across `init --force`. Command registration
+  remains scoped to the active integration, following upstream's design;
+  this distribution's doctor owns the other integrations' skill mirrors.
+  Scope resolved on 2026-09-11 following the dogfooding review (entry 81).
 - **FR-017**: This round MUST open an upstream pull request against
   `github/spec-kit` that removes `git add .` from `auto-commit.sh`.
 - **FR-018**: This round MUST open an upstream pull request against
