@@ -1323,12 +1323,14 @@ def _format_apply_evidence(result: object) -> str | None:
 
 def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
     """Resolve the branch shape and run `push --hook`; shared by both event handlers (D4, FR-006)."""
+    config = _load_hook_config(root)
+    if config is None or not hooks_gate(config, "lifecycle_enabled"):
+        return None, None
     branch = work_item_identifier = None
     branch_error = False
     try:
         branch = _current_branch(root)
         if branch and not FEATURE_RE.fullmatch(branch):
-            config, _shared_path = load_config(root, None)
             _team_id, team_key = team_binding(config)
             match = issue_key_pattern(team_key).fullmatch(branch)
             work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
@@ -1337,11 +1339,6 @@ def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
 
     # A work item resolves `--current` only through `.specify/feature.json`, often
     # absent; a feature/task branch resolves it by name, so only the former skips it.
-    config = _load_hook_config(root)
-    if config is None:
-        return branch, work_item_identifier
-    if not hooks_gate(config, "lifecycle_enabled"):
-        return branch, work_item_identifier
     if branch_error:
         sys.stderr.write("warning: reconciliation failure: unexpected configured branch error\n")
         sys.stderr.flush()
@@ -1456,13 +1453,9 @@ def run_session_start(args: argparse.Namespace) -> int:
         sys.stderr.flush()
         return EXIT_SUCCESS
 
-    config = _load_hook_config(root)
-    if config is None:
-        return EXIT_SUCCESS
-    if not hooks_gate(config, "lifecycle_enabled"):
-        return EXIT_SUCCESS
-
     branch, work_item_identifier = _reconcile_hook(root)
+    if not branch:
+        return EXIT_SUCCESS
 
     try:
         line = _session_start_context_line(root, branch, work_item_identifier)
@@ -1470,15 +1463,8 @@ def run_session_start(args: argparse.Namespace) -> int:
         _emit_hook_error_warning(error)
         line = None
     except Exception:
-        # Configuration was already established by `_reconcile_hook`; a
-        # failure here is therefore actionable but must remain non-blocking.
-        try:
-            config, _shared_path = load_config(root, None)
-            if hooks_gate(config, "lifecycle_enabled"):
-                sys.stderr.write("warning: reconciliation failure: unexpected configured context error\n")
-                sys.stderr.flush()
-        except Exception:
-            pass
+        sys.stderr.write("warning: reconciliation failure: unexpected configured context error\n")
+        sys.stderr.flush()
         line = None
     if line:
         sys.stdout.write(line + "\n")
