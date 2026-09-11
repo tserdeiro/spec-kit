@@ -1,4 +1,13 @@
-# Experiencia de desarrollo: ronda propuesta
+# Developer experience: agreed design
+
+Implementation published on 2026-09-10 through
+[`005-developer-experience`](../specs/005-developer-experience/): linear
+0.13.0, code-review 0.5.0, preset 0.10.0, and bundles 0.16.0. The design
+record below preserves the original proposal; current delivery evidence
+and open acceptance follow-ups are in
+[`plan.md`](plan.md#developer-experience-published-2026-09-10-acceptance-follow-ups-open).
+Live Codex execution, observed reconciliation in a test Linear project,
+the upstream PRs, and the FR-016 scope decision remain pending.
 
 Propuesta del 2026-09-08, para revisión. Deriva de
 [`vision.md`](vision.md) ("toda fricción se pule; lo automatizable se

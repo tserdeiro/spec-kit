@@ -89,7 +89,8 @@ specify init --here --integration <agente>
 
 `<agente>` es tu agente de código — `claude`, `codex`, `copilot`, `zed`, …
 ([lista completa](https://github.github.io/spec-kit/reference/integrations.html)).
-Cualquiera soportado sirve igual de bien.
+Puedes usar cualquiera soportado; los guards y el contexto automático
+requieren eventos nativos. `/speckit.doctor` informa si tu agente no los tiene.
 
 ### 3. Instala el bundle de tu rol
 
@@ -148,11 +149,11 @@ con el estado que Linear refleja solo:
 | 1. Especificar | `/speckit.specify` — nace el **branch de feature** `NNN-slug` | — |
 | 2. Planificar | `/speckit.plan` | se crea el Project |
 | 3. Tareas | `/speckit.tasks` | se crean los Issues (*Todo*) |
-| 4. Implementar | `/speckit.implement` verifica el gate — el **draft PR de feature** (`NNN-slug` → branch de entrega), donde el equipo aprueba spec y plan — y lo abre si falta, antes de la primera tarea; toma la primera tarea sin marcar y crea su branch `NNN-T###-slug` (ej. `002-T004-parser-fix`) **desde el branch de feature** | *In Progress* |
-| 5. Pull request | `/speckit.pr` — abre el PR **draft** de la tarea, **hacia el branch de feature**, con el body canónico | *In Progress* |
+| 4. Implementar | `/speckit.implement` verifica el gate — el **draft PR de feature** (`NNN-slug` → branch de entrega), donde el equipo aprueba spec y plan — y lo abre si falta, antes de la primera tarea; toma la primera tarea sin marcar y crea su branch `NNN-T###-slug` (ej. `002-T004-parser-fix`) **desde la punta del stack ready abierto**, o desde la feature si no hay stack | *In Progress* |
+| 5. Pull request | `/speckit.pr` — abre el PR **draft** de la tarea con el body canónico y la **base derivada del stack**; la primera tarea apunta a la feature | *In Progress* |
 | 6. Auto-revisión | `/speckit.code-review`, corriges, `[x]` + evidencia en el último commit, y marcas `ready for review` | *In Review* |
 | 7. Revisión final | el revisor: `/speckit.code-review --publish` más su revisión humana; una persona mergea al branch de feature | *Done* |
-| 8. Cierre | todas `[x]` → marcas el PR de feature `ready` → revisión de la película completa → una persona mergea al branch de entrega con **merge commit** (el branch se borra); `/speckit.linear.push --apply` reconcilia | — |
+| 8. Cierre | todas `[x]` en la feature y ningún PR de tarea abierto → marcas el PR de feature `ready` → revisión de la película completa → una persona mergea al branch de entrega con **merge commit**; GitHub borra el branch si tiene auto-borrado habilitado | — |
 
 Los pasos 4–6 (abrir el PR, auto-revisarse, marcar `ready for review`)
 los orquesta `/speckit.implement` solo, tarea por tarea; cada comando
@@ -175,8 +176,8 @@ Reglas de oro. Lo que hacés vos:
 <details>
 <summary>Lo que garantiza el loop</summary>
 
-- **El branch de feature (`NNN-slug`) es la integración**: los branches
-  de tarea salen de él y sus PRs vuelven a él; la feature entra al
+- **El branch de feature (`NNN-slug`) es la integración**: las tareas
+  se apilan sobre él y sus PRs se integran allí de raíz a hoja; la feature entra al
   branch de entrega una sola vez, con merge commit. Bugs y chores van
   directo al branch de entrega. `trunk: <branch>` en
   `.specify/extensions/git/git-config.yml` manda cuando el default de
@@ -198,9 +199,10 @@ Reglas de oro. Lo que hacés vos:
 - **`ledger_check.py` frena el `ready for review`** hasta que el
   checkbox y la Completion evidence estén los dos.
 - **El merge es raíz-primero y nunca pide borrar la rama**: a pedido
-  tuyo en la conversación, un script prunea worktrees, fija por API la
-  base de cada PR abierto y lo mergea de raíz hacia la hoja; el
-  auto-borrado del repo limpia las ramas.
+  tuyo en la conversación, un script prunea worktrees, consulta la base
+  de cada PR y la cambia a la feature solo si hace falta. Si el cambio
+  falla, continúa únicamente si una nueva lectura confirma esa base.
+  Mergea de raíz hacia la hoja; el auto-borrado del repo limpia las ramas.
 - **Cuatro guards bloquean antes del hecho**: un commit que no siga
   `type(scope): subject`, cualquier force-push, un merge con
   `--delete-branch`, o una escritura a un path protegido (`spec.md`, la
@@ -312,9 +314,9 @@ specify bundle install developer
   └─ preset default .. se resuelve en nuestro catálogo de presets
                        → templates a .specify/presets/ y registra los
                          comandos (/speckit.pr, /speckit.bugfix,
-                         /speckit.chore, /speckit.doctor y los appends
-                         de specify/plan/tasks/analyze/implement) como
-                         skills de TU agente
+                         /speckit.chore y /speckit.doctor), reemplaza
+                         tasks/implement y agrega capas a
+                         specify/plan/analyze como skills de TU agente
 ```
 
 **Después de instalar, todo es local**: comandos, templates y extensiones
@@ -509,6 +511,7 @@ Para trabajar en esta distribución (no hace falta para usarla):
 uv sync
 uv run pytest packages/spec-kit-linear/tests
 uv run pytest packages/spec-kit-code-review/tests
+uv run pytest presets/default/tests
 ```
 
 La invocación de arriba —`uv run pytest packages/<paquete>/tests` desde
@@ -518,5 +521,5 @@ recolecta ambos árboles de tests y choca en `tests.conftest`.
 La conformance por paquete vive en `packages/*/scripts/conformance/`; la
 de los bundles en
 [`scripts/conformance/bundles.sh`](scripts/conformance/bundles.sh). La CI
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) corre ambas
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) corre las tres
 suites. Commits, releases y publicación son siempre decisiones humanas.

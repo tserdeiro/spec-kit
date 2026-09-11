@@ -365,13 +365,16 @@ code-review 0.4.0, preset 0.9.0, bundles 0.15.0; the consumer upgrade is
   declare a required extension). Baseline assets refreshed; every
   `>=1.0.1,<1.1.0` range still holds, so no component is re-released.
 
-### Developer experience (2026-09-09 → in progress)
+### Developer experience (published 2026-09-10; acceptance follow-ups open)
 
 [`005-developer-experience`](../specs/005-developer-experience/)
 (feature PR #86): the policy layer — stack, budgets, gates, derived
 states — was complete; the mechanism still lived in prose an agent had
-to remember and shell blocks it had to copy-edit by hand. Delivered
-through task PRs #87–#107 so far; T019 continues the stack.
+to remember and shell blocks it had to copy-edit by hand. Task PRs
+#87–#114 merged root-first into the feature, then #86 merged into `main`.
+Follow-up #115 handles GitHub's automatic PR retargeting during that merge.
+Published as linear 0.13.0, code-review 0.5.0, preset 0.10.0, and bundles
+0.16.0; release pins are recorded in `7c6371a`.
 
 - **Scripts** — the default preset's eight repeatable procedures
   (`task-base`, `pr-create`, `budget-stop`, `stack-propagate`,
@@ -394,12 +397,16 @@ through task PRs #87–#107 so far; T019 continues the stack.
 - **Hygiene** — `completions` and the unreachable `after_implement`
   review hook are gone from both extensions; both require
   `speckit_version >=1.0.4,<1.1.0`, where events ship.
-- **Process record** — `docs/dogfooding.md` section J, entries 36–80.
+- **Upstream** — T020–T022 prepared and tested three patches under
+  `docs/upstream/`; these are hand-offs, not changes to the installed CLI.
+- **Process record** — `docs/dogfooding.md`, entries 36–99.
 
-Still to land in this feature: three upstream patches (T020–T022), live
-cross-agent verification in a temporary consumer (T023), and the release
-bump (T024) — preset 0.10.0, linear 0.13.0, code-review 0.5.0, bundles
-0.16.0.
+Published ZIPs and extension manifests were verified against their
+checksums and `versions.lock.yml`; bundle conformance passed. T023 has
+ten Claude Code headless sessions with the context line present in all ten.
+Remaining acceptance: live Codex execution and observed reconciliation in
+a test Linear project. Opening the upstream PRs and confirming the FR-016
+scope decision also remain pending; publication does not close them.
 
 ## Releases
 

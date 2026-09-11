@@ -3,8 +3,8 @@
 Registro vivo de las fricciones del flujo de este repositorio, encontradas
 usándolo sobre sí mismo. Cada problemática va seguida de su solución
 pactada y de su estado: **resuelta** (entregada y publicada), **entregada**
-(en el stack de la 004, pendiente de publicación; pasa a **resuelta**
-cuando se publica), **ronda 004** (acordada, pendiente de implementar),
+(implementada, pendiente de publicación; pasa a **resuelta**
+cuando se publica), **ronda N** (acordada para esa ronda, pendiente de implementar),
 **regla** (sin código: se documenta en el loop o el README),
 **documentada** (una regla ya enunciada en el loop o el README, con la
 tarea que la escribió), **aceptada** (se convive con ella) o **upstream**
@@ -945,4 +945,17 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     71 tests del preset, conformance del consumidor con carrera aceptada
     y rechazada, y ocho escenarios independientes. La revisión corrigió
     una aserción que buscaba texto plano en el log JSON de argv y nunca
-    habría detectado el merge indebido. La publicación sigue pendiente.
+    habría detectado el merge indebido. *Resuelta:* #115 mergeado y
+    publicado el 2026-09-10 en preset 0.10.0 / bundles 0.16.0.
+99. **Publicar no cerró el estado de la documentación.** `publish.sh`
+    actualizó los catálogos, los digests y el enlace del README del preset,
+    pero el plan todavía llegaba a #107 y la entrada 98 decía pendiente.
+    Se actualizan el README (stacking, retarget condicional, eventos y tres
+    suites), el plan, el estado de `dx.md` y este registro.
+    *Publicada el 2026-09-10:* la 005 (#86, tareas #87–#114) y el fix #115;
+    Linear 0.13.0, code-review 0.5.0, preset 0.10.0, bundles 0.16.0.
+    `publish.sh` terminó en `7c6371a`; conformance en verde, los seis ZIP
+    publicados y los manifiestos de las extensiones verificados por hash.
+    Las URLs públicas de las extensiones devolvieron 404 transitoriamente;
+    al reintentar respondieron 200 con los mismos bytes verificados.
+    Siguen abiertos los pendientes de aceptación y upstream de la entrada 97.
