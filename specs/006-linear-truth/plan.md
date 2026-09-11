@@ -270,6 +270,6 @@ is not technical approval.
 | Gate | Evidence | Status |
 | --- | --- | --- |
 | Clean Spec Kit analysis | Analysis completed: 100% requirement coverage; the sole low-severity verification-command omission was corrected. | complete |
-| Technical approval of plan and tasks | Human review after the task breakdown. | pending |
-| Reviewed Linear dry-run and synchronization | Latest `push --current --dry-run --json` after task generation passed on 2026-09-11: one `project.create` and seven `issue.create` operations for feature 006 in team TDS, label `spec-kit`; zero existing-work-item mutations. Application awaits authorization. | pending |
-| Every executable task individually assignable and assigned | `tasks.md` contains seven assignable units; Linear assignment remains pending. | pending |
+| Technical approval of plan and tasks | The human requested implementation after analysis corrections and explicitly authorized the delivery workflow on 2026-09-11. | complete |
+| Reviewed Linear dry-run and synchronization | Reviewed preview: one Project and seven Issues in team TDS, label `spec-kit`. Authorized task-base hook applied it; read-only status verified Project `782d1929-238d-4978-8e3f-93e1e1dd032c` and TDS-79–TDS-85 without drift on 2026-09-11. | complete |
+| Every executable task individually assignable and assigned | The human assigned T001–T007 to fresh Luna implementation agents, sequentially, with independent review orchestrated by Codex. Linear human assignees remain unset. | complete |
