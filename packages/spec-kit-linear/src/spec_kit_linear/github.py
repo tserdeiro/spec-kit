@@ -137,7 +137,9 @@ def _parse_pages(payload: str) -> tuple[PullRequest, ...] | None:
             head_branch = head.get("ref") if isinstance(head, dict) else None
             is_draft = item.get("draft")
             state = item.get("state")
-            merged_at = item.get("merged_at")
+            if "merged_at" not in item:
+                return None
+            merged_at = item["merged_at"]
             if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
                 return None
             if not isinstance(head_branch, str) or not head_branch:

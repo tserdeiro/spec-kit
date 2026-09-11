@@ -285,6 +285,14 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertEqual(lifecycle_updates["task:001:T002"], "77777777-7777-4777-8777-777777777777")
         self.assertEqual(lifecycle_updates["task:001:T001"], "88888888-8888-4888-8888-888888888888")
 
+    def test_unknown_task_creation_omits_state_and_missing_mapping_fails(self) -> None:
+        unknown = {task.identity: TaskWorkState(None, "unknown") for task in self.desired.feature.tasks}
+        plan = build_push_plan(self.desired, self._missing_discovery(), config=self.config, work_states=unknown)
+        creates = {operation["target"]: operation["input"] for operation in plan["operations"] if operation["kind"] == "issue.create"}
+        self.assertNotIn("stateId", creates["task:001:T001"])
+        with self.assertRaises(AppError):
+            build_push_plan(self.desired, self._missing_discovery(), config=self.config, work_states={})
+
     def _lifecycle_config(self, **overrides: str) -> dict[str, object]:
         config = dict(self.config)
         lifecycle = {

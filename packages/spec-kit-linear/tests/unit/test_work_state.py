@@ -232,6 +232,30 @@ class PullRequestScanTests(unittest.TestCase):
         scan, _run = self._scan(stdout='[[{"number": 3}], {"number": 4}]')
         self.assertEqual(scan.outcome, "incomplete")
 
+    def test_complete_empty_page_is_distinct_from_empty_or_partial_failure(self) -> None:
+        scan, _run = self._scan(stdout="[[]]")
+        self.assertEqual(scan.outcome, "complete")
+        failed, _run = self._scan(returncode=1, stdout="[[{\"number\": 1}]]")
+        self.assertEqual(failed.outcome, "failed")
+        with patch("spec_kit_linear.github.shutil.which", return_value="/usr/bin/gh"), patch(
+            "spec_kit_linear.github.subprocess.run", side_effect=subprocess.TimeoutExpired("gh", 30)
+        ):
+            timed_out = scan_pull_requests(self.root)
+        self.assertEqual(timed_out.outcome, "failed")
+
+    def test_duplicate_prs_are_deduplicated_but_conflicts_are_uncertain(self) -> None:
+        record = '{"number": 1, "head": {"ref": "001-T001"}, "draft": false, "state": "open", "merged_at": null}'
+        scan, _run = self._scan(stdout=f"[[{record}], [{record}]]")
+        self.assertEqual(len(scan.pull_requests), 1)
+        conflict = record.replace('"draft": false', '"draft": true')
+        uncertain, _run = self._scan(stdout=f"[[{record}], [{conflict}]]")
+        self.assertEqual(uncertain.outcome, "incomplete")
+
+    def test_closed_pr_without_merge_observation_is_uncertain(self) -> None:
+        payload = '[[{"number": 1, "head": {"ref": "001-T001"}, "draft": false, "state": "closed"}]]'
+        scan, _run = self._scan(stdout=payload)
+        self.assertEqual(scan.outcome, "incomplete")
+
 
 if __name__ == "__main__":
     unittest.main()
