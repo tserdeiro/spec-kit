@@ -12,6 +12,8 @@
     ".agents/skills/speckit-checklist/SKILL.md": "6632a53c5ddbde330c7ca3a8d19459b4de866ea5296028c2178f7b4598243d78",
     ".agents/skills/speckit-specify/SKILL.md": "88d7fab201de66297f16b6c271a418a0f2c198d714456dfd707e623348ec47c1",
     ".agents/skills/speckit-tasks/SKILL.md": "1ae03ee3aac56f19cac4cba8d51c672e4f50692f5a179f8fb65a035752e71592",
-    ".agents/skills/speckit-taskstoissues/SKILL.md": "542bf370046ecc2dbea0a539522e0628bee7a425b47b8afb0bd67ae274c01720"
+    ".agents/skills/speckit-taskstoissues/SKILL.md": "542bf370046ecc2dbea0a539522e0628bee7a425b47b8afb0bd67ae274c01720",
+    ".specify/events.py": "0f5107338c56ea58a51fa39592929bfaba4d645e4e4c8495d5d8fdddb1213b93",
+    ".codex/config.toml": "51eb7fb36bc7f34427baeb5524edcad04e568096f8c18694310fd4eae8599a1d"
   }
 }

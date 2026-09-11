@@ -12,6 +12,8 @@
     ".claude/skills/speckit-checklist/SKILL.md": "34c8c681f5472f2790d65ac29ca01e23f4f32ab6f06c9dca1b38fc89e2cfba86",
     ".claude/skills/speckit-specify/SKILL.md": "42fe016b9183bb8fa7ce7c65e04ea8d382f7f2abfc94849aeead999247675886",
     ".claude/skills/speckit-tasks/SKILL.md": "597853362a0a770fe967c5d56136e2db38de1aa7b97b89552db667b70ac493c1",
-    ".claude/skills/speckit-taskstoissues/SKILL.md": "76a6ec1fcc2d4f2f4ae4d1a70e59eca034fd9a3f97c5454094b023ed3da65151"
+    ".claude/skills/speckit-taskstoissues/SKILL.md": "76a6ec1fcc2d4f2f4ae4d1a70e59eca034fd9a3f97c5454094b023ed3da65151",
+    ".specify/events.py": "0f5107338c56ea58a51fa39592929bfaba4d645e4e4c8495d5d8fdddb1213b93",
+    ".claude/settings.json": "034e7dc037927b114c1a5d60de887d80d9eb738a248e3351afa4eb98edc15d9b"
   }
 }

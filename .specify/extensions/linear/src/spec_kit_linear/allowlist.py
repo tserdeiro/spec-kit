@@ -25,6 +25,8 @@ PUSH_MUTATIONS = frozenset(
         "issue.create",
         "issue.update",
         "issue.lifecycle.update",
+        "issue.archive",
+        "issue.unarchive",
         "team.automation.create",
         "project.label.create",
         "view.create",
@@ -42,6 +44,10 @@ ALLOWED_INPUTS = {
     "issue.create": frozenset({"id", "title", "teamId", "projectId", "description", "stateId"}),
     "issue.update": frozenset({"title", "description"}),
     "issue.lifecycle.update": frozenset({"stateId"}),
+    # No input fields: unlike every other kind's target id, issueArchive and
+    # issueUnarchive's id travels through preconditions, same as any update.
+    "issue.archive": frozenset(),
+    "issue.unarchive": frozenset(),
     # No targetBranchId: onboard only manages the Team's global mappings and
     # never touches branch-scoped rules.
     "team.automation.create": frozenset({"id", "teamId", "stateId", "event"}),
@@ -93,7 +99,6 @@ def forbidden_operations() -> list[str]:
     return [
         "initiative.create",
         "issue.delete",
-        "issue.archive",
         "project.delete",
         "project.archive",
         "subissue.create",

@@ -10,4 +10,4 @@ if [ ! -f "$extension_root/pyproject.toml" ]; then
 fi
 
 export PYTHONPATH="$extension_root/src${PYTHONPATH:+:$PYTHONPATH}"
-exec uv run --frozen --offline --project "$extension_root" python -m spec_kit_code_review.cli "$@"
+exec uv run --frozen --offline --project "$extension_root" -q python -m spec_kit_code_review.cli "$@"

@@ -156,14 +156,6 @@ hooks:
     prompt: Commit implementation changes?
     description: Auto-commit after implementation
     condition: null
-  - extension: code-review
-    command: speckit.code-review.code-review
-    enabled: true
-    optional: true
-    priority: 30
-    prompt: Review the pending diff before opening a pull request?
-    description: Advisory review of the working tree before a pull request exists
-    condition: null
   after_checklist:
   - extension: git
     command: speckit.git.commit

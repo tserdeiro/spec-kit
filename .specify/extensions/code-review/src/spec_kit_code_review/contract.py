@@ -29,6 +29,16 @@ def is_task_base(base_branch: str | None) -> bool:
     return bool(_TASK_BASE_RE.match(base_branch.rsplit("/", 1)[-1]))
 
 
+def matches_protected_path(path: str, protected_paths: Sequence[str]) -> str | None:
+    """The first ``protected_paths`` glob ``path`` matches, or ``None``.
+
+    Shared by the after-the-fact finding below and the `pre_tool_use` guard
+    (FR-008): one glob rule, never two.
+    """
+
+    return next((item for item in protected_paths if fnmatch.fnmatch(path, item)), None)
+
+
 def protected_path_findings(
     *,
     base_branch: str | None,
@@ -44,7 +54,7 @@ def protected_path_findings(
         return []
     entries: list[dict[str, Any]] = []
     for path in git.changed_paths(merge_base, head_commit):
-        pattern = next((item for item in protected_paths if fnmatch.fnmatch(path, item)), None)
+        pattern = matches_protected_path(path, protected_paths)
         if pattern is None:
             continue
         content = (

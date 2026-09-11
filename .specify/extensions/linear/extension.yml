@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: linear
   name: Spec Kit Linear
-  version: "0.12.0"
+  version: "0.13.0"
   description: "Project Spec Kit feature state into Linear: Project at plan, Issues at tasks"
   author: tserdeiro
   repository: https://github.com/tserdeiro/spec-kit
@@ -11,7 +11,7 @@ extension:
   license: MIT
 
 requires:
-  speckit_version: ">=1.0.1,<1.1.0"
+  speckit_version: ">=1.0.4,<1.1.0"
   tools:
     - name: uv
       required: true
@@ -34,6 +34,13 @@ provides:
     - name: speckit.linear.doctor
       file: commands/doctor.md
       description: Diagnose local and remote prerequisites, with --fix for the mechanical ones
+
+events:
+  session_start:
+    command: session-start
+  post_tool_use:
+    command: post-tool-use
+    matcher: "Bash"
 
 hooks:
   after_plan:

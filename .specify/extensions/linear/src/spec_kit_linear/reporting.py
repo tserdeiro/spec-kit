@@ -53,12 +53,12 @@ def build_task_rows(
                     "local_complete": task.completed,
                     "derived_state": derived.state if derived is not None else None,
                     "state_source": derived.source if derived is not None else None,
+                    "pr_number": derived.pr_number if derived is not None else None,
                     "next": next_action(
                         derived.state,
                         derived.source,
-                        checked=task.completed,
                         feature=desired.feature.identifier,
-                        task=_task_code(task.identity),
+                        pr_number=derived.pr_number,
                     )
                     if derived is not None
                     else None,
@@ -71,6 +71,12 @@ def build_task_rows(
             {
                 "feature": desired.feature.identifier,
                 "has_remote_project": has_remote_project,
+                # The desired Project's own name (`<identifier>: <title>`),
+                # already known from the local projection alone -- no new
+                # Linear read (dogfooding entry 56): `status`'s feature
+                # header prints it so a feature PR's Work item line can name
+                # the Project without a second lookup.
+                "project_title": desired.feature.project_title,
                 "tasks": tasks,
             }
         )
@@ -126,7 +132,7 @@ def build_work_item_rows(
                 "identifier": item.identifier,
                 "derived_state": item.state,
                 "state_source": item.source,
-                "next": next_action(item.state, item.source),
+                "next": next_action(item.state, item.source, pr_number=item.pr_number),
                 "detail": item.detail,
                 "known_remotely": remote is not None,
                 "title": remote.title if remote is not None else None,
@@ -188,7 +194,11 @@ def render_status_table(task_rows: list[dict[str, object]], remote_only_rows: li
     headers = ("TASK", "DONE", "DERIVED", "FROM", "ISSUE", "STATE", "ASSIGNEE", "NEXT")
     lines: list[str] = []
     for feature in task_rows:
-        lines.append(f"Feature {feature['feature']}")
+        # project_title is already "<identifier>: <title>" (projection.py),
+        # so it replaces the bare identifier below rather than following it
+        # -- "Feature {feature}: {project_title}" would print "001" twice.
+        project_title = feature.get("project_title")
+        lines.append(f"Feature {project_title}" if project_title else f"Feature {feature['feature']}")
         if not feature["has_remote_project"]:
             lines.append("  (no remote Feature Project yet; local-only)")
         rows = [
