@@ -75,13 +75,13 @@ Equivalent inputs choose the same PR witness.
 preserve all affected states.
 **Independent evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_work_state.py packages/spec-kit-linear/tests/unit/test_cli.py -q` -> more than 200 PRs retain all relevant evidence, while failed traversal makes no unsupported transition.
 
-- [ ] T004 [US3] Prove large-repository derivation through the CLI in packages/spec-kit-linear/tests/unit/test_cli.py
+- [x] T004 [US3] Prove large-repository derivation through the CLI in packages/spec-kit-linear/tests/unit/test_cli.py
   - **Traces**: FR-001, FR-002, FR-003, FR-004, FR-005, FR-007, SC-001, SC-002, SC-003, C-001; plan D1-D3; outcome: exercise the real scanner-to-planner path with fake `gh` responses containing at least 301 PRs. Put relevant drafts, ready PRs, and merges beyond 200, including a late draft overturning an earlier merge. Check all work-item types, identical/contradictory duplicates, malformed later pages, timeout/truncation, and valid partial JSON with nonzero exit. Verify repository targeting and isolation of identical feature numbers in separate temporary repos; status and push agree.
   - **Depends on**: T003
   - **Boundaries**: extend `packages/spec-kit-linear/tests/unit/{test_work_state,test_cli}.py` with existing temporary-repo and fake-client facilities; assert T001-T003 behavior through production callers.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_work_state.py packages/spec-kit-linear/tests/unit/test_cli.py -q` -> later-page evidence controls state; every uncertain traversal preserves affected states, including items absent from the returned prefix.
   - **Delivery**: single PR (~190 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR [#122](https://github.com/tserdeiro/spec-kit/pull/122); exact work-state/CLI suite: 141 passed, 124 subtests; real subprocess exercises 305 records, interruption/malformed preservation and distinct repository observations; `git diff --check` clean. Final candidate review required before ready.
 
 ## Phase 4: User Story 2 - Keep failures visible and recovery idempotent (P1)
 
