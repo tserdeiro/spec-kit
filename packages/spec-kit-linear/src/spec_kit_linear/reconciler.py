@@ -129,7 +129,7 @@ def apply_plan(
             response = transport.execute(resolved)
         except AppError as error:
             if error.category not in {"transport", "service"}:
-                status = "rejected" if any(d.code == "mutation_rejected" for d in error.diagnostics) else "unconfirmed"
+                status = "rejected" if _explicit_mutation_rejection(error) else "unconfirmed"
                 _attach_failure(error, applied, recovered, operations, operation, "mutation", status)
                 raise
             if not str(operation["kind"]).endswith(".create"):
@@ -217,6 +217,18 @@ def _attach_failure(error: AppError, applied: list[str] | tuple[str, ...], recov
                          str(failed["target"]) if failed is not None else None,
                          tuple(str(item["id"]) for item in operations[start:]), phase, status)
     error.apply_results = [result]
+
+
+def _explicit_mutation_rejection(error: AppError) -> bool:
+    for diagnostic in error.diagnostics:
+        if diagnostic.code in {"mutation_rejected", "linear_auth", "linear_rate_limit"}:
+            return True
+        if diagnostic.code == "linear_http" and diagnostic.message.startswith("HTTP "):
+            try:
+                return 400 <= int(diagnostic.message.split()[1]) < 500
+            except (IndexError, ValueError):
+                pass
+    return False
 
 
 def _operations(plan: Mapping[str, object]) -> list[Mapping[str, object]]:

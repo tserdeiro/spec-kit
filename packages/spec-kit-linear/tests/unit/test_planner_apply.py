@@ -9,7 +9,9 @@ from spec_kit_linear.allowlist import ALLOWED_INPUTS, PUSH_MUTATIONS
 from spec_kit_linear.bridge import merge_managed_block
 from spec_kit_linear.config import load_config, repository_binding
 from spec_kit_linear.errors import AppError, Diagnostic
-from spec_kit_linear.linear_client import RemoteBinding, RemoteIssue, RemoteProject
+from spec_kit_linear.credentials import Credentials
+from spec_kit_linear.linear_client import LinearClient, RemoteBinding, RemoteIssue, RemoteProject
+from spec_kit_linear.mutation_executor import LinearMutationExecutor
 from spec_kit_linear.parser import parse_feature
 from spec_kit_linear.planner import build_push_plan, snapshot_from_discovery
 from spec_kit_linear.projection import project_feature
@@ -17,6 +19,7 @@ from spec_kit_linear.reconciler import apply_plan
 from spec_kit_linear.remote_discovery import AdoptedResource, FeatureAdoption, RemoteDiscovery
 from spec_kit_linear.work_state import STATE_COMPLETED, STATE_REVIEW, STATE_STARTED, STATE_UNSTARTED, TaskWorkState
 from tests.support.fixtures import copy_consumer_fixture
+from tests.support.linear_transport import MemoryResponse, ScriptedOpener
 
 
 COMPLETED_STATE_ID = "77777777-7777-4777-8777-777777777777"
@@ -231,6 +234,19 @@ class PlannerApplyTests(unittest.TestCase):
         evidence = raised.exception.apply_results[0]
         self.assertEqual(evidence.failure_status, "rejected")
         self.assertNotIn(evidence.failed_operation_id, evidence.unattempted_operation_ids)
+
+    def test_real_linear_auth_and_rate_limit_errors_are_rejected_writes(self) -> None:
+        operation = {"id": "op", "kind": "project.create", "target": "feature:001", "input": {"id": str(uuid.uuid4()), "name": "x"}, "preconditions": {"absent": True}}
+        plan = {"snapshot": {"resources": []}, "operations": [operation]}
+        for status in (401, 403, 429):
+            with self.subTest(status=status):
+                client = LinearClient(Credentials("api", "secret"), endpoint="http://127.0.0.1/graphql", opener=ScriptedOpener([MemoryResponse({}, status=status)]), max_attempts=1, sleeper=lambda _delay: None, jitter=lambda _a, _b: 0.0)
+                with self.assertRaises(AppError) as raised:
+                    apply_plan(plan, snapshot_provider=lambda: {"resources": []}, transport=LinearMutationExecutor(client))
+                evidence = raised.exception.apply_results[0]
+                self.assertEqual(evidence.failure_status, "rejected")
+                self.assertEqual(evidence.applied_operation_ids, ())
+                self.assertEqual(evidence.recovered_operation_ids, ())
 
     def test_postverification_failure_retains_all_confirmed_ids_without_failed_operation(self) -> None:
         plan = self._push_plan()
