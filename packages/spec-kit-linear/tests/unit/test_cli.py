@@ -618,7 +618,7 @@ class WorkStateTests(CliTestCase):
     def _observe(self, arguments: list[str], *, branches: tuple[str, ...] = (), pull_requests: tuple[PullRequest, ...] = (), scan: PullRequestScan | None = None):
         with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((_matching_remote_project(self._desired()),))):
             with patch("spec_kit_linear.cli.known_branches", return_value=branches):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan or PullRequestScan(pull_requests=pull_requests)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan or PullRequestScan("complete", pull_requests)):
                     return self._invoke(arguments)
 
     def _lifecycle_updates(self, payload: dict[str, object]) -> dict[str, str]:
@@ -660,9 +660,9 @@ class WorkStateTests(CliTestCase):
 
         self.assertEqual(self._lifecycle_updates(payload)["task:001:T001"], STARTED_STATE_ID)
 
-    def test_push_without_gh_still_derives_from_the_checkbox_and_branches_and_warns_once(self) -> None:
+    def test_push_without_gh_preserves_states_and_warns_once(self) -> None:
         self._configure_lifecycle()
-        scan = PullRequestScan(available=False, diagnostics=(Diagnostic("github_cli_missing", "`gh` was not found on PATH", severity="warning"),))
+        scan = PullRequestScan("failed", diagnostics=(Diagnostic("github_cli_missing", "`gh` was not found on PATH", severity="warning"),))
 
         _result, payload = self._observe(
             ["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"],
@@ -672,9 +672,7 @@ class WorkStateTests(CliTestCase):
 
         codes = [item["code"] for item in payload["diagnostics"]]
         self.assertEqual(codes.count("github_cli_missing"), 1)
-        updates = self._lifecycle_updates(payload)
-        self.assertEqual(updates["task:001:T001"], STARTED_STATE_ID)
-        self.assertEqual(updates["task:001:T002"], COMPLETED_STATE_ID)
+        self.assertEqual(self._lifecycle_updates(payload), {})
 
     def test_a_branch_that_only_looks_like_the_convention_moves_nothing(self) -> None:
         self._configure_lifecycle()
@@ -699,7 +697,7 @@ class WorkStateTests(CliTestCase):
 
         with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((settled,))):
             with patch("spec_kit_linear.cli.known_branches", return_value=("001-T001",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete")):
                     result, payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--apply", "--json"])
 
         self.assertEqual(result, 0)
@@ -708,7 +706,7 @@ class WorkStateTests(CliTestCase):
     def test_status_shows_each_task_derived_state_and_where_it_came_from(self) -> None:
         with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((_matching_remote_project(self._desired()),))):
             with patch("spec_kit_linear.cli.known_branches", return_value=("001-T003-render",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan(pull_requests=(PullRequest("001-T001", False, "OPEN"),))):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete", (PullRequest("001-T001", False, "OPEN"),))):
                     text_code, text = self._invoke_text(["status", "--root", str(self.fixture_root), "--feature", "001"])
                     json_code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
 
@@ -794,7 +792,7 @@ class WorkItemTests(WorkStateTests):
     ):
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=branches):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan or PullRequestScan(pull_requests=pull_requests)):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=scan or PullRequestScan("complete", pull_requests)):
                     return self._invoke_text(arguments) if text else self._invoke(arguments)
 
     def _work_item_updates(self, payload: dict[str, object]) -> dict[str, str]:
@@ -970,10 +968,10 @@ class WorkItemTests(WorkStateTests):
 
         self.assertEqual(self._files(), before)
 
-    def test_without_gh_a_branch_derived_work_item_still_projects_and_warns_once(self) -> None:
+    def test_without_gh_a_branch_derived_work_item_preserves_state_and_warns_once(self) -> None:
         self._configure_lifecycle()
         client = self._matching_client(_remote_work_item("WOR-123", state_id=OPEN_STATE_ID))
-        scan = PullRequestScan(available=False, diagnostics=(Diagnostic("github_cli_missing", "`gh` was not found on PATH", severity="warning"),))
+        scan = PullRequestScan("failed", diagnostics=(Diagnostic("github_cli_missing", "`gh` was not found on PATH", severity="warning"),))
 
         _result, payload = self._observe_work_items(
             ["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"],
@@ -983,7 +981,7 @@ class WorkItemTests(WorkStateTests):
         )
 
         self.assertEqual([item["code"] for item in payload["diagnostics"]].count("github_cli_missing"), 1)
-        self.assertEqual(self._work_item_updates(payload), {"workitem:WOR-123": STARTED_STATE_ID})
+        self.assertEqual(self._work_item_updates(payload), {})
 
     def test_status_reports_the_observed_work_items(self) -> None:
         client = self._matching_client(_remote_work_item("WOR-123", state_id=OPEN_STATE_ID))
@@ -1273,7 +1271,7 @@ class SessionStartTests(CliTestCase):
         client = _ApplyingClient()
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=("001-T001-parse-artifacts",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete")):
                     code, output = self._run("001-T001-parse-artifacts")
 
         self.assertEqual(code, 0)
@@ -1287,7 +1285,7 @@ class SessionStartTests(CliTestCase):
         client = _WorkItemClient((_matching_remote_project(self._desired()),), work_items=(_remote_work_item("WOR-123"),))
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete")):
                     code, output = self._run("wor-123-fix-crash")
 
         self.assertEqual(code, 0)
@@ -1299,7 +1297,7 @@ class SessionStartTests(CliTestCase):
         client = _WorkItemClient(work_items=(_remote_work_item("WOR-123"),))
         with patch("spec_kit_linear.cli._linear_client", return_value=client):
             with patch("spec_kit_linear.cli.known_branches", return_value=("wor-123-fix-crash",)):
-                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan()):
+                with patch("spec_kit_linear.cli.scan_pull_requests", return_value=PullRequestScan("complete")):
                     code, output = self._run("wor-123-fix-crash")
 
         self.assertEqual(code, 0)

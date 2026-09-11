@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from spec_kit_linear.git_refs import known_branches
-from spec_kit_linear.github import PullRequest, scan_pull_requests
+from spec_kit_linear.github import PullRequest, PullRequestScan, scan_pull_requests
 from spec_kit_linear.work_state import (
     SOURCE_BRANCH,
     SOURCE_CHECKBOX,
@@ -28,7 +28,9 @@ def _pull_request(head_branch: str, *, draft: bool = False, state: str = "OPEN",
 
 
 def _derive(**overrides: object):
-    arguments: dict[str, object] = {"completed": False, "branches": (), "pull_requests": ()}
+    arguments: dict[str, object] = {"completed": False, "branches": (), "scan": PullRequestScan("complete")}
+    if "pull_requests" in overrides:
+        arguments["scan"] = PullRequestScan("complete", tuple(overrides.pop("pull_requests")))
     arguments.update(overrides)
     return derive_task_state("001", "T004", **arguments)  # type: ignore[arg-type]
 
@@ -174,25 +176,29 @@ class PullRequestScanTests(unittest.TestCase):
 
     def test_a_successful_scan_reads_every_pull_request_in_one_call(self) -> None:
         payload = (
-            '[{"number": 12, "headRefName": "001-T001-work", "isDraft": true, "state": "OPEN"}, '
-            '{"number": 13, "headRefName": "001-T002", "isDraft": false, "state": "MERGED"}]'
+            '[[{"number": 12, "head": {"ref": "001-T001-work"}, "draft": true, "state": "open", "merged_at": null}], '
+            '[{"number": 13, "head": {"ref": "001-T002"}, "draft": false, "state": "closed", "merged_at": "2026-01-01T00:00:00Z"}]]'
         )
 
         scan, run = self._scan(stdout=payload)
 
-        self.assertTrue(scan.available)
+        self.assertEqual(scan.outcome, "complete")
         self.assertEqual(scan.diagnostics, ())
         self.assertEqual([item.head_branch for item in scan.pull_requests], ["001-T001-work", "001-T002"])
         self.assertEqual([item.number for item in scan.pull_requests], [12, 13])
         self.assertTrue(scan.pull_requests[0].is_draft)
         self.assertTrue(scan.pull_requests[1].is_merged)
         self.assertEqual(run.call_count, 1)
-        self.assertEqual(run.call_args.args[0][:3], ["gh", "pr", "list"])
+        command = run.call_args.args[0]
+        self.assertEqual(command[:3], ["gh", "api", "repos/{owner}/{repo}/pulls"])
+        self.assertIn("--paginate", command)
+        self.assertIn("--slurp", command)
+        self.assertIn("X-GitHub-Api-Version: 2022-11-28", command)
 
     def test_a_missing_gh_binary_warns_once_and_never_runs_anything(self) -> None:
         scan, run = self._scan(gh=None)
 
-        self.assertFalse(scan.available)
+        self.assertEqual(scan.outcome, "failed")
         self.assertEqual(scan.pull_requests, ())
         self.assertEqual([item.code for item in scan.diagnostics], ["github_cli_missing"])
         self.assertEqual([item.severity for item in scan.diagnostics], ["warning"])
@@ -201,7 +207,7 @@ class PullRequestScanTests(unittest.TestCase):
     def test_an_unauthenticated_gh_degrades_with_one_warning(self) -> None:
         scan, _run = self._scan(returncode=1, stdout="")
 
-        self.assertFalse(scan.available)
+        self.assertEqual(scan.outcome, "failed")
         self.assertEqual([item.code for item in scan.diagnostics], ["github_cli_unavailable"])
 
     def test_malformed_gh_output_degrades_instead_of_being_half_read(self) -> None:
@@ -215,9 +221,40 @@ class PullRequestScanTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 scan, _run = self._scan(stdout=payload)
 
-                self.assertFalse(scan.available)
+                self.assertEqual(scan.outcome, "incomplete")
                 self.assertEqual(scan.pull_requests, ())
                 self.assertEqual([item.code for item in scan.diagnostics], ["github_cli_malformed"])
+
+    def test_slurped_pages_are_flattened_and_malformed_pages_are_uncertain(self) -> None:
+        scan, _run = self._scan(stdout='[[{"number": 3, "head": {"ref": "001-T001"}, "draft": false, "state": "open", "merged_at": null}], []]')
+        self.assertEqual(scan.outcome, "complete")
+        self.assertEqual([item.number for item in scan.pull_requests], [3])
+        scan, _run = self._scan(stdout='[[{"number": 3}], {"number": 4}]')
+        self.assertEqual(scan.outcome, "incomplete")
+
+    def test_complete_empty_page_is_distinct_from_empty_or_partial_failure(self) -> None:
+        scan, _run = self._scan(stdout="[[]]")
+        self.assertEqual(scan.outcome, "complete")
+        failed, _run = self._scan(returncode=1, stdout="[[{\"number\": 1}]]")
+        self.assertEqual(failed.outcome, "failed")
+        with patch("spec_kit_linear.github.shutil.which", return_value="/usr/bin/gh"), patch(
+            "spec_kit_linear.github.subprocess.run", side_effect=subprocess.TimeoutExpired("gh", 30)
+        ):
+            timed_out = scan_pull_requests(self.root)
+        self.assertEqual(timed_out.outcome, "failed")
+
+    def test_duplicate_prs_are_deduplicated_but_conflicts_are_uncertain(self) -> None:
+        record = '{"number": 1, "head": {"ref": "001-T001"}, "draft": false, "state": "open", "merged_at": null}'
+        scan, _run = self._scan(stdout=f"[[{record}], [{record}]]")
+        self.assertEqual(len(scan.pull_requests), 1)
+        conflict = record.replace('"draft": false', '"draft": true')
+        uncertain, _run = self._scan(stdout=f"[[{record}], [{conflict}]]")
+        self.assertEqual(uncertain.outcome, "incomplete")
+
+    def test_closed_pr_without_merge_observation_is_uncertain(self) -> None:
+        payload = '[[{"number": 1, "head": {"ref": "001-T001"}, "draft": false, "state": "closed"}]]'
+        scan, _run = self._scan(stdout=payload)
+        self.assertEqual(scan.outcome, "incomplete")
 
 
 if __name__ == "__main__":

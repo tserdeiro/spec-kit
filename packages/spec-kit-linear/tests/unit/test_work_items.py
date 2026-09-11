@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from spec_kit_linear.github import PullRequest
+from spec_kit_linear.github import PullRequest, PullRequestScan
 from spec_kit_linear.linear_client import RemoteWorkItem
 from spec_kit_linear.planner import build_work_item_plan
-from spec_kit_linear.work_items import derive_work_items, issue_key_pattern, issue_numbers
+from spec_kit_linear.work_items import derive_work_items as _derive_work_items, issue_key_pattern, issue_numbers
 from spec_kit_linear.work_state import (
     SOURCE_BRANCH,
     SOURCE_PULL_REQUEST,
@@ -32,6 +32,10 @@ LIFECYCLE_CONFIG = {
 
 def _pull_request(head_branch: str, *, draft: bool = False, state: str = "OPEN", number: int | None = None) -> PullRequest:
     return PullRequest(head_branch=head_branch, is_draft=draft, state=state, number=number)
+
+
+def derive_work_items(team_key: str, *, branches=(), pull_requests=()):
+    return _derive_work_items(team_key, branches=branches, scan=PullRequestScan("complete", tuple(pull_requests)))
 
 
 def _remote(identifier: str, *, state_id: str | None = None) -> RemoteWorkItem:

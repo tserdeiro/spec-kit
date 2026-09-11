@@ -946,8 +946,12 @@ def _observe(
     diagnostics.extend(scan.diagnostics)
     branches = known_branches(root)
     _team_id, team_key = team_binding(config)
-    work_states = derive_task_states(desired_states, branches=branches, pull_requests=scan.pull_requests)
-    work_items = derive_work_items(team_key, branches=branches, pull_requests=scan.pull_requests)
+    work_states = derive_task_states(
+        desired_states, branches=branches, scan=scan
+    )
+    work_items = derive_work_items(
+        team_key, branches=branches, scan=scan
+    )
     return work_states, work_items
 
 
