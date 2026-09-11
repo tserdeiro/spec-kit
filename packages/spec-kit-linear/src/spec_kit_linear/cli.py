@@ -52,6 +52,7 @@ from .mutation_executor import LinearMutationExecutor
 from .parser import parse_feature
 from .planner import build_push_plan, build_work_item_plan, snapshot_from_discovery
 from .projection import project_feature
+from .redaction import redact_structure, redact_text
 from .reconciler import apply_plan
 from .remote_discovery import RemoteDiscovery, discover_and_adopt
 from .reporting import observation_report, render_status_table, render_work_item_table, status_report
@@ -1247,29 +1248,113 @@ def _current_branch(root: Path) -> str | None:
     return branch or None
 
 
+def _emit_hook_result_warning(payload: Mapping[str, object]) -> None:
+    diagnostics = payload.get("diagnostics")
+    if isinstance(diagnostics, list):
+        for diagnostic in diagnostics:
+            if not isinstance(diagnostic, Mapping) or diagnostic.get("severity") == "info":
+                continue
+            safe = redact_structure(diagnostic)
+            if isinstance(safe, Mapping):
+                sys.stderr.write(f"warning: reconciliation {_format_diagnostic_warning(safe)}\n")
+    observation = payload.get("observation")
+    if isinstance(observation, Mapping) and observation.get("outcome") != "complete":
+        outcome = redact_text(observation.get("outcome", "unknown"))
+        sys.stderr.write(f"warning: reconciliation GitHub observation {outcome}; state derivation is unverified\n")
+    sys.stderr.flush()
+
+
+def _emit_hook_error_warning(error: AppError) -> None:
+    sys.stderr.write(f"warning: reconciliation failure: {redact_text(str(error))}\n")
+    for diagnostic in error.diagnostics:
+        safe = redact_structure(diagnostic.as_dict())
+        if isinstance(safe, Mapping):
+            sys.stderr.write(f"warning: reconciliation {_format_diagnostic_warning(safe)}\n")
+    for result in error.apply_results:
+        line = _format_apply_evidence(result)
+        if line:
+            sys.stderr.write(f"warning: reconciliation partial failure: {line}\n")
+    sys.stderr.flush()
+
+
+def _format_diagnostic_warning(diagnostic: Mapping[str, object]) -> str:
+    location = ""
+    if diagnostic.get("path") is not None:
+        location = f" ({redact_text(diagnostic['path'])}"
+        if diagnostic.get("line") is not None:
+            location += f":{redact_text(diagnostic['line'])}"
+        location += ")"
+    return f"{diagnostic.get('code', 'failure')}{location}: {redact_text(diagnostic.get('message', 'operation failed'))}"
+
+
+def _load_hook_config(root: Path) -> Mapping[str, object] | None:
+    try:
+        config, _shared_path = load_config(root, None)
+    except AppError as error:
+        if not any(diagnostic.code == "config_missing" for diagnostic in error.diagnostics):
+            _emit_hook_error_warning(error)
+        return None
+    except OSError:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured I/O error\n")
+        sys.stderr.flush()
+        return None
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured configuration error\n")
+        sys.stderr.flush()
+        return None
+    return config
+
+
+def _format_apply_evidence(result: object) -> str | None:
+    safe = redact_structure(result.as_dict() if hasattr(result, "as_dict") else result)
+    if not isinstance(safe, Mapping):
+        return None
+    applied = ",".join(map(str, safe.get("applied_operation_ids", []))) or "none"
+    recovered = ",".join(map(str, safe.get("recovered_operation_ids", []))) or "none"
+    remaining = ",".join(map(str, safe.get("unattempted_operation_ids", []))) or "none"
+    line = f"applied [{applied}], recovered [{recovered}], unattempted [{remaining}]"
+    operation = " ".join(str(safe.get(key)) for key in ("failed_operation_id", "failed_operation_kind", "failed_operation_target") if safe.get(key))
+    if operation:
+        line += f", failed {operation}"
+    if safe.get("failure_phase") is not None:
+        line += f", failure {safe.get('failure_phase')} ({safe.get('failure_status')})"
+    return line
+
+
 def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
     """Resolve the branch shape and run `push --hook`; shared by both event handlers (D4, FR-006)."""
+    config = _load_hook_config(root)
+    if config is None or not hooks_gate(config, "lifecycle_enabled"):
+        return None, None
     branch = work_item_identifier = None
+    branch_error = False
     try:
         branch = _current_branch(root)
         if branch and not FEATURE_RE.fullmatch(branch):
-            config, _shared_path = load_config(root, None)
             _team_id, team_key = team_binding(config)
             match = issue_key_pattern(team_key).fullmatch(branch)
             work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
     except Exception:
-        pass
+        branch_error = True
 
     # A work item resolves `--current` only through `.specify/feature.json`, often
     # absent; a feature/task branch resolves it by name, so only the former skips it.
+    if branch_error:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured branch error\n")
+        sys.stderr.flush()
+
     hook_args = argparse.Namespace(
         root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
         dry_run=False, apply=False, hook=True,
     )
     try:
-        run_push(hook_args)
+        result = run_push(hook_args)
+        _emit_hook_result_warning(result)
+    except AppError as error:
+        _emit_hook_error_warning(error)
     except Exception:
-        pass
+        sys.stderr.write("warning: reconciliation failure: unexpected configured hook error\n")
+        sys.stderr.flush()
     return branch, work_item_identifier
 
 
@@ -1329,6 +1414,8 @@ def _session_start_context_line(root: Path, branch: str, work_item_identifier: s
     is treated identically by the caller (FR-006).
     """
 
+    if not branch:
+        return None
     feature_match = FEATURE_RE.fullmatch(branch)
     if feature_match is None and work_item_identifier is None:
         return None
@@ -1337,7 +1424,9 @@ def _session_start_context_line(root: Path, branch: str, work_item_identifier: s
     # item has no feature to resolve, so `current` is False for it and this
     # lookup never raises for that reason (caller already resolved the id).
     status_args = argparse.Namespace(root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False)
-    status = run_status(status_args)["status"]
+    status_payload = run_status(status_args)
+    _emit_hook_result_warning(status_payload)
+    status = status_payload["status"]
 
     if work_item_identifier is not None:
         row = next((item for item in status["work_items"] if item["identifier"] == work_item_identifier), None)
@@ -1351,21 +1440,31 @@ def run_session_start(args: argparse.Namespace) -> int:
     """The `session_start` event handler (plan D4): reconcile, then one context line.
 
     Never raises and never exits nonzero: a session must not be blocked,
-    slowed down, or spammed by tracking. Every failure -- no configuration, an
-    unrecognized branch shape, a Linear or `gh` error -- degrades to silence
-    (FR-006); diagnostics are discarded, never surfaced.
+    slowed down, or spammed by tracking. Missing or disabled configuration is
+    silent; configured failures become sanitized stderr warnings (FR-006).
     """
 
     try:
         root = _root_from_args(getattr(args, "root", None))
     except AppError:
         return EXIT_SUCCESS
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured root error\n")
+        sys.stderr.flush()
+        return EXIT_SUCCESS
 
     branch, work_item_identifier = _reconcile_hook(root)
+    if not branch:
+        return EXIT_SUCCESS
 
     try:
         line = _session_start_context_line(root, branch, work_item_identifier)
+    except AppError as error:
+        _emit_hook_error_warning(error)
+        line = None
     except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured context error\n")
+        sys.stderr.flush()
         line = None
     if line:
         sys.stdout.write(line + "\n")
@@ -1587,6 +1686,10 @@ def run_post_tool_use(args: argparse.Namespace) -> int:
         root = _root_from_args(getattr(args, "root", None))
     except AppError:
         return EXIT_SUCCESS
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured root error\n")
+        sys.stderr.flush()
+        return EXIT_SUCCESS
     _reconcile_hook(root)
     return EXIT_SUCCESS
 
@@ -1685,15 +1788,9 @@ def main(argv: list[str] | None = None) -> int:
                 line = f":{diagnostic.line}" if diagnostic.line else ""
                 sys.stderr.write(f"  {diagnostic.code}{location}{line}: {diagnostic.message}\n")
             for evidence in error.apply_results:
-                applied = ",".join(evidence.applied_operation_ids) or "none"
-                recovered = ",".join(evidence.recovered_operation_ids) or "none"
-                pending = ",".join(evidence.unattempted_operation_ids) or "none"
-                line = f"  partial apply: applied [{applied}], recovered [{recovered}], unattempted [{pending}]"
-                if evidence.failure_phase is not None:
-                    line += f", failure {evidence.failure_phase} ({evidence.failure_status})"
-                if evidence.failed_operation_id is not None:
-                    line += f", failed {evidence.failed_operation_id} {evidence.failed_operation_kind} {evidence.failed_operation_target}"
-                sys.stderr.write(line + "\n")
+                line = _format_apply_evidence(evidence)
+                if line:
+                    sys.stderr.write(f"  partial apply: {line}\n")
         return error.code
 
 

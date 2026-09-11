@@ -97,13 +97,13 @@ runtime handlers report failures and return control to delivery.
   - **Delivery**: single PR (~290 authored lines)
   - **Completion evidence**: PR [#123](https://github.com/tserdeiro/spec-kit/pull/123); focused planner/CLI suite: 156 passed, 84 subtests; full package with loopback permitted: 490 passed, 286 subtests, no skips; rejection, ambiguity, preconditions, readback and postverification preserve partial evidence; `git diff --check` clean. Final candidate review required before ready.
 
-- [ ] T006 [US2] Surface non-blocking reconciliation warnings in packages/spec-kit-linear/src/spec_kit_linear/cli.py
+- [x] T006 [US2] Surface non-blocking reconciliation warnings in packages/spec-kit-linear/src/spec_kit_linear/cli.py
   - **Traces**: FR-005, FR-007, FR-009, SC-002, SC-005; plan D5; outcome: session-start and post-tool-use render authored, sanitized reconciliation warnings to stderr for configured invocations, including GitHub uncertainty and T005's partial Linear failures, while returning exit 0. Missing/disabled configuration retains its quiet no-op. Reuse manual diagnostic content so affected identity and unsuccessful operation remain visible. Test both handlers, successful quiet runs, and secret-shaped error payloads.
   - **Depends on**: T005
   - **Boundaries**: change `packages/spec-kit-linear/src/spec_kit_linear/cli.py` and `packages/spec-kit-linear/tests/unit/test_cli.py`; reuse `redaction.py` and event entrypoints. Preserve registration and manual error exits.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_cli.py packages/spec-kit-linear/tests/unit/test_credentials_redaction.py -q` -> configured failures emit useful sanitized stderr, handlers return 0, successful/disabled runs avoid failure warnings, and raw secrets never appear.
   - **Delivery**: single PR (~190 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR [#124](https://github.com/tserdeiro/spec-kit/pull/124); exact CLI/redaction suite: 128 passed, 78 subtests; full package with loopback permitted: 505 passed, 286 subtests, no skips; configured warnings are visible and redacted, missing/disabled handlers remain quiet, and manual failures remain nonzero; `git diff --check` clean. Final candidate review required before ready.
 
 ## Phase 5: Cross-cutting verification
 
