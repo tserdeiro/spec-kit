@@ -1287,6 +1287,24 @@ def _format_diagnostic_warning(diagnostic: Mapping[str, object]) -> str:
     return f"{diagnostic.get('code', 'failure')}{location}: {redact_text(diagnostic.get('message', 'operation failed'))}"
 
 
+def _load_hook_config(root: Path) -> Mapping[str, object] | None:
+    try:
+        config, _shared_path = load_config(root, None)
+    except AppError as error:
+        if (root / ROOT_CONFIG_FILENAME).exists():
+            _emit_hook_error_warning(error)
+        return None
+    except OSError:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured I/O error\n")
+        sys.stderr.flush()
+        return None
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured configuration error\n")
+        sys.stderr.flush()
+        return None
+    return config
+
+
 def _format_apply_evidence(result: object) -> str | None:
     safe = redact_structure(result.as_dict() if hasattr(result, "as_dict") else result)
     if not isinstance(safe, Mapping):
@@ -1319,11 +1337,8 @@ def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
 
     # A work item resolves `--current` only through `.specify/feature.json`, often
     # absent; a feature/task branch resolves it by name, so only the former skips it.
-    try:
-        config, _shared_path = load_config(root, None)
-    except AppError as error:
-        if (root / ROOT_CONFIG_FILENAME).exists():
-            _emit_hook_error_warning(error)
+    config = _load_hook_config(root)
+    if config is None:
         return branch, work_item_identifier
     if not hooks_gate(config, "lifecycle_enabled"):
         return branch, work_item_identifier
@@ -1434,12 +1449,13 @@ def run_session_start(args: argparse.Namespace) -> int:
         root = _root_from_args(getattr(args, "root", None))
     except AppError:
         return EXIT_SUCCESS
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured root error\n")
+        sys.stderr.flush()
+        return EXIT_SUCCESS
 
-    try:
-        config, _shared_path = load_config(root, None)
-    except AppError as error:
-        if (root / ROOT_CONFIG_FILENAME).exists():
-            _emit_hook_error_warning(error)
+    config = _load_hook_config(root)
+    if config is None:
         return EXIT_SUCCESS
     if not hooks_gate(config, "lifecycle_enabled"):
         return EXIT_SUCCESS
@@ -1681,6 +1697,10 @@ def run_post_tool_use(args: argparse.Namespace) -> int:
     try:
         root = _root_from_args(getattr(args, "root", None))
     except AppError:
+        return EXIT_SUCCESS
+    except Exception:
+        sys.stderr.write("warning: reconciliation failure: unexpected configured root error\n")
+        sys.stderr.flush()
         return EXIT_SUCCESS
     _reconcile_hook(root)
     return EXIT_SUCCESS

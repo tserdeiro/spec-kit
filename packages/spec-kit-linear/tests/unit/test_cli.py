@@ -1519,6 +1519,17 @@ class SessionStartTests(CliTestCase):
         self.assertIn("configuration", errors.getvalue())
         status.assert_not_called()
 
+    def test_configuration_io_error_is_nonblocking_and_generic(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.unlink()
+        config_path.mkdir()
+        errors = StringIO()
+        with redirect_stderr(errors), patch("spec_kit_linear.cli.run_status") as status:
+            code, output = self._run("001-T001-parse-artifacts")
+        self.assertEqual((code, output), (0, ""))
+        self.assertIn("unexpected configured I/O error", errors.getvalue())
+        status.assert_not_called()
+
     def test_an_unexpected_failure_still_exits_zero_with_no_output(self) -> None:
         output = StringIO()
         with patch("spec_kit_linear.cli._current_branch", side_effect=RuntimeError("boom")), patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
@@ -1740,6 +1751,16 @@ class PostToolUseTests(CliTestCase):
         with patch("spec_kit_linear.cli.run_push", side_effect=error):
             code = main(["push", "--root", str(self.fixture_root)])
         self.assertEqual(code, 8)
+
+    def test_configuration_io_error_is_nonblocking_for_post_tool_use(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.unlink()
+        config_path.mkdir()
+        errors = StringIO()
+        with patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual(code, 0)
+        self.assertIn("unexpected configured I/O error", errors.getvalue())
 
 
 if __name__ == "__main__":
