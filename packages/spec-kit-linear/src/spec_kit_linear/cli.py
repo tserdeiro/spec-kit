@@ -1291,7 +1291,7 @@ def _load_hook_config(root: Path) -> Mapping[str, object] | None:
     try:
         config, _shared_path = load_config(root, None)
     except AppError as error:
-        if (root / ROOT_CONFIG_FILENAME).exists():
+        if not any(diagnostic.code == "config_missing" for diagnostic in error.diagnostics):
             _emit_hook_error_warning(error)
         return None
     except OSError:
@@ -1417,6 +1417,8 @@ def _session_start_context_line(root: Path, branch: str, work_item_identifier: s
     is treated identically by the caller (FR-006).
     """
 
+    if not branch:
+        return None
     feature_match = FEATURE_RE.fullmatch(branch)
     if feature_match is None and work_item_identifier is None:
         return None

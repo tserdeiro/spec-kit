@@ -1530,6 +1530,24 @@ class SessionStartTests(CliTestCase):
         self.assertIn("unexpected configured I/O error", errors.getvalue())
         status.assert_not_called()
 
+    def test_detached_head_skips_context_quietly(self) -> None:
+        errors = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value=None), patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": []}), patch("spec_kit_linear.cli.run_status") as status, redirect_stderr(errors):
+            code, output = self._run("ignored")
+        self.assertEqual((code, output, errors.getvalue()), (0, "", ""))
+        status.assert_not_called()
+
+    def test_external_invalid_utf8_configuration_warns_without_raw_error(self) -> None:
+        external = Path(self.temporary.name) / "external.yml"
+        external.write_bytes(b"\xff")
+        (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
+        errors = StringIO()
+        with patch.dict(os.environ, {"SPECKIT_LINEAR_CONFIG": str(external)}), redirect_stderr(errors):
+            code, output = self._run("001-T001-parse-artifacts")
+        self.assertEqual((code, output), (0, ""))
+        self.assertIn("configuration", errors.getvalue())
+        self.assertNotIn("UnicodeDecodeError", errors.getvalue())
+
     def test_an_unexpected_failure_still_exits_zero_with_no_output(self) -> None:
         output = StringIO()
         with patch("spec_kit_linear.cli._current_branch", side_effect=RuntimeError("boom")), patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()):
@@ -1761,6 +1779,23 @@ class PostToolUseTests(CliTestCase):
             code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
         self.assertEqual(code, 0)
         self.assertIn("unexpected configured I/O error", errors.getvalue())
+
+    def test_detached_head_is_quiet_for_post_tool_use(self) -> None:
+        errors = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value=None), patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": []}), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual((code, errors.getvalue()), (0, ""))
+
+    def test_external_invalid_utf8_configuration_warns_for_post_tool_use(self) -> None:
+        external = Path(self.temporary.name) / "external.yml"
+        external.write_bytes(b"\xff")
+        (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
+        errors = StringIO()
+        with patch.dict(os.environ, {"SPECKIT_LINEAR_CONFIG": str(external)}), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual(code, 0)
+        self.assertIn("configuration", errors.getvalue())
+        self.assertNotIn("UnicodeDecodeError", errors.getvalue())
 
 
 if __name__ == "__main__":

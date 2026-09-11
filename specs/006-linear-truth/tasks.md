@@ -103,7 +103,7 @@ runtime handlers report failures and return control to delivery.
   - **Boundaries**: change `packages/spec-kit-linear/src/spec_kit_linear/cli.py` and `packages/spec-kit-linear/tests/unit/test_cli.py`; reuse `redaction.py` and event entrypoints. Preserve registration and manual error exits.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_cli.py packages/spec-kit-linear/tests/unit/test_credentials_redaction.py -q` -> configured failures emit useful sanitized stderr, handlers return 0, successful/disabled runs avoid failure warnings, and raw secrets never appear.
   - **Delivery**: single PR (~190 authored lines)
-  - **Completion evidence**: PR [#124](https://github.com/tserdeiro/spec-kit/pull/124); exact CLI/redaction suite: 124 passed, 78 subtests; full package with loopback permitted: 501 passed, 286 subtests, no skips; configured warnings are visible and redacted, missing/disabled handlers remain quiet, and manual failures remain nonzero; `git diff --check` clean. Final candidate review required before ready.
+  - **Completion evidence**: PR [#124](https://github.com/tserdeiro/spec-kit/pull/124); exact CLI/redaction suite: 128 passed, 78 subtests; full package with loopback permitted: 505 passed, 286 subtests, no skips; configured warnings are visible and redacted, missing/disabled handlers remain quiet, and manual failures remain nonzero; `git diff --check` clean. Final candidate review required before ready.
 
 ## Phase 5: Cross-cutting verification
 
