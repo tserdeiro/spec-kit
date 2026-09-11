@@ -263,6 +263,19 @@ class PushTests(CliTestCase):
         self.assertIn("failed third issue.create task:002", human_text)
         self.assertNotIn("failure None (None)", human_text)
 
+    def test_real_push_aggregates_prior_failed_and_later_plan_evidence(self) -> None:
+        plans = [{"snapshot": {"resources": []}, "operations": [{"id": name}]} for name in ("first", "second", "third")]
+        failure = AppError("second failed", code=8, category="mutation", diagnostics=[], apply_results=[ApplyResult((), (), 0, "second", "issue.create", "task:002", (), "mutation", "unconfirmed")])
+        work_plan = {"snapshot": {"resources": []}, "operations": [{"id": "work-item"}]}
+        with patch("spec_kit_linear.cli._select_feature_directories", return_value=(self.fixture_root / "specs/001-local-projection",) * 3), patch("spec_kit_linear.cli._observe", return_value=({}, (), PullRequestScan("complete"))), patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()), patch("spec_kit_linear.cli.build_push_plan", side_effect=plans), patch("spec_kit_linear.cli._remote_work_items", return_value={}), patch("spec_kit_linear.cli.build_work_item_plan", return_value=(work_plan, ())), patch("spec_kit_linear.cli._apply_push_plan", side_effect=[ApplyResult(("first",), (), 1), failure]):
+            output = StringIO()
+            with redirect_stdout(output):
+                code = main(["push", "--root", str(self.fixture_root), "--apply", "--json"])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 8)
+        self.assertEqual([item["applied_operation_ids"] for item in payload["apply"]], [["first"], []])
+        self.assertEqual(payload["apply"][-1]["unattempted_operation_ids"], ["third", "work-item"])
+
     def test_dry_run_renders_project_then_issues_and_writes_nothing(self) -> None:
         before = self._files()
 
