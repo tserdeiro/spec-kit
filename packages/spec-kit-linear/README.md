@@ -139,8 +139,9 @@ Branches are read from the refs Git already has (`refs/heads` and
 `gh api` paginated repository listing per invocation. GitHub is optional, but
 missing, failed, or malformed reads are uncertainty, not proof of absence;
 checkboxes, branches, and partial PR output cannot replace that evidence. A
-workflow state the Team does not have is left unconfigured, so no lifecycle
-operation is planned for it.
+workflow state the Team does not have is left unconfigured. The one fallback
+is `review`: when `review_state_id` is absent, it uses `started_state_id`;
+other missing lifecycle IDs produce no operation for that derived state.
 
 When a task Issue is created during uncertainty, its `stateId` is omitted and
 Linear applies the Team's configured initial state (such as Backlog or Triage).
