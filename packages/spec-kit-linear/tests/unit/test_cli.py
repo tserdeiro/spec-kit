@@ -1492,10 +1492,32 @@ class SessionStartTests(CliTestCase):
     def test_no_configuration_prints_nothing_and_never_raises(self) -> None:
         (self.fixture_root / ROOT_CONFIG_FILENAME).unlink()
 
-        code, output = self._run("001-T001-parse-artifacts")
+        errors = StringIO()
+        with redirect_stderr(errors), patch("spec_kit_linear.cli.run_status") as status:
+            code, output = self._run("001-T001-parse-artifacts")
 
         self.assertEqual(code, 0)
         self.assertEqual(output, "")
+        self.assertEqual(errors.getvalue(), "")
+        status.assert_not_called()
+
+    def test_disabled_configuration_skips_context_without_warning(self) -> None:
+        self._set_hooks(lifecycle_enabled=False)
+        errors = StringIO()
+        with redirect_stderr(errors), patch("spec_kit_linear.cli.run_status") as status:
+            code, output = self._run("001-T001-parse-artifacts")
+        self.assertEqual((code, output, errors.getvalue()), (0, "", ""))
+        status.assert_not_called()
+
+    def test_malformed_configuration_warns_once_and_skips_context(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.write_text(config_path.read_text(encoding="utf-8") + "\nhooks:\n  lifecycle_enabled: [\n", encoding="utf-8")
+        errors = StringIO()
+        with redirect_stderr(errors), patch("spec_kit_linear.cli.run_status") as status:
+            code, output = self._run("001-T001-parse-artifacts")
+        self.assertEqual((code, output), (0, ""))
+        self.assertIn("configuration", errors.getvalue())
+        status.assert_not_called()
 
     def test_an_unexpected_failure_still_exits_zero_with_no_output(self) -> None:
         output = StringIO()
@@ -1541,6 +1563,31 @@ class SessionStartTests(CliTestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(output, "Linear: WOR-123 (started) — next: /speckit.pr\n")
+
+    def test_configured_github_uncertainty_warns_on_stderr_and_keeps_stdout_context(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        result = {"diagnostics": [{"code": "observation_unknown", "severity": "warning", "message": "Authorization: Bearer secret"}], "observation": {"outcome": "failed"}}
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value="main"), patch("spec_kit_linear.cli.run_push", return_value=result), redirect_stdout(output), redirect_stderr(errors):
+            code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual((code, output.getvalue()), (0, ""))
+        self.assertIn("GitHub observation failed", errors.getvalue())
+        self.assertNotIn("secret", errors.getvalue())
+
+    def test_configured_partial_failure_warns_with_sanitized_evidence(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        error = AppError(
+            "write failed Authorization: Bearer secret-value", code=8, category="mutation",
+            diagnostics=[Diagnostic("mutation_failed", "WOR-1")],
+            apply_results=[ApplyResult(("ok",), (), 1, "id?token=secret-value", "issue.update", "WOR-1", (), "mutation", "unconfirmed")],
+        )
+        errors = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value="main"), patch("spec_kit_linear.cli.run_push", side_effect=error), redirect_stderr(errors):
+            code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual(code, 0)
+        self.assertIn("issue.update WOR-1", errors.getvalue())
+        self.assertIn("failure mutation (unconfirmed)", errors.getvalue())
+        self.assertNotIn("secret-value", errors.getvalue())
 
 
 def _bash_payload(command: str) -> str:
@@ -1651,6 +1698,45 @@ class PostToolUseTests(CliTestCase):
                 code, output, run_push = self._run(stdin_text)
                 self.assertEqual((code, output), (0, ""))
                 run_push.assert_not_called()
+
+    def test_configured_partial_failure_warns_with_operation_and_sanitized_evidence(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        error = AppError(
+            "write failed Authorization: Bearer secret-value",
+            code=8,
+            category="mutation",
+            diagnostics=[Diagnostic("mutation_failed", "target?token=secret-value")],
+            apply_results=[ApplyResult(("ok",), (), 1, "id?api_key=secret-value", "issue.update", "WOR-1", ("later",), "mutation", "unconfirmed")],
+        )
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli.run_push", side_effect=error), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stdout(output), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        text = errors.getvalue()
+        self.assertEqual((code, output.getvalue()), (0, ""))
+        self.assertIn("issue.update WOR-1", text)
+        self.assertIn("unattempted [later]", text)
+        self.assertNotIn("secret-value", text)
+
+    def test_disabled_hooks_and_successful_reconciliation_are_quiet(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": [{"code": "ok", "severity": "info", "message": "done"}]}), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stdout(output), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual((code, output.getvalue(), errors.getvalue()), (0, "", ""))
+
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        text = config_path.read_text(encoding="utf-8")
+        config_path.write_text(text.rsplit("hooks:\n", 1)[0] + "hooks:\n  lifecycle_enabled: false\n", encoding="utf-8")
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli.run_push", side_effect=AssertionError("disabled hook ran")), patch("sys.stdin", StringIO(_bash_payload("git push"))), redirect_stdout(output), redirect_stderr(errors):
+            code = run_post_tool_use(SimpleNamespace(root=str(self.fixture_root)))
+        self.assertEqual((code, output.getvalue(), errors.getvalue()), (0, "", ""))
+
+    def test_main_manual_error_remains_nonzero(self) -> None:
+        error = AppError("manual failure", code=8, category="mutation")
+        with patch("spec_kit_linear.cli.run_push", side_effect=error):
+            code = main(["push", "--root", str(self.fixture_root)])
+        self.assertEqual(code, 8)
 
 
 if __name__ == "__main__":
