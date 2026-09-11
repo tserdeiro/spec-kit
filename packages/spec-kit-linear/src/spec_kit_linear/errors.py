@@ -40,12 +40,14 @@ class AppError(Exception):
         category: str,
         diagnostics: list[Diagnostic] | None = None,
         retryable: bool = False,
+        apply_results: list[object] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.category = category
         self.diagnostics = diagnostics or []
         self.retryable = retryable
+        self.apply_results = apply_results or []
 
 
 def diagnostic_for_path(code: str, message: str, path: Path, line: int | None = None) -> Diagnostic:

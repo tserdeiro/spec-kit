@@ -89,13 +89,13 @@ preserve all affected states.
 runtime handlers report failures and return control to delivery.
 **Independent evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_planner_apply.py packages/spec-kit-linear/tests/unit/test_cli.py -q` -> partial failures retain precise outcomes, retries converge, and handler warnings remain visible with exit 0.
 
-- [ ] T005 [US2] Retain partial application evidence in packages/spec-kit-linear/src/spec_kit_linear/reconciler.py and cli.py
+- [x] T005 [US2] Retain partial application evidence in packages/spec-kit-linear/src/spec_kit_linear/reconciler.py and cli.py
   - **Traces**: FR-008, FR-009, SC-004, SC-005; plan D5; outcome: extend existing apply/error results so failed mutation, precondition, or post-verification retains confirmed applied/recovered IDs, failed operation ID/kind/target when one exists, and unattempted operations. Carry earlier feature-plan successes through a later failure. Distinguish rejected and unconfirmed writes; retain manual nonzero exits. Test failure after success, ambiguous create recovery by identity, ambiguous update, failed readback, fresh preconditions, and retry followed by zero operations, preserving human fields.
   - **Depends on**: T004
   - **Boundaries**: change `packages/spec-kit-linear/src/spec_kit_linear/{reconciler,errors,cli}.py` and `packages/spec-kit-linear/tests/unit/{test_planner_apply,test_cli}.py`; preserve allowlisting, create UUID recovery, and fresh Linear snapshots. Evidence remains invocation-local.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests/unit/test_planner_apply.py packages/spec-kit-linear/tests/unit/test_cli.py -q` -> confirmed outcomes survive failures, uncertain writes are not counted as confirmed, and retries create no duplicate Issues.
   - **Delivery**: single PR (~290 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR [#123](https://github.com/tserdeiro/spec-kit/pull/123); focused planner/CLI suite: 156 passed, 84 subtests; full package with loopback permitted: 490 passed, 286 subtests, no skips; rejection, ambiguity, preconditions, readback and postverification preserve partial evidence; `git diff --check` clean. Final candidate review required before ready.
 
 - [ ] T006 [US2] Surface non-blocking reconciliation warnings in packages/spec-kit-linear/src/spec_kit_linear/cli.py
   - **Traces**: FR-005, FR-007, FR-009, SC-002, SC-005; plan D5; outcome: session-start and post-tool-use render authored, sanitized reconciliation warnings to stderr for configured invocations, including GitHub uncertainty and T005's partial Linear failures, while returning exit 0. Missing/disabled configuration retains its quiet no-op. Reuse manual diagnostic content so affected identity and unsuccessful operation remain visible. Test both handlers, successful quiet runs, and secret-shaped error payloads.
