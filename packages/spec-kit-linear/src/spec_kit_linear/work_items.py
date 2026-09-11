@@ -18,9 +18,10 @@ The map is Stage 3's, minus the checkbox -- a bug has no `tasks.md` row:
 
 | observation                   | state       |
 | ----------------------------- | ----------- |
-| a merged PR                   | `completed` |
+| an open draft PR              | `started`   |
 | an open, ready-for-review PR  | `review`    |
-| an open draft PR, or a branch | `started`   |
+| a merged PR                   | `completed` |
+| a branch (without live PR)    | `started`   |
 | nothing at all                | *not touched* |
 
 The last row is the one difference that matters: an Issue with neither a

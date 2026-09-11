@@ -105,10 +105,38 @@ class WorkItemDerivationTests(unittest.TestCase):
 
         self.assertEqual([(item.identifier, item.state, item.source) for item in derived], [("WOR-12", STATE_STARTED, SOURCE_BRANCH)])
 
-    def test_stacked_pull_requests_report_the_furthest_the_work_item_reached(self) -> None:
+    def test_stacked_pull_requests_keep_the_work_item_in_progress_when_one_is_draft(self) -> None:
         derived = derive_work_items("WOR", pull_requests=(_pull_request("wor-12-part-2", draft=True), _pull_request("wor-12-part-1")))
 
-        self.assertEqual([item.state for item in derived], [STATE_REVIEW])
+        self.assertEqual([(item.state, item.source) for item in derived], [(STATE_STARTED, SOURCE_PULL_REQUEST)])
+
+    def test_open_work_precedes_a_merge_and_same_rank_uses_lowest_pr_number(self) -> None:
+        pull_requests = (
+            _pull_request("wor-12-merged", state="MERGED", number=1),
+            _pull_request("wor-12-ready", number=20),
+            _pull_request("wor-12-draft-high", draft=True, number=30),
+            _pull_request("wor-12-draft-low", draft=True, number=4),
+        )
+
+        first = derive_work_items("WOR", pull_requests=pull_requests)[0]
+        second = derive_work_items("WOR", pull_requests=tuple(reversed(pull_requests)))[0]
+
+        self.assertEqual((first.state, first.detail, first.pr_number), (STATE_STARTED, "wor-12-draft-low", 4))
+        self.assertEqual(first, second)
+
+    def test_precedence_table_is_shared_by_bug_and_chore_observations(self) -> None:
+        cases = (("draft", ()), ("ready", ()), ("merged", ()), ("branch", ("wor-12-fix",)))
+        expected = {"draft": STATE_STARTED, "ready": STATE_REVIEW, "merged": STATE_COMPLETED, "branch": STATE_STARTED}
+        for name, branches in cases:
+            with self.subTest(name=name):
+                prs = {
+                    "draft": (_pull_request("wor-12", draft=True, number=3),),
+                    "ready": (_pull_request("wor-12", number=3),),
+                    "merged": (_pull_request("wor-12", state="MERGED", number=3),),
+                    "branch": (),
+                }[name]
+                item = derive_work_items("WOR", branches=branches, pull_requests=prs)[0]
+                self.assertEqual(item.state, expected[name])
 
     def test_a_branch_and_a_pull_request_on_the_same_key_are_one_work_item(self) -> None:
         derived = derive_work_items("WOR", branches=("WOR-45", "wor-045-again"), pull_requests=(_pull_request("wor-45-fix", draft=True),))

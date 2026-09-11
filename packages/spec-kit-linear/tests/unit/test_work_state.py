@@ -114,7 +114,7 @@ class DerivationTests(unittest.TestCase):
 
         self.assertEqual(derived.state, STATE_UNSTARTED)
 
-    def test_stacked_pull_requests_report_the_furthest_the_task_reached(self) -> None:
+    def test_stacked_pull_requests_keep_the_task_in_progress_when_one_is_draft(self) -> None:
         derived = _derive(
             pull_requests=(
                 _pull_request("001-T004-part-2", draft=True),
@@ -122,7 +122,59 @@ class DerivationTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual(derived.state, STATE_REVIEW)
+        self.assertEqual((derived.state, derived.source), (STATE_STARTED, SOURCE_PULL_REQUEST))
+
+    def test_open_work_precedes_a_merge_and_draft_precedes_ready(self) -> None:
+        derived = _derive(
+            completed=True,
+            pull_requests=(
+                _pull_request("001-T004-merged", state="MERGED", number=1),
+                _pull_request("001-T004-ready", number=2),
+                _pull_request("001-T004-draft", draft=True, number=3),
+            ),
+        )
+
+        self.assertEqual((derived.state, derived.detail, derived.pr_number), (STATE_STARTED, "001-T004-draft", 3))
+
+    def test_same_rank_uses_the_lowest_pr_number_independent_of_observation_order(self) -> None:
+        pull_requests = (
+            _pull_request("001-T004-high", draft=True, number=40),
+            _pull_request("001-T004-low", draft=True, number=7),
+        )
+
+        first = _derive(pull_requests=pull_requests)
+        second = _derive(pull_requests=tuple(reversed(pull_requests)))
+
+        self.assertEqual((first.state, first.detail, first.pr_number), (STATE_STARTED, "001-T004-low", 7))
+        self.assertEqual(first, second)
+
+    def test_precedence_table_covers_checkbox_and_empty_local_evidence(self) -> None:
+        cases = (
+            ("draft", False, (), STATE_STARTED),
+            ("ready", True, (), STATE_REVIEW),
+            ("merged", False, (), STATE_COMPLETED),
+            ("merged+ready", True, (), STATE_REVIEW),
+            ("all-ready", False, (), STATE_REVIEW),
+            ("empty checked", True, (), STATE_COMPLETED),
+            ("empty branch", False, ("001-T004",), STATE_STARTED),
+            ("empty unstarted", False, (), STATE_UNSTARTED),
+        )
+        for name, completed, branches, expected in cases:
+            with self.subTest(name=name):
+                prs = {
+                    "draft": (_pull_request("001-T004", draft=True, number=3),),
+                    "ready": (_pull_request("001-T004", number=3),),
+                    "merged": (_pull_request("001-T004", state="MERGED", number=3),),
+                    "merged+ready": (_pull_request("001-T004-old", state="MERGED", number=1), _pull_request("001-T004", number=9)),
+                    "all-ready": (_pull_request("001-T004-high", number=40), _pull_request("001-T004-low", number=7)),
+                    "empty checked": (), "empty branch": (), "empty unstarted": (),
+                }[name]
+                derived = _derive(completed=completed, branches=branches, pull_requests=prs)
+                self.assertEqual(derived.state, expected)
+                if name == "all-ready":
+                    self.assertEqual((derived.detail, derived.pr_number), ("001-T004-low", 7))
+                    from spec_kit_linear.work_state import next_action
+                    self.assertEqual(next_action(derived.state, derived.source, pr_number=derived.pr_number), "wait for the human merge")
 
 
 class KnownBranchesTests(unittest.TestCase):
