@@ -456,6 +456,11 @@ Tras cualquier actualización, re-corre `/speckit.doctor --fix`.
 - **"was observed … but no such Issue exists" con un issue recién creado**
   → el índice de búsqueda de Linear tarda ~1–2 min en ver issues nuevos;
   el aviso no falla nada — reintenta el `push` y lo proyecta.
+- **El doctor dice que tu agente no está cableado justo después de
+  `bundle install`** → el instalador de bundles no refresca los eventos;
+  corre `specify extension disable linear && specify extension enable
+  linear` y vuelve a correr `/speckit.doctor` (entrada 103 del
+  dogfooding).
 - **Falta `In Review` en el equipo** → créalo en Linear (Settings → Teams
   → Workflow, tipo *started*) y re-corre `onboard`.
 - Ante la duda: `/speckit.doctor --fix`; sus mensajes traen la
