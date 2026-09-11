@@ -256,7 +256,12 @@ class PushTests(CliTestCase):
         human = StringIO()
         with patch("spec_kit_linear.cli.run_push", side_effect=error), redirect_stderr(human):
             self.assertEqual(main(["push", "--root", str(self.fixture_root)]), 8)
-        self.assertIn("failure mutation (unconfirmed)", human.getvalue())
+        human_text = human.getvalue()
+        self.assertIn("applied [first]", human_text)
+        self.assertIn("unattempted [fourth,work-item]", human_text)
+        self.assertIn("failure mutation (unconfirmed)", human_text)
+        self.assertIn("failed third issue.create task:002", human_text)
+        self.assertNotIn("failure None (None)", human_text)
 
     def test_dry_run_renders_project_then_issues_and_writes_nothing(self) -> None:
         before = self._files()

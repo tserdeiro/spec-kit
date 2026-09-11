@@ -1691,10 +1691,15 @@ def main(argv: list[str] | None = None) -> int:
                 line = f":{diagnostic.line}" if diagnostic.line else ""
                 sys.stderr.write(f"  {diagnostic.code}{location}{line}: {diagnostic.message}\n")
             for evidence in error.apply_results:
-                sys.stderr.write(
-                    f"  partial apply: confirmed {evidence.writes}, "
-                    f"failure {evidence.failure_phase} ({evidence.failure_status})\n"
-                )
+                applied = ",".join(evidence.applied_operation_ids) or "none"
+                recovered = ",".join(evidence.recovered_operation_ids) or "none"
+                pending = ",".join(evidence.unattempted_operation_ids) or "none"
+                line = f"  partial apply: applied [{applied}], recovered [{recovered}], unattempted [{pending}]"
+                if evidence.failure_phase is not None:
+                    line += f", failure {evidence.failure_phase} ({evidence.failure_status})"
+                if evidence.failed_operation_id is not None:
+                    line += f", failed {evidence.failed_operation_id} {evidence.failed_operation_kind} {evidence.failed_operation_target}"
+                sys.stderr.write(line + "\n")
         return error.code
 
 
