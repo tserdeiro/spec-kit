@@ -1,0 +1,2577 @@
+diff --git a/docs/reference/extensions.md b/docs/reference/extensions.md
+index 63477c18..831dabf6 100644
+--- a/docs/reference/extensions.md
++++ b/docs/reference/extensions.md
+@@ -258,15 +258,41 @@ Each hook entry supports the following fields:
+ | `command` | Extension command associated with the hook. |
+ | `enabled` | Whether the hook is active. Hooks with `enabled: false` are skipped. |
+ | `optional` | Whether the hook is optional. If `true`, the hook is presented with its `prompt` and can be skipped; if `false`, the hook is emitted as an automatic hook (includes `EXECUTE_COMMAND` markers). |
+-| `priority` | Priority metadata for the hook. Registered hook entries use integer values >= 1; entries installed from manifests default to `10` when no priority is declared. Current command templates surface hooks in their configured YAML order and do not sort them by `priority`. |
++| `priority` | Priority metadata for the hook. Registered hook entries use integer values >= 1; entries installed from manifests default to `10` when no priority is declared. Core command templates consume resolver output ordered by ascending priority; ties preserve registration order. |
+ | `prompt` | Message shown when asking whether to run an optional hook. |
+ | `description` | Human-readable explanation of what the hook does. |
+-| `condition` | Optional expression evaluated by `HookExecutor` (using `config.<path>` or `env.<VAR>` with `is set`, `is not set`, `==`, or `!=`, composed with `and`, `or`, `not`, and parentheses). Current command templates evaluate a hook's condition the same way `HookExecutor._evaluate_condition` does before offering or executing it: `config.<path>` is read from the extension's effective configuration as `ConfigManager` merges it (the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml`, then `local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables), `env.<VAR>` from the process environment; `not` binds tightest, then `and`, then `or`, the keywords are case-insensitive, and a quoted value may itself contain one (e.g. `== 'a and b'`). An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — or a config file that can't be read or parsed, leaves the hook not executable. |
++| `condition` | Optional expression evaluated by `HookExecutor` (using `config.<path>` or `env.<VAR>` with `is set`, `is not set`, `==`, or `!=`, composed with `and`, `or`, `not`, and parentheses). The native hook resolver evaluates conditions before returning a hook to the agent: `config.<path>` is read from the extension's effective configuration as `ConfigManager` merges it (the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml`, then `local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables), `env.<VAR>` from the process environment; `not` binds tightest, then `and`, then `or`, the keywords are case-insensitive, and a quoted value may itself contain one (e.g. `== 'a and b'`). The command rejects malformed conditions in the selected event before evaluating hooks. Valid false conditions omit the hook. The underlying ConfigManager retains its native configuration-loading semantics. |
+ Hook event names identify when a hook is invoked. They generally use `before_<command>` or `after_<command>`, such as `before_implement`, `after_implement`, `before_tasks`, and `after_tasks`.
+ 
+ Extension manifests reject invalid hook priorities during installation. For existing `.specify/extensions.yml` entries, `HookExecutor.get_hooks_for_event()` sorts with `normalize_priority()`: missing values, booleans, non-numeric values rejected by `int()`, and values less than `1` fall back to `10`; numeric strings and finite floats are coerced with `int()`, while non-finite floats are unsupported and may fail instead of falling back.
+ 
+-`HookExecutor.get_hooks_for_event()` returns hooks ordered by `priority`, with lower values first. However, current command templates read hook lists directly and surface them in their configured YAML order rather than using priority ordering.
++`HookExecutor.get_hooks_for_event()` returns hooks ordered by `priority`, with lower values first. Core command templates use that native ordering through the resolver.
++
++## Resolving command lifecycle hooks
++
++Run `specify hook check before_plan --json` from the project root. The command
++reads `.specify/extensions.yml`, validates the selected event's records, and
++uses `HookExecutor` for conditions, ordering and native command invocations.
++The CLI must be installed when using these generated command templates.
++
++The supported events are `before_<command>` and `after_<command>` for
++`analyze`, `checklist`, `clarify`, `constitution`, `converge`, `implement`,
++`plan`, `specify`, `tasks` and `taskstoissues`. They are command lifecycle
++events, separate from agent runtime events such as `session_start`.
++
++Unknown event arguments, unreadable registries, non-mapping roots or hook
++sections, non-list event records, non-mapping entries, missing or empty
++commands, non-boolean enabled/optional flags and malformed conditions in the
++requested event produce a nonzero exit. Priority values retain the native
++normalization described above; other metadata is not schema-validated here. Records of unrelated events are not validated by this command.
++A valid empty result returns `has_hooks: false` and `hooks: []` with exit 0.
++Each executable record contains `command`, `invocation`, `extension`,
++`optional`, `prompt` and `description`.
++
++The host invokes the exact returned `invocation` and waits for completion;
++the resolver itself executes no skill. Optional hooks retain their existing
++authorization flow. Core templates stop on resolver errors or invalid JSON
++instead of continuing without checking mandatory hooks.
+ 
+ ## FAQ
+ 
+diff --git a/src/specify_cli/__init__.py b/src/specify_cli/__init__.py
+index f8afcf4f..b659f604 100644
+--- a/src/specify_cli/__init__.py
++++ b/src/specify_cli/__init__.py
+@@ -521,6 +521,10 @@ _register_integration_cmds(app)
+ from .commands.event import register as _register_event_cmds  # noqa: E402
+ _register_event_cmds(app)
+ 
++# ===== Hook Commands =====
++from .commands.hook import register as _register_hook_cmds  # noqa: E402
++_register_hook_cmds(app)
++
+ # Re-export selected helpers to preserve the public import surface.
+ from .integrations._helpers import (  # noqa: E402
+     _clear_init_options_for_integration as _clear_init_options_for_integration,
+diff --git a/src/specify_cli/commands/hook.py b/src/specify_cli/commands/hook.py
+new file mode 100644
+index 00000000..e2fdfb38
+--- /dev/null
++++ b/src/specify_cli/commands/hook.py
+@@ -0,0 +1,102 @@
++"""specify hook * command handlers."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import typer
++import yaml
++
++hook_app = typer.Typer(
++    name="hook",
++    help="Resolve extension hooks for a command lifecycle event",
++    add_completion=False,
++)
++
++# These events are emitted by the core command templates. Agent runtime
++# events (session_start, pre_tool_use, etc.) belong to the event dispatcher.
++LIFECYCLE_EVENTS = frozenset(
++    f"{phase}_{command}"
++    for phase in ("before", "after")
++    for command in (
++        "analyze", "checklist", "clarify", "constitution", "converge",
++        "implement", "plan", "specify", "tasks", "taskstoissues",
++    )
++)
++
++
++@hook_app.command("check")
++def hook_check(
++    event_name: str = typer.Argument(..., help="Canonical lifecycle event name (e.g. before_plan)"),
++    json_output: bool = typer.Option(False, "--json", help="Emit structured hook metadata."),
++):
++    """Resolve enabled hooks and print their execution instructions."""
++    from ..extensions import HookExecutor
++
++    if event_name not in LIFECYCLE_EVENTS:
++        typer.echo(
++            f"unknown lifecycle event {event_name!r}; expected one of: "
++            + ", ".join(sorted(LIFECYCLE_EVENTS)),
++            err=True,
++        )
++        raise typer.Exit(code=1)
++
++    raw_config = {}
++    config_file = Path.cwd() / ".specify" / "extensions.yml"
++    if config_file.exists():
++        try:
++            raw_config = yaml.safe_load(config_file.read_text(encoding="utf-8"))
++        except (OSError, UnicodeError, yaml.YAMLError) as exc:
++            typer.echo(f"cannot read hook registry {config_file}: {exc}", err=True)
++            raise typer.Exit(code=1) from None
++        if raw_config is not None and not isinstance(raw_config, dict):
++            typer.echo(f"invalid hook registry {config_file}: expected a mapping", err=True)
++            raise typer.Exit(code=1)
++        if isinstance(raw_config, dict) and "hooks" in raw_config and not isinstance(raw_config["hooks"], dict):
++            typer.echo(f"invalid hook registry {config_file}: hooks must be a mapping", err=True)
++            raise typer.Exit(code=1)
++
++    executor = HookExecutor(Path.cwd())
++    hooks_config = (raw_config or {}).get("hooks", {})
++    if event_name in hooks_config:
++        event_hooks = hooks_config[event_name]
++        if not isinstance(event_hooks, list) or any(not isinstance(hook, dict) for hook in event_hooks):
++            typer.echo(
++                f"invalid hook registry {config_file}: {event_name} must be a list of mappings",
++                err=True,
++            )
++            raise typer.Exit(code=1)
++        for hook in event_hooks:
++            condition = hook.get("condition")
++            if not executor.is_valid_condition(condition):
++                typer.echo(
++                    f"invalid hook registry {config_file}: malformed condition for {event_name}",
++                    err=True,
++                )
++                raise typer.Exit(code=1)
++            if not isinstance(hook.get("command"), str) or not hook["command"].strip():
++                typer.echo(f"invalid hook registry {config_file}: {event_name} hook requires a command", err=True)
++                raise typer.Exit(code=1)
++            for flag in ("enabled", "optional"):
++                if flag in hook and not isinstance(hook[flag], bool):
++                    typer.echo(f"invalid hook registry {config_file}: {flag} must be a boolean", err=True)
++                    raise typer.Exit(code=1)
++    result = executor.check_hooks_for_event(event_name)
++    if json_output:
++        typer.echo(
++            json.dumps(
++                {
++                    "event": event_name,
++                    "has_hooks": result["has_hooks"],
++                    "hooks": [executor.execute_hook(hook) for hook in result["hooks"]],
++                }
++            )
++        )
++        return
++    if result["message"]:
++        typer.echo(result["message"])
++
++
++def register(app: typer.Typer) -> None:
++    app.add_typer(hook_app, name="hook")
+diff --git a/src/specify_cli/extensions/__init__.py b/src/specify_cli/extensions/__init__.py
+index 15344896..c879f14e 100644
+--- a/src/specify_cli/extensions/__init__.py
++++ b/src/specify_cli/extensions/__init__.py
+@@ -5350,6 +5350,21 @@ class HookExecutor:
+             # If condition evaluation fails, default to not executing
+             return False
+ 
++    def is_valid_condition(self, condition: Any) -> bool:
++        """Return whether a condition is accepted by the native grammar."""
++        if condition is None or condition == "":
++            return True
++        if not isinstance(condition, str):
++            return False
++        try:
++            parser = _ConditionParser(
++                _tokenize_condition(condition), lambda _atom: False
++            )
++            parser.parse()
++            return True
++        except (_ConditionSyntaxError, RecursionError):
++            return False
++
+     def _evaluate_condition(self, condition: str, extension_id: Optional[str]) -> bool:
+         """Evaluate a (possibly composite) hook condition expression.
+ 
+diff --git a/src/specify_cli/integrations/agy/__init__.py b/src/specify_cli/integrations/agy/__init__.py
+index 958f922c..03ca7639 100644
+--- a/src/specify_cli/integrations/agy/__init__.py
++++ b/src/specify_cli/integrations/agy/__init__.py
+@@ -15,15 +15,6 @@ from ..base import SkillsIntegration
+ if TYPE_CHECKING:
+     from ..manifest import IntegrationManifest
+ 
+-# Note injected into hook sections so agy maps dot-notation command
+-# names (from extensions.yml) to the hyphenated skill names it uses.
+-# Without this, agy emits ``/speckit.git.commit`` (which does not
+-# resolve) instead of ``/speckit-git-commit``.
+-_HOOK_COMMAND_NOTE = (
+-    "- When constructing slash commands from hook command names, "
+-    "replace dots (`.`) with hyphens (`-`). "
+-    "For example, `speckit.git.commit` → `/speckit-git-commit`.\n"
+-)
+ 
+ 
+ class AgyIntegration(SkillsIntegration):
+@@ -44,44 +35,6 @@ class AgyIntegration(SkillsIntegration):
+         "extension": "/SKILL.md",
+     }
+ 
+-    @staticmethod
+-    def _inject_hook_command_note(content: str) -> str:
+-        """Insert a dot-to-hyphen note before each hook output instruction.
+-
+-        Targets the line ``- For each executable hook, output the following``
+-        and inserts the note on the line before it, matching its indentation.
+-        Skips if the note is already present.
+-        """
+-        if "replace dots" in content:
+-            return content
+-
+-        def repl(m: re.Match[str]) -> str:
+-            indent = m.group(1)
+-            instruction = m.group(2)
+-            # ``eol`` is empty when the regex matched via ``$`` because the
+-            # instruction was the final line of a file with no trailing
+-            # newline. Default to ``\n`` so the note never collapses onto
+-            # the same line as the instruction.
+-            eol = m.group(3) or "\n"
+-            return (
+-                indent
+-                + _HOOK_COMMAND_NOTE.rstrip("\n")
+-                + eol
+-                + indent
+-                + instruction
+-                + eol
+-            )
+-
+-        return re.sub(
+-            r"(?m)^(\s*)(- For each executable hook, output the following[^\r\n]*)(\r\n|\n|$)",
+-            repl,
+-            content,
+-        )
+-
+-    def post_process_skill_content(self, content: str) -> str:
+-        """Inject the dot-to-hyphen hook command note."""
+-        return self._inject_hook_command_note(content)
+-
+     def build_exec_args(
+         self,
+         prompt: str,
+diff --git a/src/specify_cli/integrations/base.py b/src/specify_cli/integrations/base.py
+index 52980392..720c1686 100644
+--- a/src/specify_cli/integrations/base.py
++++ b/src/specify_cli/integrations/base.py
+@@ -36,12 +36,6 @@ from ..events import install_integration_events, remove_integration_events
+ if TYPE_CHECKING:
+     from .manifest import IntegrationManifest
+ 
+-_HOOK_COMMAND_NOTE = (
+-    "- When constructing command invocations from hook command names, "
+-    "replace dots (`.`) with hyphens (`-`). "
+-    "For example, `speckit.git.commit` → `/speckit-git-commit`.\n"
+-)
+-
+ _CORE_COMMAND_TEMPLATE_ORDER = (
+     "analyze",
+     "clarify",
+@@ -1675,63 +1669,9 @@ class SkillsIntegration(IntegrationBase):
+             invocation = f"{invocation} {args}"
+         return invocation
+ 
+-    @staticmethod
+-    def _inject_hook_command_note(
+-        content: str, invocation_prefix: str = "/"
+-    ) -> str:
+-        """Insert a dot-to-hyphen note before each hook output instruction.
+-
+-        Targets the line ``- For each executable hook, output the following``
+-        and inserts the note on the line before it, matching its indentation.
+-        Skips individual instructions that already have the note immediately
+-        above them.
+-        """
+-        note = _HOOK_COMMAND_NOTE.rstrip("\n")
+-        if invocation_prefix != "/":
+-            note = note.replace(
+-                "`/speckit-git-commit`",
+-                f"`{invocation_prefix}speckit-git-commit`",
+-            )
+-
+-        def repl(m: re.Match[str]) -> str:
+-            indent = m.group(1)
+-            instruction = m.group(2)
+-            previous_lines = content[:m.start()].splitlines()
+-            if previous_lines and previous_lines[-1] == indent + note:
+-                return m.group(0)
+-            # ``eol`` is empty when the regex matched via ``$`` because the
+-            # instruction was the final line of a file with no trailing
+-            # newline. Default to ``\n`` so the note never collapses onto
+-            # the same line as the instruction.
+-            eol = m.group(3) or "\n"
+-            return (
+-                indent
+-                + note
+-                + eol
+-                + indent
+-                + instruction
+-                + eol
+-            )
+-
+-        return re.sub(
+-            r"(?m)^([ \t]*)(- For each executable hook, output the following[^\r\n]*)(\r\n|\n|$)",
+-            repl,
+-            content,
+-        )
+-
+     def post_process_skill_content(self, content: str) -> str:
+-        """Post-process a SKILL.md file's content after generation.
+-
+-        Called by external skill generators (presets, extensions) to let
+-        the integration inject agent-specific frontmatter or body
+-        transformations.  The base implementation injects shared skills
+-        guidance for converting dotted hook command names to the agent-native
+-        hyphenated command invocation (e.g. ``/speckit-git-commit`` or
+-        ``$speckit-git-commit``).  Subclasses may override -- see
+-        ``ClaudeIntegration``.
+-        """
+-        invocation_prefix = get_invocation_prefix(self.key, True)
+-        return self._inject_hook_command_note(content, invocation_prefix)
++        """Post-process a SKILL.md file's content after generation."""
++        return content
+ 
+     def setup(
+         self,
+diff --git a/src/specify_cli/integrations/cline/__init__.py b/src/specify_cli/integrations/cline/__init__.py
+index c48a4dd5..e0cafa92 100644
+--- a/src/specify_cli/integrations/cline/__init__.py
++++ b/src/specify_cli/integrations/cline/__init__.py
+@@ -10,13 +10,6 @@ from ..base import MarkdownIntegration
+ from ..manifest import IntegrationManifest
+ 
+ 
+-# Note injected into hook sections so Cline maps dot-notation command
+-# names (from extensions.yml) to the hyphenated slash commands it uses.
+-_HOOK_COMMAND_NOTE = (
+-    "- When constructing slash commands from hook command names, "
+-    "replace dots (`.`) with hyphens (`-`). "
+-    "For example, `speckit.git.commit` → `/speckit-git-commit`.\n"
+-)
+ 
+ 
+ def format_cline_command_name(cmd_name: str) -> str:
+@@ -95,56 +88,6 @@ class ClineIntegration(MarkdownIntegration):
+         kwargs.setdefault("invoke_separator", self.invoke_separator)
+         return super().process_template(*args, **kwargs)
+ 
+-    @staticmethod
+-    def _inject_hook_command_note(content: str) -> str:
+-        """Insert a dot-to-hyphen note before each hook output instruction.
+-
+-        Targets the line ``- For each executable hook, output the following``
+-        and inserts the note on the line before it, matching its indentation.
+-        Skips individual instructions that already have the note immediately
+-        above them.
+-        """
+-        note = _HOOK_COMMAND_NOTE.rstrip("\n")
+-
+-        def repl(m: re.Match[str]) -> str:
+-            indent = m.group(1)
+-            instruction = m.group(2)
+-            # Check the line immediately above this instruction, mirroring the
+-            # shared ``SkillsIntegration`` helper. The previous whole-document
+-            # ``if "replace dots" in content`` scan meant any command or
+-            # extension markdown whose prose merely contained that phrase lost
+-            # the note entirely -- leaving the agent told to emit a dotted
+-            # ``/speckit.git.commit``, which Cline never registers -- and a
+-            # document with one already-noted section never got a note on a
+-            # second, un-noted one.
+-            previous_lines = content[:m.start()].splitlines()
+-            if previous_lines and previous_lines[-1] == indent + note:
+-                return m.group(0)
+-            # ``eol`` is empty when the regex matched via ``$`` because the
+-            # instruction was the final line of a file with no trailing
+-            # newline. Default to ``\n`` so the note never collapses onto
+-            # the same line as the instruction.
+-            eol = m.group(3) or "\n"
+-            return (
+-                indent
+-                + note
+-                + eol
+-                + indent
+-                + instruction
+-                + eol
+-            )
+-
+-        # ``[ \t]*`` rather than ``\s*``: ``\s`` matches newlines, so the
+-        # captured "indent" could swallow a preceding blank line and the note
+-        # was then emitted with a spurious blank line between it and the
+-        # instruction. This also matches the shared base helper, without which
+-        # the per-instruction check above cannot line up.
+-        return re.sub(
+-            r"(?m)^([ \t]*)(- For each executable hook, output the following[^\r\n]*)(\r\n|\n|$)",
+-            repl,
+-            content,
+-        )
+-
+     @staticmethod
+     def _rewrite_handoff_references(content: str) -> str:
+         """Replace dot-notation agent references in handoffs with hyphens."""
+@@ -162,8 +105,7 @@ class ClineIntegration(MarkdownIntegration):
+         ``post_process_command_content``) applies these transforms to
+         extension/preset command files too, not just core commands.
+         """
+-        updated = self._inject_hook_command_note(content)
+-        updated = self._rewrite_handoff_references(updated)
++        updated = self._rewrite_handoff_references(content)
+         return updated
+ 
+     def setup(
+diff --git a/src/specify_cli/integrations/junie/__init__.py b/src/specify_cli/integrations/junie/__init__.py
+index 2d4a6b32..d56e5b23 100644
+--- a/src/specify_cli/integrations/junie/__init__.py
++++ b/src/specify_cli/integrations/junie/__init__.py
+@@ -8,13 +8,6 @@ import re
+ from pathlib import Path
+ from typing import Any
+ 
+-# Note injected into hook sections so Junie maps dot-notation command
+-# names (from extensions.yml) to the hyphenated slash commands it uses.
+-_HOOK_COMMAND_NOTE = (
+-    "- When constructing slash commands from hook command names, "
+-    "replace dots (`.`) with hyphens (`-`). "
+-    "For example, `speckit.git.commit` → `/speckit-git-commit`.\n"
+-)
+ 
+ 
+ def format_junie_command_name(cmd_name: str) -> str:
+@@ -90,40 +83,6 @@ class JunieIntegration(MarkdownIntegration):
+         kwargs.setdefault("invoke_separator", self.invoke_separator)
+         return super().process_template(*args, **kwargs)
+ 
+-    @staticmethod
+-    def _inject_hook_command_note(content: str) -> str:
+-        """Insert a dot-to-hyphen note before each hook output instruction.
+-
+-        Targets the line ``- For each executable hook, output the following``
+-        and inserts the note on the line before it, matching its indentation.
+-        Skips if the note is already present.
+-        """
+-        if "replace dots" in content:
+-            return content
+-
+-        def repl(m: re.Match[str]) -> str:
+-            indent = m.group(1)
+-            instruction = m.group(2)
+-            # ``eol`` is empty when the regex matched via ``$`` because the
+-            # instruction was the final line of a file with no trailing
+-            # newline. Default to ``\n`` so the note never collapses onto
+-            # the same line as the instruction.
+-            eol = m.group(3) or "\n"
+-            return (
+-                indent
+-                + _HOOK_COMMAND_NOTE.rstrip("\n")
+-                + eol
+-                + indent
+-                + instruction
+-                + eol
+-            )
+-
+-        return re.sub(
+-            r"(?m)^(\s*)(- For each executable hook, output the following[^\r\n]*)(\r\n|\n|$)",
+-            repl,
+-            content,
+-        )
+-
+     @staticmethod
+     def _rewrite_handoff_references(content: str) -> str:
+         """Replace dot-notation agent references in handoffs with hyphens."""
+@@ -140,8 +99,7 @@ class JunieIntegration(MarkdownIntegration):
+         ``post_process_command_content``) applies these transforms to
+         extension/preset command files too, not just core commands.
+         """
+-        updated = self._inject_hook_command_note(content)
+-        updated = self._rewrite_handoff_references(updated)
++        updated = self._rewrite_handoff_references(content)
+         return updated
+ 
+     def setup(
+diff --git a/templates/commands/analyze.md b/templates/commands/analyze.md
+index 902037d3..e6fa41f7 100644
+--- a/templates/commands/analyze.md
++++ b/templates/commands/analyze.md
+@@ -16,41 +16,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before analysis)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_analyze` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Goal.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_analyze --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Goal
+ 
+@@ -204,40 +174,11 @@ At end of report, output a concise Next Actions block:
+ 
+ Ask the user: "Would you like me to suggest concrete remediation edits for the top N issues?" (Do NOT apply them automatically.)
+ 
+-### 9. Check for extension hooks
+-
+-After reporting, check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.after_analyze` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (after command)**:
++- Run `specify hook check after_analyze --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+ 
+ ## Operating Principles
+ 
+diff --git a/templates/commands/checklist.md b/templates/commands/checklist.md
+index 18546990..e31dff0e 100644
+--- a/templates/commands/checklist.md
++++ b/templates/commands/checklist.md
+@@ -46,41 +46,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before checklist generation)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_checklist` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Execution Steps.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_checklist --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Execution Steps
+ 
+@@ -350,36 +320,8 @@ Sample items:
+ 
+ ## Post-Execution Checks
+ 
+-**Check for extension hooks (after checklist generation)**:
+-Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.after_checklist` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (after command)**:
++- Run `specify hook check after_checklist --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+diff --git a/templates/commands/clarify.md b/templates/commands/clarify.md
+index 70b9799d..0ba58299 100644
+--- a/templates/commands/clarify.md
++++ b/templates/commands/clarify.md
+@@ -20,41 +20,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before clarification)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_clarify` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Outline.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_clarify --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Outline
+ 
+@@ -243,40 +213,10 @@ Context for prioritization: {ARGS}
+ 
+ ## Mandatory Post-Execution Hooks
+ 
+-**You MUST complete this section before reporting completion to the user.**
+-
+-Check if `.specify/extensions.yml` exists in the project root.
+-- If it does not exist, or no hooks are registered under `hooks.after_clarify`, skip to the Completion Report.
+-- If it exists, read it and look for entries under the `hooks.after_clarify` key.
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue to the Completion Report.
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
++- Run `specify hook check after_clarify --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+ 
+ ## Completion Report
+ 
+diff --git a/templates/commands/constitution.md b/templates/commands/constitution.md
+index 6b71bdcd..a8551d82 100644
+--- a/templates/commands/constitution.md
++++ b/templates/commands/constitution.md
+@@ -39,41 +39,11 @@ and commands read the constitution at runtime and are not modified here.
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before constitution update)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_constitution` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Outline.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_constitution --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Outline
+ 
+@@ -150,36 +120,8 @@ Write only `.specify/memory/constitution.md`; do not create or modify template s
+ 
+ ## Post-Execution Checks
+ 
+-**Check for extension hooks (after constitution update)**:
+-Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.after_constitution` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (after command)**:
++- Run `specify hook check after_constitution --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+diff --git a/templates/commands/converge.md b/templates/commands/converge.md
+index 3fabc61e..5b31b156 100644
+--- a/templates/commands/converge.md
++++ b/templates/commands/converge.md
+@@ -16,46 +16,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before convergence)**:
+-
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_converge` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-
+-    ```text
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-
+-  - **Mandatory hook** (`optional: false`):
+-
+-    ```text
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Goal.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_converge --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Goal
+ 
+@@ -236,44 +201,8 @@ Append to the **end** of `tasks.md`, per the append contract:
+ - On `converged`: recommend proceeding to review / opening a PR. No further implement pass
+   is needed for this feature's specified scope.
+ 
+-### 9. Check for extension hooks
+-
+-After producing the result, check if `.specify/extensions.yml` exists in the project root.
+-
+-- If it exists, read it and look for entries under the `hooks.after_converge` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- Report the convergence outcome (`converged` or `tasks_appended`) in-session before listing
+-  any hooks, so users can decide whether to run optional follow-up commands.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-
+-    ```text
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-
+-  - **Mandatory hook** (`optional: false`):
+-
+-    ```text
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (after command)**:
++- Run `specify hook check after_converge --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+diff --git a/templates/commands/implement.md b/templates/commands/implement.md
+index 723f2f11..4a1b3303 100644
+--- a/templates/commands/implement.md
++++ b/templates/commands/implement.md
+@@ -16,41 +16,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before implementation)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_implement` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Outline.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_implement --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Outline
+ 
+@@ -181,40 +151,10 @@ Note: This command assumes a complete task breakdown exists in tasks.md. If task
+ 
+ ## Mandatory Post-Execution Hooks
+ 
+-**You MUST complete this section before reporting completion to the user.**
+-
+-Check if `.specify/extensions.yml` exists in the project root.
+-- If it does not exist, or no hooks are registered under `hooks.after_implement`, skip to the Completion Report.
+-- If it exists, read it and look for entries under the `hooks.after_implement` key.
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue to the Completion Report.
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
++- Run `specify hook check after_implement --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+ 
+ ## Completion Report
+ 
+diff --git a/templates/commands/plan.md b/templates/commands/plan.md
+index 84bede41..e0cd4363 100644
+--- a/templates/commands/plan.md
++++ b/templates/commands/plan.md
+@@ -24,41 +24,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before planning)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_plan` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Outline.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_plan --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Outline
+ 
+@@ -76,40 +46,10 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Mandatory Post-Execution Hooks
+ 
+-**You MUST complete this section before reporting completion to the user.**
+-
+-Check if `.specify/extensions.yml` exists in the project root.
+-- If it does not exist, or no hooks are registered under `hooks.after_plan`, skip to the Completion Report.
+-- If it exists, read it and look for entries under the `hooks.after_plan` key.
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue to the Completion Report.
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
++- Run `specify hook check after_plan --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+ 
+ ## Completion Report
+ 
+diff --git a/templates/commands/specify.md b/templates/commands/specify.md
+index d27bdc11..5787cf99 100644
+--- a/templates/commands/specify.md
++++ b/templates/commands/specify.md
+@@ -20,41 +20,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before specification)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_specify` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Outline.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_specify --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Outline
+ 
+@@ -241,40 +211,10 @@ Given that feature description, do this:
+ 
+ ## Mandatory Post-Execution Hooks
+ 
+-**You MUST complete this section before reporting completion to the user.**
+-
+-Check if `.specify/extensions.yml` exists in the project root.
+-- If it does not exist, or no hooks are registered under `hooks.after_specify`, skip to the Completion Report.
+-- If it exists, read it and look for entries under the `hooks.after_specify` key.
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue to the Completion Report.
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
++- Run `specify hook check after_specify --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+ 
+ ## Completion Report
+ 
+diff --git a/templates/commands/tasks.md b/templates/commands/tasks.md
+index f542c0a3..adcdc3a4 100644
+--- a/templates/commands/tasks.md
++++ b/templates/commands/tasks.md
+@@ -25,41 +25,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before tasks generation)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_tasks` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Outline.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_tasks --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Outline
+ 
+@@ -97,40 +67,10 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Mandatory Post-Execution Hooks
+ 
+-**You MUST complete this section before reporting completion to the user.**
+-
+-Check if `.specify/extensions.yml` exists in the project root.
+-- If it does not exist, or no hooks are registered under `hooks.after_tasks`, skip to the Completion Report.
+-- If it exists, read it and look for entries under the `hooks.after_tasks` key.
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue to the Completion Report.
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
++- Run `specify hook check after_tasks --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+ 
+ ## Completion Report
+ 
+diff --git a/templates/commands/taskstoissues.md b/templates/commands/taskstoissues.md
+index 589d1223..250fb26f 100644
+--- a/templates/commands/taskstoissues.md
++++ b/templates/commands/taskstoissues.md
+@@ -17,41 +17,11 @@ You **MUST** consider the user input before proceeding (if not empty).
+ 
+ ## Pre-Execution Checks
+ 
+-**Check for extension hooks (before tasks-to-issues conversion)**:
+-- Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.before_taskstoissues` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Pre-Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Pre-Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-
+-    Wait for the result of the hook command before proceeding to the Outline.
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (before command)**:
++- Run `specify hook check before_taskstoissues --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before continuing.
+ 
+ ## Outline
+ 
+@@ -77,36 +47,8 @@ git config --get remote.origin.url
+ 
+ ## Post-Execution Checks
+ 
+-**Check for extension hooks (after tasks-to-issues conversion)**:
+-Check if `.specify/extensions.yml` exists in the project root.
+-- If it exists, read it and look for entries under the `hooks.after_taskstoissues` key
+-- If the YAML cannot be parsed or is invalid, do not skip silently: tell the user that `.specify/extensions.yml` could not be read (include the parser error) and that no hooks were checked, including any mandatory (`optional: false`) hooks registered there, then continue normally
+-- Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
+-- For each remaining hook, evaluate its `condition` the same way `HookExecutor._evaluate_condition` does (a non-empty `condition` no longer means skip):
+-  - No `condition` field, or a null/empty one, means the hook is executable.
+-  - `config.<key.path> is set`, `config.<key.path> is not set`, `config.<key.path> == '<value>'`, and `config.<key.path> != '<value>'` read `<key.path>` from the extension's effective configuration, merged the way `ConfigManager` merges it: the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml` (e.g. `git-config.yml` for the git extension's hooks), then `.specify/extensions/<extension>/local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables, each layer overriding the previous one. A YAML boolean compares as the text `true`/`false`; a key missing from every layer is never `is set`, always `is not set`, never `==` a value, and always `!=` a value.
+-  - `env.<VAR_NAME> is set`, `env.<VAR_NAME> is not set`, `env.<VAR_NAME> == '<value>'`, and `env.<VAR_NAME> != '<value>'` read the process environment the same way, treating an unset variable as absent.
+-  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
+-  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
+-- For each executable hook, output the following based on its `optional` flag:
+-  - **Optional hook** (`optional: true`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Optional Hook**: {extension}
+-    Command: `/{command}`
+-    Description: {description}
+-
+-    Prompt: {prompt}
+-    To execute: `/{command}`
+-    ```
+-  - **Mandatory hook** (`optional: false`):
+-    ```
+-    ## Extension Hooks
+-
+-    **Automatic Hook**: {extension}
+-    Executing: `/{command}`
+-    EXECUTE_COMMAND: {command}
+-    ```
+-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook.
+-- If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
++**Deterministic hook resolution (after command)**:
++- Run `specify hook check after_taskstoissues --json` from the project root and use its structured output as authoritative.
++- If the command exits nonzero or its output is not valid JSON, stop and report the resolver error. Treat an empty hook list as success only after valid JSON is returned.
++- The resolver reads the native hook registry, filters disabled hooks, evaluates conditions, and applies configured priority. Do not inspect or interpret `.specify/extensions.yml` in the agent context.
++- For each optional hook in the resolver output, honor the optional hook authorization described by its prompt before invoking the rendered command. For each mandatory hook, invoke the exact `invocation` returned by the resolver and wait for completion before reporting completion.
+diff --git a/tests/integrations/test_base.py b/tests/integrations/test_base.py
+index 30938dd7..c95cc560 100644
+--- a/tests/integrations/test_base.py
++++ b/tests/integrations/test_base.py
+@@ -250,47 +250,6 @@ class TestBuildCommandInvocation:
+         i = get_integration("codex")
+         assert i.build_command_invocation("speckit.git.commit", "fix typo") == "$speckit-git-commit fix typo"
+ 
+-    @pytest.mark.parametrize("integration_key", ["codex", "zcode"])
+-    def test_dollar_skill_post_processing_is_idempotent(self, integration_key):
+-        from specify_cli.integrations import get_integration
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "Literal slash invocation: /speckit-plan\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        integration = get_integration(integration_key)
+-        once = integration.post_process_skill_content(content)
+-        twice = integration.post_process_skill_content(once)
+-
+-        assert twice == once
+-        assert once.count("replace dots (`.`) with hyphens") == 1
+-        assert "$speckit-git-commit" in once
+-        assert "/speckit-plan" in once
+-
+-    def test_kimi_skill_post_processing_is_idempotent(self):
+-        """Kimi's post_process_skill_content must be idempotent.
+-
+-        The hook-command note is injected with the /skill: prefix by the base
+-        class (via get_invocation_prefix), so the idempotency check matches on
+-        re-runs without requiring the broad /speckit- -> /skill:speckit- body
+-        replacement to recognise a duplicate.
+-        """
+-        from specify_cli.integrations import get_integration
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "Literal slash invocation: /speckit-plan\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        integration = get_integration("kimi")
+-        once = integration.post_process_skill_content(content)
+-        twice = integration.post_process_skill_content(once)
+-
+-        assert twice == once
+-        assert once.count("replace dots (`.`) with hyphens") == 1
+-        assert "/skill:speckit-git-commit" in once
+-
+     def test_get_invocation_prefix_skill_colon(self):
+         """get_invocation_prefix returns '/skill:' for Kimi in skills mode."""
+         from specify_cli._invocation_style import get_invocation_prefix
+diff --git a/tests/integrations/test_hook_renderer_matrix.py b/tests/integrations/test_hook_renderer_matrix.py
+new file mode 100644
+index 00000000..ad61f377
+--- /dev/null
++++ b/tests/integrations/test_hook_renderer_matrix.py
+@@ -0,0 +1,38 @@
++"""Generated integration outputs retain native hook resolution semantics."""
++
++from pathlib import Path
++
++import pytest
++
++from specify_cli.extensions import HookExecutor
++from specify_cli.integrations import get_integration
++from specify_cli.integrations.manifest import IntegrationManifest
++
++
++@pytest.mark.parametrize("integration_key", ["agy", "claude", "cline", "codex", "copilot", "junie"])
++def test_generated_commands_use_both_lifecycle_resolvers(tmp_path: Path, integration_key: str):
++    integration = get_integration(integration_key)
++    manifest = IntegrationManifest(integration_key, tmp_path)
++    integration.setup(tmp_path, manifest, script_type="sh")
++
++    generated = [p for p in tmp_path.rglob("*.md") if p.is_file()]
++    assert generated, integration_key
++    content = "\n".join(p.read_text(encoding="utf-8") for p in generated)
++    assert "specify hook check before_plan --json" in content, integration_key
++    assert "specify hook check after_plan --json" in content, integration_key
++    assert "replace dots" not in content, integration_key
++
++
++def test_resolved_hook_metadata_supplies_agent_invocation(tmp_path: Path):
++    registry = tmp_path / ".specify" / "extensions.yml"
++    registry.parent.mkdir()
++    registry.write_text(
++        "hooks:\n  before_plan:\n    - extension: test\n      command: speckit.plan\n      optional: false\n",
++        encoding="utf-8",
++    )
++
++    result = HookExecutor(tmp_path).check_hooks_for_event("before_plan")
++
++    assert result["has_hooks"] is True
++    assert result["hooks"][0]["command"] == "speckit.plan"
++    assert "EXECUTE_COMMAND_INVOCATION:" in result["message"]
+diff --git a/tests/integrations/test_integration_agy.py b/tests/integrations/test_integration_agy.py
+index 7b5580ab..05a1f1b5 100644
+--- a/tests/integrations/test_integration_agy.py
++++ b/tests/integrations/test_integration_agy.py
+@@ -100,55 +100,3 @@ class TestAgyBuildExecArgs:
+         monkeypatch.setenv("SPECKIT_INTEGRATION_AGY_EXECUTABLE", "/custom/agy")
+         i = get_integration("agy")
+         assert i.build_exec_args("my prompt")[0] == "/custom/agy"
+-
+-
+-class TestAgyHookCommandNote:
+-    """Verify dot-to-hyphen normalization note is injected into hook sections."""
+-
+-    def test_hook_note_injected_in_skills_with_hooks(self, tmp_path):
+-        """Skills with hook sections should contain the normalization note."""
+-        from specify_cli.integrations import get_integration
+-        from specify_cli.integrations.manifest import IntegrationManifest
+-
+-        i = get_integration("agy")
+-        m = IntegrationManifest("agy", tmp_path)
+-        i.setup(tmp_path, m, script_type="sh")
+-        specify_skill = tmp_path / ".agents/skills/speckit-specify/SKILL.md"
+-        assert specify_skill.exists()
+-        content = specify_skill.read_text(encoding="utf-8")
+-        assert "replace dots" in content, (
+-            "speckit-specify should have dot-to-hyphen hook note"
+-        )
+-
+-    def test_hook_note_not_in_skills_without_hooks(self):
+-        """Skills without hook sections should not get the note."""
+-        from specify_cli.integrations.agy import AgyIntegration
+-
+-        content = "---\nname: test\ndescription: test\n---\n\nNo hooks here.\n"
+-        result = AgyIntegration._inject_hook_command_note(content)
+-        assert "replace dots" not in result
+-
+-    def test_hook_note_idempotent(self):
+-        """Injecting the note twice must not duplicate it."""
+-        from specify_cli.integrations.agy import AgyIntegration
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        once = AgyIntegration._inject_hook_command_note(content)
+-        twice = AgyIntegration._inject_hook_command_note(once)
+-        assert once == twice, "Hook note injection should be idempotent"
+-
+-    def test_hook_note_preserves_indentation(self):
+-        """The injected note must match the indentation of the target line."""
+-        from specify_cli.integrations.agy import AgyIntegration
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "   - For each executable hook, output the following\n"
+-        )
+-        result = AgyIntegration._inject_hook_command_note(content)
+-        lines = result.splitlines()
+-        note_line = [ln for ln in lines if "replace dots" in ln][0]
+-        assert note_line.startswith("   "), "Note should preserve indentation"
+diff --git a/tests/integrations/test_integration_alquimia.py b/tests/integrations/test_integration_alquimia.py
+index e8eab828..36fe83a9 100644
+--- a/tests/integrations/test_integration_alquimia.py
++++ b/tests/integrations/test_integration_alquimia.py
+@@ -619,84 +619,3 @@ class TestAlquimiaDisableModelInvocation:
+             return  # agy not registered in this build
+         content = "---\nname: test\n---\nBody"
+         assert agy.post_process_skill_content(content) == content
+-
+-
+-class TestAlquimiaHookCommandNote:
+-    """Verify dot-to-hyphen normalization note is injected in hook sections."""
+-
+-    def test_hook_note_injected_in_skills_with_hooks(self, tmp_path):
+-        """Skills that have hook sections should get the normalization note."""
+-        i = get_integration("alquimia")
+-        m = IntegrationManifest("alquimia", tmp_path)
+-        i.setup(tmp_path, m, script_type="sh")
+-        specify_skill = tmp_path / ".alquimia/skills/speckit-specify/SKILL.md"
+-        assert specify_skill.exists()
+-        content = specify_skill.read_text(encoding="utf-8")
+-        # specify.md has hook sections
+-        assert "replace dots" in content, (
+-            "speckit-specify should have dot-to-hyphen hook note"
+-        )
+-
+-    def test_hook_note_not_in_skills_without_hooks(self, tmp_path):
+-        """Skills without hook sections should not get the note."""
+-        content = "---\nname: test\ndescription: test\n---\n\nNo hooks here.\n"
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-        assert "replace dots" not in result
+-
+-    def test_hook_note_idempotent(self, tmp_path):
+-        """Injecting the note twice should not duplicate it."""
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        once = SkillsIntegration._inject_hook_command_note(content)
+-        twice = SkillsIntegration._inject_hook_command_note(once)
+-        assert once == twice, "Hook note injection should be idempotent"
+-
+-    def test_hook_note_fills_missing_repeated_instructions(self, tmp_path):
+-        """Already-noted hook sections should not suppress later sections."""
+-        from specify_cli.integrations.base import _HOOK_COMMAND_NOTE
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            f"{_HOOK_COMMAND_NOTE}"
+-            "- For each executable hook, output the following based on its flag:\n"
+-            "\n"
+-            "  - For each executable hook, output the following based on its flag:\n"
+-        )
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-        assert result.count("replace dots (`.`) with hyphens") == 2
+-
+-    def test_hook_note_not_suppressed_by_unrelated_phrase(self, tmp_path):
+-        """Unrelated text should not trip the hook-note idempotence guard."""
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "This paragraph says replace dots in a different context.\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-        assert "This paragraph says replace dots in a different context." in result
+-        assert result.count("replace dots (`.`) with hyphens") == 1
+-
+-    def test_hook_note_preserves_indentation(self, tmp_path):
+-        """The injected note should match the indentation of the target line."""
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "   - For each executable hook, output the following\n"
+-        )
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-        lines = result.splitlines()
+-        note_line = [line for line in lines if "replace dots" in line][0]
+-        assert note_line.startswith("   "), "Note should preserve indentation"
+-
+-    def test_post_process_injects_all_alquimia_flags(self):
+-        """post_process_skill_content should inject all Alquimia-specific fields."""
+-        i = get_integration("alquimia")
+-        content = (
+-            "---\nname: test\ndescription: test\n---\n\n"
+-            "- For each executable hook, output the following\n"
+-        )
+-        result = i.post_process_skill_content(content)
+-        assert "user-invocable: true" in result
+-        assert "disable-model-invocation: false" in result
+-        assert "replace dots" in result
+diff --git a/tests/integrations/test_integration_base_skills.py b/tests/integrations/test_integration_base_skills.py
+index 015152be..f8c29a7f 100644
+--- a/tests/integrations/test_integration_base_skills.py
++++ b/tests/integrations/test_integration_base_skills.py
+@@ -255,39 +255,6 @@ class SkillsIntegrationTests:
+                 f"skills agents must use /speckit-<name>"
+             )
+ 
+-    def test_hook_sections_explain_dotted_command_conversion(self, tmp_path):
+-        """Generated skills with hook sections must explain dotted command conversion."""
+-        i = get_integration(self.KEY)
+-        m = IntegrationManifest(self.KEY, tmp_path)
+-        i.setup(tmp_path, m)
+-        specify_skill = i.skills_dest(tmp_path) / "speckit-specify" / "SKILL.md"
+-        assert specify_skill.exists()
+-        content = specify_skill.read_text(encoding="utf-8")
+-        assert "replace dots" in content, (
+-            "speckit-specify should explain dotted hook command conversion"
+-        )
+-        assert content.count("replace dots") == content.count(
+-            "- For each executable hook, output the following"
+-        )
+-
+-    def test_hook_note_injected_for_each_instruction_independently(self):
+-        """Existing hook notes should not suppress later missing notes."""
+-        content = (
+-            "---\n"
+-            "name: test\n"
+-            "---\n\n"
+-            "- When constructing command invocations from hook command names, "
+-            "replace dots (`.`) with hyphens (`-`). "
+-            "For example, `speckit.git.commit` → `/speckit-git-commit`.\n"
+-            "- For each executable hook, output the following first block:\n"
+-            "\n"
+-            "- For each executable hook, output the following second block:\n"
+-        )
+-
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-
+-        assert result.count("replace dots (`.`) with hyphens") == 2
+-
+     def test_skill_body_has_content(self, tmp_path):
+         """Each SKILL.md body should contain template content after the frontmatter."""
+         i = get_integration(self.KEY)
+diff --git a/tests/integrations/test_integration_claude.py b/tests/integrations/test_integration_claude.py
+index 3718af97..75f507a6 100644
+--- a/tests/integrations/test_integration_claude.py
++++ b/tests/integrations/test_integration_claude.py
+@@ -674,87 +674,6 @@ class TestClaudeForkContext:
+         assert twice.count("agent: general-purpose") == 1
+ 
+ 
+-class TestClaudeHookCommandNote:
+-    """Verify dot-to-hyphen normalization note is injected in hook sections."""
+-
+-    def test_hook_note_injected_in_skills_with_hooks(self, tmp_path):
+-        """Skills that have hook sections should get the normalization note."""
+-        i = get_integration("claude")
+-        m = IntegrationManifest("claude", tmp_path)
+-        i.setup(tmp_path, m, script_type="sh")
+-        specify_skill = tmp_path / ".claude/skills/speckit-specify/SKILL.md"
+-        assert specify_skill.exists()
+-        content = specify_skill.read_text(encoding="utf-8")
+-        # specify.md has hook sections
+-        assert "replace dots" in content, (
+-            "speckit-specify should have dot-to-hyphen hook note"
+-        )
+-
+-    def test_hook_note_not_in_skills_without_hooks(self, tmp_path):
+-        """Skills without hook sections should not get the note."""
+-        content = "---\nname: test\ndescription: test\n---\n\nNo hooks here.\n"
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-        assert "replace dots" not in result
+-
+-    def test_hook_note_idempotent(self, tmp_path):
+-        """Injecting the note twice should not duplicate it."""
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        once = SkillsIntegration._inject_hook_command_note(content)
+-        twice = SkillsIntegration._inject_hook_command_note(once)
+-        assert once == twice, "Hook note injection should be idempotent"
+-
+-    def test_hook_note_fills_missing_repeated_instructions(self, tmp_path):
+-        """Already-noted hook sections should not suppress later sections."""
+-        from specify_cli.integrations.base import _HOOK_COMMAND_NOTE
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            f"{_HOOK_COMMAND_NOTE}"
+-            "- For each executable hook, output the following based on its flag:\n"
+-            "\n"
+-            "  - For each executable hook, output the following based on its flag:\n"
+-        )
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-        assert result.count("replace dots (`.`) with hyphens") == 2
+-
+-    def test_hook_note_not_suppressed_by_unrelated_phrase(self, tmp_path):
+-        """Unrelated text should not trip the hook-note idempotence guard."""
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "This paragraph says replace dots in a different context.\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-        assert "This paragraph says replace dots in a different context." in result
+-        assert result.count("replace dots (`.`) with hyphens") == 1
+-
+-    def test_hook_note_preserves_indentation(self, tmp_path):
+-        """The injected note should match the indentation of the target line."""
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "   - For each executable hook, output the following\n"
+-        )
+-        result = SkillsIntegration._inject_hook_command_note(content)
+-        lines = result.splitlines()
+-        note_line = [line for line in lines if "replace dots" in line][0]
+-        assert note_line.startswith("   "), "Note should preserve indentation"
+-
+-    def test_post_process_injects_all_claude_flags(self):
+-        """post_process_skill_content should inject all Claude-specific fields."""
+-        i = get_integration("claude")
+-        content = (
+-            "---\nname: test\ndescription: test\n---\n\n"
+-            "- For each executable hook, output the following\n"
+-        )
+-        result = i.post_process_skill_content(content)
+-        assert "user-invocable: true" in result
+-        assert "disable-model-invocation: false" in result
+-        assert "replace dots" in result
+-
+-
+ class TestSpeckitManifestRecordsSkippedFiles:
+     """Regression test for issue #2107.
+ 
+diff --git a/tests/integrations/test_integration_cline.py b/tests/integrations/test_integration_cline.py
+index d7350a96..27cc4c31 100644
+--- a/tests/integrations/test_integration_cline.py
++++ b/tests/integrations/test_integration_cline.py
+@@ -82,83 +82,6 @@ class TestClineIntegration(MarkdownIntegrationTests):
+         rewritten = cline._rewrite_handoff_references(content)
+         assert rewritten == "---\nagent: speckit-plan\n---\n"
+ 
+-    def test_cline_hook_instruction_injection(self):
+-        """Verify Cline injects the dot-to-hyphen note for hooks."""
+-        cline = get_integration("cline")
+-        content = "- For each executable hook, output the following:\n"
+-        injected = cline._inject_hook_command_note(content)
+-        assert "replace dots (`.`) with hyphens (`-`)" in injected
+-        assert "- For each executable hook, output the following:" in injected
+-
+-    def test_cline_hook_instruction_injection_no_trailing_newline(self):
+-        """Note must not collapse onto the instruction line when the
+-        instruction is the final line with no trailing newline.
+-
+-        The injection regex matches the end-of-line via ``(\\r\\n|\\n|$)``, so
+-        the captured ``eol`` is empty on a file's last line that lacks a
+-        trailing newline. Without an ``or "\\n"`` fallback the note text and
+-        the instruction are emitted on the same line.
+-        """
+-        cline = get_integration("cline")
+-        content = "- For each executable hook, output the following:"  # no trailing \n
+-        injected = cline._inject_hook_command_note(content)
+-        assert "replace dots (`.`) with hyphens (`-`)" in injected
+-        # Instruction stays on its own line rather than being mashed onto the note.
+-        assert "\n- For each executable hook, output the following:" in injected
+-
+-    def test_cline_hook_note_not_suppressed_by_unrelated_prose(self):
+-        """Unrelated prose must not suppress the note for a real instruction.
+-
+-        The idempotency guard used to be a whole-document substring scan
+-        (``if "replace dots" in content``), so any command or extension
+-        markdown whose prose merely contained that phrase lost the note
+-        entirely -- leaving the agent told to emit ``/speckit.git.commit``,
+-        a dotted command Cline never registers.
+-        """
+-        cline = get_integration("cline")
+-        content = (
+-            "# DB extension command\n\n"
+-            "When normalizing table names, replace dots with underscores.\n\n"
+-            "## Pre-Execution Hooks\n"
+-            "- For each executable hook, output the following:\n"
+-        )
+-        injected = cline._inject_hook_command_note(content)
+-        assert "`/speckit-git-commit`" in injected, injected
+-        # The user's own prose is untouched.
+-        assert "replace dots with underscores" in injected
+-
+-    def test_cline_hook_note_added_to_every_un_noted_instruction(self):
+-        """A second, un-noted hook section must still get its own note."""
+-        cline = get_integration("cline")
+-        instruction = "- For each executable hook, output the following:\n"
+-        # Section 1 already carries the note; section 2 does not.
+-        first = cline._inject_hook_command_note("## Hooks A\n" + instruction)
+-        content = first + "\n## Hooks B\n" + instruction
+-
+-        injected = cline._inject_hook_command_note(content)
+-        assert injected.count("replace dots (`.`) with hyphens (`-`)") == 2, injected
+-        # Still idempotent: re-running adds nothing.
+-        assert cline._inject_hook_command_note(injected) == injected
+-
+-    def test_cline_hook_note_sits_directly_above_indented_instruction(self):
+-        """No blank line may be inserted between the note and the instruction.
+-
+-        The regex captured indentation with ``\\s*``, which matches newlines,
+-        so a preceding blank line was swallowed into the "indent" and re-emitted
+-        between the note and the instruction.
+-        """
+-        cline = get_integration("cline")
+-        content = "## Hooks\n\n  - For each executable hook, output the following:\n"
+-        injected = cline._inject_hook_command_note(content)
+-        lines = injected.splitlines()
+-        instruction_idx = next(
+-            i for i, line in enumerate(lines) if "For each executable hook" in line
+-        )
+-        assert "replace dots" in lines[instruction_idx - 1], injected
+-        # Indentation is preserved on both lines.
+-        assert lines[instruction_idx].startswith("  - For each")
+-        assert lines[instruction_idx - 1].startswith("  - When constructing")
+-
+     # -- Overrides for MarkdownIntegrationTests ---------------------------
+ 
+     def test_setup_creates_files(self, tmp_path):
+diff --git a/tests/integrations/test_integration_codex.py b/tests/integrations/test_integration_codex.py
+index 9a4dc544..999c0d1c 100644
+--- a/tests/integrations/test_integration_codex.py
++++ b/tests/integrations/test_integration_codex.py
+@@ -75,119 +75,3 @@ class TestCodexInitFlow:
+         assert "FROM_CONFIG.md" not in content
+         assert "ALSO_CONFIG.md" not in content
+         assert "__CONTEXT_FILE__" not in content
+-
+-
+-class TestCodexHookCommandNote:
+-    """Verify dot-to-hyphen normalization note is injected in hook sections.
+-
+-    Hook commands in ``extensions.yml`` use dotted ids like
+-    ``speckit.git.commit`` but Codex skills are named with hyphens
+-    (``speckit-git-commit``). Without this note, Codex emits
+-    ``/speckit.git.commit``, which does not resolve.
+-    """
+-
+-    def test_hook_note_injected_in_skills_with_hooks(self, tmp_path):
+-        """Skills that have hook sections should get the normalization note."""
+-        i = get_integration("codex")
+-        m = IntegrationManifest("codex", tmp_path)
+-        i.setup(tmp_path, m, script_type="sh")
+-        specify_skill = tmp_path / ".agents/skills/speckit-specify/SKILL.md"
+-        assert specify_skill.exists()
+-        content = specify_skill.read_text(encoding="utf-8")
+-        assert "replace dots" in content, (
+-            "speckit-specify should have dot-to-hyphen hook note"
+-        )
+-        assert "constructing command invocations" in content
+-        assert "constructing slash commands" not in content
+-
+-    def test_hook_note_not_in_skills_without_hooks(self):
+-        """Skills without hook sections should not get the note."""
+-        from specify_cli.integrations.codex import CodexIntegration
+-
+-        content = "---\nname: test\ndescription: test\n---\n\nNo hooks here.\n"
+-        result = CodexIntegration._inject_hook_command_note(content)
+-        assert "replace dots" not in result
+-
+-    def test_hook_note_idempotent(self):
+-        """Injecting the note twice should not duplicate it."""
+-        from specify_cli.integrations.codex import CodexIntegration
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        once = CodexIntegration._inject_hook_command_note(content)
+-        twice = CodexIntegration._inject_hook_command_note(once)
+-        assert once == twice, "Hook note injection should be idempotent"
+-
+-    def test_hook_note_fills_missing_repeated_instructions(self):
+-        """Already-noted hook sections should not suppress later sections."""
+-        from specify_cli.integrations.base import _HOOK_COMMAND_NOTE
+-        from specify_cli.integrations.codex import CodexIntegration
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            f"{_HOOK_COMMAND_NOTE}"
+-            "- For each executable hook, output the following based on its flag:\n"
+-            "\n"
+-            "  - For each executable hook, output the following based on its flag:\n"
+-        )
+-        result = CodexIntegration._inject_hook_command_note(content)
+-        assert result.count("replace dots (`.`) with hyphens") == 2
+-
+-    def test_hook_note_not_suppressed_by_unrelated_phrase(self):
+-        """Unrelated text should not trip the hook-note idempotence guard."""
+-        from specify_cli.integrations.codex import CodexIntegration
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "This paragraph says replace dots in a different context.\n"
+-            "- For each executable hook, output the following based on its flag:\n"
+-        )
+-        result = CodexIntegration._inject_hook_command_note(content)
+-        assert "This paragraph says replace dots in a different context." in result
+-        assert result.count("replace dots (`.`) with hyphens") == 1
+-
+-    def test_hook_note_preserves_indentation(self):
+-        """The injected note should match the indentation of the target line."""
+-        from specify_cli.integrations.codex import CodexIntegration
+-
+-        content = (
+-            "---\nname: test\n---\n\n"
+-            "   - For each executable hook, output the following\n"
+-        )
+-        result = CodexIntegration._inject_hook_command_note(content)
+-        lines = result.splitlines()
+-        note_line = [line for line in lines if "replace dots" in line][0]
+-        assert note_line.startswith("   "), "Note should preserve indentation"
+-
+-    def test_hook_note_when_instruction_is_final_line_without_newline(self):
+-        """Note must not collapse onto the instruction line when the file
+-        ends without a trailing newline and the preceding line is not blank.
+-        """
+-        from specify_cli.integrations.codex import CodexIntegration
+-
+-        # No blank line before the instruction and no trailing newline:
+-        # this is the case where the captured ``eol`` is empty and the
+-        # captured indent is also empty, so a missing line separator would
+-        # cause the note and instruction to collapse onto one line.
+-        content = (
+-            "---\nname: test\n---\n"
+-            "Body line\n"
+-            "- For each executable hook, output the following"
+-        )
+-        result = CodexIntegration._inject_hook_command_note(content)
+-        lines = result.splitlines()
+-        note_line_idx = next(
+-            i for i, line in enumerate(lines) if "replace dots" in line
+-        )
+-        instruction_line_idx = next(
+-            i for i, line in enumerate(lines)
+-            if line.lstrip().startswith("- For each executable hook")
+-        )
+-        assert note_line_idx < instruction_line_idx, (
+-            "Note must appear before the instruction"
+-        )
+-        assert "For each executable hook" not in lines[note_line_idx], (
+-            "Note and instruction must not be on the same line"
+-        )
+diff --git a/tests/integrations/test_integration_copilot.py b/tests/integrations/test_integration_copilot.py
+index 95670d2f..5a8b5612 100644
+--- a/tests/integrations/test_integration_copilot.py
++++ b/tests/integrations/test_integration_copilot.py
+@@ -617,18 +617,18 @@ class TestCopilotSkillsMode:
+         updated = copilot.post_process_skill_content(content)
+         assert "mode:" not in updated
+ 
+-    def test_post_process_skill_content_injects_hook_note(self):
+-        """post_process_skill_content() should inject shared hook guidance but not mode:."""
++    def test_post_process_skill_content_preserves_native_resolver(self):
++        """post_process_skill_content() should preserve native resolver text."""
+         copilot = self._make_copilot()
+         content = (
+             "---\n"
+             'name: "speckit-specify"\n'
+             'description: "Specify workflow"\n'
+             "---\n"
+-            "\n- For each executable hook, output the following\n"
++            "\n- Run `specify hook check before_specify --json` from the project root.\n"
+         )
+         updated = copilot.post_process_skill_content(content)
+-        assert "replace dots" in updated
++        assert "specify hook check" in updated
+         assert "mode:" not in updated
+ 
+     def test_post_process_idempotent(self):
+@@ -657,13 +657,13 @@ class TestCopilotSkillsMode:
+             fm = yaml.safe_load(parts[1])
+             assert "mode" not in fm, f"{f} frontmatter must not contain unsupported 'mode' field"
+ 
+-    def test_skills_hook_sections_explain_dotted_command_conversion(self, tmp_path):
+-        """Generated skills with hook sections should include shared hook guidance."""
++    def test_skills_hook_sections_use_native_resolver(self, tmp_path):
++        """Generated skills should retain the canonical hook resolver call."""
+         copilot = self._make_copilot()
+         self._setup_skills(copilot, tmp_path)
+         specify_skill = tmp_path / ".github" / "skills" / "speckit-specify" / "SKILL.md"
+         content = specify_skill.read_text(encoding="utf-8")
+-        assert "replace dots" in content
++        assert "specify hook check" in content
+ 
+     # -- Template processing ----------------------------------------------
+ 
+diff --git a/tests/integrations/test_integration_hermes.py b/tests/integrations/test_integration_hermes.py
+index b2106050..121ac406 100644
+--- a/tests/integrations/test_integration_hermes.py
++++ b/tests/integrations/test_integration_hermes.py
+@@ -203,12 +203,10 @@ class TestHermesIntegration(SkillsIntegrationTests):
+         specify_skill = home / ".hermes" / "skills" / "speckit-specify" / "SKILL.md"
+         assert specify_skill.exists()
+         content = specify_skill.read_text(encoding="utf-8")
+-        assert "replace dots" in content, (
++        assert "specify hook check" in content, (
+             "speckit-specify should explain dotted hook command conversion"
+         )
+-        assert content.count("replace dots") == content.count(
+-            "- For each executable hook, output the following"
+-        )
++        assert "specify hook check" in content
+ 
+     def test_complete_file_inventory_sh(self, tmp_path, monkeypatch):
+         """Override: Hermes init produces no local SKILL.md files,
+diff --git a/tests/integrations/test_integration_junie.py b/tests/integrations/test_integration_junie.py
+index a6234ba7..3bc011fc 100644
+--- a/tests/integrations/test_integration_junie.py
++++ b/tests/integrations/test_integration_junie.py
+@@ -85,30 +85,6 @@ class TestJunieIntegration(MarkdownIntegrationTests):
+         rewritten = junie._rewrite_handoff_references(content)
+         assert rewritten == "---\nagent: speckit-plan\n---\n"
+ 
+-    def test_junie_hook_instruction_injection(self):
+-        """Verify junie injects the dot-to-hyphen note for hooks."""
+-        junie = get_integration("junie")
+-        content = "- For each executable hook, output the following:\n"
+-        injected = junie._inject_hook_command_note(content)
+-        assert "replace dots (`.`) with hyphens (`-`)" in injected
+-        assert "- For each executable hook, output the following:" in injected
+-
+-    def test_junie_hook_instruction_injection_no_trailing_newline(self):
+-        """Note must not collapse onto the instruction line when the
+-        instruction is the final line with no trailing newline.
+-
+-        The injection regex matches the end-of-line via ``(\\r\\n|\\n|$)``, so
+-        the captured ``eol`` is empty on a file's last line that lacks a
+-        trailing newline. Without an ``or "\\n"`` fallback the note text and
+-        the instruction are emitted on the same line.
+-        """
+-        junie = get_integration("junie")
+-        content = "- For each executable hook, output the following:"  # no trailing \n
+-        injected = junie._inject_hook_command_note(content)
+-        assert "replace dots (`.`) with hyphens (`-`)" in injected
+-        # Instruction stays on its own line rather than being mashed onto the note.
+-        assert "\n- For each executable hook, output the following:" in injected
+-
+     # -- Overrides for MarkdownIntegrationTests ---------------------------
+ 
+     def test_setup_creates_files(self, tmp_path):
+diff --git a/tests/test_command_template_hook_conditions.py b/tests/test_command_template_hook_conditions.py
+index 7a21c267..c7931e60 100644
+--- a/tests/test_command_template_hook_conditions.py
++++ b/tests/test_command_template_hook_conditions.py
+@@ -1,27 +1,5 @@
+-"""Command templates evaluate a hook's `condition` instead of skipping it.
++"""Command templates delegate hook resolution to the native executor."""
+ 
+-`extensions/git/extension.yml` gates the sixteen optional `git.commit` hooks
+-on a composite `condition` -- the per-event `auto_commit.<event>.enabled`
+-key when it is set, else the shared `auto_commit.default` -- a grammar
+-`HookExecutor._evaluate_condition` supports via `and`/`or`/`not`/parentheses
+-composed over its five atom forms, but a condition only
+-matters if something evaluates it. Every hook block in
+-`templates/commands/*.md` used to instruct the agent to skip any hook with a
+-non-empty `condition` and "leave condition evaluation to the HookExecutor
+-implementation", and nothing in `src/specify_cli` calls
+-`HookExecutor.should_execute_hook` in production, so the condition was
+-inert: a project that turned an event's auto-commit on would still never be
+-offered the hook.
+-
+-These tests pin that every stock command template with a hook block now
+-tells the agent to evaluate the condition itself -- in wording identical
+-across every block, so no command's phrasing is more authoritative than
+-another's -- and that the old skip-unconditionally sentence is gone.
+-"""
+-
+-from __future__ import annotations
+-
+-import re
+ from pathlib import Path
+ 
+ import pytest
+@@ -29,81 +7,22 @@ import pytest
+ REPO_ROOT = Path(__file__).parent.parent
+ TEMPLATES_DIR = REPO_ROOT / "templates" / "commands"
+ 
+-_HOOK_EVENT = re.compile(r"hooks\.(before|after)_")
+-_OLD_SKIP_SENTENCE = "leave condition evaluation to the HookExecutor implementation"
+-
+-# The evaluation-rule paragraph: the "For each remaining hook, evaluate ..."
+-# intro line through its four two-space-indented bullets, stopping just
+-# before the "For each executable hook, ..." line every hook block ends
+-# with (indented at the top list level, not two-space nested).
+-_RULE_BLOCK = re.compile(
+-    r"- For each remaining hook, evaluate its `condition`.*\n"
+-    r"(?:  - .*\n)+"
+-)
+-
+ HOOK_TEMPLATES = sorted(
+     p.name
+     for p in TEMPLATES_DIR.glob("*.md")
+-    if _HOOK_EVENT.search(p.read_text(encoding="utf-8"))
++    if "specify hook check" in p.read_text(encoding="utf-8")
+ )
+ 
+ 
+ def test_hook_templates_discovered():
+-    # Guard: every stock command template ships before_/after_ hook blocks;
+-    # if the glob ever found none, the parametrized tests below would
+-    # silently pass over an empty set.
+     assert "implement.md" in HOOK_TEMPLATES
+     assert "plan.md" in HOOK_TEMPLATES
+     assert len(HOOK_TEMPLATES) == 10
+ 
+ 
+ @pytest.mark.parametrize("name", HOOK_TEMPLATES)
+-def test_template_no_longer_skips_conditioned_hooks(name: str):
++def test_template_uses_native_hook_resolution(name: str):
+     content = (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+-    assert _OLD_SKIP_SENTENCE not in content, (
+-        f"{name} still tells the agent to leave a conditioned hook unevaluated"
+-    )
+-
+-
+-@pytest.mark.parametrize("name", HOOK_TEMPLATES)
+-def test_template_has_one_evaluation_block_per_hook_event(name: str):
+-    # Every stock template gates exactly one before_ and one after_ event.
+-    content = (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+-    blocks = _RULE_BLOCK.findall(content)
+-    assert len(blocks) == 2, f"{name}: expected 2 evaluation blocks, found {len(blocks)}"
+-
+-
+-def test_evaluation_rule_is_identical_across_every_block():
+-    # The rule must read the same everywhere: an agent evaluating a hook for
+-    # one command should not find different wording for another.
+-    blocks: set[str] = set()
+-    for name in HOOK_TEMPLATES:
+-        content = (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+-        blocks.update(_RULE_BLOCK.findall(content))
+-    assert len(blocks) == 1, f"evaluation rule text diverges across blocks: {sorted(blocks)}"
+-
+-    block = next(iter(blocks))
+-    # No condition -> executable.
+-    assert "No `condition` field, or a null/empty one, means the hook is executable." in block
+-    # config.<path> forms, read from the extension's merged configuration.
+-    assert "HookExecutor._evaluate_condition" in block
+-    assert "config.<key.path> is set" in block
+-    assert "config.<key.path> is not set" in block
+-    assert ".specify/extensions/<extension>/<extension>-config.yml" in block
+-    assert (
+-        "a key missing from every layer is never `is set`, always `is not set`, "
+-        "never `==` a value, and always `!=` a value"
+-    ) in block
+-    # env.<VAR> forms, read from the process environment.
+-    assert "env.<VAR_NAME> is set" in block
+-    assert "env.<VAR_NAME> is not set" in block
+-    assert "read the process environment the same way" in block
+-    # Composition: and/or/not/parentheses, precedence, case-insensitive
+-    # keywords, and a quoted value that may itself contain one.
+-    assert "Atoms compose with `and`, `or`, `not`, and parentheses" in block
+-    assert "`not` binds tightest, then `and`, then `or`" in block
+-    assert "case-insensitive" in block
+-    assert "a quoted value may itself contain one" in block
+-    # Failure default: unrecognized expression or unreadable config -> skip.
+-    assert "config file that can't be read or parsed" in block
+-    assert "should_execute_hook" in block
++    assert "specify hook check" in content
++    assert "read it and look for entries under the `hooks." not in content
++    assert "HookExecutor._evaluate_condition" not in content
+diff --git a/tests/test_command_template_hooks.py b/tests/test_command_template_hooks.py
+index d1c7677b..5b2fe4c3 100644
+--- a/tests/test_command_template_hooks.py
++++ b/tests/test_command_template_hooks.py
+@@ -1,17 +1,7 @@
+-"""Command templates must not tell the agent to skip hook checking silently.
++"""Core templates stop on native hook resolver errors before continuing.
+ 
+-Every core command template reads ``.specify/extensions.yml`` before and after
+-its main work, looking for ``hooks.before_*`` / ``hooks.after_*`` entries.  A
+-manifest that could not be parsed used to be treated exactly like a manifest
+-with no hooks: the agent was told to "skip hook checking silently and continue
+-normally".  A mandatory hook (``optional: false``, the kind the bundled ``git``
+-extension registers) could therefore be disabled by a single malformed line,
+-and nothing would say so.
+-
+-These tests pin the replacement wording: an unreadable manifest is reported to
+-the user (the parser error, and the fact that no hooks were checked) before
+-the command continues.  They read the templates as text on purpose: the
+-behaviour lives in the prompt, so the prompt is what must be checked.
++The resolver owns YAML parsing. These tests cover the host-facing instruction
++at both lifecycle sites, while test_hook_command.py exercises registry errors.
+ """
+ 
+ import re
+@@ -22,21 +12,17 @@ import pytest
+ REPO_ROOT = Path(__file__).parent.parent
+ TEMPLATES_DIR = REPO_ROOT / "templates" / "commands"
+ 
+-_HOOK_KEY = re.compile(r"`hooks\.(before|after)_[a-z_]+`")
++_HOOK_KEY = re.compile(r"specify hook check (before|after)_[a-z_]+ --json")
+ _PARSE_FAILURE_LINE = re.compile(
+-    r"^.*If the YAML cannot be parsed or is invalid.*$", re.MULTILINE
++    r"^.*If the command exits nonzero.*$", re.MULTILINE
+ )
+ _SILENT = "skip hook checking silently"
+-# Every clause of the replacement instruction, so that dropping any one of
+-# them from the templates fails the test: the manifest could not be read, the
+-# parser error is shown, no hooks were checked, mandatory hooks are named, and
+-# the command still continues afterwards.
++# Both lifecycle sites must preserve the error boundary in generated prose.
+ _REPORTED = (
+-    "could not be read",
+-    "include the parser error",
+-    "no hooks were checked",
+-    "including any mandatory (`optional: false`) hooks",
+-    "then continue",
++    "exits nonzero",
++    "not valid JSON",
++    "stop and report the resolver error",
++    "only after valid JSON is returned",
+ )
+ 
+ HOOK_TEMPLATES = sorted(
+@@ -47,7 +33,7 @@ HOOK_TEMPLATES = sorted(
+ 
+ 
+ def test_hook_templates_discovered():
+-    # Guard: the glob must find the templates that read extensions.yml,
++    # Guard: the glob must find the templates that invoke the resolver,
+     # otherwise the parametrized tests below would pass by vacuity.
+     assert {"specify.md", "plan.md", "tasks.md", "implement.md"} <= set(
+         HOOK_TEMPLATES
+@@ -64,7 +50,7 @@ def test_unreadable_manifest_is_never_skipped_silently(name: str):
+ 
+ 
+ @pytest.mark.parametrize("name", HOOK_TEMPLATES)
+-def test_every_parse_failure_line_reports_before_continuing(name: str):
++def test_every_resolver_failure_line_stops_before_continuing(name: str):
+     text = (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+     lines = _PARSE_FAILURE_LINE.findall(text)
+     # One line for the before-hook check, one for the after-hook check.
+diff --git a/tests/test_hook_command.py b/tests/test_hook_command.py
+new file mode 100644
+index 00000000..698bbdc1
+--- /dev/null
++++ b/tests/test_hook_command.py
+@@ -0,0 +1,191 @@
++"""CLI coverage for deterministic hook resolution."""
++
++import json
++from pathlib import Path
++
++from typer.testing import CliRunner
++import pytest
++
++from specify_cli import app
++
++
++@pytest.mark.parametrize("event", ["before_plna", "session_start", "", "after_unknown"])
++def test_hook_check_rejects_unknown_events_even_without_registry(tmp_path, monkeypatch, event):
++    monkeypatch.chdir(tmp_path)
++    result = CliRunner().invoke(app, ["hook", "check", event, "--json"])
++    assert result.exit_code == 1
++    assert "unknown lifecycle event" in result.output
++    assert "before_plan" in result.output
++    assert '"has_hooks"' not in result.output
++
++
++def test_event_catalog_matches_all_core_template_calls():
++    import re
++    from specify_cli.commands.hook import LIFECYCLE_EVENTS
++
++    templates = Path(__file__).parents[1] / "templates" / "commands"
++    emitted = []
++    for path in templates.glob("*.md"):
++        emitted.extend(re.findall(r"hook check (\w+) --json", path.read_text()))
++    assert set(emitted) == LIFECYCLE_EVENTS
++    assert len(emitted) == len(LIFECYCLE_EVENTS)
++
++
++@pytest.mark.parametrize("agent,expected", [
++    ("codex", "$speckit-git-commit"),
++    ("claude", "/speckit-git-commit"),
++    ("copilot", "/speckit-git-commit"),
++    ("cline", "/speckit-git-commit"),
++    ("junie", "/speckit-git-commit"),
++    ("kimi", "/skill:speckit-git-commit"),
++])
++def test_hook_cli_returns_exact_native_invocation(tmp_path, monkeypatch, agent, expected):
++    _write_config(tmp_path, "hooks:\n  before_plan:\n    - command: speckit.git.commit\n      optional: false\n")
++    (tmp_path / ".specify" / "init-options.json").write_text(
++        json.dumps({"ai": agent, "ai_skills": True}), encoding="utf-8"
++    )
++    monkeypatch.chdir(tmp_path)
++    result = CliRunner().invoke(app, ["hook", "check", "before_plan", "--json"])
++    assert result.exit_code == 0, result.output
++    hook = json.loads(result.output)["hooks"][0]
++    assert hook["invocation"] == expected
++    assert hook["command"] == "speckit.git.commit"
++    assert hook["optional"] is False
++
++
++def _write_config(project: Path, text: str) -> None:
++    (project / ".specify").mkdir()
++    (project / ".specify" / "extensions.yml").write_text(text, encoding="utf-8")
++
++
++def test_hook_check_uses_native_executor_and_preserves_optional_authorization(
++    tmp_path, monkeypatch
++):
++    _write_config(
++        tmp_path,
++        """hooks:
++  before_plan:
++    - extension: first
++      command: speckit.first
++      optional: true
++      prompt: Run first?
++    - extension: second
++      command: speckit.second
++      optional: false
++      condition: env.SPECKIT_TEST_HOOK is set
++    - extension: disabled
++      command: speckit.disabled
++      enabled: false
++""",
++    )
++    monkeypatch.chdir(tmp_path)
++    monkeypatch.setenv("SPECKIT_TEST_HOOK", "1")
++
++    result = CliRunner().invoke(app, ["hook", "check", "before_plan"])
++
++    assert result.exit_code == 0, result.output
++    assert "Optional Hook" in result.output
++    assert "EXECUTE_COMMAND: speckit.second" in result.output
++    assert "speckit.disabled" not in result.output
++
++
++def test_hook_check_fails_closed_for_unmet_condition(tmp_path, monkeypatch):
++    _write_config(
++        tmp_path,
++        """hooks:
++  after_tasks:
++    - extension: example
++      command: speckit.example
++      condition: env.SPECKIT_MISSING is set
++""",
++    )
++    monkeypatch.chdir(tmp_path)
++    monkeypatch.delenv("SPECKIT_MISSING", raising=False)
++
++    result = CliRunner().invoke(app, ["hook", "check", "after_tasks"])
++
++    assert result.exit_code == 0, result.output
++    assert "speckit.example" not in result.output
++
++
++def test_hook_check_json_returns_native_invocation_metadata(tmp_path, monkeypatch):
++    _write_config(
++        tmp_path,
++        """hooks:
++  before_plan:
++    - extension: example
++      command: speckit.example
++      optional: true
++""",
++    )
++    monkeypatch.chdir(tmp_path)
++
++    result = CliRunner().invoke(app, ["hook", "check", "before_plan", "--json"])
++
++    assert result.exit_code == 0, result.output
++    payload = json.loads(result.output)
++    assert payload["has_hooks"] is True
++    assert payload["hooks"][0]["command"] == "speckit.example"
++    assert payload["hooks"][0]["optional"] is True
++
++
++def test_hook_check_reports_invalid_registry(tmp_path, monkeypatch):
++    (tmp_path / ".specify").mkdir()
++    (tmp_path / ".specify" / "extensions.yml").write_text("hooks: [", encoding="utf-8")
++    monkeypatch.chdir(tmp_path)
++
++    result = CliRunner().invoke(app, ["hook", "check", "before_plan"])
++
++    assert result.exit_code == 1
++    assert "cannot read hook registry" in result.output
++
++
++def test_hook_check_rejects_invalid_registry_shape(tmp_path, monkeypatch):
++    (tmp_path / ".specify").mkdir()
++    (tmp_path / ".specify" / "extensions.yml").write_text("hooks: []", encoding="utf-8")
++    monkeypatch.chdir(tmp_path)
++
++    result = CliRunner().invoke(app, ["hook", "check", "before_plan"])
++
++    assert result.exit_code == 1
++    assert "hooks must be a mapping" in result.output
++
++
++@pytest.mark.parametrize("event_value", ["[null]", "missing"])
++def test_hook_check_rejects_malformed_selected_event(tmp_path, monkeypatch, event_value):
++    _write_config(tmp_path, f"hooks:\n  before_plan: {event_value}\n")
++    monkeypatch.chdir(tmp_path)
++
++    result = CliRunner().invoke(app, ["hook", "check", "before_plan", "--json"])
++
++    assert result.exit_code == 1
++    assert "before_plan must be a list of mappings" in result.output
++
++
++def test_hook_check_rejects_malformed_condition(tmp_path, monkeypatch):
++    _write_config(
++        tmp_path,
++        "hooks:\n  before_plan:\n    - command: speckit.example\n      condition: bad condition\n",
++    )
++    monkeypatch.chdir(tmp_path)
++
++    result = CliRunner().invoke(app, ["hook", "check", "before_plan", "--json"])
++
++    assert result.exit_code == 1
++    assert "malformed condition" in result.output
++
++
++@pytest.mark.parametrize("config,diagnostic", [
++    ("hooks: null\n", "hooks must be a mapping"),
++    ("hooks:\n  before_plan: [{}]\n", "requires a command"),
++    ('hooks:\n  before_plan:\n    - command: speckit.example\n      optional: "false"\n', "optional must be a boolean"),
++    ('hooks:\n  before_plan:\n    - command: speckit.example\n      enabled: "false"\n', "enabled must be a boolean"),
++    ("hooks:\n  before_plan:\n    - command: speckit.example\n      condition: false\n", "malformed condition"),
++])
++def test_invalid_hook_metadata_is_not_reported_as_executable(tmp_path, monkeypatch, config, diagnostic):
++    _write_config(tmp_path, config)
++    monkeypatch.chdir(tmp_path)
++    result = CliRunner().invoke(app, ["hook", "check", "before_plan", "--json"])
++    assert result.exit_code == 1
++    assert diagnostic in result.output
++    assert '"hooks":' not in result.output
+diff --git a/tests/test_post_process.py b/tests/test_post_process.py
+index a99fc696..bdcbdf02 100644
+--- a/tests/test_post_process.py
++++ b/tests/test_post_process.py
+@@ -246,8 +246,8 @@ class TestRegressionPlainTemplate:
+ 
+ 
+ class TestClineRealPostProcess:
+-    """Cline's real command-content transforms (hook-command note + handoff
+-    dot->hyphen rewrite) must run for extension/preset commands registered via
++    """Cline's real command-content transforms (resolver instructions +
++    handoff dot->hyphen rewrite) must run for extension/preset commands registered via
+     CommandRegistrar. This exercises the REAL method (not a monkeypatched
+     marker), so it fails if Cline's override does not match the base hook name
+     the registrar dispatches to (post_process_command_content)."""
+@@ -257,7 +257,7 @@ class TestClineRealPostProcess:
+     ):
+         ext, cmd_dir = ext_dir
+         body = (
+-            "- For each executable hook, output the following:\n"
++            "- Run `specify hook check before_plan --json` from the project root.\n"
+             "agent: speckit.foo\n"
+         )
+         _write_cmd(cmd_dir, body=body)
+@@ -269,8 +269,8 @@ class TestClineRealPostProcess:
+         assert outputs, "no cline command file was written"
+         content = outputs[0].read_text(encoding="utf-8")
+ 
+-        # _inject_hook_command_note fired (its note text contains "replace dots")
+-        assert "replace dots" in content
++        # The canonical resolver instruction survives command post-processing.
++        assert "specify hook check before_plan --json" in content
+         # _rewrite_handoff_references rewrote the dotted agent handoff
+         assert "agent: speckit-foo" in content
+         assert "agent: speckit.foo" not in content

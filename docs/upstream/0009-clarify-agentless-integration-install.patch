@@ -1,0 +1,38 @@
+diff --git a/docs/reference/integrations.md b/docs/reference/integrations.md
+index ac9e2978..f5d70d28 100644
+--- a/docs/reference/integrations.md
++++ b/docs/reference/integrations.md
+@@ -98,6 +98,8 @@ Installs the specified integration into the current project. If another integrat
+ 
+ Installing an additional integration does not change the default integration. Use `specify integration use <key>` to change the default.
+ 
++Installation only scaffolds the integration's files and does not require its agent binary to be installed. Run `specify check` to diagnose missing CLI tools before dispatching workflows through them.
++
+ Installed extensions and presets are not registered for a non-default integration at install time — they follow the currently active (default) integration only. `specify integration use <key>` (or `switch <key>`) is what rescaffolds them for the newly active integration.
+ 
+ > **Note:** All integration management commands require a project already initialized with `specify init`. To start a new project with a specific agent, use `specify init <project> --integration <key>` instead.
+diff --git a/tests/integrations/test_integration_subcommand.py b/tests/integrations/test_integration_subcommand.py
+index eaeecc67..922c7281 100644
+--- a/tests/integrations/test_integration_subcommand.py
++++ b/tests/integrations/test_integration_subcommand.py
+@@ -1119,6 +1119,20 @@ class TestIntegrationInstall:
+         assert (project / ".claude" / "skills" / "speckit-plan" / "SKILL.md").exists()
+         assert (project / ".agents" / "skills" / "speckit-plan" / "SKILL.md").exists()
+ 
++    def test_install_multi_safe_integration_without_agent_binary(self, tmp_path, monkeypatch):
++        """Integration installation scaffolds files without probing the agent CLI."""
++        project = _init_project(tmp_path, "claude")
++        import specify_cli._utils as utils
++
++        monkeypatch.setattr(utils.shutil, "which", lambda _name: None)
++        result = _run_in_project(project, [
++            "integration", "install", "codex",
++            "--script", "sh",
++        ])
++        assert result.exit_code == 0, result.output
++        assert "installed successfully" in result.output
++        assert (project / ".agents" / "skills" / "speckit-plan" / "SKILL.md").exists()
++
+     def test_install_non_default_refreshes_init_options_version_only(self, tmp_path, monkeypatch):
+         project = _init_project(tmp_path, "claude")
+         init_options = project / ".specify" / "init-options.json"

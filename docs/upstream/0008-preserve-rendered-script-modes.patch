@@ -1,0 +1,98 @@
+diff --git a/src/specify_cli/presets/__init__.py b/src/specify_cli/presets/__init__.py
+index 6b80b4f..9bcd024 100644
+--- a/src/specify_cli/presets/__init__.py
++++ b/src/specify_cli/presets/__init__.py
+@@ -3949,6 +3949,13 @@ class PresetManager:
+         # previous install-time behavior for teams that want reviewed snapshots.
+         self._seed_constitution_from_preset(manifest, dest_dir)
+ 
++        # Restore the POSIX execute-bit invariant after preset files have been
++        # copied or extracted. The shared manager is also the sink used by
++        # bundle installation, so every preset install route is covered.
++        from .. import ensure_executable_scripts
++
++        ensure_executable_scripts(self.project_root)
++
+         return manifest
+ 
+     def _seed_constitution_from_preset(
+diff --git a/tests/integrations/test_preset_modes.py b/tests/integrations/test_preset_modes.py
+new file mode 100644
+index 0000000..f477b63
+--- /dev/null
++++ b/tests/integrations/test_preset_modes.py
+@@ -0,0 +1,74 @@
++"""Preset installation preserves modes on generated scripts."""
++
++import os
++
++import pytest
++
++from specify_cli.bundler.models.manifest import ComponentRef
++from specify_cli.bundler.services.adapters import DefaultPrimitiveInstaller
++from specify_cli.presets import PresetManager
++from tests.integrations.test_integration_subcommand import _init_project
++
++
++def _write_mode_preset(tmp_path):
++    preset_src = tmp_path / "mode-preset"
++    (preset_src / "commands").mkdir(parents=True)
++    (preset_src / "commands" / "speckit.specify.md").write_text(
++        "---\ndescription: Mode test\n---\nPreset content\n", encoding="utf-8"
++    )
++    (preset_src / "preset.yml").write_text(
++        """schema_version: '1.0'
++preset:
++  id: mode-preset
++  name: Mode Preset
++  version: 1.0.0
++  description: Test preset
++requires:
++  speckit_version: '>=0.1.0'
++provides:
++  templates:
++    - type: command
++      name: speckit.specify
++      file: commands/speckit.specify.md
++""",
++        encoding="utf-8",
++    )
++    return preset_src
++
++
++def _remove_execute_bits(project):
++    script = project / ".specify" / "scripts" / "bash" / "check-prerequisites.sh"
++    assert script.is_file()
++    script.chmod(0o644)
++    assert not (script.stat().st_mode & 0o111)
++    return script
++
++
++@pytest.mark.skipif(os.name == "nt", reason="POSIX execute bits are not meaningful on Windows")
++def test_preset_manager_install_restores_existing_script_mode(tmp_path):
++    """The shared preset install sink restores the generated script invariant."""
++    project = _init_project(tmp_path, "claude")
++    script = _remove_execute_bits(project)
++    preset_src = _write_mode_preset(tmp_path)
++
++    PresetManager(project).install_from_directory(preset_src, "1.0.4")
++
++    assert script.stat().st_mode & 0o111
++
++
++@pytest.mark.skipif(os.name == "nt", reason="POSIX execute bits are not meaningful on Windows")
++def test_bundle_preset_route_restores_existing_script_mode(tmp_path, monkeypatch):
++    """The bundle primitive route reaches the shared preset install sink."""
++    project = _init_project(tmp_path, "claude")
++    script = _remove_execute_bits(project)
++    preset_src = _write_mode_preset(tmp_path)
++
++    monkeypatch.setattr(
++        "specify_cli._assets._locate_bundled_preset",
++        lambda preset_id: preset_src if preset_id == "mode-preset" else None,
++    )
++    DefaultPrimitiveInstaller(allow_network=False).install(
++        project, ComponentRef(kind="presets", id="mode-preset")
++    )
++
++    assert script.stat().st_mode & 0o111

@@ -1,0 +1,248 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 9adede0..3fdb9b6 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -14,6 +14,7 @@ dependencies = [
+     "packaging>=23.0",
+     "pathspec>=0.12.0",
+     "json5>=0.13.0",
++    "markdown-it-py>=3.0",
+ ]
+ 
+ [project.scripts]
+diff --git a/src/specify_cli/agents.py b/src/specify_cli/agents.py
+index dede50e..6c402bd 100644
+--- a/src/specify_cli/agents.py
++++ b/src/specify_cli/agents.py
+@@ -10,9 +10,10 @@ import os
+ import re
+ from copy import deepcopy
+ from pathlib import Path
+-from typing import Any, Dict, Iterable, List, Optional
++from typing import Any, Callable, Dict, Iterable, List, Optional
+ 
+ import yaml
++from markdown_it import MarkdownIt
+ 
+ from ._init_options import is_ai_skills_enabled, load_init_options
+ from ._invocation_style import get_invocation_prefix
+@@ -21,6 +22,31 @@ from ._toml_string import has_illegal_toml_control as _has_illegal_toml_control
+ from ._utils import relative_extension_path_violation
+ 
+ 
++_DATA_FENCE_LANGUAGES = {"json", "jsonc", "yaml", "yml", "toml", "xml", "csv"}
++_MARKDOWN = MarkdownIt("commonmark")
++
++
++def _rewrite_outside_data_fences(text: str, rewrite: Callable[[str], str]) -> str:
++    """Rewrite command text while retaining paths in illustrative data fences."""
++    lines = text.splitlines(keepends=True)
++    protected: list[tuple[int, int]] = []
++    for token in _MARKDOWN.parse(text):
++        if token.type != "fence" or not token.map:
++            continue
++        language = token.info.split(None, 1)[0].lower() if token.info else ""
++        if language in _DATA_FENCE_LANGUAGES:
++            protected.append((token.map[0], token.map[1]))
++
++    parts: list[str] = []
++    cursor = 0
++    for start, end in protected:
++        parts.append(rewrite("".join(lines[cursor:start])))
++        parts.append("".join(lines[start:end]))
++        cursor = end
++    parts.append(rewrite("".join(lines[cursor:])))
++    return "".join(parts)
++
++
+ def _build_agent_configs() -> dict[str, Any]:
+     """Derive CommandRegistrar.AGENT_CONFIGS from INTEGRATION_REGISTRY."""
+     from specify_cli.integrations import INTEGRATION_REGISTRY
+@@ -201,32 +227,34 @@ class CommandRegistrar:
+         if not isinstance(text, str) or not text:
+             return text
+ 
+-        for old, new in (
+-            ("../../memory/", ".specify/memory/"),
+-            ("../../scripts/", ".specify/scripts/"),
+-            ("../../templates/", ".specify/templates/"),
+-        ):
+-            text = text.replace(old, new)
+-
+-        # Only rewrite top-level style references so existing generated paths
+-        # like ".specify/extensions/<ext>/scripts/..." remain intact. When
+-        # rendering extension commands, top-level "scripts/" is extension-local.
+-        scripts_replacement = (
+-            f".specify/extensions/{extension_id}/scripts/"
+-            if extension_id
+-            else ".specify/scripts/"
+-        )
+-        text = re.sub(r'(^|[\s`"\'(])(?:\.?/)?memory/', r"\1.specify/memory/", text)
+-        text = re.sub(
+-            r'(^|[\s`"\'(])(?:\.?/)?scripts/', rf"\1{scripts_replacement}", text
+-        )
+-        text = re.sub(
+-            r'(^|[\s`"\'(])(?:\.?/)?templates/', r"\1.specify/templates/", text
+-        )
++        def _rewrite_segment(segment: str) -> str:
++            for old, new in (
++                ("../../memory/", ".specify/memory/"),
++                ("../../scripts/", ".specify/scripts/"),
++                ("../../templates/", ".specify/templates/"),
++            ):
++                segment = segment.replace(old, new)
++
++            # Only rewrite top-level style references so existing generated paths
++            # like ".specify/extensions/<ext>/scripts/..." remain intact. When
++            # rendering extension commands, top-level "scripts/" is extension-local.
++            scripts_replacement = (
++                f".specify/extensions/{extension_id}/scripts/"
++                if extension_id
++                else ".specify/scripts/"
++            )
++            segment = re.sub(r'(^|[\s`"\'(])(?:\.?/)?memory/', r"\1.specify/memory/", segment)
++            segment = re.sub(
++                r'(^|[\s`"\'(])(?:\.?/)?scripts/', rf"\1{scripts_replacement}", segment
++            )
++            segment = re.sub(
++                r'(^|[\s`"\'(])(?:\.?/)?templates/', r"\1.specify/templates/", segment
++            )
++            return segment.replace(".specify/.specify/", ".specify/").replace(
++                ".specify.specify/", ".specify/"
++            )
+ 
+-        return text.replace(".specify/.specify/", ".specify/").replace(
+-            ".specify.specify/", ".specify/"
+-        )
++        return _rewrite_outside_data_fences(text, _rewrite_segment)
+ 
+     @staticmethod
+     def rewrite_extension_paths(
+@@ -260,19 +288,25 @@ class CommandRegistrar:
+         except OSError:
+             return text
+ 
+-        for subdir in subdirs:
+-            # Only rewrite relative references (subdir/... or ./subdir/...);
+-            # absolute paths like /subdir/... keep their meaning. Use a
+-            # callable replacement: subdir/extension_id come from the
+-            # filesystem and could contain backslashes or "\1"-like
+-            # sequences, which would corrupt a string replacement template.
+-            replacement = f".specify/extensions/{extension_id}/{subdir}/"
+-            text = re.sub(
+-                r'(^|[\s`"\'(])(?:\./)?' + re.escape(subdir) + "/",
+-                lambda m: m.group(1) + replacement,
+-                text,
+-            )
+-        return text
++        def _rewrite_segment(segment: str) -> str:
++            for subdir in subdirs:
++                # Only rewrite relative references (subdir/... or ./subdir/...);
++                # absolute paths like /subdir/... keep their meaning. Use a
++                # callable replacement: subdir/extension_id come from the
++                # filesystem and could contain backslashes or "\1"-like
++                # sequences, which would corrupt a string replacement template.
++                replacement = f".specify/extensions/{extension_id}/{subdir}/"
++                segment = re.sub(
++                    r'(^|[\s`"\'(])(?:\./)?' + re.escape(subdir) + "/",
++                    lambda m: m.group(1) + replacement,
++                    segment,
++                )
++            return segment
++
++        # Data fences in command prose are examples for the agent to copy. Keep
++        # their paths literal, while still rewriting package references in the
++        # surrounding prose and executable fences such as ``bash``/``sh``.
++        return _rewrite_outside_data_fences(text, _rewrite_segment)
+ 
+     def render_markdown_command(
+         self, frontmatter: dict, body: str, source_id: str, context_note: Optional[str] = None
+diff --git a/tests/test_agent_config_consistency.py b/tests/test_agent_config_consistency.py
+index 16dbcae..fec8593 100644
+--- a/tests/test_agent_config_consistency.py
++++ b/tests/test_agent_config_consistency.py
+@@ -418,6 +418,84 @@ class TestAgentConfigConsistency:
+             "Skills agents must use hyphen notation."
+         )
+ 
++    def test_extension_path_rewrite_preserves_data_fence_paths(self, tmp_path):
++        """Rendered commands keep data examples while shell references relocate."""
++        from specify_cli.agents import CommandRegistrar
++
++        extension_dir = tmp_path / "extension"
++        commands_dir = extension_dir / "commands"
++        (extension_dir / "src").mkdir(parents=True)
++        commands_dir.mkdir()
++        (commands_dir / "speckit.example.md").write_text(
++            '''---
++description: Example
++---
++Findings example:
++
++   ~~~~json extra-info
++   {"path": "src/module.py", "package": "src/package.json", "script": "scripts/example.sh", "escaped": "src/with\\\"quote.py"}
++   ~~~~~~
++
++Run the packaged checker:
++
++```bash
++python src/check.py
++```
++
++The package metadata is in src/package.json and the helper is scripts/helper.sh.
++''',
++            encoding="utf-8",
++        )
++
++        registrar = CommandRegistrar()
++        registered = registrar.register_commands(
++            "claude",
++            [{"name": "speckit.example", "file": "commands/speckit.example.md"}],
++            "code-review",
++            extension_dir,
++            tmp_path / "project",
++            extension_id="code-review",
++        )
++
++        assert registered == ["speckit.example"]
++        rendered = (
++            tmp_path / "project" / ".claude" / "skills" / "speckit-example" / "SKILL.md"
++        ).read_text(encoding="utf-8")
++        assert '"path": "src/module.py"' in rendered
++        assert '"package": "src/package.json"' in rendered
++        assert '"script": "scripts/example.sh"' in rendered
++        assert '"escaped": "src/with\\\"quote.py"' in rendered
++        assert "python .specify/extensions/code-review/src/check.py" in rendered
++        assert ".specify/extensions/code-review/src/package.json" in rendered
++        assert ".specify/extensions/code-review/scripts/helper.sh" in rendered
++
++    def test_nested_data_fences_survive_both_path_rewrite_passes(self, tmp_path):
++        """Nested list examples stay literal through project and extension rewrites."""
++        from specify_cli.agents import CommandRegistrar
++
++        extension_dir = tmp_path / "extension"
++        (extension_dir / "src").mkdir(parents=True)
++        text = """- Configuration:
++  ```json
++  {"path": "src/config.json", "script": "scripts/run.sh"}
++  ```
++- Run:
++  ```bash
++  python src/check.py
++  ```
++"""
++
++        project_rewritten = CommandRegistrar.rewrite_project_relative_paths(
++            text, extension_id="code-review"
++        )
++        both_rewritten = CommandRegistrar.rewrite_extension_paths(
++            project_rewritten, "code-review", extension_dir
++        )
++
++        assert '"path": "src/config.json"' in both_rewritten
++        assert '"script": "scripts/run.sh"' in both_rewritten
++        assert "python .specify/extensions/code-review/src/check.py" in both_rewritten
++
+     # --- RovoDev consistency checks ---
+ 
+     def test_rovodev_in_agent_config(self):

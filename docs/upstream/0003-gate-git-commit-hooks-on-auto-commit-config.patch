@@ -63,148 +63,106 @@ over templates/commands/*.md pins that the old skip-unconditionally
 sentence is gone and the evaluation rule, composition wording
 included, reads identically across all twenty hook blocks.
 ---
- docs/reference/extensions.md                  |   2 +-
- extensions/git/extension.yml                  |  16 ++
- src/specify_cli/extensions/__init__.py        | 252 ++++++++++++++---
- templates/commands/analyze.md                 |  18 +-
- templates/commands/checklist.md               |  18 +-
- templates/commands/clarify.md                 |  18 +-
- templates/commands/constitution.md            |  18 +-
- templates/commands/converge.md                |  18 +-
- templates/commands/implement.md               |  18 +-
- templates/commands/plan.md                    |  18 +-
- templates/commands/specify.md                 |  18 +-
- templates/commands/tasks.md                   |  18 +-
- templates/commands/taskstoissues.md           |  18 +-
- tests/extensions/git/test_git_extension.py    | 160 +++++++++++
- .../test_command_template_hook_conditions.py  | 109 ++++++++
- tests/test_hook_condition_grammar.py          | 259 ++++++++++++++++++
- 16 files changed, 878 insertions(+), 100 deletions(-)
- create mode 100644 tests/test_command_template_hook_conditions.py
- create mode 100644 tests/test_hook_condition_grammar.py
+ docs/reference/extensions.md                   |    2 
+ extensions/git/extension.yml                   |   16 +
+ src/specify_cli/extensions/__init__.py         |  252 ++++++++++++++++++++---
+ templates/commands/analyze.md                  |   18 +-
+ templates/commands/checklist.md                |   18 +-
+ templates/commands/clarify.md                  |   18 +-
+ templates/commands/constitution.md             |   18 +-
+ templates/commands/converge.md                 |   18 +-
+ templates/commands/implement.md                |   18 +-
+ templates/commands/plan.md                     |   18 +-
+ templates/commands/specify.md                  |   18 +-
+ templates/commands/tasks.md                    |   18 +-
+ templates/commands/taskstoissues.md            |   18 +-
+ tests/extensions/git/test_git_extension.py     |  167 +++++++++++++++
+ tests/test_command_template_hook_conditions.py |  109 ++++++++++
+ tests/test_hook_condition_grammar.py           |  260 ++++++++++++++++++++++++
+ 16 files changed, 886 insertions(+), 100 deletions(-)
 
 diff --git a/docs/reference/extensions.md b/docs/reference/extensions.md
-index 0473e72..4dfff79 100644
+index 0473e720..4dfff791 100644
 --- a/docs/reference/extensions.md
 +++ b/docs/reference/extensions.md
-@@ -245,7 +245,7 @@ Each hook entry supports the following fields:
- | `priority` | Priority metadata for the hook. Registered hook entries use integer values >= 1; entries installed from manifests default to `10` when no priority is declared. Current command templates surface hooks in their configured YAML order and do not sort them by `priority`. |
- | `prompt` | Message shown when asking whether to run an optional hook. |
+@@ -247,3 +247,3 @@ Each hook entry supports the following fields:
  | `description` | Human-readable explanation of what the hook does. |
 -| `condition` | Optional expression evaluated by `HookExecutor` (using `config.<path>` or `env.<VAR>` with `is set`, `==`, or `!=`). Current command templates do not evaluate conditions and skip hooks with a non-empty condition. |
 +| `condition` | Optional expression evaluated by `HookExecutor` (using `config.<path>` or `env.<VAR>` with `is set`, `is not set`, `==`, or `!=`, composed with `and`, `or`, `not`, and parentheses). Current command templates evaluate a hook's condition the same way `HookExecutor._evaluate_condition` does before offering or executing it: `config.<path>` is read from the extension's effective configuration as `ConfigManager` merges it (the manifest's `config.defaults`, then `.specify/extensions/<extension>/<extension>-config.yml`, then `local-config.yml`, then `SPECKIT_<EXTENSION>_<KEY_PATH>` environment variables), `env.<VAR>` from the process environment; `not` binds tightest, then `and`, then `or`, the keywords are case-insensitive, and a quoted value may itself contain one (e.g. `== 'a and b'`). An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — or a config file that can't be read or parsed, leaves the hook not executable. |
  Hook event names identify when a hook is invoked. They generally use `before_<command>` or `after_<command>`, such as `before_implement`, `after_implement`, `before_tasks`, and `after_tasks`.
- 
- Extension manifests reject invalid hook priorities during installation. For existing `.specify/extensions.yml` entries, `HookExecutor.get_hooks_for_event()` sorts with `normalize_priority()`: missing values, booleans, non-numeric values rejected by `int()`, and values less than `1` fall back to `10`; numeric strings and finite floats are coerced with `int()`, while non-finite floats are unsupported and may fail instead of falling back.
 diff --git a/extensions/git/extension.yml b/extensions/git/extension.yml
-index c92322d..7d9c5ee 100644
+index c92322d8..7e081c5c 100644
 --- a/extensions/git/extension.yml
 +++ b/extensions/git/extension.yml
-@@ -53,81 +53,97 @@ hooks:
-     optional: true
-     prompt: "Commit outstanding changes before clarification?"
+@@ -55,2 +55,3 @@ hooks:
      description: "Auto-commit before spec clarification"
 +    condition: "config.auto_commit.before_clarify.enabled == 'true' or (config.auto_commit.before_clarify is not set and config.auto_commit.default == 'true')"
    before_plan:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit outstanding changes before planning?"
+@@ -60,2 +61,3 @@ hooks:
      description: "Auto-commit before implementation planning"
 +    condition: "config.auto_commit.before_plan.enabled == 'true' or (config.auto_commit.before_plan is not set and config.auto_commit.default == 'true')"
    before_tasks:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit outstanding changes before task generation?"
+@@ -65,2 +67,3 @@ hooks:
      description: "Auto-commit before task generation"
 +    condition: "config.auto_commit.before_tasks.enabled == 'true' or (config.auto_commit.before_tasks is not set and config.auto_commit.default == 'true')"
    before_implement:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit outstanding changes before implementation?"
+@@ -70,2 +73,3 @@ hooks:
      description: "Auto-commit before implementation"
 +    condition: "config.auto_commit.before_implement.enabled == 'true' or (config.auto_commit.before_implement is not set and config.auto_commit.default == 'true')"
    before_checklist:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit outstanding changes before checklist?"
+@@ -75,2 +79,3 @@ hooks:
      description: "Auto-commit before checklist generation"
 +    condition: "config.auto_commit.before_checklist.enabled == 'true' or (config.auto_commit.before_checklist is not set and config.auto_commit.default == 'true')"
    before_analyze:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit outstanding changes before analysis?"
+@@ -80,2 +85,3 @@ hooks:
      description: "Auto-commit before analysis"
 +    condition: "config.auto_commit.before_analyze.enabled == 'true' or (config.auto_commit.before_analyze is not set and config.auto_commit.default == 'true')"
    before_taskstoissues:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit outstanding changes before issue sync?"
+@@ -85,2 +91,3 @@ hooks:
      description: "Auto-commit before tasks-to-issues conversion"
 +    condition: "config.auto_commit.before_taskstoissues.enabled == 'true' or (config.auto_commit.before_taskstoissues is not set and config.auto_commit.default == 'true')"
    after_constitution:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit constitution changes?"
+@@ -90,2 +97,3 @@ hooks:
      description: "Auto-commit after constitution update"
 +    condition: "config.auto_commit.after_constitution.enabled == 'true' or (config.auto_commit.after_constitution is not set and config.auto_commit.default == 'true')"
    after_specify:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit specification changes?"
+@@ -95,2 +103,3 @@ hooks:
      description: "Auto-commit after specification"
 +    condition: "config.auto_commit.after_specify.enabled == 'true' or (config.auto_commit.after_specify is not set and config.auto_commit.default == 'true')"
    after_clarify:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit clarification changes?"
+@@ -100,2 +109,3 @@ hooks:
      description: "Auto-commit after spec clarification"
 +    condition: "config.auto_commit.after_clarify.enabled == 'true' or (config.auto_commit.after_clarify is not set and config.auto_commit.default == 'true')"
    after_plan:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit plan changes?"
+@@ -105,2 +115,3 @@ hooks:
      description: "Auto-commit after implementation planning"
 +    condition: "config.auto_commit.after_plan.enabled == 'true' or (config.auto_commit.after_plan is not set and config.auto_commit.default == 'true')"
    after_tasks:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit task changes?"
+@@ -110,2 +121,3 @@ hooks:
      description: "Auto-commit after task generation"
 +    condition: "config.auto_commit.after_tasks.enabled == 'true' or (config.auto_commit.after_tasks is not set and config.auto_commit.default == 'true')"
    after_implement:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit implementation changes?"
+@@ -115,2 +127,3 @@ hooks:
      description: "Auto-commit after implementation"
 +    condition: "config.auto_commit.after_implement.enabled == 'true' or (config.auto_commit.after_implement is not set and config.auto_commit.default == 'true')"
    after_checklist:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit checklist changes?"
+@@ -120,2 +133,3 @@ hooks:
      description: "Auto-commit after checklist generation"
 +    condition: "config.auto_commit.after_checklist.enabled == 'true' or (config.auto_commit.after_checklist is not set and config.auto_commit.default == 'true')"
    after_analyze:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit analysis results?"
+@@ -125,2 +139,3 @@ hooks:
      description: "Auto-commit after analysis"
 +    condition: "config.auto_commit.after_analyze.enabled == 'true' or (config.auto_commit.after_analyze is not set and config.auto_commit.default == 'true')"
    after_taskstoissues:
-     command: speckit.git.commit
-     optional: true
-     prompt: "Commit after syncing issues?"
+@@ -130,2 +145,3 @@ hooks:
      description: "Auto-commit after tasks-to-issues conversion"
 +    condition: "config.auto_commit.after_taskstoissues.enabled == 'true' or (config.auto_commit.after_taskstoissues is not set and config.auto_commit.default == 'true')"
  
- tags:
-   - "git"
 diff --git a/src/specify_cli/extensions/__init__.py b/src/specify_cli/extensions/__init__.py
-index 3968e4f..150290d 100644
+index 3968e4fc..4422ebae 100644
 --- a/src/specify_cli/extensions/__init__.py
 +++ b/src/specify_cli/extensions/__init__.py
-@@ -4735,6 +4735,166 @@ class ConfigManager:
-         return True
- 
+@@ -4737,2 +4737,162 @@ class ConfigManager:
  
 +class _ConditionSyntaxError(Exception):
 +    """A hook condition does not parse. Always caught; the caller falls
@@ -367,11 +325,7 @@ index 3968e4f..150290d 100644
 +
 +
  class HookExecutor:
-     """Manages extension hook execution."""
- 
-@@ -5158,46 +5318,65 @@ class HookExecutor:
-             return False
- 
+@@ -5160,10 +5320,9 @@ class HookExecutor:
      def _evaluate_condition(self, condition: str, extension_id: Optional[str]) -> bool:
 -        """Evaluate a hook condition expression.
 +        """Evaluate a (possibly composite) hook condition expression.
@@ -388,10 +342,7 @@ index 3968e4f..150290d 100644
 +        case-insensitive, and a quoted value may itself contain one (e.g.
 +        `== 'a and b'`) without being mistaken for an operator.
  
-         Args:
-             condition: Condition expression string
-             extension_id: Extension ID for config lookup
- 
+@@ -5174,13 +5333,39 @@ class HookExecutor:
          Returns:
 -            True if condition is met, False otherwise
 +            True if condition is met, False otherwise -- including when
@@ -439,8 +390,7 @@ index 3968e4f..150290d 100644
 +        if match := _CONFIG_IS_SET_RE.fullmatch(atom):
 +            key_path, negate = match.group(1), match.group(2)
              if not extension_id:
-                 return False
- 
+@@ -5189,13 +5374,7 @@ class HookExecutor:
              config_manager = ConfigManager(self.project_root, extension_id)
 -            return config_manager.has_value(key_path)
 +            has_value = config_manager.has_value(key_path)
@@ -458,11 +408,7 @@ index 3968e4f..150290d 100644
 +        if match := _CONFIG_CMP_RE.fullmatch(atom):
 +            key_path, operator, _quote, expected_value = match.groups()
  
-             if not extension_id:
-                 return False
-@@ -5217,20 +5396,14 @@ class HookExecutor:
-             else:  # !=
-                 return normalized_value != expected_value
+@@ -5219,16 +5398,10 @@ class HookExecutor:
  
 -        # Pattern: "env.VAR_NAME is set"
 -        if match := re.match(r"env\.([A-Z0-9_]+)\s+is\s+set", condition, re.IGNORECASE):
@@ -486,25 +432,17 @@ index 3968e4f..150290d 100644
 +            var_name, operator, _quote, expected_value = match.groups()
 +            var_name = var_name.upper()
  
-             actual_value = os.environ.get(var_name, "")
- 
-@@ -5239,7 +5412,8 @@ class HookExecutor:
-             else:  # !=
-                 return actual_value != expected_value
+@@ -5241,3 +5414,4 @@ class HookExecutor:
  
 -        # Unknown condition format, default to False for safety
 +        # Unreachable: the tokenizer only ever emits an ATOM token for text
 +        # one of these same four patterns already matched.
          return False
- 
-     def format_hook_message(self, event_name: str, hooks: List[Dict[str, Any]]) -> str:
 diff --git a/templates/commands/analyze.md b/templates/commands/analyze.md
-index 2e13af5..5fd10d7 100644
+index 2e13af58..5fd10d75 100644
 --- a/templates/commands/analyze.md
 +++ b/templates/commands/analyze.md
-@@ -21,9 +21,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_analyze` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -23,5 +23,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -516,11 +454,7 @@ index 2e13af5..5fd10d7 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -207,9 +210,12 @@ After reporting, check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_analyze` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -209,5 +212,8 @@ After reporting, check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -532,15 +466,11 @@ index 2e13af5..5fd10d7 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
 diff --git a/templates/commands/checklist.md b/templates/commands/checklist.md
-index 5ee239d..4bdbaa8 100644
+index 5ee239d3..4bdbaa8d 100644
 --- a/templates/commands/checklist.md
 +++ b/templates/commands/checklist.md
-@@ -51,9 +51,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_checklist` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -53,5 +53,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -552,11 +482,7 @@ index 5ee239d..4bdbaa8 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -352,9 +355,12 @@ Check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_checklist` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -354,5 +357,8 @@ Check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -568,15 +494,11 @@ index 5ee239d..4bdbaa8 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
 diff --git a/templates/commands/clarify.md b/templates/commands/clarify.md
-index ea2f20d..03cb82c 100644
+index ea2f20d5..03cb82cd 100644
 --- a/templates/commands/clarify.md
 +++ b/templates/commands/clarify.md
-@@ -25,9 +25,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_clarify` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -27,5 +27,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -588,11 +510,7 @@ index ea2f20d..03cb82c 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -247,9 +250,12 @@ Check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_clarify` key.
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
+@@ -249,5 +252,8 @@ Check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -604,15 +522,11 @@ index ea2f20d..03cb82c 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
-     ```
 diff --git a/templates/commands/constitution.md b/templates/commands/constitution.md
-index 7b2f368..a511240 100644
+index 7b2f3684..a5112408 100644
 --- a/templates/commands/constitution.md
 +++ b/templates/commands/constitution.md
-@@ -44,9 +44,12 @@ and commands read the constitution at runtime and are not modified here.
- - If it exists, read it and look for entries under the `hooks.before_constitution` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -46,5 +46,8 @@ and commands read the constitution at runtime and are not modified here.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -624,11 +538,7 @@ index 7b2f368..a511240 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -150,9 +153,12 @@ Check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_constitution` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -152,5 +155,8 @@ Check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -640,15 +550,11 @@ index 7b2f368..a511240 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
 diff --git a/templates/commands/converge.md b/templates/commands/converge.md
-index a177c31..59cb62e 100644
+index a177c313..59cb62e6 100644
 --- a/templates/commands/converge.md
 +++ b/templates/commands/converge.md
-@@ -22,9 +22,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_converge` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -24,5 +24,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -660,11 +566,7 @@ index a177c31..59cb62e 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
- 
-@@ -240,9 +243,12 @@ After producing the result, check if `.specify/extensions.yml` exists in the pro
- - If it exists, read it and look for entries under the `hooks.after_converge` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -242,5 +245,8 @@ After producing the result, check if `.specify/extensions.yml` exists in the pro
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -676,15 +578,11 @@ index a177c31..59cb62e 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - Report the convergence outcome (`converged` or `tasks_appended`) in-session before listing
-   any hooks, so users can decide whether to run optional follow-up commands.
- - For each executable hook, output the following based on its `optional` flag:
 diff --git a/templates/commands/implement.md b/templates/commands/implement.md
-index 742c45e..935cc69 100644
+index 742c45e1..935cc696 100644
 --- a/templates/commands/implement.md
 +++ b/templates/commands/implement.md
-@@ -21,9 +21,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_implement` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -23,5 +23,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -696,11 +594,7 @@ index 742c45e..935cc69 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -185,9 +188,12 @@ Check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_implement` key.
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
+@@ -187,5 +190,8 @@ Check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -712,15 +606,11 @@ index 742c45e..935cc69 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
-     ```
 diff --git a/templates/commands/plan.md b/templates/commands/plan.md
-index 664f428..f21bde9 100644
+index 664f4281..f21bde9d 100644
 --- a/templates/commands/plan.md
 +++ b/templates/commands/plan.md
-@@ -29,9 +29,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_plan` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -31,5 +31,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -732,11 +622,7 @@ index 664f428..f21bde9 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -80,9 +83,12 @@ Check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_plan` key.
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
+@@ -82,5 +85,8 @@ Check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -748,15 +634,11 @@ index 664f428..f21bde9 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
-     ```
 diff --git a/templates/commands/specify.md b/templates/commands/specify.md
-index 54151e8..7198646 100644
+index 54151e8b..71986469 100644
 --- a/templates/commands/specify.md
 +++ b/templates/commands/specify.md
-@@ -25,9 +25,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_specify` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -27,5 +27,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -768,11 +650,7 @@ index 54151e8..7198646 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -242,9 +245,12 @@ Check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_specify` key.
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
+@@ -244,5 +247,8 @@ Check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -784,15 +662,11 @@ index 54151e8..7198646 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
-     ```
 diff --git a/templates/commands/tasks.md b/templates/commands/tasks.md
-index 64146a3..ce1dccd 100644
+index 64146a35..ce1dccd2 100644
 --- a/templates/commands/tasks.md
 +++ b/templates/commands/tasks.md
-@@ -30,9 +30,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_tasks` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -32,5 +32,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -804,11 +678,7 @@ index 64146a3..ce1dccd 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -101,9 +104,12 @@ Check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_tasks` key.
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue to the Completion Report.
+@@ -103,5 +106,8 @@ Check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -820,15 +690,11 @@ index 64146a3..ce1dccd 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Mandatory hook** (`optional: false`) — **You MUST emit `EXECUTE_COMMAND:` for each mandatory hook**:
-     ```
 diff --git a/templates/commands/taskstoissues.md b/templates/commands/taskstoissues.md
-index 36c1231..9424291 100644
+index 36c12316..94242917 100644
 --- a/templates/commands/taskstoissues.md
 +++ b/templates/commands/taskstoissues.md
-@@ -22,9 +22,12 @@ You **MUST** consider the user input before proceeding (if not empty).
- - If it exists, read it and look for entries under the `hooks.before_taskstoissues` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -24,5 +24,8 @@ You **MUST** consider the user input before proceeding (if not empty).
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -840,11 +706,7 @@ index 36c1231..9424291 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
-@@ -79,9 +82,12 @@ Check if `.specify/extensions.yml` exists in the project root.
- - If it exists, read it and look for entries under the `hooks.after_taskstoissues` key
- - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
+@@ -81,5 +84,8 @@ Check if `.specify/extensions.yml` exists in the project root.
  - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.
 -- For each remaining hook, do **not** attempt to interpret or evaluate hook `condition` expressions:
 -  - If the hook has no `condition` field, or it is null/empty, treat the hook as executable
@@ -856,23 +718,15 @@ index 36c1231..9424291 100644
 +  - Atoms compose with `and`, `or`, `not`, and parentheses: `not` binds tightest, then `and`, then `or`; the keywords are case-insensitive and a quoted value may itself contain one, e.g. `== 'a and b'`.
 +  - An expression that doesn't fully parse this way — including unbalanced parentheses, an unrecognized atom, or trailing text after a valid atom — leaves the hook not executable, and so does a config file that can't be read or parsed — the same failure default `should_execute_hook` falls back to.
  - For each executable hook, output the following based on its `optional` flag:
-   - **Optional hook** (`optional: true`):
-     ```
 diff --git a/tests/extensions/git/test_git_extension.py b/tests/extensions/git/test_git_extension.py
-index f6be51c..f28955f 100644
+index f6be51ca..a875fffc 100644
 --- a/tests/extensions/git/test_git_extension.py
 +++ b/tests/extensions/git/test_git_extension.py
-@@ -25,6 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
- EXT_DIR = PROJECT_ROOT / "extensions" / "git"
- EXT_BASH = EXT_DIR / "scripts" / "bash"
+@@ -27,2 +27,3 @@ EXT_BASH = EXT_DIR / "scripts" / "bash"
  EXT_PS = EXT_DIR / "scripts" / "powershell"
 +EXT_PY = EXT_DIR / "scripts" / "python"
  CORE_COMMON_SH = PROJECT_ROOT / "scripts" / "bash" / "common.sh"
- CORE_COMMON_PS = PROJECT_ROOT / "scripts" / "powershell" / "common.ps1"
- 
-@@ -89,6 +90,26 @@ def _write_config(project: Path, content: str) -> Path:
-     return config_path
- 
+@@ -84,2 +85,22 @@ def _setup_project(tmp_path: Path, *, git: bool = True) -> Path:
  
 +def _load_auto_commit_module():
 +    """Import extensions/git/scripts/python/auto_commit.py by file path.
@@ -894,12 +748,8 @@ index f6be51c..f28955f 100644
 +    return module
 +
 +
- def _add_sibling_worktree(project: Path, path: Path, branch: str) -> None:
-     """Add a sibling worktree so `git branch -a` marks it with `+`."""
-     subprocess.run(
-@@ -180,6 +201,39 @@ class TestGitExtensionManifest:
-             cmd_path = EXT_DIR / cmd["file"]
-             assert cmd_path.is_file(), f"Missing command file: {cmd['file']}"
+ def _write_config(project: Path, content: str) -> Path:
+@@ -182,2 +203,35 @@ class TestGitExtensionManifest:
  
 +    def test_manifest_git_commit_hooks_declare_auto_commit_condition(self):
 +        """Every optional `git.commit` hook gates on its own auto_commit key,
@@ -935,11 +785,7 @@ index f6be51c..f28955f 100644
 +        assert "condition" not in m.hooks["before_specify"]
 +
  
- # ── Install Tests ────────────────────────────────────────────────────────────
- 
-@@ -195,6 +248,43 @@ class TestGitExtensionInstall:
-         assert manifest.id == "git"
-         assert manager.registry.is_installed("git")
+@@ -197,2 +251,39 @@ class TestGitExtensionInstall:
  
 +    def test_install_condition_gates_git_commit_on_auto_commit_enabled(self, tmp_path: Path):
 +        """Registration writes the condition; HookExecutor gates on it live.
@@ -979,11 +825,7 @@ index f6be51c..f28955f 100644
 +        assert executor.should_execute_hook(entry) is True
 +
      def test_install_copies_scripts(self, tmp_path: Path):
-         """Extension install copies script files."""
-         from specify_cli.extensions import ExtensionManager
-@@ -222,6 +312,82 @@ class TestGitExtensionInstall:
-         assert (path / "extension.yml").is_file()
- 
+@@ -224,2 +315,78 @@ class TestGitExtensionInstall:
  
 +# ── Auto-Commit Gate / Script Agreement Tests ─────────────────────────────────
 +
@@ -1062,11 +904,9 @@ index f6be51c..f28955f 100644
 +
 +
  # ── initialize-repo.sh Tests ─────────────────────────────────────────────────
- 
- 
 diff --git a/tests/test_command_template_hook_conditions.py b/tests/test_command_template_hook_conditions.py
 new file mode 100644
-index 0000000..7a21c26
+index 00000000..7a21c267
 --- /dev/null
 +++ b/tests/test_command_template_hook_conditions.py
 @@ -0,0 +1,109 @@
@@ -1181,7 +1021,7 @@ index 0000000..7a21c26
 +    assert "should_execute_hook" in block
 diff --git a/tests/test_hook_condition_grammar.py b/tests/test_hook_condition_grammar.py
 new file mode 100644
-index 0000000..29f67f6
+index 00000000..a15383ac
 --- /dev/null
 +++ b/tests/test_hook_condition_grammar.py
 @@ -0,0 +1,260 @@
@@ -1445,5 +1285,3 @@ index 0000000..29f67f6
 +    )
 +    def test_malformed_condition_is_false(self, executor, condition):
 +        assert _ev(executor, condition) is False
--- 
-2.50.1 (Apple Git-155)

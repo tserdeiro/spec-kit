@@ -1,0 +1,481 @@
+diff --git a/extensions/git/commands/speckit.git.feature.md b/extensions/git/commands/speckit.git.feature.md
+index 01f664f..3cb8e6c 100644
+--- a/extensions/git/commands/speckit.git.feature.md
++++ b/extensions/git/commands/speckit.git.feature.md
+@@ -55,7 +55,7 @@ Generate a concise short name (2-4 words) for the branch:
+ - Use action-noun format when possible (e.g., "add-user-auth", "fix-payment-bug")
+ - Preserve technical terms and acronyms (OAuth2, API, JWT, etc.)
+ 
+-Run the appropriate script based on your platform:
++Run the appropriate script based on your platform. Pass the complete feature description as one quoted argument; preserve spaces, punctuation, and apostrophes when quoting it for the selected shell.
+ 
+ - **Bash**: `.specify/extensions/git/scripts/bash/create-new-feature-branch.sh --json --short-name "<short-name>" "<feature description>"`
+ - **Bash (timestamp)**: `.specify/extensions/git/scripts/bash/create-new-feature-branch.sh --json --timestamp --short-name "<short-name>" "<feature description>"`
+@@ -65,6 +65,7 @@ Run the appropriate script based on your platform:
+ **IMPORTANT**:
+ - Do NOT pass `--number` — the script determines the correct next number automatically
+ - Always include the JSON flag (`--json` for Bash, `-Json` for PowerShell) so the output can be parsed reliably
++- Parse JSON from stdout only. Keep stderr separate: it is reserved for warnings and errors, and must never be concatenated with stdout before parsing.
+ - You must only ever run this script once per feature
+ - The JSON output will contain `BRANCH_NAME` and `FEATURE_NUM`
+ - Do not manually expand `branch_template`; the script reads the git extension config and applies it consistently
+@@ -80,3 +81,5 @@ If Git is not installed or the current directory is not a Git repository:
+ The script outputs JSON with:
+ - `BRANCH_NAME`: The branch name (e.g., `003-user-auth`, `20260319-143022-user-auth`, or `jdoe/web/003-user-auth`)
+ - `FEATURE_NUM`: The numeric or timestamp prefix used
++
++The branch hook creates or switches the branch; it does not persist feature state in the agent shell. The core `specify` command writes `.specify/feature.json` after resolving the feature directory, and downstream commands read that file when no explicit feature override is set.
+diff --git a/extensions/git/scripts/bash/create-new-feature-branch.sh b/extensions/git/scripts/bash/create-new-feature-branch.sh
+index 856cb0b..ff0141c 100755
+--- a/extensions/git/scripts/bash/create-new-feature-branch.sh
++++ b/extensions/git/scripts/bash/create-new-feature-branch.sh
+@@ -587,7 +587,6 @@ if [ "$DRY_RUN" != true ]; then
+         >&2 echo "[specify] Warning: Git repository not detected; skipped branch creation for $BRANCH_NAME"
+     fi
+ 
+-    printf '# To persist: export SPECIFY_FEATURE=%q\n' "$BRANCH_NAME" >&2
+ fi
+ 
+ if $JSON_MODE; then
+@@ -621,6 +620,6 @@ else
+     echo "BRANCH_NAME: $BRANCH_NAME"
+     echo "FEATURE_NUM: $FEATURE_NUM"
+     if [ "$DRY_RUN" != true ]; then
+-        printf '# To persist in your shell: export SPECIFY_FEATURE=%q\n' "$BRANCH_NAME"
++        printf '# The core specify command persists feature state in .specify/feature.json.\n'
+     fi
+ fi
+diff --git a/extensions/git/scripts/powershell/create-new-feature-branch.ps1 b/extensions/git/scripts/powershell/create-new-feature-branch.ps1
+index 2d6f2bc..e292520 100644
+--- a/extensions/git/scripts/powershell/create-new-feature-branch.ps1
++++ b/extensions/git/scripts/powershell/create-new-feature-branch.ps1
+@@ -565,12 +565,6 @@ if (-not $DryRun) {
+     $env:SPECIFY_FEATURE = $branchName
+ }
+ 
+-# Build the PowerShell-idiomatic persist hint, mirroring the core
+-# create-new-feature.ps1 twin (and the bash/python twins of this script), which
+-# all emit "# To persist in your shell: ...".
+-$quotedBranchName = "'" + $branchName.Replace("'", "''") + "'"
+-$featureAssignment = '$env:SPECIFY_FEATURE = ' + $quotedBranchName
+-
+ if ($Json) {
+     $obj = [PSCustomObject]@{
+         BRANCH_NAME = $branchName
+@@ -587,6 +581,6 @@ if ($Json) {
+     Write-Output "BRANCH_NAME: $branchName"
+     Write-Output "FEATURE_NUM: $featureNum"
+     if (-not $DryRun) {
+-        Write-Output "# To persist in your shell: $featureAssignment"
++        Write-Output "# The core specify command persists feature state in .specify/feature.json."
+     }
+ }
+diff --git a/extensions/git/scripts/python/create_new_feature_branch.py b/extensions/git/scripts/python/create_new_feature_branch.py
+index e4b4135..3b63bd7 100644
+--- a/extensions/git/scripts/python/create_new_feature_branch.py
++++ b/extensions/git/scripts/python/create_new_feature_branch.py
+@@ -67,15 +67,6 @@ def _err(message: str) -> None:
+     print(message, file=sys.stderr)
+ 
+ 
+-def _persist_hint(var_name: str, value: str) -> str:
+-    """Shell-appropriate guidance for persisting an env var in the caller's shell."""
+-    if os.name == "nt":
+-        escaped_value = value.replace("'", "''")
+-        return f"$env:{var_name} = '{escaped_value}'"
+-    escaped_value = re.sub(r"([^\w@%+=:,./-])", r"\\\1", value)
+-    return f"export {var_name}={escaped_value}"
+-
+-
+ @dataclass
+ class Args:
+     json_mode: bool = False
+@@ -608,8 +599,6 @@ def main(argv: list[str]) -> int:
+                 f"creation for {branch_name}"
+             )
+ 
+-        _err(f"# To persist: {_persist_hint('SPECIFY_FEATURE', branch_name)}")
+-
+     if args.json_mode:
+         payload: dict[str, object] = {
+             "BRANCH_NAME": branch_name,
+@@ -623,8 +612,7 @@ def main(argv: list[str]) -> int:
+         print(f"FEATURE_NUM: {feature_num}")
+         if not args.dry_run:
+             print(
+-                "# To persist in your shell: "
+-                f"{_persist_hint('SPECIFY_FEATURE', branch_name)}"
++                "# The core specify command persists feature state in .specify/feature.json."
+             )
+ 
+     return 0
+diff --git a/scripts/bash/create-new-feature.sh b/scripts/bash/create-new-feature.sh
+index abdb219..a89fc69 100644
+--- a/scripts/bash/create-new-feature.sh
++++ b/scripts/bash/create-new-feature.sh
+@@ -369,9 +369,6 @@ if [ "$DRY_RUN" != true ]; then
+     # Persist to .specify/feature.json so downstream commands can find the feature
+     _persist_feature_json "$REPO_ROOT" "$FEATURE_DIR"
+ 
+-    # Inform the user how to set feature state in their own shell
+-    printf '# To persist: export SPECIFY_FEATURE=%s\n' "$(shell_quote "$BRANCH_NAME")" >&2
+-    printf '#              export SPECIFY_FEATURE_DIRECTORY=%s\n' "$(shell_quote "$FEATURE_DIR")" >&2
+ fi
+ 
+ if $JSON_MODE; then
+@@ -401,7 +398,6 @@ else
+     echo "SPEC_FILE: $SPEC_FILE"
+     echo "FEATURE_NUM: $FEATURE_NUM"
+     if [ "$DRY_RUN" != true ]; then
+-        printf '# To persist in your shell: export SPECIFY_FEATURE=%s\n' "$(shell_quote "$BRANCH_NAME")"
+-        printf '#                           export SPECIFY_FEATURE_DIRECTORY=%s\n' "$(shell_quote "$FEATURE_DIR")"
++        printf '# The core specify command persists feature state in .specify/feature.json.\n'
+     fi
+ fi
+diff --git a/scripts/powershell/create-new-feature.ps1 b/scripts/powershell/create-new-feature.ps1
+index 216cca5..421c288 100644
+--- a/scripts/powershell/create-new-feature.ps1
++++ b/scripts/powershell/create-new-feature.ps1
+@@ -296,13 +296,6 @@ if (-not $DryRun) {
+     # Set environment variables for the current session
+     $env:SPECIFY_FEATURE = $branchName
+     $env:SPECIFY_FEATURE_DIRECTORY = $featureDir
+-
+-    $quotedBranchName = "'" + $branchName.Replace("'", "''") + "'"
+-    $quotedFeatureDir = "'" + $featureDir.Replace("'", "''") + "'"
+-    $featureAssignment = '$env:SPECIFY_FEATURE = ' + $quotedBranchName
+-    $directoryAssignment = '$env:SPECIFY_FEATURE_DIRECTORY = ' + $quotedFeatureDir
+-    [Console]::Error.WriteLine("# To persist: $featureAssignment")
+-    [Console]::Error.WriteLine("#              $directoryAssignment")
+ }
+ 
+ if ($Json) {
+@@ -320,7 +313,6 @@ if ($Json) {
+     Write-Output "SPEC_FILE: $specFile"
+     Write-Output "FEATURE_NUM: $featureNum"
+     if (-not $DryRun) {
+-        Write-Output "# To persist in your shell: $featureAssignment"
+-        Write-Output "#                           $directoryAssignment"
++        Write-Output "# The core specify command persists feature state in .specify/feature.json."
+     }
+ }
+diff --git a/scripts/python/create_new_feature.py b/scripts/python/create_new_feature.py
+index f36064a..9fbe450 100644
+--- a/scripts/python/create_new_feature.py
++++ b/scripts/python/create_new_feature.py
+@@ -6,7 +6,6 @@ from __future__ import annotations
+ import datetime
+ import json
+ import re
+-import shlex
+ import sys
+ from dataclasses import dataclass
+ from pathlib import Path
+@@ -54,22 +53,6 @@ def _int64_from_digits(value: str) -> int | None:
+     return int(normalized, 10)
+ 
+ 
+-def _persistence_assignments(
+-    branch_name: str, feature_dir: str, *, powershell: bool
+-) -> tuple[str, str]:
+-    if powershell:
+-        quoted_branch = "'" + branch_name.replace("'", "''") + "'"
+-        quoted_dir = "'" + feature_dir.replace("'", "''") + "'"
+-        return (
+-            f"$env:SPECIFY_FEATURE = {quoted_branch}",
+-            f"$env:SPECIFY_FEATURE_DIRECTORY = {quoted_dir}",
+-        )
+-    return (
+-        f"export SPECIFY_FEATURE={shlex.quote(branch_name)}",
+-        f"export SPECIFY_FEATURE_DIRECTORY={shlex.quote(feature_dir)}",
+-    )
+-
+-
+ def _usage(argv0: str) -> str:
+     return (
+         f"Usage: {argv0} [--json] [--dry-run] [--allow-existing-branch] "
+@@ -409,15 +392,6 @@ def main(argv: list[str] | None = None) -> int:
+         # Persist to .specify/feature.json so downstream commands can find the feature.
+         persist_feature_json(repo_root, f"specs/{branch_name}")
+ 
+-        # Inform the user how to set feature state in their own shell.
+-        feature_assignment, directory_assignment = _persistence_assignments(
+-            branch_name,
+-            str(feature_dir),
+-            powershell=sys.platform == "win32",
+-        )
+-        print(f"# To persist: {feature_assignment}", file=sys.stderr)
+-        print(f"#              {directory_assignment}", file=sys.stderr)
+-
+     if args.json_mode:
+         payload: dict[str, object] = {
+             "BRANCH_NAME": branch_name,
+@@ -432,8 +406,7 @@ def main(argv: list[str] | None = None) -> int:
+         print(f"SPEC_FILE: {spec_file}")
+         print(f"FEATURE_NUM: {feature_num}")
+         if not args.dry_run:
+-            print(f"# To persist in your shell: {feature_assignment}")
+-            print(f"#                           {directory_assignment}")
++            print("# The core specify command persists feature state in .specify/feature.json.")
+     return 0
+ 
+ 
+diff --git a/tests/extensions/git/test_git_extension.py b/tests/extensions/git/test_git_extension.py
+index f6be51c..2bc5af7 100644
+--- a/tests/extensions/git/test_git_extension.py
++++ b/tests/extensions/git/test_git_extension.py
+@@ -698,21 +698,15 @@ class TestCreateFeaturePowerShell:
+         assert rt.returncode == 0, rt.stderr
+         assert "HAS_GIT" not in rt.stdout
+ 
+-    def test_persist_hint_matches_twins(self, tmp_path: Path):
+-        """The non-JSON SPECIFY_FEATURE hint must use the '# To persist in your
+-        shell: $env:SPECIFY_FEATURE = '<name>' form — matching the core
+-        create-new-feature.ps1 twin and the bash/python twins of this script —
+-        not the old 'environment variable set to:' wording (the env var is only
+-        set in this child process, so the actionable output is the persist hint)."""
++    def test_text_output_explains_feature_json_persistence(self, tmp_path: Path):
+         project = _setup_project(tmp_path)
+         result = _run_pwsh(
+             "create-new-feature-branch.ps1", project,
+             "-ShortName", "persist", "Persist hint feature",
+         )
+         assert result.returncode == 0, result.stderr
+-        assert "# To persist in your shell:" in result.stdout
+-        assert "$env:SPECIFY_FEATURE = '001-persist'" in result.stdout
+-        assert "environment variable set to:" not in result.stdout
++        assert ".specify/feature.json" in result.stdout
++        assert "To persist" not in result.stdout + result.stderr
+ 
+     def test_help_documents_branch_prefix(self, tmp_path: Path):
+         """-Help documents both template config knobs."""
+diff --git a/tests/extensions/git/test_git_extension_python_parity.py b/tests/extensions/git/test_git_extension_python_parity.py
+index faeef00..54ed65a 100644
+--- a/tests/extensions/git/test_git_extension_python_parity.py
++++ b/tests/extensions/git/test_git_extension_python_parity.py
+@@ -99,20 +99,7 @@ def _assert_parity(
+     if stdout:
+         assert py_result.stdout == bash_result.stdout
+     if stderr:
+-        py_stderr = py_result.stderr
+-        bash_stderr = bash_result.stderr
+-        if os.name == "nt":
+-            py_stderr = _without_persist_hint(py_stderr)
+-            bash_stderr = _without_persist_hint(bash_stderr)
+-        assert py_stderr == bash_stderr
+-
+-
+-def _without_persist_hint(stderr: str) -> str:
+-    return "".join(
+-        line
+-        for line in stderr.splitlines(keepends=True)
+-        if not line.startswith("# To persist: ")
+-    )
++        assert py_result.stderr == bash_result.stderr
+ 
+ 
+ @requires_bash
+@@ -329,54 +316,6 @@ class TestCreateFeatureBranchParity:
+ 
+         assert module["_git_lines"](tmp_path, "status") == []
+ 
+-    def test_windows_persist_hint_quotes_branch_name(
+-        self, monkeypatch: pytest.MonkeyPatch
+-    ):
+-        module = runpy.run_path(str(EXT_PY / "create_new_feature_branch.py"))
+-        monkeypatch.setattr(module["os"], "name", "nt")
+-
+-        result = module["_persist_hint"](
+-            "GIT_BRANCH_NAME", "feature/$value's-\"quoted\""
+-        )
+-
+-        assert (
+-            result
+-            == "$env:GIT_BRANCH_NAME = 'feature/$value''s-\"quoted\"'"
+-        )
+-
+-    def test_shell_specific_persist_hint_can_be_ignored_for_parity(self):
+-        bash_stderr = (
+-            "[specify] Warning\n"
+-            "# To persist: export SPECIFY_FEATURE=feature/name\n"
+-        )
+-        windows_stderr = (
+-            "[specify] Warning\n"
+-            "# To persist: $env:SPECIFY_FEATURE = 'feature/name'\n"
+-        )
+-
+-        assert _without_persist_hint(bash_stderr) == _without_persist_hint(
+-            windows_stderr
+-        )
+-
+-    def test_assert_parity_ignores_windows_persist_hint(
+-        self, monkeypatch: pytest.MonkeyPatch
+-    ):
+-        monkeypatch.setattr(os, "name", "nt")
+-        bash_result = subprocess.CompletedProcess(
+-            args=[], returncode=0, stdout="", stderr=(
+-                "[specify] Warning\n"
+-                "# To persist: export SPECIFY_FEATURE=feature/name\n"
+-            )
+-        )
+-        py_result = subprocess.CompletedProcess(
+-            args=[], returncode=0, stdout="", stderr=(
+-                "[specify] Warning\n"
+-                "# To persist: $env:SPECIFY_FEATURE = 'feature/name'\n"
+-            )
+-        )
+-
+-        _assert_parity(bash_result, py_result)
+-
+     def test_empty_description_errors(self, tmp_path: Path):
+         bash_proj, py_proj = _twin_projects(tmp_path)
+         b = _run_bash("create-new-feature-branch.sh", bash_proj, "--json", "   ")
+diff --git a/tests/test_create_new_feature_python_parity.py b/tests/test_create_new_feature_python_parity.py
+index 74d071a..ae54cf1 100644
+--- a/tests/test_create_new_feature_python_parity.py
++++ b/tests/test_create_new_feature_python_parity.py
+@@ -838,24 +838,12 @@ def test_all_variants_non_dry_text_mode_match(tmp_path: Path) -> None:
+         normalize_repo_paths(bash.stderr, bash_repo)
+         == normalize_repo_paths(py.stderr, py_repo)
+     )
+-    ps_stdout = normalize_repo_paths(ps.stdout, ps_repo)
+-    ps_stderr = normalize_repo_paths(ps.stderr, ps_repo)
+-    assert "$env:SPECIFY_FEATURE = '007-x'" in ps_stdout
+-    assert (
+-        "$env:SPECIFY_FEATURE_DIRECTORY = '<REPO>/specs/007-x'" in ps_stdout
+-    )
+-    assert "$env:SPECIFY_FEATURE = '007-x'" in ps_stderr
+-    assert (
+-        "$env:SPECIFY_FEATURE_DIRECTORY = '<REPO>/specs/007-x'" in ps_stderr
+-    )
++    assert "To persist" not in ps.stdout + ps.stderr
++    assert ".specify/feature.json" in ps.stdout
+ 
+ 
+ @requires_bash
+-def test_python_persist_hints_match_bash_for_spaced_repo_path(
+-    tmp_path: Path,
+-) -> None:
+-    """Paths with spaces must be quoted identically (shlex.quote format) so
+-    the side-by-side text/stderr comparison holds."""
++def test_core_variants_explain_feature_json_persistence(tmp_path: Path) -> None:
+     bash_repo = _setup_repo(tmp_path, "my proj a")
+     py_repo = _setup_repo(tmp_path, "my proj b")
+ 
+@@ -866,21 +854,10 @@ def test_python_persist_hints_match_bash_for_spaced_repo_path(
+     assert normalize_repo_paths(bash.stdout, bash_repo) == normalize_repo_paths(
+         py.stdout, py_repo
+     )
+-    assert normalize_repo_paths(bash.stderr, bash_repo) == normalize_repo_paths(
+-        py.stderr, py_repo
+-    )
+-    assert "export SPECIFY_FEATURE_DIRECTORY='<REPO>/specs/007-x'" in (
+-        normalize_repo_paths(py.stderr, py_repo)
+-    )
+-
+-
+-def test_python_powershell_persistence_assignments_escape_quotes() -> None:
+-    assert create_new_feature._persistence_assignments(
+-        "007-x", r"C:\repo\O'Brien", powershell=True
+-    ) == (
+-        "$env:SPECIFY_FEATURE = '007-x'",
+-        "$env:SPECIFY_FEATURE_DIRECTORY = 'C:\\repo\\O''Brien'",
+-    )
++    assert "To persist" not in bash.stdout + bash.stderr
++    assert "To persist" not in py.stdout + py.stderr
++    assert ".specify/feature.json" in bash.stdout
++    assert ".specify/feature.json" in py.stdout
+ 
+ 
+ @requires_bash
+diff --git a/tests/test_git_extension_branch_output.py b/tests/test_git_extension_branch_output.py
+new file mode 100644
+index 0000000..29e1742
+--- /dev/null
++++ b/tests/test_git_extension_branch_output.py
+@@ -0,0 +1,85 @@
++"""Contract tests for the native git extension branch hook variants."""
++
++from __future__ import annotations
++
++import json
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++import pytest
++
++from tests.parity_helpers import HAS_POWERSHELL, POWERSHELL_EXE, clean_env, run
++
++ROOT = Path(__file__).resolve().parent.parent
++EXTENSION = ROOT / "extensions" / "git" / "scripts"
++
++
++@pytest.fixture
++def consumer(tmp_path: Path) -> Path:
++    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
++    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
++    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
++    subprocess.run(["git", "commit", "--allow-empty", "-qm", "init"], cwd=tmp_path, check=True)
++    for kind, filename in (("bash", "create-new-feature-branch.sh"),
++                           ("powershell", "create-new-feature-branch.ps1"),
++                           ("python", "create_new_feature_branch.py")):
++        target = tmp_path / ".specify" / "extensions" / "git" / "scripts" / kind
++        target.mkdir(parents=True)
++        shutil.copy(EXTENSION / kind / filename, target / filename)
++    for kind, filename in (("bash", "common.sh"), ("powershell", "common.ps1"), ("python", "common.py")):
++        target = tmp_path / ".specify" / "scripts" / kind
++        target.mkdir(parents=True)
++        shutil.copy(ROOT / "scripts" / kind / filename, target / filename)
++    return tmp_path
++
++
++def _variants(repo: Path):
++    variants = [
++        ("bash", ["bash", str(repo / ".specify/extensions/git/scripts/bash/create-new-feature-branch.sh")]),
++        ("python", [sys.executable, str(repo / ".specify/extensions/git/scripts/python/create_new_feature_branch.py")]),
++    ]
++    if HAS_POWERSHELL:
++        variants.append(("powershell", [
++            POWERSHELL_EXE,
++            "-NoProfile",
++            "-File",
++            str(repo / ".specify/extensions/git/scripts/powershell/create-new-feature-branch.ps1"),
++        ]))
++    return variants
++
++
++def test_json_stdout_has_no_persistence_noise_and_quotes_description(consumer: Path) -> None:
++    env = clean_env()
++    results = []
++    for kind, command in _variants(consumer):
++        if kind == "powershell":
++            command.extend(["-Json", "-AllowExistingBranch", "Add Bob's feature"])
++        else:
++            command.extend(["--json", "--allow-existing-branch", "Add Bob's feature"])
++        results.append(run(command, consumer, env))
++
++    assert all(result.returncode == 0 for result in results), [
++        (result.returncode, result.stdout, result.stderr) for result in results
++    ]
++    assert all("bob" in json.loads(result.stdout)["BRANCH_NAME"] for result in results)
++    assert all("feature" in json.loads(result.stdout)["BRANCH_NAME"] for result in results)
++    assert all(result.stderr == "" for result in results)
++    assert all("To persist" not in result.stdout + result.stderr for result in results)
++
++
++def test_text_output_explains_feature_json_persistence(consumer: Path) -> None:
++    env = clean_env()
++    env["GIT_BRANCH_NAME"] = "001-text-contract"
++    command = [
++        "bash",
++        str(consumer / ".specify/extensions/git/scripts/bash/create-new-feature-branch.sh"),
++        "--short-name",
++        "text",
++        "Text feature",
++    ]
++    result = run(command, consumer, env)
++    assert result.returncode == 0
++    assert ".specify/feature.json" in result.stdout
++    assert "export SPECIFY_FEATURE" not in result.stdout + result.stderr
