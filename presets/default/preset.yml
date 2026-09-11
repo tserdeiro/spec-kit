@@ -10,7 +10,7 @@ preset:
   license: "MIT"
 
 requires:
-  speckit_version: ">=1.0.1,<1.1.0"
+  speckit_version: ">=1.0.4,<1.1.0"
 
 provides:
   templates:
