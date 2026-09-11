@@ -79,7 +79,10 @@ series is checked in numerical order. Patch 0003's test-helper insertion was
 moved so it also applies after 0002.
 
 See [verification](verification.md) for the combined results and limitations,
-and [proposed PR bodies](submissions.md) for the reviewable submission text.
+[manual tests](manual-tests.md) for the agent-run evidence upstream's
+contributing guide requires (2026-09-11: 0001, 0002 and 0005–0009 pass on
+Claude Code; Codex and PowerShell not run), and
+[proposed PR bodies](submissions.md) for the reviewable submission text.
 The [portable hook runtime proposal](hooks-runtime-design.md) defines the
 replacement for 0003/0004, its two-step delivery and acceptance evidence.
 It is not implemented by the current patches.

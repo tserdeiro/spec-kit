@@ -40,8 +40,9 @@ anotada aquí con fecha, cada verificación con su evidencia registrada.
    una máquina con Codex instalado (no está instalado en la máquina actual) y registrar los transcripts; hacer un
    `push --apply` contra un proyecto de prueba en Linear y verificar los
    estados en la interfaz. Evidencia en `validation/` o en el dogfooding.
-4. **Abrir los PRs a upstream** que tengan sus pruebas de agente hechas:
-   0001, 0002 y 0005 a 0009, con el mapa de pruebas de
+4. **Abrir los PRs a upstream**. Las pruebas manuales con agente están
+   hechas el 2026-09-11 (`docs/upstream/manual-tests.md`; sin Codex ni
+   PowerShell) para 0001, 0002 y 0005 a 0009; abrirlos es el paso humano, con el mapa de pruebas de
    [`hooks-runtime-design.md`](../upstream/hooks-runtime-design.md) y los
    bodies de [`submissions.md`](../upstream/submissions.md). 0003 y 0004 no
    se abren.
