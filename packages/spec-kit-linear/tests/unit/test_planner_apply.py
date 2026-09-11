@@ -263,6 +263,14 @@ class PlannerApplyTests(unittest.TestCase):
                 self.assertEqual(evidence.applied_operation_ids, ())
                 self.assertEqual(evidence.recovered_operation_ids, ())
 
+    def test_known_graphql_invalid_input_is_a_rejected_write(self) -> None:
+        operation = {"id": "op", "kind": "project.create", "target": "feature:001", "input": {"id": str(uuid.uuid4()), "name": "x"}, "preconditions": {"absent": True}}
+        response = MemoryResponse({"errors": [{"message": "Argument Validation Error", "extensions": {"code": "INVALID_INPUT"}}], "data": None})
+        client = LinearClient(Credentials("api", "secret"), endpoint="http://127.0.0.1/graphql", opener=ScriptedOpener([response]), max_attempts=1)
+        with self.assertRaises(AppError) as raised:
+            apply_plan({"snapshot": {"resources": []}, "operations": [operation]}, snapshot_provider=lambda: {"resources": []}, transport=LinearMutationExecutor(client))
+        self.assertEqual(raised.exception.apply_results[0].failure_status, "rejected")
+
     def test_postverification_failure_retains_all_confirmed_ids_without_failed_operation(self) -> None:
         plan = self._push_plan()
         transport = _MemoryApplyTransport(copy.deepcopy(plan["snapshot"]))

@@ -228,6 +228,8 @@ def _explicit_mutation_rejection(error: AppError) -> bool:
                 return 400 <= int(diagnostic.message.split()[1]) < 500
             except (IndexError, ValueError):
                 pass
+        if diagnostic.code == "linear_graphql" and diagnostic.message == "codes=INVALID_INPUT":
+            return True
     return False
 
 
