@@ -257,7 +257,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     borró la rama antes de que GitHub reapuntara #66 y GitHub lo
     cerró; un PR cerrado no admite cambio de base, así que #66 quedó
     cerrado sin mergear y sus commits entraron por #67.
-    *Entregada (chore #81):* el camino a pedido fija la base por
+    *Resuelta (chore #81; publicada el 2026-09-10 en preset 0.10.0):* el camino a pedido fija la base por
     API antes de cada merge y mergea sin `--delete-branch`; el
     auto-borrado del repo limpia.
 33. **Una sesión de review abierta por una versión de la extensión no
@@ -279,7 +279,7 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     aunque el PR de feature ya resolviera `trunk:` primero; en un
     consumidor con `trunk: dev` un fix de bug se saltaba `dev` por
     completo.
-    *Entregada (chore TDS-48, #83):* los tres comandos y la conformance
+    *Resuelta (chore TDS-48, #83; publicada el 2026-09-10 en preset 0.10.0):* los tres comandos y la conformance
     resuelven la base de entrega igual que el PR de feature.
 
 ## I. Hallazgos del bump a v1.0.4 (2026-09-08)
@@ -842,9 +842,8 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     code-review 0.5.0, así que un consumidor con 1.0.1–1.0.3 pasa la
     comprobación del bundle y falla en la de la extensión — antes de la
     ronda los pisos coincidían. La review de #113 lo confirmó.
-    *Pendiente de decisión:* que el piso de un bundle sea el máximo de
-    los de sus componentes (una línea por bundle y C-004 enmendada),
-    idealmente en la chore de publicación.
+    *Resuelta:* la entrada 94 fijó los tres bundles en `>=1.0.4`; el piso del
+    preset sube en el chore de la fase 0 de la ronda de confiabilidad.
 93. **Un fix fuera de Boundaries viajó sin conformance y volvió como
     hallazgo.** El espejo aprendió a copiar entero un core reemplazado
     dentro del PR de T008 (entrada 71), con test unitario pero sin
@@ -932,9 +931,12 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     la propagación hasta T028 (#114), con autorización humana.
     Las entradas 94 de ambas ramas colisionaban: se conserva 94 para la
     primera auditoría y la de regeneración de T028 pasa a 96. *Pendiente:*
-    PRs upstream y decisión de alcance de FR-016; runtime vivo de Codex y reconciliación observada
+    PRs upstream; runtime vivo de Codex y reconciliación observada
     en un proyecto de prueba de Linear. Ninguna prueba de dispatcher se
     presenta como ejecución real del agente.
+    *Alcance de FR-016 acordado el 2026-09-11:* preservar integraciones y sus
+    ajustes; mantener el registro nativo de la integración activa y el
+    espejo del doctor para las demás. La spec refleja esta decisión.
 98. **Repetir un retarget automático abortaba el merge root-first.**
     Tras mergear #87, GitHub cambió la base de #88 a la feature; el PATCH
     redundante devolvió 422. El script consulta ahora la base antes de
@@ -959,3 +961,73 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
     Las URLs públicas de las extensiones devolvieron 404 transitoriamente;
     al reintentar respondieron 200 con los mismos bytes verificados.
     Siguen abiertos los pendientes de aceptación y upstream de la entrada 97.
+
+100. **Los fixes upstream necesitan una entrega comprobable en conjunto.**
+     La revisión del 2026-09-11 encontró que los parches 0002 y 0003
+     colisionaban al insertar helpers en el mismo test. Se reubicó la
+     inserción de 0003 y se prepararon 0004–0009: resolución nativa de hooks,
+     contrato del hook de rama, resolver de templates, ejemplos de comandos,
+     reparación de permisos tras instalar presets y contrato de instalación
+     sin binario del agente. En la revisión se corrigió un falso éxito del
+     nuevo resolver ante registros inválidos.
+     *Upstream, parches preparados:* [entregables](upstream/README.md).
+     Verificación conjunta: 1.150 tests pasaron; 71 omitidos por falta de
+     PowerShell. Los nueve parches se aplican sobre el pin y reconstruyen
+     exactamente el árbol probado; [evidencia](upstream/verification.md).
+     El caso de permisos prueba reparación de un script instalado sin bit
+     ejecutable; no reproduce el paso original que lo perdió. La instalación
+     sin binario ya funcionaba y ahora tiene documentación y una prueba.
+     Los parches todavía no modifican el CLI instalado ni están publicados
+     como PRs. Las validaciones reales de Codex/Linear y el presupuesto de
+     PRs quedan para el final, por decisión del 2026-09-11.
+
+101. **La suite focalizada no alcanzó para auditar los parches upstream.**
+     La auditoría independiente encontró 23 fallos adicionales: el renderer y
+     sus tests seguían esperando la nota antigua de hooks, y Copilot esperaba
+     el resolver anterior. Se retiró el mecanismo obsoleto, se agregó cobertura
+     de invocaciones y se corrigió el contrato del resolver. También se validan
+     los nombres de eventos; 0005 cubre los creadores core; 0007 prueba ejemplos
+     anidados; 0008 repara permisos desde el manager compartido con bundles.
+     Se preparó una variante de 0004 para el `main` upstream capturado, se
+     actualizaron sus regresiones nuevas y se agregó la declaración de asistencia
+     de IA a los borradores. [Evidencia completa](upstream/verification.md).
+     El pin final obtuvo 7.497 tests aprobados, 189 omitidos y tres fallos que
+     también se reproducen en la base intacta: PowerShell ausente y dos consultas
+     de catálogos no verificables. En el `main` capturado: 7.739 aprobados,
+     197 omitidos y los mismos tres fallos, también reproducidos sin parches.
+     No se presenta como una suite completamente verde.
+     *Pendiente de diseño:* 0004 todavía exige el CLI durante el workflow; el
+     contrato de clonar el consumidor y usarlo sin reinstalar Specify no queda
+     resuelto por estas pruebas. Tampoco cierran las validaciones reales ni los
+     presupuestos pospuestos. No hubo commits, publicación ni upgrade instalado.
+
+102. **El upgrade del consumidor cablea los eventos, pero no todo el cableado
+     viaja ni se verifica.** Este repositorio corrió la 005 con linear 0.12.0
+     y code-review 0.4.0 instalados y sin `.specify/events.py` (A-002). La
+     actualización a los payloads publicados (`specify extension update`,
+     PR #116, mergeado el 2026-09-11) cableó los eventos de las dos
+     integraciones instaladas sin necesidad de `integration upgrade`, como
+     anticipaba la entrada 85, y el guard bloqueó un force-push sintético
+     (exit 2) con los doctors en verde. Cuatro hallazgos del mismo upgrade:
+     (1) `.claude/settings.json` está gitignoreado (`/.claude/*`, salvo
+     `skills/`), así que el cableado de Claude no viaja en el commit: cada
+     clon lo regenera; `.codex/config.toml` sí queda versionado. (2) Los
+     comandos de hook fijan el intérprete encontrado al instalar
+     (`.venv/bin/python .specify/events.py …`): sin `uv sync` el guard
+     nunca arranca y nada lo dice, porque el handler es silencioso por
+     contrato (entrada 89). (3) `extension update` registra solo la
+     integración activa: `.registry` perdió las entradas de `claude` y
+     `registered_skills` quedó vacío; el espejo del preset restauró los
+     renders, pero un `extension remove` futuro ya no los limpiaría
+     (upstream #2886/#2948, entrada 81). (4) Los handlers instalados quedan
+     `100644` contra `100755` en `packages/`; inofensivo, corren por
+     intérprete. *Regla:* tras un `git pull` que traiga un upgrade, correr
+     `uv sync` y regenerar el cableado local con un
+     `specify extension disable <id> && specify extension enable <id>`
+     (verificado: deja los tres marcadores en `.claude/settings.json` y
+     ningún cambio trackeado), o `integration upgrade claude --force` más
+     el espejo. *Resuelta* la actualización en sí. *Pendiente (ronda de
+     confiabilidad, puntos 14 y 15):* que el paso 6 del doctor verifique
+     que el intérprete fijado en los archivos de hooks existe, no solo el
+     marcador; que el README "Actualizar" nombre la regeneración local; y
+     el registro de skills por integración en `.registry`.
