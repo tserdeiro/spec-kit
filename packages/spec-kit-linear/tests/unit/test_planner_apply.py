@@ -287,11 +287,17 @@ class PlannerApplyTests(unittest.TestCase):
 
     def test_unknown_task_creation_omits_state_and_missing_mapping_fails(self) -> None:
         unknown = {task.identity: TaskWorkState(None, "unknown") for task in self.desired.feature.tasks}
-        plan = build_push_plan(self.desired, self._missing_discovery(), config=self.config, work_states=unknown)
+        plan = build_push_plan(self.desired, self._missing_discovery(), config=self._lifecycle_config(), work_states=unknown)
         creates = {operation["target"]: operation["input"] for operation in plan["operations"] if operation["kind"] == "issue.create"}
         self.assertNotIn("stateId", creates["task:001:T001"])
+        self.assertNotIn("stateId", creates["task:001:T002"])
+        complete = self._states_for(self.desired)
+        settled = build_push_plan(self.desired, self._missing_discovery(), config=self._lifecycle_config(), work_states=complete)
+        settled_creates = {operation["target"]: operation["input"] for operation in settled["operations"] if operation["kind"] == "issue.create"}
+        self.assertEqual(settled_creates["task:001:T001"]["stateId"], OPEN_STATE_ID)
+        self.assertEqual(settled_creates["task:001:T002"]["stateId"], COMPLETED_STATE_ID)
         with self.assertRaises(AppError):
-            build_push_plan(self.desired, self._missing_discovery(), config=self.config, work_states={})
+            build_push_plan(self.desired, self._missing_discovery(), config=self._lifecycle_config(), work_states={})
 
     def _lifecycle_config(self, **overrides: str) -> dict[str, object]:
         config = dict(self.config)
