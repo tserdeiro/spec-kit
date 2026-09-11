@@ -404,9 +404,11 @@ Published as linear 0.13.0, code-review 0.5.0, preset 0.10.0, and bundles
 Published ZIPs and extension manifests were verified against their
 checksums and `versions.lock.yml`; bundle conformance passed. T023 has
 ten Claude Code headless sessions with the context line present in all ten.
-Remaining acceptance: live Codex execution and observed reconciliation in
-a test Linear project. Opening the upstream PRs remains pending; publication
-does not close that acceptance. FR-016's scope was resolved on 2026-09-11:
+The observed reconciliation in a test Linear project was performed on
+2026-09-11 (`validation/linear-observed-reconciliation.md`, dogfooding entry
+103); live Codex execution remains pending until a machine with Codex is
+available. Opening the upstream PRs remains pending; publication does not
+close that acceptance. FR-016's scope was resolved on 2026-09-11:
 preserve installed integrations and their settings; keep upstream's active-only
 command registration and this distribution's doctor mirror.
 
