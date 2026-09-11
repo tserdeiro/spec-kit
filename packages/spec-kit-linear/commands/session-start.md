@@ -16,5 +16,6 @@ It reconciles Linear (`push --hook`, with `--current` added on a feature/task
 branch only — a work item is feature-independent) and then prints one context
 line naming the current branch's verified state and next command. Failed or
 incomplete observations emit sanitized stderr warnings and no progress-based
-next action. Missing or disabled configuration and unrecognized branches stay
-silent. The handler always exits `0`.
+next action. Missing or disabled configuration stays silent. Unrecognized
+branches omit the context line but may still emit reconciliation warnings.
+The handler always exits `0`.

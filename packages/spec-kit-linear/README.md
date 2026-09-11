@@ -50,7 +50,7 @@ handler (Claude Code, Codex, Cursor): every session on a feature, task, or
 work-item branch reconciles Linear (`push --hook`, with `--current` added
 only on a feature/task branch) and prints one context line naming the
 branch's state and the next command, before the agent does anything else.
-Failed or incomplete observations produce sanitized stderr warnings and no progress-based next action. Missing or disabled configuration and unrecognized branches stay silent; the handler always exits `0`.
+Failed or incomplete observations produce sanitized stderr warnings and no progress-based next action. Missing or disabled configuration stays silent. Unrecognized branches omit the context line but may still emit reconciliation warnings; the handler always exits `0`.
 
 ## Post tool use
 
