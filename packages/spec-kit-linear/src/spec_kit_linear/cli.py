@@ -43,7 +43,7 @@ from .endpoint import (
 from .env_files import REPO_ENV_FILENAME, credential_source, load_dotenv_files, persist_process_credential, repo_env_path
 from .errors import AppError, Diagnostic
 from .git_refs import known_branches
-from .github import cli_diagnostic as github_cli_diagnostic, scan_pull_requests
+from .github import PullRequestScan, cli_diagnostic as github_cli_diagnostic, scan_pull_requests
 from .gitignore import ensure_entries as ensure_gitignore_entries, has_entry as has_gitignore_entry
 from .lifecycle_registry import load_registry as load_lifecycle_registry, registry_diagnostics as lifecycle_registry_diagnostics
 from .linear_client import LinearClient, RemoteTeamSummary, RemoteWorkflowState, RemoteWorkItem
@@ -53,7 +53,7 @@ from .planner import build_push_plan, build_work_item_plan, snapshot_from_discov
 from .projection import project_feature
 from .reconciler import apply_plan
 from .remote_discovery import RemoteDiscovery, discover_and_adopt
-from .reporting import render_status_table, render_work_item_table, status_report
+from .reporting import observation_report, render_status_table, render_work_item_table, status_report
 from .view_discovery import conventional_view_name, resolve_shared_views_by_name
 from .work_items import WorkItemState, derive_work_items, issue_key_pattern, issue_numbers
 from .work_state import TaskWorkState, derive_task_states
@@ -930,7 +930,7 @@ def _observe(
     config: Mapping[str, Any],
     desired_states: tuple[DesiredState, ...],
     diagnostics: list[Diagnostic],
-) -> tuple[dict[str, TaskWorkState], tuple[WorkItemState, ...]]:
+) -> tuple[dict[str, TaskWorkState], tuple[WorkItemState, ...], PullRequestScan]:
     """Observe the repository once and derive everything that follows from it.
 
     One `git for-each-ref` and one `gh pr list` per invocation, never one per
@@ -952,7 +952,14 @@ def _observe(
     work_items = derive_work_items(
         team_key, branches=branches, scan=scan
     )
-    return work_states, work_items
+    if scan.outcome != "complete":
+        names = ", ".join(desired.feature.identifier for desired in desired_states) or "none"
+        diagnostics.append(Diagnostic(
+            "observation_unknown",
+            f"GitHub pull-request observation is {scan.outcome}; selected features [{names}] and all repository work items remain unverified, including items absent from partial output",
+            severity="warning",
+        ))
+    return work_states, work_items, scan
 
 
 def _remote_work_items(client: LinearClient, config: Mapping[str, Any], work_items: tuple[WorkItemState, ...]) -> dict[str, RemoteWorkItem]:
@@ -1031,7 +1038,7 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
             diagnostics.append(_tasks_pending(feature_dir))
     desired_states = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
-    work_states, work_items = _observe(root, config, desired_states, diagnostics)
+    work_states, work_items, scan = _observe(root, config, desired_states, diagnostics)
     client = _linear_client()
     discovery = discover_and_adopt(client, config, desired_states)
     plans = [build_push_plan(desired, discovery, config=config, work_states=work_states) for desired in desired_states]
@@ -1043,6 +1050,9 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
     work_item_plan, work_item_diagnostics = build_work_item_plan(work_items, _remote_work_items(client, config, work_items), config=config)
     diagnostics.extend(work_item_diagnostics)
     operations = [operation for plan in plans for operation in plan["operations"]] + list(work_item_plan["operations"])
+    observation = observation_report(scan, desired_states, work_items)
+    if scan.outcome != "complete" and any(operation.get("kind") == "issue.create" for operation in operations):
+        diagnostics.append(Diagnostic("linear_default_state", "uncertain tasks are created without a derived state; Linear will apply its configured default workflow state", severity="info"))
 
     apply_changes = bool(args.apply)
     if args.hook and not args.dry_run:
@@ -1055,6 +1065,7 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
         payload["work_item_plan"] = work_item_plan
         payload["dry_run"] = True
         payload["hook_invocation"] = bool(args.hook)
+        payload["observation"] = observation
         return payload
 
     results = [
@@ -1070,6 +1081,7 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
     payload["work_item_plan"] = work_item_plan
     payload["dry_run"] = False
     payload["hook_invocation"] = bool(args.hook)
+    payload["observation"] = observation
     return payload
 
 
@@ -1174,7 +1186,7 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
             diagnostics.append(_tasks_pending(feature_dir))
     desired = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
-    work_states, work_items = _observe(root, config, desired, diagnostics)
+    work_states, work_items, scan = _observe(root, config, desired, diagnostics)
     client = _linear_client()
     discovery = discover_and_adopt(client, config, desired)
     for diagnostic in (item for feature in discovery.features for item in feature.drift):
@@ -1187,7 +1199,9 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
     )
     payload = _success("read-only Linear status rendered", diagnostics=diagnostics)
     payload["read_only"] = True
-    payload["status"] = status_report(discovery, desired, work_states, work_items, remote_work_items)
+    observation = observation_report(scan, desired, work_items)
+    payload["observation"] = observation
+    payload["status"] = status_report(discovery, desired, work_states, work_items, remote_work_items, observation)
     return payload
 
 
@@ -1243,9 +1257,13 @@ def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, obj
     nothing (FR-004).
     """
 
-    first_unchecked = next((task for task in tasks if not task["local_complete"]), None)
+    first_unchecked = next((task for task in tasks if not task["local_complete"] and task.get("state_source") != "unknown"), None)
+    unknown = next((task for task in tasks if task.get("state_source") == "unknown"), None)
     open_prs = [task for task in tasks if task.get("state_source") == "pr" and task.get("derived_state") != "completed"]
     segments = [f"Linear: {feature} on {branch}"]
+    if unknown is not None:
+        remote = unknown.get("remote_state") or "unavailable"
+        segments.append(f"{unknown['task']} state unknown (remote: {remote})")
     if first_unchecked is not None:
         segments[0] += f" — next {first_unchecked['task']} (unchecked)"
     if open_prs:
@@ -1267,7 +1285,10 @@ def _format_feature_context(branch: str, feature: str, tasks: list[dict[str, obj
 def _format_work_item_context(row: Mapping[str, object]) -> str:
     """FR-003's context line for a work-item branch, from `status`'s own work-item row."""
 
-    line = f"Linear: {row['identifier']} ({row['derived_state']})"
+    state = "unknown (unverified)" if row.get("state_source") == "unknown" else str(row["derived_state"])
+    line = f"Linear: {row['identifier']} ({state})"
+    if row.get("state_source") == "unknown":
+        line += f"; remote: {row.get('remote_state') or 'unavailable'}"
     if row.get("next"):
         line += f" — next: {row['next']}"
     return line

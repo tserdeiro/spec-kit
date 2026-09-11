@@ -4,7 +4,8 @@ import unittest
 
 from spec_kit_linear.domain import DesiredFeature, DesiredState, DesiredTask, RepositoryBinding, SourceRef
 from spec_kit_linear.remote_discovery import AdoptedResource, FeatureAdoption, UnmanagedIssue
-from spec_kit_linear.reporting import build_remote_only_rows, build_task_rows, render_status_table
+from spec_kit_linear.github import PullRequestScan
+from spec_kit_linear.reporting import build_remote_only_rows, build_task_rows, observation_report, render_status_table
 from spec_kit_linear.work_state import SOURCE_CHECKBOX, SOURCE_PULL_REQUEST, STATE_COMPLETED, STATE_REVIEW, TaskWorkState
 
 
@@ -47,6 +48,17 @@ def _desired_state(*tasks: DesiredTask) -> DesiredState:
 
 
 class BuildTaskRowsTests(unittest.TestCase):
+    def test_unknown_derived_state_is_explicit_even_when_remote_state_exists(self) -> None:
+        desired = _desired_state(_task("T001", completed=True))
+        adoption = FeatureAdoption(
+            feature="001",
+            project=AdoptedResource("feature_project", "feature:001", "project-1", "2026-07-29T00:00:00Z"),
+            tasks={"task:001:T001": AdoptedResource("task_issue", "task:001:T001", "issue-1", "2026-07-29T00:00:00Z", identifier="WOR-1", state_name="Backlog")},
+            drift=(),
+        )
+        row = build_task_rows(_FakeDiscovery((adoption,)), (desired,), {"task:001:T001": TaskWorkState(None, "unknown")})[0]["tasks"][0]
+        self.assertEqual((row["derived_state"], row["state_source"], row["remote_state"], row["next"]), (None, "unknown", "Backlog", None))
+
     def test_no_remote_project_yields_local_only_rows_with_no_remote_data(self) -> None:
         desired = _desired_state(_task("T001", completed=False), _task("T002", completed=True))
 
@@ -214,10 +226,23 @@ class BuildRemoteOnlyRowsTests(unittest.TestCase):
 
 
 class RenderStatusTableTests(unittest.TestCase):
+    def test_unknown_table_cell_does_not_look_like_verified_absence(self) -> None:
+        rendered = render_status_table([{"feature": "001", "has_remote_project": True, "tasks": [{"task": "T001", "local_complete": True, "derived_state": None, "state_source": "unknown", "remote_identifier": "WOR-1", "remote_state": "Triage", "assignee": None, "next": None}]}])
+        self.assertIn("UNKNOWN (unverified)", rendered)
+        self.assertIn("Triage", rendered)
+
     def test_empty_task_rows_reports_no_local_features(self) -> None:
         rendered = render_status_table([])
 
         self.assertEqual(rendered, "No local features were selected.\n")
+
+
+class ObservationReportTests(unittest.TestCase):
+    def test_incomplete_scan_names_selected_features_and_repository_wide_scope(self) -> None:
+        report = observation_report(PullRequestScan("incomplete"), (_desired_state(_task("T001", completed=False)),), ())
+        self.assertEqual(report["outcome"], "incomplete")
+        self.assertEqual(report["selected_features"], ["001"])
+        self.assertIn("absent from the partial output", report["affected_scope"]["work_items"])
 
     def test_table_has_fixed_width_columns_and_a_dash_placeholder(self) -> None:
         rows = [

@@ -10,6 +10,7 @@ from .linear_client import RemoteWorkItem
 from .remote_discovery import RemoteDiscovery
 from .work_items import WorkItemState
 from .work_state import SOURCE_NONE, TaskWorkState, next_action
+from .github import PullRequestScan
 
 
 def _task_code(identity: str) -> str:
@@ -151,7 +152,7 @@ def render_work_item_table(work_item_rows: list[dict[str, object]]) -> str:
     rows = [
         (
             str(row["identifier"]),
-            str(row["derived_state"]),
+            "UNKNOWN (unverified)" if row["state_source"] == "unknown" else str(row["derived_state"] or "—"),
             str(row["state_source"]),
             str(row["detail"]),
             str(row["title"] or ("not found in Linear" if not row["known_remotely"] else "—")),
@@ -205,7 +206,7 @@ def render_status_table(task_rows: list[dict[str, object]], remote_only_rows: li
             (
                 str(task["task"]),
                 "[x]" if task["local_complete"] else "[ ]",
-                str(task.get("derived_state") or "—"),
+                "UNKNOWN (unverified)" if task.get("state_source") == "unknown" else str(task.get("derived_state") or "—"),
                 str(_source_label(task.get("state_source"))),
                 str(task["remote_identifier"] or "—"),
                 str(task["remote_state"] or "—"),
@@ -268,6 +269,7 @@ def status_report(
     work_states: Mapping[str, TaskWorkState] | None = None,
     work_items: Sequence[WorkItemState] = (),
     remote_work_items: Mapping[str, RemoteWorkItem] | None = None,
+    observation: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Summarize configured bindings, adoption, and bridge-owned drift."""
 
@@ -280,5 +282,30 @@ def status_report(
         "task_rows": build_task_rows(discovery, desired_states, work_states),
         "remote_only_issues": build_remote_only_rows(discovery, desired_states),
         "work_items": build_work_item_rows(work_items, remote_work_items),
+        "observation": dict(observation or {}),
         "remote_operations": {"mode": "query-only", "writes": 0},
     }
+
+
+def observation_report(
+    scan: PullRequestScan,
+    desired_states: Sequence[DesiredState],
+    work_items: Sequence[WorkItemState],
+) -> dict[str, object]:
+    """Describe the scan boundary so unknown means unavailable evidence."""
+
+    features = [desired.feature.identifier for desired in desired_states]
+    report: dict[str, object] = {
+        "outcome": scan.outcome,
+        "selected_features": features,
+        "work_item_scope": "repository-wide",
+        "observed_work_items": [item.identifier for item in work_items],
+    }
+    if scan.diagnostics:
+        report["reasons"] = [item.message for item in scan.diagnostics]
+    if scan.outcome != "complete":
+        report["affected_scope"] = {
+            "features": features,
+            "work_items": "all repository work items, including items absent from the partial output",
+        }
+    return report
