@@ -1031,3 +1031,28 @@ neutraliza el comportamiento y espera un upgrade revisado o un PR allá.
      que el intérprete fijado en los archivos de hooks existe, no solo el
      marcador; que el README "Actualizar" nombre la regeneración local; y
      el registro de skills por integración en `.registry`.
+
+103. **`bundle install` deja un consumidor nuevo sin eventos cableados.** Al
+     cerrar la aceptación viva de la 005 (una reconciliación observada contra
+     el team TDS con la distribución publicada; evidencia en
+     [`validation/linear-observed-reconciliation.md`](../validation/linear-observed-reconciliation.md)),
+     `specify bundle install developer` en un consumidor limpio no escribió
+     `.specify/events.py` ni `.claude/settings.json`, aunque `extension list`
+     ya declaraba los hooks de `linear`. Contradice el punto 3 de la
+     "Verificación previa a la spec" de `dx.md`: un consumidor que sigue
+     "Primeros pasos" al pie de la letra queda sin línea de contexto, sin
+     reconcile tras el push y sin guard, en silencio, porque los handlers
+     callan por contrato (entrada 89). La ruta del bundler no pasa por el
+     refresco de eventos que sí corre `extension add/remove/enable/disable`
+     (entrada 85). *Regla:* tras `bundle install` o `bundle update`, correr
+     `specify extension disable linear && specify extension enable linear`
+     y comprobar los marcadores; el README lo nombra en "Problemas
+     frecuentes". *Pendiente (ronda de confiabilidad, fase 6):* que el
+     doctor detecte y repare el hueco, y un parche a upstream para que
+     `bundle install` y `bundle update` refresquen los eventos. La misma
+     corrida observó en vivo todas las filas de la proyección que no
+     dependen de PRs (creación, rama → In Progress vía `post_tool_use`,
+     checkbox → Done, archivo y restauración de una tarea con el mismo
+     identificador, idempotencia); quedan sin ejercitar las filas por PR y
+     Codex. Dos residuos para borrar a mano en Linear: el label
+     `accept-2026-09-11-consumer` y sus dos shared views.

@@ -14,6 +14,9 @@ canal de depuración de los handlers).
   estuvo atrasado sin que nada lo dijera. Los handlers de eventos son
   silenciosos, así que una falla de tracking se ve igual que "no había
   nada que hacer".
+- `bundle install` en un consumidor limpio no cablea los eventos
+  ([entrada 103](../dogfooding.md)): quien sigue "Primeros pasos" queda sin
+  contexto, sin reconcile y sin guard, en silencio.
 - Lo que dejó ver el upgrade del PR #116 ([entrada 102](../dogfooding.md)):
   el cableado de Claude no viaja en el commit; los hooks fijan el
   intérprete encontrado al instalar y sin `uv sync` el guard no arranca y
@@ -38,8 +41,9 @@ canal de depuración de los handlers).
   con un evento sintético sin efectos remotos, con un canal observable para
   los handlers. Un token vencido produce una remediación, nunca un falso
   éxito.
-- Proponer a upstream que `bundle update` refresque los eventos, después de
-  confirmarlo en el CLI.
+- Proponer a upstream que `bundle install` y `bundle update` refresquen
+  los eventos, después de confirmarlo en el CLI; mientras tanto el doctor
+  detecta el hueco y lo repara.
 - Elegir el nombre canónico del comando de revisión y que toda la
   documentación diga el real. Separar el payload de las herramientas de
   desarrollo. Changelog del preset y de los bundles dentro de la

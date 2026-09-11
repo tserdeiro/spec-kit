@@ -305,8 +305,9 @@ estén escritos.** Codex; Claude.
   `integration upgrade` cuando el cableado quedó viejo. Se adoptan el wizard
   de `onboard` y las reparaciones de GitHub del diseño de releases. Termina
   siempre en "listo para trabajar" o en una acción humana concreta.
-  Proponer a upstream que `bundle update` refresque los eventos, después de
-  confirmarlo en el CLI.
+  Proponer a upstream que `bundle install` y `bundle update` refresquen
+  los eventos, después de confirmarlo en el CLI: un consumidor nuevo hoy
+  queda sin cablear ([entrada 103](dogfooding.md)).
 - Detalle: [`README.md:404`](../README.md:404),
   [`README.md:429`](../README.md:429),
   [`doctor.md:73`](../presets/default/commands/doctor.md:73),

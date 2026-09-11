@@ -34,7 +34,9 @@ anotada aquí con fecha, cada verificación con su evidencia registrada.
    Hecho el 2026-09-11, salvo el nombre del comando de revisión.
    Verificar el plan de GitHub de los repos consumidores: los rulesets en
    repos privados exigen Pro o Team.
-3. **Cerrar la aceptación de la 005**: correr los tres prompts de T023 en
+3. **Cerrar la aceptación de la 005**. La reconciliación observada en
+   Linear se hizo el 2026-09-11 (`validation/linear-observed-reconciliation.md`).
+   Falta correr los tres prompts de T023 en
    una máquina con Codex instalado (no está instalado en la máquina actual) y registrar los transcripts; hacer un
    `push --apply` contra un proyecto de prueba en Linear y verificar los
    estados en la interfaz. Evidencia en `validation/` o en el dogfooding.
