@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import unittest
@@ -180,6 +181,27 @@ def _fake_gh(*, installed: bool = True, returncode: int = 0, stdout: str = "[]")
 
     with patch("shutil.which", side_effect=which), patch("subprocess.run", side_effect=run):
         yield calls
+
+
+@contextmanager
+def _subprocess_fake_gh(tmp_path: Path, *, stdout: str, returncode: int = 0, sleep: float = 0, log_path: Path | None = None) -> object:
+    """Install a real executable so scanner tests cross the subprocess boundary."""
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    script = bin_dir / "gh"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, time\n"
+        f"time.sleep({sleep!r})\n"
+        + (f"open({str(log_path)!r}, 'a').write(__import__('os').getcwd() + '|' + ' '.join(sys.argv[1:]) + '\\n')\n" if log_path else "")
+        + f"sys.stdout.write({stdout!r})\n"
+        + f"sys.exit({returncode})\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    with patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}):
+        yield script
 
 
 class CliTestCase(unittest.TestCase):
@@ -631,6 +653,117 @@ class WorkStateTests(CliTestCase):
 
     def _lifecycle_updates(self, payload: dict[str, object]) -> dict[str, str]:
         return {item["target"]: item["input"]["stateId"] for item in payload["operations"] if item["kind"] == "issue.lifecycle.update"}
+
+    def _large_pr_payload(self) -> str:
+        rows = [{"number": number, "head": {"ref": f"unrelated-{number}"}, "draft": False, "state": "closed", "merged_at": None} for number in range(1, 299)]
+        rows.extend([
+            {"number": 299, "head": {"ref": "001-T001-history"}, "draft": False, "state": "closed", "merged_at": "2026-01-01T00:00:00Z"},
+            {"number": 300, "head": {"ref": "001-T002-review"}, "draft": False, "state": "open", "merged_at": None},
+            {"number": 301, "head": {"ref": "001-T003-finished"}, "draft": False, "state": "closed", "merged_at": "2026-01-01T00:00:00Z"},
+            {"number": 302, "head": {"ref": "001-T001-late-draft"}, "draft": True, "state": "open", "merged_at": None},
+            {"number": 303, "head": {"ref": "WOR-41-bug"}, "draft": False, "state": "open", "merged_at": None},
+            {"number": 304, "head": {"ref": "WOR-42-chore"}, "draft": True, "state": "open", "merged_at": None},
+            # An identical record may occur when a paginated listing overlaps.
+            {"number": 302, "head": {"ref": "001-T001-late-draft"}, "draft": True, "state": "open", "merged_at": None},
+        ])
+        pages = [rows[index:index + 100] for index in range(0, len(rows), 100)]
+        return json.dumps(pages)
+
+    def _init_branches(self, *names: str) -> None:
+        subprocess.run(["git", "-C", str(self.fixture_root), "init", "-q", "-b", "main"], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.fixture_root), "config", "user.email", "test@example.com"], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.fixture_root), "config", "user.name", "Test"], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.fixture_root), "add", "."], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(self.fixture_root), "commit", "-qm", "fixture"], check=True, capture_output=True, text=True)
+        for name in names:
+            subprocess.run(["git", "-C", str(self.fixture_root), "branch", name], check=True, capture_output=True, text=True)
+
+    def test_cli_uses_all_paginated_prs_for_tasks_bugs_and_chores(self) -> None:
+        self._configure_lifecycle()
+        self._init_branches("WOR-41-bug", "WOR-42-chore")
+        project = _matching_remote_project(self._desired())
+        with _subprocess_fake_gh(Path(self.temporary.name), stdout=self._large_pr_payload()):
+            with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,))):
+                status_code, status_payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+            with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,), work_items=(_remote_work_item("WOR-41"), _remote_work_item("WOR-42")))):
+                push_code, push_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+
+        self.assertEqual((status_code, push_code), (0, 0))
+        tasks = {row["task"]: row for row in status_payload["status"]["task_rows"][0]["tasks"]}
+        self.assertEqual({key: tasks[key]["derived_state"] for key in ("T001", "T002", "T003")}, {"T001": "started", "T002": "review", "T003": "completed"})
+        self.assertEqual({row["identifier"]: row["derived_state"] for row in status_payload["status"]["work_items"]}, {"WOR-41": "review", "WOR-42": "started"})
+        updates = self._lifecycle_updates(push_payload)
+        self.assertEqual(updates["task:001:T001"], STARTED_STATE_ID)
+        self.assertEqual(updates["task:001:T002"], REVIEW_STATE_ID)
+        self.assertEqual(updates["task:001:T003"], COMPLETED_STATE_ID)
+        self.assertEqual(updates["workitem:WOR-41"], REVIEW_STATE_ID)
+        self.assertEqual(updates["workitem:WOR-42"], STARTED_STATE_ID)
+
+    def test_uncertain_subprocess_observation_preserves_existing_states_and_scope(self) -> None:
+        self._configure_lifecycle()
+        self._init_branches("WOR-99-absent-from-prefix")
+        prefix = json.dumps([[{"number": 1, "head": {"ref": "unrelated"}, "draft": False, "state": "closed", "merged_at": None}]])
+        project = _matching_remote_project(self._desired())
+        project = replace(project, issues=tuple(replace(issue, state_id=COMPLETED_STATE_ID, state_name="Done") for issue in project.issues))
+        remote_item = replace(_remote_work_item("WOR-99", state_id=COMPLETED_STATE_ID), state_name="Done")
+        with _subprocess_fake_gh(Path(self.temporary.name), stdout=prefix, returncode=1):
+            with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,), work_items=(remote_item,))):
+                status_code, status_payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                code, payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+        row = status_payload["status"]["work_items"][0]
+        self.assertEqual((status_code, row["known_remotely"], row["remote_state"], row["derived_state"]), (0, True, "Done", None))
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["observation"]["outcome"], "failed")
+        self.assertEqual(self._lifecycle_updates(payload), {})
+        self.assertIn("absent from partial output", " ".join(item["message"] for item in payload["diagnostics"]))
+
+    def test_malformed_later_page_and_contradictory_duplicate_are_incomplete(self) -> None:
+        self._configure_lifecycle()
+        self._init_branches("WOR-7-work")
+        malformed = json.dumps([[{"number": 1, "head": {"ref": "WOR-7-work"}, "draft": False, "state": "open", "merged_at": None}], ["bad-page"]])
+        project = _matching_remote_project(self._desired())
+        contradictory = json.dumps([[{"number": 1, "head": {"ref": "WOR-7-work"}, "draft": False, "state": "open", "merged_at": None}, {"number": 1, "head": {"ref": "WOR-7-work"}, "draft": True, "state": "open", "merged_at": None}]])
+        remote_item = _remote_work_item("WOR-7", state_id=COMPLETED_STATE_ID)
+        for response in (malformed, contradictory):
+            with self.subTest(response=response):
+                with _subprocess_fake_gh(Path(self.temporary.name), stdout=response):
+                    with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,), work_items=(remote_item,))):
+                        code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                        push_code, push_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+                self.assertEqual(code, 0)
+                self.assertEqual(push_code, 0)
+                self.assertEqual(payload["observation"]["outcome"], "incomplete")
+                self.assertIsNone(payload["status"]["work_items"][0]["derived_state"])
+                self.assertEqual(self._lifecycle_updates(push_payload), {})
+
+    def test_timeout_and_truncated_json_never_become_empty_complete_scans(self) -> None:
+        project = _matching_remote_project(self._desired())
+        cases = (("timeout", "[]", 0, 0.05), ("truncated", "[[{\"number\": 1", 0, 0))
+        for name, output, returncode, delay in cases:
+            with self.subTest(name=name):
+                with _subprocess_fake_gh(Path(self.temporary.name), stdout=output, returncode=returncode, sleep=delay):
+                    timeout_patch = patch("spec_kit_linear.github.GH_TIMEOUT_SECONDS", 0.01) if name == "timeout" else patch("spec_kit_linear.github.GH_TIMEOUT_SECONDS", 30)
+                    with timeout_patch, patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,))):
+                        code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                self.assertEqual(code, 0)
+                self.assertEqual(payload["observation"]["outcome"], "failed" if name == "timeout" else "incomplete")
+
+    def test_identical_feature_numbers_use_each_repository_cwd(self) -> None:
+        second_root = Path(self.temporary.name) / "consumer-two"
+        shutil.copytree(self.fixture_root, second_root)
+        log_path = Path(self.temporary.name) / "gh-cwds.log"
+        responses = (json.dumps([[{"number": 9, "head": {"ref": "001-T001"}, "draft": True, "state": "open", "merged_at": None}]]), json.dumps([[{"number": 9, "head": {"ref": "001-T001"}, "draft": False, "state": "open", "merged_at": None}]]))
+        for root, response, expected in zip((self.fixture_root, second_root), responses, ("started", "review")):
+            with _subprocess_fake_gh(Path(self.temporary.name), stdout=response, log_path=log_path):
+                with patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient((_matching_remote_project(self._desired()),))):
+                    code, payload = self._invoke(["status", "--root", str(root), "--feature", "001", "--json"])
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["status"]["task_rows"][0]["tasks"][0]["derived_state"], expected)
+        entries = [line.strip().split("|", 1) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual({Path(entry[0]).resolve() for entry in entries}, {self.fixture_root.resolve(), second_root.resolve()})
+        for _cwd, argv in entries:
+            self.assertIn("api repos/{owner}/{repo}/pulls", argv)
+            self.assertIn("--paginate", argv)
 
     def test_push_derives_started_from_a_branch_and_completed_from_the_checkbox(self) -> None:
         self._configure_lifecycle()
