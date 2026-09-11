@@ -5,7 +5,7 @@ import os
 import shutil
 import subprocess
 import unittest
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from dataclasses import replace
 from io import StringIO
 from pathlib import Path
@@ -14,11 +14,12 @@ from unittest.mock import MagicMock, patch
 
 from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, _is_reconcile_command, main, run_post_tool_use, run_session_start
 from spec_kit_linear.config import ROOT_CONFIG_FILENAME, load_config, repository_binding
-from spec_kit_linear.errors import Diagnostic
+from spec_kit_linear.errors import AppError, Diagnostic
 from spec_kit_linear.github import PullRequest, PullRequestScan
 from spec_kit_linear.linear_client import RemoteBinding, RemoteIssue, RemoteProject, RemoteWorkItem
 from spec_kit_linear.parser import parse_feature
 from spec_kit_linear.projection import project_feature
+from spec_kit_linear.reconciler import ApplyResult
 from tests.support.fixtures import copy_consumer_fixture, isolate_operator_global_env
 
 
@@ -239,6 +240,24 @@ class CliTestCase(unittest.TestCase):
 
 
 class PushTests(CliTestCase):
+    def test_public_failure_renders_partial_evidence_and_nonzero_exit(self) -> None:
+        first = ApplyResult(("first",), (), 1)
+        failed = ApplyResult(("second",), (), 1, "third", "issue.create", "task:002", ("fourth", "work-item"), "mutation", "unconfirmed")
+        error = AppError("later plan failed", code=8, category="mutation", diagnostics=[Diagnostic("mutation_failed", "later plan failed")], apply_results=[first, failed])
+        with patch("spec_kit_linear.cli.run_push", side_effect=error):
+            output = StringIO()
+            with redirect_stdout(output):
+                code = main(["push", "--root", str(self.fixture_root), "--json"])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 8)
+        self.assertEqual(payload["apply"][0]["applied_operation_ids"], ["first"])
+        self.assertEqual(payload["apply"][1]["unattempted_operation_ids"], ["fourth", "work-item"])
+        self.assertEqual(payload["failure_status"], "unconfirmed")
+        human = StringIO()
+        with patch("spec_kit_linear.cli.run_push", side_effect=error), redirect_stderr(human):
+            self.assertEqual(main(["push", "--root", str(self.fixture_root)]), 8)
+        self.assertIn("failure mutation (unconfirmed)", human.getvalue())
+
     def test_dry_run_renders_project_then_issues_and_writes_nothing(self) -> None:
         before = self._files()
 

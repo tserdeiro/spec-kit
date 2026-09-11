@@ -62,6 +62,20 @@ class _TimeoutUpdateTransport:
         raise AppError("simulated update response loss", code=8, category="transport", diagnostics=[])
 
 
+class _FailAfterSuccessTransport(_MemoryApplyTransport):
+    def execute(self, operation: dict[str, object]) -> dict[str, object]:
+        if len(self.operations) == 1:
+            super().execute(operation)
+            raise AppError("simulated later failure", code=8, category="mutation", diagnostics=[])
+        return super().execute(operation)
+
+
+class _RejectedTransport(_MemoryApplyTransport):
+    def execute(self, operation: dict[str, object]) -> dict[str, object]:
+        self.operations.append(copy.deepcopy(operation))
+        raise AppError("request rejected", code=6, category="mutation", diagnostics=[Diagnostic("mutation_rejected", "declined")])
+
+
 class PlannerApplyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary, self.root = copy_consumer_fixture()
@@ -198,6 +212,36 @@ class PlannerApplyTests(unittest.TestCase):
         self.assertEqual(raised.exception.diagnostics[0].code, "snapshot_stale")
         self.assertEqual(transport.operations, [])
 
+    def test_initial_snapshot_failure_lists_every_operation_as_unattempted(self) -> None:
+        plan = self._push_plan()
+        calls = 0
+        def provider():
+            nonlocal calls
+            calls += 1
+            raise AppError("snapshot unavailable", code=8, category="transport", diagnostics=[])
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=provider, transport=_MemoryApplyTransport(copy.deepcopy(plan["snapshot"])))
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.unattempted_operation_ids, tuple(str(item["id"]) for item in plan["operations"]))
+
+    def test_mutation_rejection_is_rejected_but_was_attempted(self) -> None:
+        plan = self._push_plan()
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=lambda: copy.deepcopy(plan["snapshot"]), transport=_RejectedTransport(copy.deepcopy(plan["snapshot"])))
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.failure_status, "rejected")
+        self.assertNotIn(evidence.failed_operation_id, evidence.unattempted_operation_ids)
+
+    def test_postverification_failure_retains_all_confirmed_ids_without_failed_operation(self) -> None:
+        plan = self._push_plan()
+        transport = _MemoryApplyTransport(copy.deepcopy(plan["snapshot"]))
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=transport.provider, transport=transport, post_verify=lambda _snapshot: False)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.writes, len(plan["operations"]))
+        self.assertIsNone(evidence.failed_operation_id)
+        self.assertEqual(evidence.failure_phase, "postverification")
+
     def test_post_apply_visibility_failure_uses_code_10(self) -> None:
         plan = self._push_plan()
 
@@ -256,6 +300,74 @@ class PlannerApplyTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.category, "transport")
         self.assertEqual(len(transport.operations), 1)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.failure_status, "unconfirmed")
+        self.assertEqual(evidence.recovered_operation_ids, ())
+
+    def test_failure_after_success_retains_confirmed_and_unattempted_evidence(self) -> None:
+        plan = self._push_plan()
+        transport = _FailAfterSuccessTransport(copy.deepcopy(plan["snapshot"]))
+
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=transport.provider, transport=transport)
+
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.applied_operation_ids, (str(plan["operations"][0]["id"]),))
+        self.assertEqual(evidence.failed_operation_id, str(plan["operations"][1]["id"]))
+        self.assertEqual(evidence.failure_phase, "mutation")
+        self.assertEqual(evidence.failure_status, "unconfirmed")
+        self.assertEqual(evidence.unattempted_operation_ids, tuple(str(item["id"]) for item in plan["operations"][2:]))
+
+    def test_recovered_create_then_failure_retains_recovery(self) -> None:
+        plan = self._push_plan()
+        transport = _MemoryApplyTransport(copy.deepcopy(plan["snapshot"]), timeout_first_create=True)
+        original = transport.execute
+        def fail_after_recovery(operation):
+            if len(transport.operations) == 0:
+                return original(operation)
+            raise AppError("later failure", code=8, category="mutation", diagnostics=[])
+        transport.execute = fail_after_recovery
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=transport.provider, transport=transport)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.recovered_operation_ids, (str(plan["operations"][0]["id"]),))
+        self.assertEqual(evidence.failed_operation_id, str(plan["operations"][1]["id"]))
+
+    def test_snapshot_failure_before_second_mutation_keeps_current_unattempted(self) -> None:
+        plan = self._push_plan()
+        transport = _MemoryApplyTransport(copy.deepcopy(plan["snapshot"]))
+        calls = 0
+        def provider():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise AppError("precondition read failed", code=8, category="transport", diagnostics=[])
+            return transport.provider()
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=provider, transport=transport)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.applied_operation_ids, (str(plan["operations"][0]["id"]),))
+        self.assertEqual(evidence.unattempted_operation_ids, tuple(str(item["id"]) for item in plan["operations"][1:]))
+
+    def test_readback_failure_after_request_is_unconfirmed(self) -> None:
+        plan = self._push_plan()
+        class ReadbackTransport(_MemoryApplyTransport):
+            def execute(self, operation):
+                super().execute(operation)
+                return {}
+        transport = ReadbackTransport(copy.deepcopy(plan["snapshot"]))
+        calls = 0
+        def provider():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise AppError("readback failed", code=8, category="transport", diagnostics=[])
+            return transport.provider()
+        with self.assertRaises(AppError) as raised:
+            apply_plan(plan, snapshot_provider=provider, transport=transport)
+        evidence = raised.exception.apply_results[0]
+        self.assertEqual(evidence.failure_status, "unconfirmed")
+        self.assertEqual(evidence.failed_operation_id, str(plan["operations"][0]["id"]))
 
     def test_duplicate_or_backward_drift_fails_closed_with_no_mutation_path(self) -> None:
         drift = (Diagnostic("remote_marker_duplicate", "duplicate bridge marker"),)

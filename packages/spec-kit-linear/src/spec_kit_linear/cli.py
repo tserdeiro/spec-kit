@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 import re
 import shlex
@@ -306,6 +307,12 @@ def _render_push(payload: dict[str, Any]) -> None:
         target = str(operation.get("target", ""))
         sys.stdout.write(f"  {kind:<22} {target:<34} {_operation_display_name(operation)}\n")
     _write_non_info_diagnostics(payload)
+    for evidence in payload.get("apply", []):
+        if isinstance(evidence, Mapping) and evidence.get("failure_phase"):
+            sys.stdout.write(
+                f"partial apply: confirmed {evidence.get('writes', 0)}, "
+                f"failure {evidence.get('failure_phase')} ({evidence.get('failure_status')})\n"
+            )
 
 
 def _operation_display_name(operation: Mapping[str, object]) -> str:
@@ -1068,13 +1075,38 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
         payload["observation"] = observation
         return payload
 
-    results = [
-        _apply_push_plan(config, client, desired, plan, work_states)
-        for desired, plan in zip(desired_states, plans)
-        if plan["operations"]
-    ]
-    if work_item_plan["operations"]:
-        results.append(_apply_work_item_plan(config, client, work_items, work_item_plan))
+    results = []
+    failure: AppError | None = None
+    failed_plan_index: int | None = None
+    for plan_index, (desired, plan) in enumerate(zip(desired_states, plans)):
+        if not plan["operations"]:
+            continue
+        try:
+            results.append(_apply_push_plan(config, client, desired, plan, work_states))
+        except AppError as error:
+            results.extend(error.apply_results)
+            error.apply_results = list(results)
+            failure = error
+            failed_plan_index = plan_index
+            break
+    if failure is None and work_item_plan["operations"]:
+        try:
+            results.append(_apply_work_item_plan(config, client, work_items, work_item_plan))
+        except AppError as error:
+            results.extend(error.apply_results)
+            error.apply_results = list(results)
+            failure = error
+    if failure is not None:
+        # Keep every later plan visible as unattempted in this invocation.
+        remaining = []
+        if failed_plan_index is not None:
+            for plan in plans[failed_plan_index + 1:]:
+                remaining.extend(str(item["id"]) for item in plan["operations"])
+            remaining.extend(str(item["id"]) for item in work_item_plan["operations"])
+        if failure.apply_results and remaining:
+            last = failure.apply_results[-1]
+            failure.apply_results[-1] = replace(last, unattempted_operation_ids=tuple(last.unattempted_operation_ids) + tuple(remaining))
+        raise failure
     diagnostics.append(Diagnostic("push_apply", "post-apply read verification passed", severity="info"))
     payload = _success(f"push applied {sum(result.writes for result in results)} operation(s)", diagnostics=diagnostics, operations=operations)
     payload["apply"] = [result.as_dict() for result in results]
@@ -1638,6 +1670,14 @@ def main(argv: list[str] | None = None) -> int:
             "operations": [],
             "diagnostics": [diagnostic.as_dict() for diagnostic in error.diagnostics],
         }
+        if error.apply_results:
+            payload["apply"] = [result.as_dict() for result in error.apply_results]
+            payload["partial"] = True
+            if payload["apply"]:
+                evidence = payload["apply"][-1]
+                for key in ("failed_operation_id", "failed_operation_kind", "failed_operation_target", "failure_phase", "failure_status"):
+                    if key in evidence:
+                        payload[key] = evidence[key]
         _attach_endpoint_field(payload, args.command, endpoint)
         if getattr(args, "json", False):
             _write_json(payload)
@@ -1650,6 +1690,11 @@ def main(argv: list[str] | None = None) -> int:
                 location = f" ({diagnostic.path})" if diagnostic.path else ""
                 line = f":{diagnostic.line}" if diagnostic.line else ""
                 sys.stderr.write(f"  {diagnostic.code}{location}{line}: {diagnostic.message}\n")
+            for evidence in error.apply_results:
+                sys.stderr.write(
+                    f"  partial apply: confirmed {evidence.writes}, "
+                    f"failure {evidence.failure_phase} ({evidence.failure_status})\n"
+                )
         return error.code
 
 
