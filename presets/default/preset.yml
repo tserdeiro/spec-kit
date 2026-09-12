@@ -124,7 +124,13 @@ provides:
     - type: "script"
       name: "github-delivery"
       file: "scripts/python/github_delivery.py"
-      description: "Report GitHub delivery settings and unverified branch guarantees"
+      description: "Report GitHub delivery settings and effective branch rules"
+      strategy: "replace"
+
+    - type: "script"
+      name: "github-delivery-rules"
+      file: "scripts/python/github_delivery_rules.py"
+      description: "Evaluate active GitHub rules for shared delivery branches"
       strategy: "replace"
 
     - type: "command"
