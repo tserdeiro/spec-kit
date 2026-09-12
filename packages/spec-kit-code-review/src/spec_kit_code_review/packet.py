@@ -948,18 +948,13 @@ def _section_sdd(
                 f"{_one_line(visible(entry.strategy or '—'))} | {paths or '—'} |"
             )
             details = []
-            source_range = getattr(entry, "source_range", None)
+            source_range = entry.source_range
+            block_text = entry.block_text
             if source_range:
                 details.append(f"source lines {source_range[0]}–{source_range[1]}")
-            if getattr(entry, "traces", ()):
-                details.append(f"traces: {', '.join(entry.traces)}")
-            if getattr(entry, "dependencies", ()):
-                details.append(f"depends on: {', '.join(entry.dependencies)}")
-            if getattr(entry, "delivery", None):
-                details.append(f"delivery: {entry.delivery}")
-            if getattr(entry, "completion_evidence", None):
-                details.append(f"completion evidence: {_one_line(entry.completion_evidence)}")
-            if getattr(entry, "gaps", ()):
+            if block_text:
+                details.append(block_text.rstrip("\r\n"))
+            if entry.gaps:
                 details.append(f"gaps: {', '.join(entry.gaps)}")
             if details:
                 detail_block = contain(

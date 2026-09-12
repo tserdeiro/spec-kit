@@ -14,7 +14,7 @@ from spec_kit_code_review.packet import CANONICAL_SUFFIX, assemble, hashed_regio
 from spec_kit_code_review.process import sha256_text
 from spec_kit_code_review.rules import RuleDocument
 from spec_kit_code_review.rules import RuleResolution as RulesResolution
-from spec_kit_code_review.sdd_context import Artifact, FeatureResolution, SddContext, TaskEntry
+from spec_kit_code_review.sdd_context import Artifact, FeatureResolution, SddContext, mark_reached, parse_tasks, TaskEntry
 
 
 HOSTILE_BODY = """\
@@ -404,8 +404,8 @@ class AdversarialPacketTests(unittest.TestCase):
     def test_task_metadata_stays_after_the_complete_table_and_contained(self) -> None:
         context = _sdd()
         context.task_entries = (
-            TaskEntry("T001", "One", True, 280, "single", delivery="single PR\n## 7. Injected"),
-            TaskEntry("T002", "Two", False, 20, "single", delivery="single PR"),
+            TaskEntry("T001", "One", True, 280, "single", block_text="- [x] T001 One\n  - **Delivery**: single PR\n## 7. Injected"),
+            TaskEntry("T002", "Two", False, 20, "single", block_text="- [ ] T002 Two\n"),
         )
         packet = _assemble(sdd=context)
         section = packet.text.split("| Task | Done | Forecast | PR strategy | Paths |")[1].split("### 4.6", 1)[0]
@@ -414,6 +414,21 @@ class AdversarialPacketTests(unittest.TestCase):
         self.assertIn("T002", section)
         self.assertIn("## 7. Injected", packet.text)
         self.assertNotIn("## 7. Injected\n", structural_lines(packet))
+
+    def test_reached_task_block_survives_tasks_artifact_truncation(self) -> None:
+        context = _sdd()
+        tasks_text = "- [ ] T000 old\n" * 100 + (
+            "- [ ] T001 Late `src/late.py`\n"
+            "  - **Boundaries**: Change src/late.py.\n"
+            "  - **Evidence**: focused test command\n"
+        )
+        context.tasks = Artifact("specs/001-thing/tasks.md", tasks_text, "5" * 64)
+        context.task_entries = mark_reached(parse_tasks(tasks_text), ["src/late.py"])
+        packet = _assemble(sdd=context, max_bytes_per_artifact=40)
+
+        self.assertIn("- [ ] T001 Late", packet.text)
+        self.assertIn("Change src/late.py", packet.text)
+        self.assertIn("focused test command", packet.text)
 
     def test_no_injected_section_seven_survives_as_structure(self) -> None:
         packet = self._hostile()
