@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 
 from spec_kit_code_review.errors import EXIT_ENVIRONMENT, AppError
 from spec_kit_code_review.finding_corrections import digest, finish, parse_bytes, prepare, verify_history
+from spec_kit_code_review.redaction import REDACTED
 from spec_kit_code_review.finding_corrections import validate_attempt
 from spec_kit_code_review.session import ReviewSession, load_session
 
@@ -179,9 +180,67 @@ class CorrectionTests(unittest.TestCase):
             prepare(session, original, parse_bytes(original))
             corrected = original.replace(b"7", b'"security"', 1)
             record, submitted = prepare(session, corrected, parse_bytes(corrected))
-            self.assertEqual(record["changed_categories"][0]["old"], 7)
+            self.assertEqual(record["changed_categories"][0]["old"], {"type": "integer", "text": "7"})
             evidence = root / "finding-corrections" / "attempt-1" / f"{submitted}.json"
-            self.assertEqual(json.loads(evidence.read_text(encoding="utf-8"))["changed_categories"][0]["old"], 7)
+            self.assertEqual(
+                json.loads(evidence.read_text(encoding="utf-8"))["changed_categories"][0]["old"],
+                {"type": "integer", "text": "7"},
+            )
+
+    def test_high_precision_category_change_is_recorded_exactly(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            original = json.dumps(self._documents()).encode().replace(
+                b'"vibes"', b"0.123456789012345678901", 1
+            )
+            prepare(session, original, parse_bytes(original))
+            attempted = original.replace(
+                b"0.123456789012345678901", b"0.123456789012345678902", 1
+            )
+            record, _ = prepare(session, attempted, parse_bytes(attempted))
+            change = record["changed_categories"][0]
+            self.assertEqual(change["index"], 1)
+            self.assertEqual(change["old"], {"type": "decimal", "text": "0.123456789012345678901"})
+            self.assertEqual(change["new"], {"type": "decimal", "text": "0.123456789012345678902"})
+
+    def test_nested_sensitive_keys_and_values_are_redacted_in_derived_history(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            key_token = "ghp_" + "A" * 36
+            value_token = "sk-" + "B" * 40
+            original = self._documents()
+            original["findings"][0]["category"] = {
+                key_token: {"nested": {value_token: "first public value"}},
+                value_token: {"nested": {key_token: "second public value"}},
+            }
+            original_raw = json.dumps(original, indent=2).encode()
+            prepare(session, original_raw, parse_bytes(original_raw))
+
+            corrected = json.loads(original_raw)
+            corrected["findings"][0]["category"] = "security"
+            corrected_raw = json.dumps(corrected, indent=2).encode()
+            _, submitted = prepare(session, corrected_raw, parse_bytes(corrected_raw))
+            attempt = root / "finding-corrections" / "attempt-1"
+            record_path = attempt / f"{submitted}.json"
+            record_text = record_path.read_text(encoding="utf-8")
+
+            self.assertIn(key_token, original_raw.decode())
+            self.assertIn(value_token, original_raw.decode())
+            self.assertNotIn(key_token, record_text)
+            self.assertNotIn(value_token, record_text)
+            old = json.loads(record_text)["changed_categories"][0]["old"]
+            self.assertEqual(old["type"], "object")
+            self.assertEqual(len(old["entries"]), 2)
+            self.assertEqual([entry["key"] for entry in old["entries"]], [REDACTED, REDACTED])
+            self.assertIn("first public value", record_text)
+            self.assertIn("second public value", record_text)
+            self.assertEqual((attempt / "original.json").read_bytes(), original_raw)
+            record = json.loads(record_text)
+            self.assertEqual(record["original_sha256"], digest(original_raw))
+            self.assertEqual(record["submitted_sha256"], digest(corrected_raw))
+            verify_history(session)
 
     def test_history_rejects_tampered_original_record_and_unindexed_digest(self) -> None:
         for mutation in ("original", "record", "unindexed", "binding"):

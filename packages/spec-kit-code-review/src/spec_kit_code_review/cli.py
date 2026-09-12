@@ -1532,6 +1532,12 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     if session.payload.get("correction_original_sha256") or has_invalid_categories(findings_document):
         try:
             correction_document = parse_correction_bytes(findings_raw)
+            # Preserve exact Decimal values for category diagnostics and the
+            # correction record while the normal validator still owns the
+            # complete findings contract.
+            if isinstance(correction_document.get("findings"), list):
+                entries = correction_document["findings"]
+                findings_document["findings"] = entries
             correction_record, _ = prepare_correction(session, findings_raw, correction_document)
         except AppError as error:
             if session.payload.get("correction_original_sha256") and error.code == EXIT_USAGE:
