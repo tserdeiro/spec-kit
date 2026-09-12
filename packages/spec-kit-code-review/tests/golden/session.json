@@ -100,6 +100,7 @@
   "phase": "open",
   "pr_metadata_sha256": "<variable>",
   "repository_root": "<workspace>/consumer",
+  "review_scope_gaps": [],
   "rules": {
     "assignments": [
       {

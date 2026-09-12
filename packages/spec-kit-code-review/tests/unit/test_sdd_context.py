@@ -66,6 +66,30 @@ class SddCase(unittest.TestCase):
 
 
 class DiscoveryOrderTests(SddCase):
+    def test_branch_identity_cannot_hide_a_different_touched_feature(self) -> None:
+        self.repository.write("specs/002-other/spec.md", "# Other\n")
+        self.repository.git("add", "--all")
+        self.repository.git("commit", "-m", "touch another feature")
+        head = self.repository.head()
+        resolution = resolve_feature(
+            CommitReader(self.git, head),
+            changed_paths=["specs/002-other/spec.md"],
+            head_ref_name="001-review-skeleton",
+        )
+
+        self.assertTrue(resolution.ambiguous)
+        self.assertEqual(set(resolution.candidates), {"001-review-skeleton", "002-other"})
+
+    def test_issue_key_branch_does_not_inherit_active_feature(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-fix-timeout",
+        )
+
+        self.assertIsNone(resolution.feature)
+        self.assertEqual(resolution.source, SOURCE_NONE)
+
     def test_an_explicit_feature_wins(self) -> None:
         self.repository.write("specs/002-other/spec.md", "# Other\n")
         self.repository.git("add", "--all")

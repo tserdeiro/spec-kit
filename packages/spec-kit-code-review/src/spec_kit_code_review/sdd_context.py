@@ -42,12 +42,16 @@ SOURCE_FLAG = "flag"
 SOURCE_FEATURE_JSON = "feature.json"
 SOURCE_DIFF = "diff"
 SOURCE_PR_BODY = "pr-body"
+SOURCE_BRANCH = "head-branch"
 SOURCE_BUG = "bug"
 SOURCE_NONE = "none"
 
 _FEATURE_DIRECTORY_RE = re.compile(r"^specs/(?P<feature>\d{3}[A-Za-z0-9._-]*)/")
 _BUG_DIRECTORY_RE = re.compile(r"^\.specify/bugs/(?P<slug>[A-Za-z0-9._-]+)/")
 _FEATURE_NUMBER_RE = re.compile(r"^\d{3}$")
+_TASK_BRANCH_RE = re.compile(r"^(?P<number>\d{3})(?:-[A-Za-z0-9._-]+)?-T(?P<task>\d{3,})(?:-[A-Za-z0-9._-]+)?$")
+_FEATURE_BRANCH_RE = re.compile(r"^\d{3}(?:-[A-Za-z0-9._-]+)?$")
+_ISSUE_BRANCH_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9]+-\d+(?:[-/].*)?|(?:bug|chore|fix)(?:[-/].*)?)$", re.IGNORECASE)
 # Doc "Resolucion del contexto SDD" path 4: the pull-request body carries a
 # "Spec Kit evidence" reference, per the canonical pull-request template.
 _PR_EVIDENCE_RE = re.compile(
@@ -298,6 +302,7 @@ def resolve_feature(
     changed_paths: Sequence[str],
     explicit: str | None = None,
     pr_body: str | None = None,
+    head_ref_name: str | None = None,
 ) -> FeatureResolution:
     """Find the candidate's feature, in the documented order, without guessing.
 
@@ -322,11 +327,24 @@ def resolve_feature(
             return FeatureResolution(source=SOURCE_FLAG, diagnostics=tuple(diagnostics))
         return FeatureResolution(feature=feature, source=SOURCE_FLAG, diagnostics=tuple(diagnostics))
 
-    declared = _feature_from_feature_json(reader)
+    branch_feature = _feature_from_head_ref(reader, head_ref_name)
+    short_path = bool(head_ref_name and _ISSUE_BRANCH_RE.match(head_ref_name.strip()))
+    # An issue-key bug/chore branch is deliberately independent of any active
+    # feature.json in the operator checkout. Bug artifacts are still discovered
+    # below; ordinary short-path work stays ledger-free.
+    declared = None if short_path else _feature_from_feature_json(reader)
+    declared_feature = _normalize_feature(reader, declared) if declared else None
+    touched = _features_touched(changed_paths)
+    identities = tuple(dict.fromkeys(item for item in (branch_feature, declared_feature, *touched) if item))
+    if branch_feature is not None:
+        if len(identities) > 1:
+            return _ambiguous_feature(SOURCE_BRANCH, identities, diagnostics)
+        return FeatureResolution(feature=branch_feature, source=SOURCE_BRANCH, diagnostics=tuple(diagnostics))
     if declared is not None:
-        feature = _normalize_feature(reader, declared)
-        if feature is not None:
-            return FeatureResolution(feature=feature, source=SOURCE_FEATURE_JSON, diagnostics=tuple(diagnostics))
+        if declared_feature is not None and (not touched or set(touched) == {declared_feature}):
+            return FeatureResolution(feature=declared_feature, source=SOURCE_FEATURE_JSON, diagnostics=tuple(diagnostics))
+        if declared_feature is not None and touched:
+            return _ambiguous_feature(SOURCE_DIFF, tuple(dict.fromkeys((*touched, declared_feature))), diagnostics)
         diagnostics.append(
             Diagnostic(
                 "sdd_feature_json_stale",
@@ -335,7 +353,6 @@ def resolve_feature(
             )
         )
 
-    touched = _features_touched(changed_paths)
     if len(touched) == 1:
         return FeatureResolution(feature=touched[0], source=SOURCE_DIFF, diagnostics=tuple(diagnostics))
     if len(touched) > 1:
@@ -403,6 +420,31 @@ def _feature_from_pr_body(body: str | None) -> str | None:
         return None
     match = _PR_EVIDENCE_RE.search(body)
     return match.group("feature") if match else None
+
+
+def _feature_from_head_ref(reader: Reader, branch: str | None) -> str | None:
+    if not branch:
+        return None
+    value = branch.strip().strip("/")
+    directories = _feature_directories(reader)
+    if value in directories:
+        return value
+    if _FEATURE_BRANCH_RE.match(value):
+        number = value.split("-", 1)[0]
+        matches = [name for name in directories if name == number or name.startswith(f"{number}-")]
+        if len(matches) == 1:
+            return matches[0]
+    match = _TASK_BRANCH_RE.match(value)
+    if not match:
+        return None
+    number = match.group("number")
+    matches = [name for name in directories if name == number or name.startswith(f"{number}-")]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _ambiguous_feature(source: str, candidates: tuple[str, ...], diagnostics: list[Diagnostic]) -> FeatureResolution:
+    diagnostics.append(Diagnostic("sdd_context_ambiguous", f"candidate feature evidence conflicts ({', '.join(candidates)})", severity="warning"))
+    return FeatureResolution(source=source, candidates=candidates, ambiguous=True, diagnostics=tuple(diagnostics))
 
 
 def _features_touched(changed_paths: Sequence[str]) -> tuple[str, ...]:

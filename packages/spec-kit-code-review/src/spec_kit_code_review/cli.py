@@ -90,7 +90,8 @@ from .publish import resolve_event
 from .reporting import render_human, review_document
 from .verdict import CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
 from .verdict import derive as derive_verdict
-from .sdd_context import CommitReader, WorkingTreeReader, load_context, resolve_feature
+from .sdd_context import CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
+from .review_context import resolve_scope
 from .rules import RuleResolution, parse_rule_document, resolve_rules
 from .process import resolve_executable, run_command, sha256_file
 from .redaction import redact_payload, redact_text
@@ -643,6 +644,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                     "scope": engine["scope"],
                     "rules": engine["rules"],
                     "sdd": assembled["sdd"],
+                    "review_scope_gaps": assembled["scope"]["gaps"],
                     "budget": assembled["budget"],
                     "packet": assembled["packet"].as_dict(),
                 },
@@ -671,6 +673,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
         session=session.summary(),
         engine=engine["engine"],
         scope=engine["scope"],
+        review_scope=assembled["scope"],
         rules=engine["rules"],
         sdd=assembled["sdd"],
         budget=assembled["budget"],
@@ -753,6 +756,13 @@ def _sdd_diagnostics(resolution, sdd) -> list[Diagnostic]:
     return []
 
 
+def _scope_diagnostics(scope) -> list[Diagnostic]:
+    return [
+        Diagnostic("review_scope_unresolved", gap.detail, severity="warning")
+        for gap in scope.gaps
+    ]
+
+
 def _assemble_packet(
     context: CommandContext,
     config,
@@ -772,6 +782,7 @@ def _assemble_packet(
         reader,
         changed_paths=changed,
         pr_body=getattr(pull_request, "body", None),
+        head_ref_name=getattr(pull_request, "head_ref_name", None),
     )
     sdd = load_context(
         reader,
@@ -781,6 +792,21 @@ def _assemble_packet(
     )
     diagnostics.extend(sdd.diagnostics)
     diagnostics.extend(_sdd_diagnostics(resolution, sdd))
+
+    base_entries = ()
+    if resolution.feature:
+        base_text = CommitReader(context.git, candidate.merge_base).read(
+            f"specs/{resolution.feature}/tasks.md"
+        )
+        base_entries = parse_tasks(base_text or "")
+    review_scope = resolve_scope(
+        candidate,
+        pull_request=pull_request,
+        sdd=sdd,
+        changed_paths=changed,
+        base_task_entries=base_entries,
+    )
+    diagnostics.extend(_scope_diagnostics(review_scope))
 
     budget_report = compute_budget(
         context.git,
@@ -801,6 +827,7 @@ def _assemble_packet(
         rules=engine["rules_resolution"],
         rule_assignments=engine["rule_assignments"],
         sdd=sdd,
+        review_scope=review_scope,
         budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
@@ -819,7 +846,12 @@ def _assemble_packet(
                 severity="warning",
             )
         )
-    return {"packet": assembled, "sdd": sdd.as_dict(), "budget": budget_report.as_dict()}
+    return {
+        "packet": assembled,
+        "sdd": sdd.as_dict(),
+        "scope": review_scope.as_dict(),
+        "budget": budget_report.as_dict(),
+    }
 
 
 def _run_engine(
@@ -1560,6 +1592,14 @@ def _inconclusive_causes(session: ReviewSession) -> list[InconclusiveCause]:
                 CAUSE_SCOPE,
                 f"{truncation.get('path')}: {truncation.get('omitted_bytes')} byte(s) did not fit in the packet, so "
                 f"that content was not reviewed ({truncation.get('command')})",
+            )
+        )
+    for gap in session.payload.get("review_scope_gaps", ()):
+        causes.append(
+            InconclusiveCause(
+                CAUSE_SCOPE,
+                f"scope is unresolved for {', '.join(gap.get('affected') or ()) or 'the candidate'}: "
+                f"{gap.get('detail', 'necessary candidate association is unknown')}",
             )
         )
     # An allowlist, deliberately: a status this version does not know is a status
