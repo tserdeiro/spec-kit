@@ -92,6 +92,18 @@ def test_templates_describe_the_same_approval_boundary() -> None:
     assert "technical approval of the" in pr
 
 
+def test_pr_feature_variant_resolves_before_approval_commit() -> None:
+    pr = (COMMANDS / "pr.md").read_text(encoding="utf-8")
+    resolution = pr.split("## 2. Guarantee the branch invariant", 1)[0]
+
+    assert re.search(
+        r"whether\s+its artifacts are still local drafts or already published",
+        resolution,
+    )
+    assert "with its artifacts committed" not in resolution
+    assert "Local drafts remain subject to the explicit" in resolution
+
+
 def test_approved_close_commit_only_preserves_pre_staged_unrelated_files(
     repo: Path,
 ) -> None:

@@ -17,9 +17,11 @@ GitHub.
   it.
 - Otherwise derive it from the current branch: `NNN-T###-*` names a
   feature task; `<team>-<n>-*` names a work item (bug or chore); the
-  **feature branch itself** (`NNN-slug`) with its artifacts committed
-  names the **feature PR** — the spec-review gate that later closes the
-  feature (see step 4's feature variant).
+  **feature branch itself** (`NNN-slug`) with its selected feature, whether
+  its artifacts are still local drafts or already published, names the
+  **feature PR** — the spec-review gate that later closes the feature (see
+  step 4's feature variant). Local drafts remain subject to the explicit
+  approval and scoped publication steps below.
 - Otherwise take the first unchecked task in the active feature's
   `tasks.md` (the active feature comes from `.specify/feature.json`), and
   say which one you picked.
