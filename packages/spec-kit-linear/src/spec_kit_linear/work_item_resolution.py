@@ -1,4 +1,4 @@
-"""Resolve ``issue_key`` or ordered ``branch_names``/``pull_requests`` arrays."""
+"""Resolve one configured Linear Issue for the internal JSON bridge."""
 
 from __future__ import annotations
 
@@ -17,17 +17,11 @@ from .linear_client import LinearClient, RemoteIssueContext
 from .parser import _matchable_lines
 
 KEY_RE = re.compile(r"^(?P<team>[A-Za-z][A-Za-z0-9]*)-(?P<number>[0-9]+)$")
+ISSUE_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])(?P<team>[A-Za-z][A-Za-z0-9]*)-(?P<number>[0-9]+)(?![A-Za-z0-9])")
 FEATURE_RE = re.compile(r"^[0-9]{3}-[^/]+$")
-TRACKER_SECTION_RE = re.compile(
-    r"(?ms)^##[ \t]+Work item[ \t]*\r?\n(?P<section>.*?)(?=^#{1,6}[ \t]+|\Z)"
-)
-TRACKER_LINE_RE = re.compile(
-    r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]*"
-    r"(?P<value>.*?)[ \t]*$"
-)
-TRACKER_VALUE_RE = re.compile(
-    r"^Fixes[ \t]+(?P<key>[A-Za-z][A-Za-z0-9]*-[0-9]+)[ \t]*$"
-)
+TRACKER_SECTION_RE = re.compile(r"(?ms)^##[ \t]+Work item[ \t]*\r?\n(?P<section>.*?)(?=^#{1,6}[ \t]+|\Z)")
+TRACKER_LINE_RE = re.compile(r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]*(?P<value>.*?)[ \t]*$")
+TRACKER_VALUE_RE = re.compile(r"^Fixes[ \t]+(?P<key>[A-Za-z][A-Za-z0-9]*-[0-9]+)[ \t]*$")
 OBSERVATION_CONFLICT = Diagnostic(
     "work_item_identity_conflict",
     "multiple observations for one branch carry different Issue keys",
@@ -72,9 +66,13 @@ def _key(value: object, team_key: str, source: str) -> str:
     return f"{team_key.upper()}-{int(match.group('number'))}"
 
 
-def _strict_key(branch: str, team_key: str) -> str | None:
-    match = re.fullmatch(rf"^(?:[^/]+/)?{re.escape(team_key)}-(\d+)(?:-.*)?$", branch, re.IGNORECASE)
-    return f"{team_key.upper()}-{int(match.group(1))}" if match else None
+def _strict_keys(branch: str) -> list[str]:
+    if re.fullmatch(r"^(?:[^/]+/)?[A-Za-z][A-Za-z0-9]*-(\d+)(?:-.*)?$", branch) is None:
+        return []
+    return list(dict.fromkeys(
+        f"{match.group('team').upper()}-{int(match.group('number'))}"
+        for match in ISSUE_TOKEN_RE.finditer(branch.rsplit("/", 1)[-1])
+    ))
 
 
 def _tracker_keys(body: object, team_key: str, source: str) -> list[str]:
@@ -90,18 +88,19 @@ def _tracker_keys(body: object, team_key: str, source: str) -> list[str]:
         for section in TRACKER_SECTION_RE.finditer(visible)
         for match in TRACKER_LINE_RE.finditer(section.group("section"))
     ]
-    keys = [
-        match.group("key")
-        for value in values
-        if (match := TRACKER_VALUE_RE.fullmatch(value))
-    ]
-    if len(keys) != len(values):
+    matches = [TRACKER_VALUE_RE.fullmatch(value) for value in values]
+    if not all(matches):
         raise _error(
             "work_item_identity_conflict",
             "Tracker evidence contains an invalid Issue key",
             category="conflict",
         )
-    return list(dict.fromkeys(_key(value, team_key, f"{source}.body Work item Tracker") for value in keys))
+    return list(
+        dict.fromkeys(
+            _key(match.group("key"), team_key, f"{source}.body Work item Tracker")
+            for match in matches
+        )
+    )
 
 
 def _entry(
@@ -117,7 +116,7 @@ def _entry(
         "branch": branch,
         "keys": keys or [],
         "status": status,
-        "diagnostics": diagnostics or [],
+        "diagnostics": diagnostics or ([OBSERVATION_CONFLICT] if status == "conflict" else []),
     }
 
 
@@ -147,8 +146,9 @@ def _observations(payload: Mapping[str, object], team_key: str) -> tuple[str | N
             if FEATURE_RE.fullmatch(branch):
                 observations.append(_entry("branch", branch, status="excluded"))
             else:
-                strict = _strict_key(branch, team_key)
-                observations.append(_entry("branch", branch, keys=[strict] if strict else []))
+                keys = _strict_keys(branch)
+                status = "conflict" if keys and keys[0].partition("-")[0].casefold() != team_key.casefold() else "active"
+                observations.append(_entry("branch", branch, keys=keys[:1], status=status))
 
     pull_requests = payload.get("pull_requests")
     if pull_requests is not None:
@@ -167,17 +167,20 @@ def _observations(payload: Mapping[str, object], team_key: str) -> tuple[str | N
             status = "active"
             diagnostics: list[Diagnostic] = []
             try:
-                keys = _tracker_keys(value.get("body"), team_key, "pull_requests")
+                tracker = _tracker_keys(value.get("body"), team_key, "pull_requests")
             except AppError as caught:
                 if caught.category == "usage":
                     raise
-                keys, status, diagnostics = [], "conflict", caught.diagnostics
-            strict = _strict_key(branch, team_key)
-            keys = list(dict.fromkeys(([strict] if strict else []) + keys))
-            if len(keys) > 1:
+                tracker, status, diagnostics = [], "conflict", caught.diagnostics
+            strict = _strict_keys(branch)
+            keys = list(dict.fromkeys(([strict[0]] if strict else []) + tracker))
+            if (strict and strict[0].partition("-")[0].casefold() != team_key.casefold()) or (strict and tracker and tracker != [strict[0]]):
                 status = "conflict"
                 diagnostics = [Diagnostic("work_item_identity_conflict", "branch and Tracker evidence disagree within one pull request")]
-            observations.append(_entry("pull_request", branch, keys=keys, status=status, diagnostics=diagnostics))
+            entry = _entry("pull_request", branch, keys=keys, status=status, diagnostics=diagnostics)
+            if tracker:
+                entry["_tracker"] = tracker
+            observations.append(entry)
     if not observations:
         raise _input("request must contain at least one observation")
     return None, observations
@@ -301,20 +304,30 @@ def resolve_work_item(
     client = client_factory(credentials, endpoint) if client_factory else LinearClient(credentials, endpoint=endpoint)
     native = client.resolve_branch_issues(list(dict.fromkeys(str(item["branch"]) for item in active)))
     branch_keys: dict[str, set[str]] = {}
+    tracker_keys: dict[str, set[str]] = {}
+    ambiguous_branches = {str(item["branch"]) for item in active if len(_strict_keys(str(item["branch"]))) > 1}
     for item in active:
+        branch = str(item["branch"])
         if item["keys"]:
-            branch_keys.setdefault(str(item["branch"]), set()).update(item["keys"])
-    conflicting_branches = {str(item["branch"]) for item in active if item["status"] == "conflict"}
-    conflicting_branches.update(branch for branch, keys in branch_keys.items() if len(keys) > 1)
+            branch_keys.setdefault(branch, set()).update(item["keys"])
+        if item.get("_tracker"):
+            tracker_keys.setdefault(branch, set()).update(item["_tracker"])
+    for item in active:
+        evidence = tracker_keys.get(str(item["branch"]), ())
+        if not item["keys"] and len(evidence) == 1:
+            item["keys"] = list(evidence)
+    conflicting_branches = {str(item["branch"]) for item in active if item["status"] == "conflict"} | {branch for branch, keys in branch_keys.items() if len(keys) > 1}
     for branch, keys in branch_keys.items():
         context = native.get(branch)
         if context is None:
+            if branch in ambiguous_branches and len(tracker_keys.get(branch, ())) != 1:
+                conflicting_branches.add(branch)
             continue
         try:
             native_key = _key(context.identifier, team_key, "Linear Issue identifier")
         except AppError:
             continue
-        if native_key not in keys:
+        if keys and native_key not in keys:
             conflicting_branches.add(branch)
     missing = list(
         dict.fromkeys(
