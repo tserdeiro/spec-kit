@@ -121,6 +121,12 @@ provides:
       description: "Add the installer's cache and payload-venv directories to .gitignore when not already covered"
       strategy: "replace"
 
+    - type: "script"
+      name: "github-delivery"
+      file: "scripts/python/github_delivery.py"
+      description: "Report GitHub delivery settings and unverified branch guarantees"
+      strategy: "replace"
+
     - type: "command"
       name: "speckit.doctor"
       file: "commands/doctor.md"

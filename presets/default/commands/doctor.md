@@ -45,28 +45,24 @@ re-run each failing doctor with `--fix` and report what it repaired —
 `--fix` is each doctor's own, bounded repair; you never fix anything
 yourself.
 
-## 4. Verify the GitHub repository settings
+## 4. Verify the GitHub delivery settings
 
-The delivery flow depends on GitHub deleting merged branches and allowing
-merge commits. These checks are always read-only, including with `--fix`.
+Run the installed helper with the consumer's `.venv/bin/python` when it exists,
+else `python3` on PATH:
 
-- If `gh` is unavailable, report: `GitHub: cannot verify
-  deleteBranchOnMerge or mergeCommitAllowed because gh is unavailable.`
-- Otherwise run exactly one query:
+```bash
+python3 .specify/presets/default/scripts/python/github_delivery.py
+```
 
-  ```bash
-  gh repo view --json deleteBranchOnMerge,mergeCommitAllowed
-  ```
-
-  Report both returned states in one line. A `false` value is a blocking
-  problem with its exact manual remediation:
-  - `deleteBranchOnMerge=false` → in GitHub, enable **Settings → General →
-    Pull Requests → Automatically delete head branches**.
-  - `mergeCommitAllowed=false` → in GitHub, enable **Settings → General →
-    Pull Requests → Allow merge commits**.
-
-If the query itself fails, report both settings as `cannot verify` and include
-the failure as a warning. Never change repository settings.
+The helper observes `deleteBranchOnMerge` and `mergeCommitAllowed` with one
+read-only GitHub CLI query, reports each as `compatible`, `incompatible`,
+`capability-unavailable`, or `unverified`, and names the manual remediation
+for a conflicting value. It also states the observed settings scope and keeps
+branch guarantees unverified until the later branch-rules diagnosis exists.
+Its exit status is `0` only for a fully compatible observed scope and `1` for
+any gap or uncertainty. Continue collecting the other categories after a
+nonzero result, including under `--fix`; never pass `--fix` to this helper.
+Never change repository settings.
 
 ## 5. Summarize one result
 
@@ -76,18 +72,19 @@ the Python interpreter, (2) GitHub CLI authentication, (3) the Linear
 API key, (4) the Linear onboarding binding, (5) the review engine
 installation, (6) the repository's GitHub delivery settings.
 
-- **Everything passed and both settings were verified** → one line: the
-  setup is healthy, the installed extensions were checked (name them), with
-  `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`.
+- **Everything passed and the GitHub component reports a compatible complete
+  scope** → one line: the setup is healthy, the installed extensions were
+  checked (name them), with the GitHub guarantees verified.
 - **Anything failed** → one short list, ordered by the six categories
   above and skipping any with nothing to report; one bullet per blocking
   problem, carrying its doctor's own remediation **verbatim**, step 1's
-  interpreter fix, or the exact GitHub remediation from step 4. End with
-  the single next action: usually
+  interpreter fix, or the exact GitHub remediation from step 4. Include the
+  helper's unverified scope finding. End with the single next action: usually
   re-running this command with `--fix`, or the one manual step a
   report-only category names.
 - **Nothing failed but GitHub could not be verified** → say the checks that
-  ran passed, but do not call the setup healthy.
+  ran passed, but do not call the setup healthy. An incomplete branch scope is
+  also unverified and cannot be summarized as healthy.
 
 `--fix` applies each doctor's own bounded repair for categories 2
 through 5, where the doctor offers one. Categories 1 and 6 stay
