@@ -1,8 +1,8 @@
 # Tasks: Correct review finding categories
 
 **Inputs**: [spec.md](spec.md), [plan.md](plan.md)
-**Next work**: T001; human approval and assignment to supervised Luna agents
-were given on 2026-09-12.
+**Delivery**: All seven task PRs (#136–#142) merged into the feature branch on
+2026-09-12. Final implementation audit found no actionable defects.
 
 ## Delivery strategy
 
@@ -70,9 +70,9 @@ closure; unchanged original bytes and blocking severity; no repeated engine anal
 
 ## Dependencies and stack order
 
-- **Critical path**: T001 → T002 → T003 → T004.
-- **Stack order**: T001 PR → T002 PR → T003 PR → T004 PR; each begins after its
-  predecessor is ready for review. Delivery scripts resolve actual bases.
+- **Critical path**: T001 → T002 → T003 → T004 → T005 → T006 → T007.
+- **Stack order**: T001 PR → T002 PR → T003 PR → T004 PR → T005 PR → T006 PR
+  → T007 PR. All merged root-first into `008-review-findings`.
 
 ## Phase 3: Convergence
 
