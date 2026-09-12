@@ -291,6 +291,8 @@ class TaskParsingTests(unittest.TestCase):
         self.assertIsNone(entries[0].forecast)
         self.assertIsNone(entries[0].strategy)
         self.assertFalse(entries[0].done)
+        self.assertIn("missing field: traces", entries[0].gaps)
+        self.assertIn("missing field: completion evidence", entries[0].gaps)
 
     def test_prose_is_not_a_task(self) -> None:
         self.assertEqual(parse_tasks("Some prose about T001 and its forecast: 900 lines.\n"), ())
@@ -332,18 +334,23 @@ class TaskParsingTests(unittest.TestCase):
     def test_duplicate_ids_are_retained_with_a_gap(self) -> None:
         entries = parse_tasks("- [ ] T001 First\n- [ ] T001 Duplicate\n")
 
-        self.assertEqual(entries[0].gaps, ("duplicate task identifier",))
-        self.assertEqual(entries[1].gaps, ("duplicate task identifier",))
+        self.assertIn("duplicate task identifier", entries[0].gaps)
+        self.assertIn("duplicate task identifier", entries[1].gaps)
 
     def test_missing_dependency_is_a_gap(self) -> None:
         entries = parse_tasks("- [ ] T001 First\n  - **Depends on**: T999\n")
 
-        self.assertEqual(entries[0].gaps, ("unresolved dependency: T999",))
+        self.assertIn("unresolved dependency: T999", entries[0].gaps)
+
+    def test_empty_required_field_is_a_gap(self) -> None:
+        entries = parse_tasks("- [ ] T001 First\n  - **Evidence**:\n")
+
+        self.assertIn("empty field: evidence", entries[0].gaps)
 
     def test_unrecognized_canonical_field_is_a_gap(self) -> None:
         entries = parse_tasks("- [ ] T001 First\n  - **Unknown field**: value\n")
 
-        self.assertEqual(entries[0].gaps, ("unrecognized field: Unknown field",))
+        self.assertIn("unrecognized field: Unknown field", entries[0].gaps)
 
     def test_boundary_hints_keep_extension_periods_and_exclude_protected_paths(self) -> None:
         entries = parse_tasks(

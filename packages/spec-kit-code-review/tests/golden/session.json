@@ -201,7 +201,14 @@
         "dependencies": [],
         "done": true,
         "forecast": 120,
-        "gaps": [],
+        "gaps": [
+          "missing field: traces",
+          "missing field: dependencies",
+          "missing field: boundaries",
+          "missing field: evidence",
+          "missing field: delivery",
+          "missing field: completion evidence"
+        ],
         "id": "T001",
         "pr_strategy": "single",
         "reached": false,
@@ -221,7 +228,14 @@
         "dependencies": [],
         "done": false,
         "forecast": 90,
-        "gaps": [],
+        "gaps": [
+          "missing field: traces",
+          "missing field: dependencies",
+          "missing field: boundaries",
+          "missing field: evidence",
+          "missing field: delivery",
+          "missing field: completion evidence"
+        ],
         "id": "T002",
         "pr_strategy": "single",
         "reached": false,

@@ -79,6 +79,7 @@ _FIELD_NAMES = {
     "delivery forecast": "delivery",
     "completion evidence": "completion_evidence",
 }
+_REQUIRED_FIELDS = ("traces", "dependencies", "boundaries", "evidence", "delivery", "completion_evidence")
 
 
 class Reader:
@@ -589,6 +590,12 @@ def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
             if match and match.group(1).strip().lower() not in _FIELD_NAMES
         }
         gaps.extend(f"unrecognized field: {name}" for name in sorted(unknown_fields))
+        for field_name in _REQUIRED_FIELDS:
+            label = field_name.replace("_", " ")
+            if field_name not in fields:
+                gaps.append(f"missing field: {label}")
+            elif not fields[field_name].strip():
+                gaps.append(f"empty field: {label}")
         entries.append(
             TaskEntry(
                 identifier=identifier,
