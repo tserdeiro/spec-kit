@@ -8,7 +8,8 @@ if [ "$#" -ne 1 ]; then
   echo "Spec Kit commit-msg requires exactly one Git message file; repair the hook command and retry" >&2
   exit 4
 fi
-if [ ! -f "$extension_root/src/spec_kit_code_review/commit_msg.py" ]; then
+if [ ! -f "$extension_root/src/spec_kit_code_review/commit_msg.py" ] ||
+   [ ! -f "$extension_root/src/spec_kit_code_review/commit_policy.py" ]; then
   echo "Spec Kit commit-msg runtime is incomplete; reinstall the code-review extension and retry" >&2
   exit 4
 fi
