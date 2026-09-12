@@ -254,13 +254,14 @@ For this advisory review, create `coverage.json` beside this packet with the hos
   "mode": "advisory",
   "packet_sha256": "<packet_sha256>",
   "inventory_sha256": "<inventory_sha256>",
-  "sources": [{"path": "specs/003-example/spec.md", "version": "working-tree", "sha256": "<source-sha256>"}],
+  "sources": [{"path": "src/module.py", "version": "working-tree", "kind": "code", "status": "present", "available": true, "sha256": "<source-sha256>"}, {"path": "src/deleted.py", "version": "working-tree", "kind": "code", "status": "deleted", "available": true, "sha256": null}],
   "reads": [{"path": "specs/003-example/spec.md", "version": "working-tree", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]
 }
 ```
 
 Copy source entries and required ranges from context-inventory.json. Read each exact inclusive UTF-8 line range with a host file tool, preserving line endings; hash those bytes and add a scope-linked assessment. A path, selected excerpt, or retrieval command alone earns no credit.
-Before reporting the advisory result, compare every current source hash with the packet inventory. If any source differs or is unavailable, discard this record and create a fresh advisory packet; do not report findings as covered from stale reads.
+Before reporting the advisory result, compare every current source hash with the packet inventory and compare the complete set of reviewed paths as well. A tracked deletion remains valid while the path stays absent; an unavailable or symlinked path is an explicit coverage gap. If any source differs or is added or removed, discard this record and create a fresh advisory packet; do not report findings as covered from stale reads.
+Recompute the path set as the union of `git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only --end-of-options HEAD` and `git ls-files --others --exclude-standard -z`; the first covers staged and unstaged tracked changes and the second adds untracked paths.
 This `coverage.json` is advisory evidence only. Do not reuse it as coverage for a pull-request review, which requires a fresh packet and its session `findings.json` envelope.
 
 ### 7.5 Anchoring
