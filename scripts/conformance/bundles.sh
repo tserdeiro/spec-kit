@@ -578,7 +578,9 @@ skill_mirror_script="$scripts_dir/skill_mirror.py"
 ignore_entries_script="$scripts_dir/ignore_entries.py"
 grep -Fq 'feature enters the **delivery base** only' "$tasks_template" &&
   grep -Fq 'the explicit non-empty `trunk:` value' "$tasks_template" &&
-  grep -Fq '**draft feature PR** (`NNN-slug` → delivery base)' "$tasks_template" ||
+  grep -Fq '**draft feature PR** (`NNN-slug` → delivery base)' "$tasks_template" &&
+  grep -Fq 'Product phases remain local drafts' "$tasks_template" &&
+  grep -Fq 'first approved publication' "$tasks_template" ||
   fail "trunk: installed tasks template does not document the delivery base"
 mkdir -p "$fake_bin"
 real_git=$(command -v git)

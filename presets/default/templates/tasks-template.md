@@ -14,12 +14,16 @@ description: "Dependency-ordered, traceable delivery units for feature implement
   once, through the feature PR, as a merge commit. The delivery base is
   the explicit non-empty `trunk:` value, or the GitHub default branch when
   `trunk:` is absent or empty.
-- **Closing the product phase opens the gate**: with this file complete,
-  commit the feature artifacts on the feature branch and open the
-  **draft feature PR** (`NNN-slug` → delivery base) — `/speckit.pr` on
-  the feature branch does it with the canonical body. Reviewing it is how
-  the team approves the spec and plan before implementation; the same PR,
-  ready once every task is checked, later closes the feature.
+- **Product phases remain local drafts**: completing this ledger does not
+  commit, push, or open a feature PR. After clean analysis, present the exact
+  spec, plan, tasks, analysis result, and handoff prerequisites for explicit
+  human product approval.
+- **Approved closure opens the gate**: after that approval, the feature
+  variant of `/speckit.pr` stages only the feature artifacts and opens the
+  **draft feature PR** (`NNN-slug` → delivery base) with the canonical body.
+  Review of that published PR supplies technical approval of the plan and
+  tasks; the same PR, ready once every task is checked, later closes the
+  feature.
 - **One branch per task**, named `NNN-T###-short-slug` (feature number, task
   id); its pull request opens as `draft` **against the open task PR it
   stacks on, else the feature branch**.
@@ -41,6 +45,9 @@ description: "Dependency-ordered, traceable delivery units for feature implement
   command warns when a diff exceeds the budget.
 - Task states project to Linear from observable reality: the checkbox, the
   task branch, and the PR's draft/ready/merged state.
+- Task IDs remain provisional during local refinement and become stable at
+  the first approved publication. Later additions use the next unused ID and
+  require fresh analysis and product approval.
 
 ## Task block format
 
