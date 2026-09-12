@@ -194,22 +194,44 @@
     },
     "task_entries": [
       {
+        "block_text": "- [x] T001 Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)\n",
+        "changed_path_hints": [],
+        "completion_evidence": null,
+        "delivery": null,
+        "dependencies": [],
         "done": true,
         "forecast": 120,
+        "gaps": [],
         "id": "T001",
         "pr_strategy": "single",
         "reached": false,
         "referenced_paths": [],
-        "title": "Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)"
+        "source_range": [
+          3,
+          3
+        ],
+        "title": "Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)",
+        "traces": []
       },
       {
+        "block_text": "- [ ] T002 Report prerequisites without any write (forecast: 90 lines, PR strategy: single)\n",
+        "changed_path_hints": [],
+        "completion_evidence": null,
+        "delivery": null,
+        "dependencies": [],
         "done": false,
         "forecast": 90,
+        "gaps": [],
         "id": "T002",
         "pr_strategy": "single",
         "reached": false,
         "referenced_paths": [],
-        "title": "Report prerequisites without any write (forecast: 90 lines, PR strategy: single)"
+        "source_range": [
+          4,
+          4
+        ],
+        "title": "Report prerequisites without any write (forecast: 90 lines, PR strategy: single)",
+        "traces": []
       }
     ],
     "tasks": {

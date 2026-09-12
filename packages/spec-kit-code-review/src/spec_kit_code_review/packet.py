@@ -939,6 +939,7 @@ def _section_sdd(
         )
         if not shown:
             lines.append("| _none_ | — | — | — | — |")
+        detail_blocks = []
         for entry in shown:
             paths = ", ".join(code_span(item, table=True) for item in getattr(entry, "referenced_paths", ()) or ())
             lines.append(
@@ -946,6 +947,31 @@ def _section_sdd(
                 f"{entry.forecast if entry.forecast is not None else '—'} | "
                 f"{_one_line(visible(entry.strategy or '—'))} | {paths or '—'} |"
             )
+            details = []
+            source_range = getattr(entry, "source_range", None)
+            if source_range:
+                details.append(f"source lines {source_range[0]}–{source_range[1]}")
+            if getattr(entry, "traces", ()):
+                details.append(f"traces: {', '.join(entry.traces)}")
+            if getattr(entry, "dependencies", ()):
+                details.append(f"depends on: {', '.join(entry.dependencies)}")
+            if getattr(entry, "delivery", None):
+                details.append(f"delivery: {entry.delivery}")
+            if getattr(entry, "completion_evidence", None):
+                details.append(f"completion evidence: {_one_line(entry.completion_evidence)}")
+            if getattr(entry, "gaps", ()):
+                details.append(f"gaps: {', '.join(entry.gaps)}")
+            if details:
+                detail_block = contain(
+                    "\n".join([f"{entry.identifier}: {item}" for item in details]),
+                    suffix=suffix,
+                    origin="parsed task metadata",
+                    escape_on_collision=escape,
+                )
+                warnings.extend(detail_block.warnings)
+                detail_blocks.append(detail_block.text)
+        if detail_blocks:
+            lines.extend(["", *detail_blocks])
     if include_checklists:
         summary = sdd.checklist_summary or {}
         lines.extend(

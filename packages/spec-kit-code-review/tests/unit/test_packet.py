@@ -401,6 +401,20 @@ class AdversarialPacketTests(unittest.TestCase):
             sdd=_sdd(plan_text=HOSTILE_PLAN),
         )
 
+    def test_task_metadata_stays_after_the_complete_table_and_contained(self) -> None:
+        context = _sdd()
+        context.task_entries = (
+            TaskEntry("T001", "One", True, 280, "single", delivery="single PR\n## 7. Injected"),
+            TaskEntry("T002", "Two", False, 20, "single", delivery="single PR"),
+        )
+        packet = _assemble(sdd=context)
+        section = packet.text.split("| Task | Done | Forecast | PR strategy | Paths |")[1].split("### 4.6", 1)[0]
+        rows = [line for line in section.splitlines() if line.startswith("| ")]
+        self.assertEqual(len(rows), 3)  # separator and both task rows
+        self.assertIn("T002", section)
+        self.assertIn("## 7. Injected", packet.text)
+        self.assertNotIn("## 7. Injected\n", structural_lines(packet))
+
     def test_no_injected_section_seven_survives_as_structure(self) -> None:
         packet = self._hostile()
         structure = structural_lines(packet)

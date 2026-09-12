@@ -295,6 +295,46 @@ class TaskParsingTests(unittest.TestCase):
     def test_prose_is_not_a_task(self) -> None:
         self.assertEqual(parse_tasks("Some prose about T001 and its forecast: 900 lines.\n"), ())
 
+    def test_complete_blocks_keep_ranges_and_indented_fields(self) -> None:
+        text = """# Phase\n\n- [ ] T001 Add `src/app.py`\n  - **Traces**: FR-002, SC-001\n  - **Depends on**: T000\n  - **Boundaries**: Change `src/app.py`. Preserve `src/rules.py`.\n  - **Delivery**: single PR (~280 authored lines)\n  - **Completion evidence**: focused tests pass\n\n- [x] T002 Finish it\n  - **Evidence**: `pytest tests/unit`\n\n## Next phase\n- [ ] T003 A later task\n"""
+        first, second, third = parse_tasks(text)
+
+        self.assertEqual((first.source_start, first.source_end), (3, 9))
+        self.assertEqual(first.block_text, "".join(text.splitlines(keepends=True)[2:9]))
+        self.assertEqual(first.traces, ("FR-002", "SC-001"))
+        self.assertEqual(first.dependencies, ("T000",))
+        self.assertEqual(first.changed_path_hints, ("src/app.py",))
+        self.assertEqual(first.completion_evidence, "focused tests pass")
+        self.assertEqual(first.delivery, "single PR (~280 authored lines)")
+        self.assertEqual(first.forecast, 280)
+        self.assertEqual((second.source_start, second.source_end), (10, 12))
+        self.assertEqual((third.source_start, third.source_end), (14, 14))
+
+    def test_fenced_task_examples_are_ignored_but_fenced_evidence_is_retained(self) -> None:
+        text = """```markdown\n- [ ] T900 Example only\n```\n- [ ] T001 Real task\n  - **Evidence**:\n    ```markdown\n    - [ ] T901 evidence text\n    ```\n- [ ] T002 Final task\n"""
+        entries = parse_tasks(text)
+
+        self.assertEqual([entry.identifier for entry in entries], ["T001", "T002"])
+        self.assertIn("T901", entries[0].block_text)
+
+    def test_duplicate_ids_are_retained_with_a_gap(self) -> None:
+        entries = parse_tasks("- [ ] T001 First\n- [ ] T001 Duplicate\n")
+
+        self.assertEqual(entries[1].gaps, ("duplicate task identifier",))
+
+    def test_unrecognized_canonical_field_is_a_gap(self) -> None:
+        entries = parse_tasks("- [ ] T001 First\n  - **Unknown field**: value\n")
+
+        self.assertEqual(entries[0].gaps, ("unrecognized field: Unknown field",))
+
+    def test_boundary_hints_keep_extension_periods_and_exclude_protected_paths(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 No path in title\n"
+            "  - **Boundaries**: Change src/extra.py. Preserve src/rules.py.\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ("src/extra.py",))
+
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs
     unittest.main()
