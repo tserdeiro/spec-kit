@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Sequence
@@ -67,7 +68,6 @@ _PATH_RE = re.compile(r"[A-Za-z0-9_.@+-]+(?:/[A-Za-z0-9_.@+-]+)+\.[A-Za-z0-9]+")
 _REQUIREMENT_RE = re.compile(r"^\s*[-*]?\s*\**\s*(?P<id>(?:FR|NFR|SC)-\d+)\b", re.MULTILINE)
 _CHECKLIST_ITEM_RE = re.compile(r"^\s*[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>CHK\d+)?", re.MULTILINE)
 _TASK_LINE_RE = re.compile(r"^[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>T\d{3,})\s*(?P<title>.*?)\s*$")
-_CHECKBOX_LINE_RE = re.compile(r"^\s*[-*]\s*\[(?P<done>[ xX])\]")
 _FIELD_RE = re.compile(r"^\s{2,}[-*]\s+\*\*(?P<name>[^*]+)\*\*:\s*(?P<value>.*)\s*$")
 _FIELD_NAMES = {
     "traces": "traces",
@@ -561,7 +561,6 @@ def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
                 starts.append((number, match))
 
     entries: list[TaskEntry] = []
-    seen: set[str] = set()
     for index, (start, match) in enumerate(starts):
         end = (starts[index + 1][0] - 1) if index + 1 < len(starts) else len(lines)
         for boundary in range(start, end + 1):
@@ -582,9 +581,6 @@ def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
         paths = _task_paths(title, fields.get("boundaries", ""))
         identifier = match.group("id")
         gaps = []
-        if identifier in seen:
-            gaps.append("duplicate task identifier")
-        seen.add(identifier)
         unknown_fields = {
             match.group(1).strip()
             for offset, line in enumerate(lines[start - 1 : end])
@@ -612,7 +608,20 @@ def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
                 gaps=tuple(gaps),
             )
         )
-    return tuple(entries)
+    identifiers = {entry.identifier for entry in entries}
+    counts = Counter(entry.identifier for entry in entries)
+    normalized: list[TaskEntry] = []
+    for entry in entries:
+        gaps = list(entry.gaps)
+        if counts[entry.identifier] > 1 and "duplicate task identifier" not in gaps:
+            gaps.append("duplicate task identifier")
+        gaps.extend(
+            f"unresolved dependency: {dependency}"
+            for dependency in entry.dependencies
+            if dependency not in identifiers
+        )
+        normalized.append(replace(entry, gaps=tuple(dict.fromkeys(gaps))))
+    return tuple(normalized)
 
 
 def _fence_mask(lines: Sequence[str]) -> tuple[bool, ...]:

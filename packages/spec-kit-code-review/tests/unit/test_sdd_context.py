@@ -332,7 +332,13 @@ class TaskParsingTests(unittest.TestCase):
     def test_duplicate_ids_are_retained_with_a_gap(self) -> None:
         entries = parse_tasks("- [ ] T001 First\n- [ ] T001 Duplicate\n")
 
+        self.assertEqual(entries[0].gaps, ("duplicate task identifier",))
         self.assertEqual(entries[1].gaps, ("duplicate task identifier",))
+
+    def test_missing_dependency_is_a_gap(self) -> None:
+        entries = parse_tasks("- [ ] T001 First\n  - **Depends on**: T999\n")
+
+        self.assertEqual(entries[0].gaps, ("unresolved dependency: T999",))
 
     def test_unrecognized_canonical_field_is_a_gap(self) -> None:
         entries = parse_tasks("- [ ] T001 First\n  - **Unknown field**: value\n")
