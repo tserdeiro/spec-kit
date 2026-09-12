@@ -47,6 +47,9 @@ GitHub default). The feature PR resolves that same delivery base at creation.
 
 Task and work-item branches retain their existing commit flow.
 
+Run exactly one delivery route: a feature branch follows steps 3–5; a task or
+work-item branch follows step 6. Do not run both routes for one invocation.
+
 ## 3. Observe before every feature mutation
 
 The feature variant uses the existing branch, Git, GitHub PR, and Linear
@@ -100,17 +103,23 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` in its exact section order:
    all feature requirements; and all task IDs.
 2. **Outcome** — state that this is the spec-review gate for the exact
    artifacts presented and explicitly product-approved before publication.
-3. **Changes** — the scoped committed diff against the delivery base.
+3. **Changes** — the approved feature diff, including its local draft, index,
+   and worktree paths, against the delivery base. The effective committed diff
+   is recalculated after publication before any PR mutation.
 4. **Verification evidence** — clean analysis and actual Linear projection
    evidence.
 5. **Risk and delivery** — honest risks, human merge ownership, and
    `feature PR; task PRs stack into this branch`.
 6. **Review focus** — whether the tasks cover the approved spec completely.
 
-Write the canonical body to a temporary body file with its real newlines. Do
-not inline a body string or use an alternate template. Compare the prepared
-body with the observed OPEN PR body; an exact match schedules no body write.
-When it differs, schedule one body update for step 5, then reread `state`,
+Write the candidate canonical body to a temporary body file with its real
+newlines. Do not inline a body string or use an alternate template. Before the
+first publication commit, the candidate's Changes section comes from the
+approved local diff; do not create or edit a PR from that provisional body.
+After publication, replace only that section with the effective
+`git diff <base>...HEAD --stat` result, then compare the complete body with the
+freshly observed OPEN PR. An exact match schedules no body write. When it
+differs, schedule one body update for step 5, then reread `state`,
 `baseRefName`, `headRefName`, and `body`. A body update never changes draft
 status, technical approval, or feature scope.
 
@@ -134,11 +143,19 @@ success:
 3. Observe `HEAD` and the remote ref again. Push with
    `git push -u origin <branch>` only when the remote OID is absent or differs.
    Read back the remote OID after a successful or ambiguous push.
-4. Observe the PR again. If it is absent, resolve the base with
-   `pr_create.py`, create one draft PR with `--body-file`, and reread it. If it
-   is OPEN, reuse its number and update the body only when it differs. If it is
-   CLOSED or MERGED, stop for a human decision. Use the canonical body file
-   for either mutation:
+4. Observe the PR again. If it is absent, resolve the base with `pr_create.py`
+   without creating the PR; if it is OPEN, use its observed `baseRefName`.
+   Recompute the Changes section from the effective commit and refresh the
+   candidate body:
+
+   ```bash
+   git diff "$base"...HEAD --stat
+   ```
+
+   If absence is confirmed, create one draft PR with `--body-file`, and reread
+   it. If an OPEN PR exists, reuse its number and update the body only when the
+   complete body differs. If it is CLOSED or MERGED, stop for a human decision.
+   Use the canonical body file for either mutation:
 
    ```bash
    gh pr create --draft --base "$base" --title "feat(<area>): <feature outcome>" --body-file "$body_file"

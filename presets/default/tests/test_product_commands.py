@@ -126,6 +126,20 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     assert "--body \"<the body>\"" not in pr
     assert pr.index("git commit --only") < pr.index("gh pr create")
 
+    preparation = pr.split("## 4. Prepare the canonical body", 1)[1].split(
+        "## 5. Publish the approved handoff", 1
+    )[0]
+    publication = pr.split("## 5. Publish the approved handoff", 1)[1].split(
+        "## 6. Open task or work-item delivery PRs", 1
+    )[0]
+    assert "approved feature diff" in preparation
+    assert "effective committed diff" in preparation
+    assert 'git diff "$base"...HEAD --stat' in publication
+    assert publication.index('git diff "$base"...HEAD --stat') < publication.index(
+        "gh pr create"
+    )
+    assert "Run exactly one delivery route" in pr
+
 
 def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() -> None:
     pr = (COMMANDS / "pr.md").read_text(encoding="utf-8")
