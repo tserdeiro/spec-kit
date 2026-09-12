@@ -38,13 +38,13 @@ regression fixtures so the existing review workflow remains executable.
 **Goal**: Expose complete task definitions before narrowing the packet.
 **Independent evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_sdd_context.py packages/spec-kit-code-review/tests/unit/test_packet.py -q` -> full real blocks and delivery fields survive parsing; fenced examples are not tasks.
 
-- [ ] T001 [US1] Expose complete task blocks in packages/spec-kit-code-review/src/spec_kit_code_review/sdd_context.py
+- [x] T001 [US1] Expose complete task blocks in packages/spec-kit-code-review/src/spec_kit_code_review/sdd_context.py
   - **Traces**: FR-002, SC-001; outcome: context and the existing packet task summary expose complete blocks, traces, dependencies, delivery, and completion evidence with exact source ranges.
   - **Depends on**: none
   - **Boundaries**: Change `sdd_context.py`, its packet summary caller in `packet.py`, and `tests/unit/test_sdd_context.py`/`test_packet.py`. Preserve source text, existing reader ownership, constitution, and upstream assets. Follow plan D1; distinguish changed-path hints from protected paths and evidence commands.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_sdd_context.py packages/spec-kit-code-review/tests/unit/test_packet.py -q` -> indented fields, fenced samples/evidence, repeated IDs, malformed blocks, and the final block are covered; existing context output still works.
   - **Delivery**: single PR (~280 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #127; 62 focused tests and 2 subtests passed, golden session test passed. Independent review found nested checklist misclassification; fixed in `38d0ece` with regression coverage. Review evidence: https://github.com/tserdeiro/spec-kit/pull/127#issuecomment-5642251766. Final candidate review and CI are recorded in the PR.
 
 ## Phase 2: User Story 2 - Cover the whole reviewed scope (P1)
 
