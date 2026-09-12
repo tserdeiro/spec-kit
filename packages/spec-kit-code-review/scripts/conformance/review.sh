@@ -353,6 +353,118 @@ done
 test "$(git -C "$consumer_root" status --porcelain)" = "$status_before"
 test "$(git -C "$consumer_root" rev-parse --abbrev-ref HEAD)" = "$branch_before"
 
+# -- installed category correction recovery --------------------------------
+engine_state <<STATE
+{"files": [{"path": "src/module.py"}, {"path": "docs/guide.md", "included": false, "reason": "documentation is out of scope"}], "rules": {"src/module.py": ["Validate every input."]}, "record_invocations": "$engine_log"}
+STATE
+api_log="$temporary_root/gh-api.log"
+python3 - "$gh_state" "$api_log" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1]); state = json.loads(path.read_text(encoding="utf-8"))
+state["record_api"] = sys.argv[2]
+path.write_text(json.dumps(state), encoding="utf-8")
+PY
+correction_opened=$(run review --root "$consumer_root" --base main --head "$head_commit" --json)
+correction_session=$(echo "$correction_opened" | json '["session"]["path"]')
+cat >"$correction_session/findings.json" <<'FINDINGS'
+{"findings":[
+ {"path":"src/module.py","start_line":1,"end_line":1,"side":"RIGHT","severity":"blocking","category":"category-one-ambiguous","title":"Input is not validated","content":"The first distinct issue needs validation."},
+ {"path":"src/module.py","start_line":1,"end_line":1,"side":"RIGHT","severity":"major","category":"category-two-ambiguous","title":"Validation rule is bypassed","content":"The second distinct issue bypasses the rule."},
+ {"path":"src/module.py","start_line":1,"end_line":1,"side":"RIGHT","severity":"minor","category":"correctness","title":"The value is assigned directly","content":"The assignment does not validate the value."}
+]}
+FINDINGS
+generate_findings "$correction_session" "$correction_session/findings.json"
+original_sha=$(shasum -a 256 "$correction_session/findings.json" | cut -d' ' -f1)
+engine_calls=$(wc -l <"$engine_log" | tr -d ' ')
+set +e
+invalid_correction=$(run review --root "$consumer_root" --findings "$correction_session/findings.json" --session "$correction_session" --json)
+invalid_code=$?
+set -e
+test "$invalid_code" -eq 2
+echo "$invalid_correction" | grep -q 'finding #1'
+echo "$invalid_correction" | grep -q 'category-one-ambiguous'
+echo "$invalid_correction" | grep -q 'accepted values:'
+echo "$invalid_correction" | grep -q 'retry the current session'
+test "$(wc -l <"$engine_log" | tr -d ' ')" = "$engine_calls"
+test "$(shasum -a 256 "$correction_session/findings.json" | cut -d' ' -f1)" = "$original_sha"
+attempt=$(python3 - "$correction_session/session.json" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8"))["findings_attempt_id"])
+PY
+)
+correction_root="$correction_session/finding-corrections/$attempt"
+test -f "$correction_root/original.json"
+test "$(shasum -a 256 "$correction_root/original.json" | cut -d' ' -f1)" = "$original_sha"
+
+# A partial correction records a second rejected attempt and keeps the session open.
+python3 - "$correction_session/findings.json" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1]); document = json.loads(path.read_text(encoding="utf-8"))
+document["findings"][0]["category"] = "security"
+path.write_text(json.dumps(document), encoding="utf-8")
+PY
+partial_sha=$(shasum -a 256 "$correction_session/findings.json" | cut -d' ' -f1)
+set +e
+partial=$(run review --root "$consumer_root" --findings "$correction_session/findings.json" --session "$correction_session" --json)
+partial_code=$?
+set -e
+test "$partial_code" -eq 2
+echo "$partial" | grep -q 'finding #2'
+test "$(wc -l <"$engine_log" | tr -d ' ')" = "$engine_calls"
+test "$(shasum -a 256 "$correction_session/findings.json" | cut -d' ' -f1)" = "$partial_sha"
+test "$(find "$correction_root" -maxdepth 1 -name '*.json' ! -name original.json | wc -l | tr -d ' ')" -eq 2
+
+# Correct only the remaining category; the preserved blocker still requires changes.
+python3 - "$correction_session/findings.json" <<'PY'
+import json, sys
+from pathlib import Path
+path = Path(sys.argv[1]); document = json.loads(path.read_text(encoding="utf-8"))
+document["findings"][1]["category"] = "contract"
+path.write_text(json.dumps(document), encoding="utf-8")
+PY
+corrected_sha=$(shasum -a 256 "$correction_session/findings.json" | cut -d' ' -f1)
+set +e
+corrected=$(run review --root "$consumer_root" --findings "$correction_session/findings.json" --session "$correction_session" --json)
+corrected_code=$?
+set -e
+test "$corrected_code" -eq 1
+test "$(echo "$corrected" | json '["verdict"]["value"]')" = changes-requested
+test "$(echo "$corrected" | json '["verdict"]["blocking"]')" = 1
+test "$(wc -l <"$engine_log" | tr -d ' ')" = "$engine_calls"
+test "$(shasum -a 256 "$correction_session/findings.json" | cut -d' ' -f1)" = "$corrected_sha"
+test "$(shasum -a 256 "$correction_root/original.json" | cut -d' ' -f1)" = "$original_sha"
+test "$(find "$correction_root" -maxdepth 1 -name '*.json' ! -name original.json | wc -l | tr -d ' ')" -eq 3
+test "$(echo "$corrected" | json '["coverage"]["complete"]')" = True
+grep -q 'category:.*correctness' "$correction_session/review-packet.md"
+grep -q 'generated category' "$installed_root/commands/code-review.md"
+test -f "$consumer_root/.agents/skills/speckit-code-review-code-review/SKILL.md"
+grep -q 'generated category' "$consumer_root/.agents/skills/speckit-code-review-code-review/SKILL.md"
+python3 - "$correction_root" "$correction_session/session.json" "$original_sha" "$partial_sha" "$corrected_sha" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+root = Path(sys.argv[1]); session = json.load(open(sys.argv[2], encoding="utf-8"))
+expected = set(sys.argv[3:])
+index = session["correction_record_digests"]
+assert set(index) == expected
+assert session["correction_accepted_digest"] == sys.argv[5]
+assert session["findings_sha256"] == sys.argv[5]
+assert session["phase"] == "closed"
+for digest in expected:
+    path = root / f"{digest}.json"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == index[digest]
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert record["original_sha256"] == sys.argv[3]
+    assert record["submitted_sha256"] == digest
+    assert record["candidate_id"] == session["candidate_id"]
+    assert record["packet_sha256"] == session["packet_sha256"]
+    assert record["config_sha256"] == session["config_sha256"]
+    assert record["inventory_sha256"] == session["packet"]["inventory_sha256"]
+    assert record["status"] == ("validated" if digest == sys.argv[5] else "rejected")
+PY
+test ! -s "$api_log"
+
 # A packet edited between the phases is refused with nothing normalized.
 opened=$(run review --root "$consumer_root" --base main --head "$head_commit" --json)
 session=$(echo "$opened" | json '["session"]["path"]')

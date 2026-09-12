@@ -198,17 +198,8 @@ def _usage(message: str, code: str, detail: str) -> AppError:
     return AppError(message, code=EXIT_USAGE, diagnostics=[Diagnostic(code, detail)])
 
 
-def load_document(path: Path) -> tuple[list[Any], str, dict[str, Any]]:
-    """Read the findings file, refusing anything that is not the agreed shape."""
-
-    try:
-        raw = path.read_bytes()
-    except OSError as error:
-        raise _usage(
-            f"the findings file could not be read: {path}",
-            "findings_unreadable",
-            str(error),
-        ) from error
+def load_document_bytes(raw: bytes) -> tuple[list[Any], str, dict[str, Any]]:
+    """Load a document from one already-read byte sequence."""
     digest = hashlib.sha256(raw).hexdigest()
     try:
         text = raw.decode("utf-8")
@@ -291,9 +282,28 @@ def _require_string(
     return value
 
 
+_MISSING = object()
+
+
 def _require_enum(entry: Mapping[str, Any], name: str, allowed: Sequence[str], *, index: int) -> str:
     value = entry.get(name)
     if value not in allowed:
+        if name == "category":
+            if value is _MISSING:
+                detail = "missing value"
+                summary = "is missing"
+            elif isinstance(value, str):
+                detail = f"invalid value {value!r}"
+                summary = f"has invalid value {value!r}"
+            else:
+                detail = f"invalid value {type(value).__name__} {value!r}"
+                summary = f"must be a string; found {type(value).__name__} {value!r}"
+            choices = ", ".join(allowed)
+            raise _usage(
+                f"finding #{index}: `category` {summary}; accepted values: {choices}",
+                "findings_category_invalid",
+                f"finding #{index}: {detail}; accepted values: {choices}",
+            )
         raise _usage(
             f"finding #{index}: `{name}` is not one of {', '.join(allowed)}",
             "findings_field_enum",
@@ -344,6 +354,8 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
             "case the rest of it cannot be trusted either, or something is trying to reach a field this version does "
             "not validate",
         )
+    if "category" not in entry:
+        _require_enum({"category": _MISSING}, "category", CATEGORIES, index=index)
     missing = [name for name in REQUIRED_FIELDS if name not in entry]
     if missing:
         raise _usage(
@@ -352,7 +364,7 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
             "every required field of the packet's schema must be present",
         )
 
-    path = _require_string(entry, "path", index=index, limit=4096)
+    path = _require_string(entry, "path", index=index, limit=4096, truncated=truncated)
     try:
         validate_repository_relative_path(path)
     except AppError as error:
@@ -408,12 +420,12 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
         content=_require_string(entry, "content", index=index, limit=MAX_CONTENT_CHARS, truncated=truncated),
         side=side,
         existing_code=(
-            _require_string(entry, "existing_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True)
+            _require_string(entry, "existing_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True, truncated=truncated)
             if entry.get("existing_code") is not None
             else None
         ),
         suggestion_code=(
-            _require_string(entry, "suggestion_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True)
+            _require_string(entry, "suggestion_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True, truncated=truncated)
             if entry.get("suggestion_code") is not None
             else None
         ),
@@ -421,7 +433,7 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
         sdd_reference=(
             " ".join(
                 visible(
-                    _require_string(entry, "sdd_reference", index=index, limit=MAX_REFERENCE_CHARS, allow_empty=True)
+                    _require_string(entry, "sdd_reference", index=index, limit=MAX_REFERENCE_CHARS, allow_empty=True, truncated=truncated)
                 ).split()
             )
             or None
@@ -461,8 +473,7 @@ def normalize(
             diagnostics.append(
                 Diagnostic(
                     "findings_truncated_field",
-                    f"{finding.path}:{finding.start_line}: {', '.join(sorted(set(cut)))} exceeded the limit and was "
-                    f"cut ({MAX_TITLE_CHARS} characters for a title, {MAX_CONTENT_CHARS} for content)",
+                    f"{finding.path}:{finding.start_line}: {', '.join(sorted(set(cut)))} exceeded its configured limit and was cut",
                     finding.path,
                     severity="warning",
                 )

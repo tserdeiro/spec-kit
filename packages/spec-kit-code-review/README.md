@@ -73,9 +73,19 @@ findings path outside that session is a usage error.
 }
 ```
 
-Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories:
-`correctness`, `security`, `contract`, `delivery`, `tests`,
-`maintainability`, `style` — any other value refuses the whole file.
+When a category is invalid, edit only that field and rerun the same close
+command. Use the generated category catalog in the packet; an ambiguous
+meaning remains unresolved until the reviewer selects a meaningful supported
+category. The original submission is preserved byte-for-byte at
+`finding-corrections/<findings_attempt_id>/original.json`, with each attempted
+correction recorded beside it. Partial corrections stay open. A validated
+correction record is evidence of the category change, not approval, closure, or
+publication; the normal verdict still applies. A blocking finding remains
+`changes-requested`, and coverage or engine gaps remain `inconclusive`.
+Substantive edits require a fresh review and new analysis.
+
+Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories are listed
+in the packet's generated catalog; any other value refuses the whole file.
 
 ## Guards
 

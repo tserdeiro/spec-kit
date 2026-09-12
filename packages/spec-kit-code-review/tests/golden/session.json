@@ -165,6 +165,7 @@
     "working_root": "<workspace>/evidence/path-<slug>/<sha1>/worktree",
     "worktree_path": "<variable>"
   },
+  "findings_attempt_id": "<variable>",
   "head_commit": "<variable>",
   "merge_base": "<variable>",
   "opened_at": "<variable>",

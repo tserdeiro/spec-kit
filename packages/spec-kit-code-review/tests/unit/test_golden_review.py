@@ -291,6 +291,7 @@ _VARIABLE_KEYS = {
     "pr_metadata_sha256",
     "containment_suffix",
     "config_sha256",
+    "findings_attempt_id",
     "rules_sha256",
     "executable",
     "config_path",

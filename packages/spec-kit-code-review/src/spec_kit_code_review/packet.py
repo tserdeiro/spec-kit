@@ -1377,6 +1377,12 @@ def _section_diff_commands(candidate: Any, preview: Any, *, advisory: bool = Fal
 def _section_instructions(*, advisory: bool = False) -> str:
     """Section 7: written entirely by this extension, and always last."""
 
+    # Keep reviewer guidance coupled to the validator without creating the
+    # findings -> packet import cycle at module import time.
+    from .findings import CATEGORIES
+
+    category_catalog = ", ".join(f"`{category}`" for category in CATEGORIES)
+
     role = (
         [
             "You are giving the author an **advisory** pre-review of their own working tree. This is not the",
@@ -1411,7 +1417,7 @@ def _section_instructions(*, advisory: bool = False) -> str:
             "### 7.3 Severity and category",
             "",
             "- severity: `blocking`, `major`, `minor`, `nit`, `info`",
-            "- category: `correctness`, `security`, `contract`, `delivery`, `tests`, `maintainability`, `style`",
+            f"- category: {category_catalog}",
             "",
             "### 7.4 Finding schema",
             "",

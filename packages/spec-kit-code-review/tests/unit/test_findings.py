@@ -22,7 +22,8 @@ from spec_kit_code_review.findings import (
     MAX_FINDINGS,
     MAX_TITLE_CHARS,
     Finding,
-    load_document,
+    CATEGORIES,
+    load_document_bytes,
     normalize,
     render_markdown,
     validate_entry,
@@ -71,7 +72,8 @@ class SchemaTests(unittest.TestCase):
     def test_every_required_field_is_required(self) -> None:
         for name in ("path", "start_line", "end_line", "severity", "category", "title", "content"):
             with self.subTest(field=name):
-                self._rejects(entry(**{name: _ABSENT}), "findings_field_missing")
+                expected = "findings_category_invalid" if name == "category" else "findings_field_missing"
+                self._rejects(entry(**{name: _ABSENT}), expected)
 
     def test_an_unknown_field_is_refused_rather_than_ignored(self) -> None:
         # Ignoring it would mean either a different schema whose other fields
@@ -85,7 +87,21 @@ class SchemaTests(unittest.TestCase):
         self._rejects(entry(severity="catastrophic"), "findings_field_enum")
 
     def test_an_invented_category_is_refused(self) -> None:
-        self._rejects(entry(category="vibes"), "findings_field_enum")
+        error = self._rejects(entry(category="vibes"), "findings_category_invalid")
+        self.assertIn("finding #1", error.diagnostics[0].message)
+        self.assertIn("vibes", error.diagnostics[0].message)
+        self.assertIn(", ".join(CATEGORIES), error.diagnostics[0].message)
+
+    def test_a_missing_category_has_an_actionable_diagnostic(self) -> None:
+        error = self._rejects(entry(category=_ABSENT), "findings_category_invalid")
+        self.assertIn("finding #1", error.diagnostics[0].message)
+        self.assertIn("missing", error.diagnostics[0].message)
+
+    def test_a_non_string_category_has_an_actionable_diagnostic(self) -> None:
+        error = self._rejects(entry(category=7), "findings_category_invalid")
+        self.assertIn("finding #1", error.diagnostics[0].message)
+        self.assertIn("7", error.diagnostics[0].message)
+        self.assertIn(", ".join(CATEGORIES), error.diagnostics[0].message)
 
     def test_an_invented_side_is_refused(self) -> None:
         self._rejects(entry(side="MIDDLE"), "findings_field_enum")
@@ -176,7 +192,7 @@ class DocumentTests(unittest.TestCase):
     def _rejects(self, text: str, code: str) -> AppError:
         self.path.write_text(text, encoding="utf-8")
         with self.assertRaises(AppError) as caught:
-            load_document(self.path)
+            load_document_bytes(self.path.read_bytes())
         self.assertEqual(caught.exception.code, EXIT_USAGE)
         self.assertEqual(caught.exception.diagnostics[0].code, code)
         return caught.exception
@@ -184,7 +200,7 @@ class DocumentTests(unittest.TestCase):
     def test_the_documented_shape_loads_with_its_digest(self) -> None:
         self.path.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
 
-        entries, digest, _document = load_document(self.path)
+        entries, digest, _document = load_document_bytes(self.path.read_bytes())
 
         self.assertEqual(len(entries), 1)
         self.assertEqual(len(digest), 64)
@@ -206,7 +222,7 @@ class DocumentTests(unittest.TestCase):
                     document = json.loads(example)
                     if isinstance(document, dict) and "findings" in document:
                         self.path.write_text(example, encoding="utf-8")
-                        entries, _digest, _document = load_document(self.path)
+                        entries, _digest, _document = load_document_bytes(self.path.read_bytes())
                         for index, finding in enumerate(entries, start=1):
                             validate_entry(finding, index=index)
                     elif isinstance(document, dict) and document.get("mode") == "advisory":
@@ -263,16 +279,9 @@ class DocumentTests(unittest.TestCase):
         self.path.write_bytes(b'{"findings": [{"content": "\xff\xfe"}]}')
 
         with self.assertRaises(AppError) as caught:
-            load_document(self.path)
+            load_document_bytes(self.path.read_bytes())
 
         self.assertEqual(caught.exception.diagnostics[0].code, "findings_not_utf8")
-
-    def test_an_absent_file_is_a_usage_error(self) -> None:
-        with self.assertRaises(AppError) as caught:
-            load_document(Path(self.directory.name) / "nope.json")
-
-        self.assertEqual(caught.exception.diagnostics[0].code, "findings_unreadable")
-
 
 class NormalizationCase(unittest.TestCase):
     def setUp(self) -> None:

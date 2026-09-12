@@ -18,6 +18,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -149,11 +151,25 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
     try:
         harden_directories(path.parent)
-        path.write_text(
-            json.dumps(redact_payload(dict(payload)), ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        os.chmod(path, FILE_MODE)
+        content = (json.dumps(redact_payload(dict(payload)), ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        try:
+            os.fchmod(descriptor, FILE_MODE)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        except OSError:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
     except OSError as error:
         raise AppError(
             f"could not write the session evidence at {path}",
@@ -207,6 +223,7 @@ def open_session(
         "config_sha256": config_sha256,
         "packet_sha256": None,
         "verdict": None,
+        "findings_attempt_id": secrets.token_urlsafe(18),
     }
     if extra:
         collisions = sorted(set(extra) & set(payload))
