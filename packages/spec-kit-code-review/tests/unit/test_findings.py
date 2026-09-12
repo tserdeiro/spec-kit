@@ -23,7 +23,7 @@ from spec_kit_code_review.findings import (
     MAX_TITLE_CHARS,
     Finding,
     CATEGORIES,
-    load_document,
+    load_document_bytes,
     normalize,
     render_markdown,
     validate_entry,
@@ -192,7 +192,7 @@ class DocumentTests(unittest.TestCase):
     def _rejects(self, text: str, code: str) -> AppError:
         self.path.write_text(text, encoding="utf-8")
         with self.assertRaises(AppError) as caught:
-            load_document(self.path)
+            load_document_bytes(self.path.read_bytes())
         self.assertEqual(caught.exception.code, EXIT_USAGE)
         self.assertEqual(caught.exception.diagnostics[0].code, code)
         return caught.exception
@@ -200,7 +200,7 @@ class DocumentTests(unittest.TestCase):
     def test_the_documented_shape_loads_with_its_digest(self) -> None:
         self.path.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
 
-        entries, digest, _document = load_document(self.path)
+        entries, digest, _document = load_document_bytes(self.path.read_bytes())
 
         self.assertEqual(len(entries), 1)
         self.assertEqual(len(digest), 64)
@@ -222,7 +222,7 @@ class DocumentTests(unittest.TestCase):
                     document = json.loads(example)
                     if isinstance(document, dict) and "findings" in document:
                         self.path.write_text(example, encoding="utf-8")
-                        entries, _digest, _document = load_document(self.path)
+                        entries, _digest, _document = load_document_bytes(self.path.read_bytes())
                         for index, finding in enumerate(entries, start=1):
                             validate_entry(finding, index=index)
                     elif isinstance(document, dict) and document.get("mode") == "advisory":
@@ -279,16 +279,9 @@ class DocumentTests(unittest.TestCase):
         self.path.write_bytes(b'{"findings": [{"content": "\xff\xfe"}]}')
 
         with self.assertRaises(AppError) as caught:
-            load_document(self.path)
+            load_document_bytes(self.path.read_bytes())
 
         self.assertEqual(caught.exception.diagnostics[0].code, "findings_not_utf8")
-
-    def test_an_absent_file_is_a_usage_error(self) -> None:
-        with self.assertRaises(AppError) as caught:
-            load_document(Path(self.directory.name) / "nope.json")
-
-        self.assertEqual(caught.exception.diagnostics[0].code, "findings_unreadable")
-
 
 class NormalizationCase(unittest.TestCase):
     def setUp(self) -> None:

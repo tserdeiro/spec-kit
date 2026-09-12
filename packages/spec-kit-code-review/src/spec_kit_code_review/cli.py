@@ -82,7 +82,10 @@ from .lockfile import SELF_PIN_FILENAME, first_line, lock_path, platform_key, ve
 from .ocr import ADAPTER_VERSION, Ocr, verify_scope_against_git, write_minimal_config
 from .anchors import load_hunks
 from .contract import matches_protected_path, protected_path_findings
-from .findings import load_document, normalize as normalize_findings, render_markdown as render_findings_markdown
+from .findings import load_document_bytes, normalize as normalize_findings, render_markdown as render_findings_markdown
+from .finding_corrections import (finish as finish_correction, has_invalid_categories,
+                                  parse_bytes as parse_correction_bytes, prepare as prepare_correction,
+                                  reject_submission, validate_attempt, verify_history)
 from .coverage import validate as validate_coverage
 from .packet import assemble as assemble_packet
 from .packet import digest_of as packet_digest
@@ -1466,6 +1469,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
             ],
         )
     session = require_open(load_session(Path(args.session)))
+    validate_attempt(session)
     findings_path = _findings_path_for_session(args.findings, session)
 
     context = _open_context(args)
@@ -1513,7 +1517,26 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     for source in inventory.get("sources", []):
         if source["path"] == "<pull-request-intent>" and hashlib.sha256(intent.encode("utf-8")).hexdigest() != source["sha256"]:
             raise AppError("the frozen pull-request intent changed; reopen the review", code=EXIT_DRIFT)
-    entries, source_digest, findings_document = load_document(findings_path)
+    try:
+        findings_raw = findings_path.read_bytes()
+    except OSError as error:
+        raise AppError(f"the findings file could not be read: {findings_path}", code=EXIT_USAGE,
+                       diagnostics=[Diagnostic("findings_unreadable", str(error), str(findings_path))]) from error
+    try:
+        entries, source_digest, findings_document = load_document_bytes(findings_raw)
+    except AppError as error:
+        if session.payload.get("correction_original_sha256"):
+            reject_submission(session, findings_raw, error.diagnostics[0].code if error.diagnostics else "findings_invalid")
+        raise
+    correction_record = None
+    if session.payload.get("correction_original_sha256") or has_invalid_categories(findings_document):
+        try:
+            correction_document = parse_correction_bytes(findings_raw)
+            correction_record, _ = prepare_correction(session, findings_raw, correction_document)
+        except AppError as error:
+            if session.payload.get("correction_original_sha256") and error.code == EXIT_USAGE:
+                reject_submission(session, findings_raw, error.diagnostics[0].code if error.diagnostics else "correction_invalid")
+            raise
     envelope = findings_document.get("coverage")
     receipt_reader = CommitReader(context.git, candidate.head_commit)
     def read_receipt_source(path: str) -> str | bytes | None:
@@ -1558,16 +1581,26 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
                 message=(
                     f"{diagnostic.message}; edit only this category and retry the current session with: "
                     f"bash \"$CR\" review --findings {shlex.quote(str(findings_path))} "
-                    f"--session {shlex.quote(str(session.path))}"
+                    f"--session {shlex.quote(str(session.path))}; original preserved at "
+                    f"{shlex.quote(str(session.path / 'finding-corrections' / str(session.payload.get('findings_attempt_id')) / 'original.json'))}"
                 ),
             )
             if diagnostic.code == "findings_category_invalid" else diagnostic
             for diagnostic in error.diagnostics
         ]
+        if correction_record is not None:
+            finish_correction(session, source_digest, status="rejected", reason=error.diagnostics[0].code if error.diagnostics else "validation_failed")
         if category_diagnostics != error.diagnostics:
             raise AppError(str(error), code=error.code, category=error.category,
                            diagnostics=category_diagnostics, retryable=error.retryable) from error
         raise
+    if session.payload.get("correction_original_sha256"):
+        if normalized.discarded or any(item.code == "findings_truncated_field" for item in normalized.diagnostics):
+            finish_correction(session, source_digest, status="rejected", reason="normalization would discard or truncate submitted findings")
+            raise AppError("the correction would discard review work", code=EXIT_USAGE,
+                           diagnostics=[Diagnostic("correction_discarded_findings", "a category correction must preserve every submitted finding")])
+        finish_correction(session, source_digest, status="validated")
+        verify_history(session)
     diagnostics.extend(normalized.diagnostics)
 
     session.payload["coverage"] = coverage_record

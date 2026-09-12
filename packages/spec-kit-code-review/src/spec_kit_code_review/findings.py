@@ -198,17 +198,8 @@ def _usage(message: str, code: str, detail: str) -> AppError:
     return AppError(message, code=EXIT_USAGE, diagnostics=[Diagnostic(code, detail)])
 
 
-def load_document(path: Path) -> tuple[list[Any], str, dict[str, Any]]:
-    """Read the findings file, refusing anything that is not the agreed shape."""
-
-    try:
-        raw = path.read_bytes()
-    except OSError as error:
-        raise _usage(
-            f"the findings file could not be read: {path}",
-            "findings_unreadable",
-            str(error),
-        ) from error
+def load_document_bytes(raw: bytes) -> tuple[list[Any], str, dict[str, Any]]:
+    """Load a document from one already-read byte sequence."""
     digest = hashlib.sha256(raw).hexdigest()
     try:
         text = raw.decode("utf-8")
