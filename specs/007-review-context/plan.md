@@ -327,12 +327,13 @@ tests/golden/
 ## Product handoff
 
 `ready-for-development` requires all rows complete. Analysis consistency is
-not technical approval. The current authorization covers artifacts through
-analysis and local phase commits.
+not technical approval. The human approved implementation and explicitly authorized Linear/TDS
+synchronization, commits, pushes, PRs, reviews, and ready transitions; merge
+and releases remain human decisions.
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
-| Clean Spec Kit analysis | Run after task generation; report remains in the conversation because analyze is read-only. | pending |
-| Technical approval of plan and tasks | Human review after analysis. | pending |
-| Reviewed Linear dry-run and synchronization | After-plan preview: one Project. After-tasks preview: one Project and eight Issues for feature 007. Both succeeded; zero remote writes applied. Synchronization remains pending. | pending |
-| Every executable task individually assignable and assigned | Task IDs will provide delivery units; assignment remains a human action. | pending |
+| Clean Spec Kit analysis | Analysis completed in this conversation: 12/12 requirements and criteria covered, zero findings. | complete |
+| Technical approval of plan and tasks | The human approved the artifacts and requested implementation in this conversation. | complete |
+| Reviewed Linear dry-run and synchronization | Reviewed preview applied: Project `37f5294d-187c-4e53-be4d-81d1e71a307f`, TDS-86–TDS-93 in TDS/spec-kit. Read-only status verified the mapping without drift. | complete |
+| Every executable task individually assignable and assigned | The human assigned T001–T008 to fresh Luna implementation agents, sequentially, with independent review orchestrated by Codex. | complete |
