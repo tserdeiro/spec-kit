@@ -49,7 +49,7 @@ APIs against their official documentation before implementation.
 | IV. Durable repository truth | PASS | PASS | Stable FR/SC identifiers and ordered ledger; observations claim only their run's scope. |
 | V. Source/consumer boundary | PASS | PASS | Installed preset resolves consumer state with no source-checkout runtime dependency. |
 | VI. Reviewable delivery | PASS | PASS | One dependency chain; each task includes tests, traces, boundaries, and a forecast below 400. |
-| Sequential delivery and human gates | PASS | PASS | User explicitly requested concurrent planning of entry 11 from main; implementation and approval gates remain pending. |
+| Sequential delivery and human gates | PASS | PASS | User requested implementation on 2026-09-12; task delivery remains sequential and final review/merge human-controlled. |
 
 ## System boundaries and interfaces
 
@@ -227,12 +227,12 @@ presets/default/README.md
 ## Product handoff
 
 `ready-for-development` requires all rows complete; analysis is not technical approval.
-This is the pre-analysis snapshot; the final read-only analysis is recorded in
-the feature PR without rewriting these artifacts.
+Product handoff updated from the 2026-09-12 implementation instruction; final
+human review and merge remain pending.
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
-| Clean Spec Kit analysis | Run after tasks; retain final report in draft PR | Pending |
-| Technical approval of plan and tasks | Publication authorization does not approve the generated design | Pending |
+| Clean Spec Kit analysis | PR #149: 0 findings, 100% FR/SC/constraint coverage | Complete |
+| Technical approval of plan and tasks | User explicitly requested implementation of these tasks on 2026-09-12 | Complete |
 | Reviewed Linear dry-run and synchronization | 2026-09-12: Project 012 and TDS-116–TDS-121 created; post-apply read verified; repeat preview 0 operations and status 0 drift | Complete |
-| Every executable task individually assignable and assigned | T001–T006 map to TDS-116–TDS-121, all Todo with no assignee | Pending |
+| Every executable task individually assignable and assigned | User assigned T001–T006 to one fresh supervised implementation agent each; TDS-116–TDS-121 retain human assignee fields | Complete |
