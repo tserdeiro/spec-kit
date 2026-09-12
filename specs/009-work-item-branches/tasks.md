@@ -37,7 +37,7 @@ missing configuration alone enables supplied key/title fallback.
 - [ ] T002 [US1] Expose stateless configured resolution through packages/spec-kit-linear/scripts/python/resolve_work_item.py
   - **Traces**: FR-001, FR-004, FR-006, FR-007, C-001, C-002, SC-003; outcome: installed consumers resolve an Issue or branches with explicit absent/error/conflict outcomes.
   - **Depends on**: T001
-  - **Boundaries**: Add `work_item_resolution.py`, the internal launcher, and focused package tests. Use existing config/credential/client loaders; canonical keys and explicit PR/native evidence must agree with the bound team. Treat multiple explicit keys as ambiguity and nullable native lookup as unresolved. Return JSON context without secrets; avoid new public commands or persistent mappings. Keep feature/task observations outside work-item resolution.
+  - **Boundaries**: Add `work_item_resolution.py`, the internal launcher, and focused package tests. Use existing config/credential/client loaders; canonical keys and explicit PR/native evidence must agree with the bound team. Treat multiple explicit keys as ambiguity and native null without canonical explicit identity as unresolved, following plan D1. Return JSON context without secrets; avoid new public commands or persistent mappings. Keep feature/task observations outside work-item resolution.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> bridge covers no config, invalid config, missing credentials, network/permission failure, wrong team, conflicting keys, valid native result, and feature/task exclusion.
   - **Delivery**: single PR (~320 authored lines)
   - **Completion evidence**: Pending
@@ -46,7 +46,7 @@ missing configuration alone enables supplied key/title fallback.
   - **Traces**: FR-001–004, FR-008, C-004, SC-001, SC-003, SC-005; outcome: start takes an Issue key and uses exact native branch/context or asks only for absent fallback data.
   - **Depends on**: T002
   - **Boundaries**: Add start helper; update `task_base.py`, `commands/bugfix.md`, `commands/chore.md`, and preset tests together. Replace caller-built branch input. Call only the installed resolver; validate refs with Git before mutations, use argument arrays, preserve dirty files, and reconcile only after success. Without configuration, derive the default key/title slug. Bugs retain triage; chores remain direct. T004 extends this first-start slice with adoption.
-  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` -> configured exact-name creation, context return, default fallback, missing title, invalid name, and configured failures pass in isolated repositories.
+  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` -> configured exact-name creation, context return, default fallback, missing title, invalid name, reserved full feature/task-name collision, and configured failures pass in isolated repositories.
   - **Delivery**: single PR (~340 authored lines)
   - **Completion evidence**: Pending
 
@@ -60,7 +60,7 @@ one branch/PR and preserves commits; conflicting evidence prevents mutation.
   - **Traces**: FR-005, FR-006, C-004, SC-002, SC-003; outcome: uniquely identified local/remote work wins over the current suggested name.
   - **Depends on**: T003
   - **Boundaries**: Extend start helper and tests with complete remote-head/PR observation, canonical Tracker linkage, native head resolution, local/remote deduplication, unique-open-PR precedence, and tracking adoption. Cover changed title/format/assignee, multiple candidates, fork heads, closed unmerged PRs, unavailable refs, dirty work, and another worktree. Preserve history and stop before speculative switches/creation on failed evidence.
-  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` -> repeated starts adopt exact existing heads, preserve history/files, and report conflicts/failures without duplicate work.
+  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` -> repeated starts adopt exact existing heads, including an old title-only PR head with canonical Tracker identity and null native branch lookup; preserve history/files and report conflicts/failures without duplicate work.
   - **Delivery**: single PR (~370 authored lines)
   - **Completion evidence**: Pending
 
@@ -99,8 +99,8 @@ feature/task-stack behavior and reviewer-only portability remain intact.
 - [ ] T008 [US3] Complete PR routing and installed contract evidence in presets/default/commands/pr.md
   - **Traces**: FR-001–010, C-001–004, SC-001–005; outcome: all five surfaces follow the native identity contract in independently installed consumers.
   - **Depends on**: T007
-  - **Boundaries**: Update PR guidance/helpers, package command/README references, preset tests, and both packages' existing installed-artifact conformance. Exercise the equivalent format/failure matrix across start, PRs, review, guards, and projection. Confirm packaged internal bridge and reviewer-only independence; regenerate authored-command skills via supported dev install where needed. Repeat read-only live prefix/native-resolution probe using implemented code and record redacted evidence in this task's completion. Preserve unrelated dirty docs and distinguish synthetic fixtures from actual agent runtime.
-  - **Evidence**: Run both package pytest suites and preset tests; `bash packages/spec-kit-linear/scripts/conformance/installed-artifact.sh`; `bash packages/spec-kit-code-review/scripts/conformance/installed-artifact.sh`; `git diff --check` -> pass. Live native probe returns the same Issue, exact valid branch and credential-prefix shape without remote mutation.
+  - **Boundaries**: Update PR guidance/helpers, package command/README references, preset tests, and the Linear installed-artifact and code-review review conformance scripts. Exercise the equivalent format/failure matrix across start, PRs, review, guards, and projection. Confirm packaged internal bridge and reviewer-only independence; regenerate authored-command skills in isolated consumers via supported dev install. Repeat read-only live prefix/native-resolution probe using implemented code and record redacted evidence in this task's completion. Preserve unrelated dirty docs and distinguish synthetic fixtures from actual agent runtime.
+  - **Evidence**: Run both package pytest suites and preset tests; `bash packages/spec-kit-linear/scripts/conformance/installed-artifact.sh`; `bash packages/spec-kit-code-review/scripts/conformance/review.sh`; `git diff --check` -> pass. Live native probe returns the same Issue, exact valid branch and credential-prefix shape without remote mutation.
   - **Delivery**: single PR (~350 authored lines)
   - **Completion evidence**: Pending
 

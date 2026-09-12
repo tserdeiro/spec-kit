@@ -74,8 +74,9 @@ surface and verify the same Issue; run feature and stack regressions alongside.
 **Acceptance scenarios**:
 
 1. **Given** a uniquely resolvable native work-item branch, **When** PR creation,
-   review, guards, or projection inspect it, **Then** they identify the same Issue
-   and follow the short path even with stale feature selection present.
+   review, or projection inspect it, **Then** they identify the same Issue and
+   follow the short path even with stale feature selection present; guards
+   classify it as a work item without applying feature-task-only restrictions.
 2. **Given** an unresolvable or ambiguous branch, **When** identity is needed,
    **Then** no unrelated Issue is selected or updated.
 3. **Given** a feature or feature-task branch, **When** the same surfaces run,
@@ -87,6 +88,8 @@ surface and verify the same Issue; run feature and stack regressions alongside.
 - User prefixes, key-only names, nested path segments, and title-based names are
   accepted when Linear resolves them uniquely; Git remains the name validator.
 - A branch containing several Issue-like keys is not an excuse to guess identity.
+- A native suggestion colliding exactly with a reserved feature/task convention
+  is an identity conflict; diagnose it before creation instead of renaming it.
 - A matching open PR is authoritative existing work; multiple open PR heads for
   the same Issue require disambiguation. Closed unmerged PRs alone do not restart
   work or prove completion; existing lifecycle precedence remains intact.
@@ -147,8 +150,9 @@ surface and verify the same Issue; run feature and stack regressions alongside.
   duplicate branches/PRs and preserve the existing work's history.
 - **SC-003**: Every tested integration failure, invalid name, and ambiguous
   identity produces zero speculative branch creations or unrelated Issue updates.
-- **SC-004**: All five delivery surfaces agree on the Issue in the native-format
-  matrix; feature/task-stack fixtures keep their existing results.
+- **SC-004**: Start, PR creation, review, and projection agree on the Issue in the
+  native-format matrix; guards apply work-item restrictions consistently, and
+  feature/task-stack fixtures keep their existing results.
 - **SC-005**: Bug and chore scenarios pass with and without configuration without
   requiring a spec/plan; live read-only evidence records native prefix behavior
   for the configured credential type separately from fixture acceptance.

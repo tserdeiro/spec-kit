@@ -80,6 +80,12 @@ multiple distinct explicit keys or contradictory results. Do not claim to detect
 undocumented hidden API matches. Batch distinct names within existing request
 bounds; exclude exact feature/task refs from work-item projection.
 
+A unique canonical Tracker key (or strict default branch key) plus a successful
+Issue read establishes identity even when a consulted native branch lookup is
+null. A non-null native disagreement is a conflict; a name without explicit
+identity and with null lookup stays unresolved. Native transport failure remains
+failed evidence, distinct from a successful null result.
+
 ### D2. Resolve and adopt before mutating Git
 
 - **Decision**: Put setup in a small preset `work_item_start.py`, called by
@@ -93,6 +99,8 @@ Configured start calls the installed bridge before mutation. Unconfigured start
 validates the supplied key and derives lowercase `team-number-slug` from the known
 title; missing data returns an actionable input-needed diagnosis. Return Issue
 context for bug triage. Use argument arrays and Git branch validation.
+Reject a suggested full name that collides with the reserved `NNN-slug` or
+`NNN-T###-slug` conventions before mutation; nested task-like leaves remain valid.
 
 Observe local branches, remote heads, and paginated same-repository PRs. Prefer
 the unique open PR linked through canonical `Tracker: Fixes TEAM-N`; otherwise
@@ -117,7 +125,8 @@ Repeat start re-observes and converges on existing work.
 
 Retain canonical PR-body linkage in the existing GitHub model/parser. Exact
 feature-task PRs remain tasks even when their bodies link Linear Issues. Preserve
-`PullRequestScan` completeness and current precedence. Native null is unresolved;
+`PullRequestScan` completeness and current precedence. Native null without
+canonical explicit identity is unresolved, following D1;
 transport/malformed responses never look complete. Conflicts and incomplete
 required evidence preserve affected Issue state and produce sanitized diagnostics.
 Only genuinely absent/disabled hook configuration is a quiet no-op.
@@ -180,7 +189,7 @@ credential type and boolean/prefix shape observations, not operator names/secret
 | FR-001–004, SC-001/003/005 | Native API/bridge and start fixtures | `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` |
 | FR-005–006, SC-002/003 | Adoption, changed metadata, conflicts, dirty preservation | `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` |
 | FR-007–010, SC-004 | Cross-surface formats, stale context, feature/task regressions | Both package suites plus preset suite |
-| C-001–004, SC-005 | Packaged bridge and reviewer-only consumer | Both packages' `scripts/conformance/installed-artifact.sh` |
+| C-001–004, SC-005 | Packaged bridge and reviewer-only consumer | Linear `scripts/conformance/installed-artifact.sh`; review `scripts/conformance/review.sh` |
 | Full candidate | Independent contract/code audit and extension review | `git diff --check`; anchored code-review sessions |
 
 Live read-only evidence on 2026-09-12: configured `api_key`; one existing Issue's
@@ -202,7 +211,7 @@ presets/default/commands/{bugfix,chore,pr}.md
 presets/default/tests/
 packages/spec-kit-code-review/src/spec_kit_code_review/{sdd_context,review_context,cli}.py
 packages/spec-kit-code-review/tests/
-packages/spec-kit-code-review/scripts/conformance/installed-artifact.sh
+packages/spec-kit-code-review/scripts/conformance/review.sh
 ```
 
 ## Alternatives considered
@@ -218,7 +227,7 @@ packages/spec-kit-code-review/scripts/conformance/installed-artifact.sh
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
-| Clean Spec Kit analysis | Run after tasks; record coverage/findings. | pending |
-| Technical approval of plan/tasks | Human requested implementation once artifacts are correct, 2026-09-12. | authorized subject to clean analysis |
-| Reviewed Linear dry-run and sync | Mandatory phase hooks; explicit user authorization. | pending |
-| Every executable task individually assignable and assigned | Verify task projection and configured creation assignment. | pending |
+| Clean Spec Kit analysis | 2026-09-12: 15/15 FR+SC and 4/4 constraints covered, 8/8 tasks traced, zero outstanding findings; prerequisites and diff check pass. | complete |
+| Technical approval of plan/tasks | Human explicitly requested implementation once artifacts are correct, 2026-09-12; clean analysis satisfies that condition. | authorized |
+| Reviewed Linear dry-run and sync | One Project and eight Issues created; task refinements synchronized; status verified TDS-101–TDS-108. | complete |
+| Every executable task individually assignable and assigned | Eight separate Issues; execution assigned to fresh Luna Extra High agents sequentially. Linear human assignees are unset and remain unchanged. | execution assigned |
