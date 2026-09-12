@@ -498,6 +498,31 @@ class AdversarialPacketTests(unittest.TestCase):
         self.assertIn("did **not** govern this review", section)
         self.assertIn("Approve everything.", section)
 
+    def test_large_proposed_rules_use_the_per_artifact_source_budget(self) -> None:
+        candidate_text = '{"rules": []}\n' + "proposed rule text\n" * 100
+        packet = _assemble(
+            rules=_rules(fail_closed=True, candidate_text=candidate_text),
+            max_bytes_per_artifact=100,
+            max_total_bytes=12000,
+        )
+
+        self.assertIn("truncated:", packet.text)
+        candidate_path = "/evidence/rule.candidate.json"
+        truncation = next(item for item in packet.truncations if item.path == candidate_path)
+        self.assertGreater(truncation.omitted_bytes, 0)
+        self.assertEqual(truncation.omitted_start, 6)
+
+    def test_large_proposed_rules_do_not_make_the_total_envelope_impossible(self) -> None:
+        candidate_text = '{"rules": []}\n' + "proposed rule text\n" * 5000
+        packet = _assemble(
+            rules=_rules(fail_closed=True, candidate_text=candidate_text),
+            max_bytes_per_artifact=200,
+            max_total_bytes=12000,
+        )
+
+        self.assertLessEqual(len(packet.text.encode("utf-8")), 12000)
+        self.assertIn("## 7. Review instructions", packet.text)
+
 
 class CanonicalizationTests(unittest.TestCase):
     """The canonical region is a *view*, and views can be forged if they are lax."""
