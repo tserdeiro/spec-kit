@@ -102,6 +102,50 @@ class LinearClientTests(unittest.TestCase):
         self.assertEqual(malformed.exception.code, 9)
         self.assertIn("team", str(malformed.exception))
 
+    def test_resolve_issue_contexts_batches_distinct_keys_and_preserves_null(self) -> None:
+        client, opener, _ = self._client(
+            [MemoryResponse({"data": {"issue0": self._issue_node(), "issue1": None}})]
+        )
+
+        found = client.resolve_issue_contexts(["WOR-12", "WOR-13", "WOR-12"])
+
+        self.assertEqual(set(found), {"WOR-12", "WOR-13"})
+        self.assertEqual(found["WOR-12"].identifier, "WOR-12")
+        self.assertIsNone(found["WOR-13"])
+        self.assertEqual(opener.requests[0]["payload"]["variables"], {"issue0": "WOR-12", "issue1": "WOR-13"})
+        self.assertIn("IssueContexts", str(opener.requests[0]["payload"]["query"]))
+
+    def test_resolve_issue_contexts_batches_at_existing_page_bound(self) -> None:
+        identifiers = [f"WOR-{number}" for number in range(51)]
+        first = {
+            f"issue{index}": self._issue_node(identifier=identifier)
+            for index, identifier in enumerate(identifiers[:50])
+        }
+        second = {"issue0": self._issue_node(identifier=identifiers[50])}
+        client, opener, _ = self._client(
+            [MemoryResponse({"data": first}), MemoryResponse({"data": second})]
+        )
+
+        found = client.resolve_issue_contexts(identifiers)
+
+        self.assertEqual(len(found), 51)
+        self.assertEqual(len(opener.requests), 2)
+        self.assertEqual(len(opener.requests[0]["payload"]["variables"]), 50)
+        self.assertEqual(len(opener.requests[1]["payload"]["variables"]), 1)
+
+    def test_resolve_issue_contexts_rejects_missing_or_malformed_result(self) -> None:
+        client, _, _ = self._client([MemoryResponse({"data": {}})])
+        with self.assertRaises(AppError) as missing:
+            client.resolve_issue_contexts(["WOR-12"])
+        self.assertEqual(missing.exception.code, 9)
+        self.assertIn("missing", str(missing.exception))
+
+        client, _, _ = self._client([MemoryResponse({"data": {"issue0": []}})])
+        with self.assertRaises(AppError) as malformed:
+            client.resolve_issue_contexts(["WOR-12"])
+        self.assertEqual(malformed.exception.code, 9)
+        self.assertIn("object or null", str(malformed.exception))
+
     def test_query_uses_authorization_request_id_and_only_named_queries(self) -> None:
         client, opener, _ = self._client([MemoryResponse({"data": {"viewer": {"id": "viewer"}}})])
 
