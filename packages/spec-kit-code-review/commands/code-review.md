@@ -113,6 +113,19 @@ candidate — one whose path or range does not exist is discarded as a
 hallucination — anchorable findings become inline comments and the rest go to
 the summary, and the verdict is derived.
 
+If a category is rejected, edit only that finding's `category` in the same
+session and rerun the existing close command. The packet's generated category
+catalog is authoritative; choose the replacement from it rather than guessing
+an ambiguous meaning. The original bytes and every correction attempt are kept
+under `finding-corrections/<findings_attempt_id>/original.json` and its sibling
+attempt records. A partial correction remains rejected until every invalid
+category is corrected. The validated correction record is evidence of the
+category change, not approval or publication; the same command closes the
+session after the usual validation and environment checks. Blocking findings
+still produce `changes-requested`, and coverage or engine gaps remain
+`inconclusive`. If the finding's meaning requires a substantive edit, start a
+fresh review so the candidate is analyzed again.
+
 The verdict is `no-blocking-findings`, `changes-requested` or `inconclusive` —
 **never an approval**. `changes-requested` exits 1: the review ran correctly and
 the candidate needs work. An `inconclusive` verdict names what it did not cover,
@@ -185,9 +198,8 @@ comprehension. For pull requests, inspect the frozen intent source recorded in
 the inventory using its exact version and retrieval information; later edits to
 the live pull-request text do not replace that snapshot.
 
-Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories:
-`correctness`, `security`, `contract`, `delivery`, `tests`,
-`maintainability`, `style` — any other value refuses the whole file. Cite
+Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories are listed
+in the packet's generated catalog; any other value refuses the whole file. Cite
 the exact lines that support each finding; anything that does not exist in
 the candidate is discarded.
 

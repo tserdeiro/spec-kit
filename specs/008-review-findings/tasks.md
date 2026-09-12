@@ -60,16 +60,46 @@ closure; unchanged original bytes and blocking severity; no repeated engine anal
 
 ## Final phase: Cross-cutting verification
 
-- [ ] T004 Verify installed recovery and document the retry procedure in packages/spec-kit-code-review/scripts/conformance/review.sh
+- [x] T004 Verify installed recovery and document the retry procedure in packages/spec-kit-code-review/scripts/conformance/review.sh
   - **Traces**: FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007, SC-001, SC-002, SC-003, SC-004; outcome: an installed consumer completes a lossless correction with discoverable evidence and an exact retry procedure.
   - **Depends on**: T003
   - **Boundaries**: Extend the installed-consumer fixture in `scripts/conformance/review.sh`; update `commands/code-review.md`, package `README.md`, and affected packet guidance/goldens. Point static guidance to the generated catalog, show editing only invalid categories followed by the existing close command, and describe original/attempt evidence, explicit ambiguity diagnosis, and fresh-review recovery for substantive edits. Conformance exercises the installed launcher and generated guidance with valid reading receipts, original/corrected digests, a preserved blocker, a still-invalid attempt, unchanged engine-call count, and no GitHub writes. Preserve source-checkout Git state, upstream assets, package versions, and release authority.
   - **Evidence**: `bash packages/spec-kit-code-review/scripts/conformance/review.sh` -> installed rejection/correction/closure passes; `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests -q` -> package regressions pass; `git diff --check` -> clean. Record installed synthetic evidence separately from live agent execution.
   - **Delivery**: single PR (~240 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #139; installed-consumer conformance passed with synthetic engine/GitHub fixtures, separately from live independent task reviews. The complete package suite passed 964 tests and 612 subtests. Budget 112/400; diff check clean. Independent review of 560ae53 found no actionable defects: https://github.com/tserdeiro/spec-kit/pull/139#issuecomment-5647078899. All four CI checks passed on that implementation candidate; this final commit records completion only.
 
 ## Dependencies and stack order
 
 - **Critical path**: T001 → T002 → T003 → T004.
 - **Stack order**: T001 PR → T002 PR → T003 PR → T004 PR; each begins after its
   predecessor is ready for review. Delivery scripts resolve actual bases.
+
+## Phase 3: Convergence
+
+The independent whole-feature audit on 2026-09-12 identified three remaining
+contract gaps. The human's authorization to complete the flow assigns these
+corrections to supervised Luna agents, followed by independent review.
+
+- [ ] T005 [US2] Reject orphaned correction evidence before every close per FR-004–FR-007 and plan D2/D4 (partial)
+  - **Traces**: FR-004, FR-005, FR-006, FR-007, SC-003, SC-004; outcome: failure to persist the original binding leaves every subsequent submission blocked until reopening.
+  - **Depends on**: T004
+  - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/finding_corrections.py` and focused `tests/unit/test_phase_two.py` or `test_finding_corrections.py`. Detect incomplete evidence for the current attempt before all close paths, including otherwise valid and empty submissions. Preserve fresh valid submissions, old-attempt isolation, original bytes, and publication guards.
+  - **Evidence**: Inject the first session-write failure after original capture, then retry empty and category-valid submissions with `--publish`; both remain open with an evidence diagnostic and zero GitHub writes. Focused correction/session suites and `git diff --check` pass.
+  - **Delivery**: single PR (~100 authored lines)
+  - **Completion evidence**: pending
+
+- [ ] T006 [US2] Preserve exact JSON numeric values during category-only comparison per FR-005 and plan D3 (partial)
+  - **Traces**: FR-005, SC-002, SC-004; outcome: distinct high-precision numeric values outside invalid categories cannot validate as a lossless correction.
+  - **Depends on**: T005
+  - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/finding_corrections.py` and focused correction/phase-two tests. Use the standard library to retain numeric precision and structural type distinctions; preserve object-key/whitespace equivalence, category evidence serialization, and existing strict validation.
+  - **Evidence**: Regress a change from `0.123456789012345678901` to `0.123456789012345678902` in coverage metadata alongside a category correction; closure/publication are rejected. Unchanged high-precision values and allowed reformatting succeed. Focused correction/phase-two suites and `git diff --check` pass.
+  - **Delivery**: single PR (~180 authored lines)
+  - **Completion evidence**: pending
+
+- [ ] T007 [US2] Redact sensitive object keys in derived correction evidence per C-003 and plan D4 (partial)
+  - **Traces**: FR-004, C-003, SC-003; outcome: arbitrary invalid-category objects produce redacted derived records while the private original remains byte-exact.
+  - **Depends on**: T006
+  - **Boundaries**: Update correction evidence handling and, if required, `packages/spec-kit-code-review/src/spec_kit_code_review/redaction.py`; reuse existing redaction rules and tests. Cover nested keys and values without changing the preserved original, reviewer input, or digest bindings.
+  - **Evidence**: Use synthetic recognized tokens in nested object keys and values; assert absence from derived records and normal outputs, presence only in the exact private original/input, and successful history verification. Run focused redaction/correction tests, the complete package suite, installed synthetic conformance, and `git diff --check`.
+  - **Delivery**: single PR (~160 authored lines)
+  - **Completion evidence**: pending
