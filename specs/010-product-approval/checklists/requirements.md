@@ -32,3 +32,8 @@
 ## Notes
 
 Specification quality only; human approval and development readiness are separate.
+
+Clarify reviewed all ten ambiguity categories on 2026-09-12: clear or inapplicable;
+no material questions remain. Gate/approval distinction, Linear timing,
+completion-only changes, retries, and discovery boundaries follow the input.
+All 16 checklist items remain passing.

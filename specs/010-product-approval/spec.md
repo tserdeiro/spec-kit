@@ -44,7 +44,7 @@ compare feature history and remote branches/PRs before and after.
 ### User Story 2 - Publish the approved handoff once (Priority: P1)
 
 A human approves the verified spec, plan, and tasks. The agent performs the
- authorized publication and exposes the remaining development prerequisites.
+authorized publication and exposes the remaining development prerequisites.
 
 **Why this priority**: An approved local result must become usable by another session.
 
