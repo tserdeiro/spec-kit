@@ -42,13 +42,13 @@ submission that identifies its exact input position, value, and accepted choices
 **Independent evidence**: Category rejection → reviewer correction → same-session
 closure; unchanged original bytes and blocking severity; no repeated engine analysis.
 
-- [ ] T002 [US2] Deliver category-only recovery with durable evidence in packages/spec-kit-code-review/src/spec_kit_code_review/finding_corrections.py
+- [x] T002 [US2] Deliver category-only recovery with durable evidence in packages/spec-kit-code-review/src/spec_kit_code_review/finding_corrections.py
   - **Traces**: FR-003, FR-004, FR-005, FR-006, FR-007, SC-002, SC-003, SC-004; outcome: a reviewer resubmits categories while the tool proves preservation, keeps the original, and records validation before closing.
   - **Depends on**: T001
   - **Boundaries**: Add `finding_corrections.py` and `tests/unit/test_finding_corrections.py`; wire `findings.py`, `cli.py`, and `session.py`, with focused cases in `test_phase_two.py`, `test_session.py`, and session goldens in `test_golden_review.py`/`tests/golden/`. Implement plan D2–D4 together: single-read bytes, fresh attempt identity, exclusive private original capture, atomic redacted records/session binding, type-sensitive comparison of all document fields, and distinct pending/rejected/validated outcomes. Validate category changes before normalized/generated findings; reject discard/truncation and any non-category change. Keep original directories across reopen, require fresh-format sessions, and preserve existing freshness, verdict, environment, and publication guards. Protect reviewer input from tool writes and raw evidence from rendered outputs.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_finding_corrections.py packages/spec-kit-code-review/tests/unit/test_phase_two.py packages/spec-kit-code-review/tests/unit/test_session.py packages/spec-kit-code-review/tests/unit/test_golden_review.py -q` -> exact original bytes, same-session correction, unchanged coverage/severity, duplicate retry, non-category rejection, discard/truncation rejection, evidence-write failure, and preserved blocking verdict pass; engine invocations do not increase on resubmission.
   - **Delivery**: single PR (~390 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #137; 144 focused tests and 46 subtests passed, plus 11 cases after the final record-detail adjustment. Budget 394/400; diff check clean. Independent review of 54ec4ff reported one unused variable, removed in 8b61878: https://github.com/tserdeiro/spec-kit/pull/137#issuecomment-5646805420. All four CI checks passed on the implementation candidate; this final commit records completion only.
 
 - [ ] T003 [US2] Verify destructive edits and recovery boundaries in packages/spec-kit-code-review/tests/unit/test_finding_corrections.py
   - **Traces**: FR-004, FR-005, FR-006, FR-007, SC-003, SC-004; outcome: adversarial corrections and stale or damaged evidence cannot produce closure or publication, and reopening preserves history without reusing it.
