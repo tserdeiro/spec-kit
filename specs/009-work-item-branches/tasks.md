@@ -16,7 +16,7 @@
 - Forecasts include implementation, tests, fixtures, and conformance. Respect
   400 authored executable lines and the existing 2× forecast stop. Protected
   spec/constitution and unrelated dirty documentation remain untouched.
-- MVP: T001–T004 demonstrate configured/unconfigured start and safe adoption.
+- MVP: T001, T002, T009, T003, and T004 demonstrate configured/unconfigured start and safe adoption.
   Full delivery includes cross-surface behavior, installed evidence, an Astra
   Extra High whole-feature audit, Luna fixes, and final extension review.
 
@@ -32,19 +32,27 @@ missing configuration alone enables supplied key/title fallback.
   - **Boundaries**: Extend client value types/queries and focused `packages/spec-kit-linear/tests` fixtures. Read canonical Issue context and batch distinct native branch lookups within existing query limits; handle null/malformed results and retain transport/credential redaction. Validate team/result identity at the resolver boundary supplied by T002. Preserve mutation allowlist and runtime dependencies.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> native context, exact branch bytes, lookup null/malformed responses, batching, and existing transport regressions pass.
   - **Delivery**: single PR (~340 authored lines)
+  - **Completion evidence**: PR #144; package suite 509 passed / 286 subtests; `git diff --check` passed; budget 181/400. Fresh extension review of `028fd1812c90c6d78d8171c208e7487b5288fa84`: `no-blocking-findings`, 0 findings, 6 covered ranges / 0 gaps, session closed. Independent read-only live probe: api_key credentials, context present, exact Git-valid native branch, duplicate inputs resolved once to the same Issue; observed prefix is literal in the configured template, without viewer-prefix inference.
+
+- [ ] T002 [US1] Expose configured Issue lookup through packages/spec-kit-linear/scripts/python/resolve_work_item.py
+  - **Traces**: FR-001, FR-004, FR-006, C-001, C-002, SC-001, SC-003; outcome: installed consumers resolve one explicit Issue key with exact native context and distinct absent/error outcomes.
+  - **Depends on**: T001
+  - **Boundaries**: Add the single-Issue path in `work_item_resolution.py`, the internal JSON launcher, and focused tests. Reuse existing config/credential/client loaders; verify canonical key and returned team/identity. Expose the exact suggested branch without validating a future creation before existing work can be adopted. Keep feature/task input excluded, preserve secrets, and add no public command or persistent mapping. T009 adds independent observation batches.
+  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> explicit Issue lookup, absent/invalid config, missing credentials, network/permission failure, wrong-team/mismatched identity, feature/task exclusion, and internal-bridge JSON failure smoke pass.
+  - **Delivery**: single PR (~320 authored lines)
   - **Completion evidence**: Pending
 
-- [ ] T002 [US1] Expose stateless configured resolution through packages/spec-kit-linear/scripts/python/resolve_work_item.py
-  - **Traces**: FR-001, FR-004, FR-006, FR-007, C-001, C-002, SC-003; outcome: installed consumers resolve an Issue or branches with explicit absent/error/conflict outcomes.
-  - **Depends on**: T001
-  - **Boundaries**: Add `work_item_resolution.py`, the internal launcher, and focused package tests. Use existing config/credential/client loaders; canonical keys and explicit PR/native evidence must agree with the bound team. Treat multiple explicit keys as ambiguity and native null without canonical explicit identity as unresolved, following plan D1. Return JSON context without secrets; avoid new public commands or persistent mappings. Keep feature/task observations outside work-item resolution.
-  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> bridge covers no config, invalid config, missing credentials, network/permission failure, wrong team, conflicting keys, valid native result, and feature/task exclusion.
-  - **Delivery**: single PR (~320 authored lines)
+- [ ] T009 [US1] Resolve independent branch and PR observations in packages/spec-kit-linear/src/spec_kit_linear/work_item_resolution.py
+  - **Traces**: FR-005, FR-006, FR-007, FR-009, FR-010, C-001, SC-002, SC-003, SC-004; outcome: one bounded batch resolves each observation independently without losing explicit identity after a native null.
+  - **Depends on**: T002
+  - **Boundaries**: Extend the resolver, internal bridge contract, native batched Issue-context reads in `linear_client.py`, and focused tests. Accept branch names and PR observations with canonical Work item/Tracker linkage; return per-observation resolved, unresolved, conflict, or excluded outcomes. Different Issues across branches are valid. Within one observation, native/strict-key/Tracker evidence must agree. Canonical explicit keys plus successful Issue reads resolve even when native lookup is null; batch all missing context reads. Exclude complete feature/task PR heads before their Tracker links. Preserve nested native names, existing work with a changed suggested name, and global config/transport/schema failure semantics. Avoid duplicate output representations and candidate-executable coupling.
+  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> multiple Issues, unrelated unknown branch, old title-only PR with markdown Tracker and native null, multiple explicit-key null fallbacks, conflicts, full task-head exclusion with Tracker, nested task-like native leaf, and bounded read counts pass; bridge output remains independently usable.
+  - **Delivery**: single PR (~330 authored lines)
   - **Completion evidence**: Pending
 
 - [ ] T003 [US1] Start configured and unconfigured work items in presets/default/scripts/python/work_item_start.py
   - **Traces**: FR-001–004, FR-008, C-004, SC-001, SC-003, SC-005; outcome: start takes an Issue key and uses exact native branch/context or asks only for absent fallback data.
-  - **Depends on**: T002
+  - **Depends on**: T009
   - **Boundaries**: Add start helper; update `task_base.py`, `commands/bugfix.md`, `commands/chore.md`, and preset tests together. Replace caller-built branch input. Call only the installed resolver; validate refs with Git before mutations, use argument arrays, preserve dirty files, and reconcile only after success. Without configuration, derive the default key/title slug. Bugs retain triage; chores remain direct. T004 extends this first-start slice with adoption.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` -> configured exact-name creation, context return, default fallback, missing title, invalid name, reserved full feature/task-name collision, and configured failures pass in isolated repositories.
   - **Delivery**: single PR (~340 authored lines)
@@ -73,7 +81,7 @@ feature/task-stack behavior and reviewer-only portability remain intact.
 - [ ] T005 [US3] Resolve native branch and PR observations before Linear projection in packages/spec-kit-linear/src/spec_kit_linear/work_items.py
   - **Traces**: FR-006, FR-007, FR-009, FR-010, SC-003, SC-004; outcome: canonical transient Issue identity drives existing lifecycle precedence.
   - **Depends on**: T004
-  - **Boundaries**: Update `work_items.py`, `github.py`, `_observe` in `cli.py`, and focused tests to retain canonical PR linkage and native branch associations. Reuse T002 resolution; retire obsolete recognition. Keep exact feature/task refs outside work items even with task Issue links. Preserve complete/failed/incomplete scan semantics and affected Issue state on unresolved/conflicting identity. Preserve all existing mutation restrictions.
+  - **Boundaries**: Update `work_items.py`, `github.py`, `_observe` in `cli.py`, and focused tests to retain canonical PR linkage and native branch associations. Reuse T009 observation resolution; retire obsolete recognition. Keep exact feature/task refs outside work items even with task Issue links. Preserve complete/failed/incomplete scan semantics and affected Issue state on unresolved/conflicting identity. Preserve all existing mutation restrictions.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> key-only, nested/user/title-based native names and changed suggestions derive correctly; uncertain scans, conflicts, and feature/task fixtures preserve expected state.
   - **Delivery**: single PR (~360 authored lines)
   - **Completion evidence**: Pending
@@ -106,7 +114,10 @@ feature/task-stack behavior and reviewer-only portability remain intact.
 
 ## Dependencies and stack order
 
-- **Critical path**: T001 → T002 → T003 → T004 → T005 → T006 → T007 → T008.
+- **Critical path**: T001 → T002 → T009 → T003 → T004 → T005 → T006 → T007 → T008.
 - **Stack order**: one PR per task in that order, starting on the feature branch.
+- **Decomposition update**: T009 was added before T003 on 2026-09-12 after the
+  combined T002 implementation exceeded the readable 400-line limit. Existing IDs,
+  forecasts, requirements, and the review budget remain unchanged.
 - **Execution assignment**: each task is assigned to a fresh Luna Extra High agent
   at dispatch; the orchestrator reviews delivery and preserves human Linear ownership.
