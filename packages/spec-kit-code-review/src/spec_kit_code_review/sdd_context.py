@@ -132,7 +132,7 @@ class WorkingTreeReader(Reader):
     def read(self, path: str) -> str | None:
         target = self.root / path
         try:
-            return target.read_text(encoding="utf-8")
+            return target.read_bytes().decode("utf-8")
         except (OSError, UnicodeDecodeError):
             return None
 

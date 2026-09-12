@@ -90,6 +90,45 @@ delivery trunk is exempt.
 }
 ```
 
+Every candidate submission includes a source-validated
+reading report. Copying a path or reference alone earns no coverage credit;
+each receipt must hash the exact inclusive UTF-8 line range that was inspected
+and include a short assessment tied to the reviewed scope:
+
+```json
+{
+  "findings": [],
+  "coverage": {
+    "candidate_id": "<candidate_id>",
+    "packet_sha256": "<packet_sha256>",
+    "inventory_sha256": "<inventory_sha256>",
+    "reads": [
+      {
+        "path": "specs/003-example/spec.md",
+        "version": "<head_commit>",
+        "start_line": 1,
+        "end_line": 20,
+        "sha256": "<sha256-of-the-exact-lines>",
+        "assessment": "This range establishes the acceptance boundary.",
+        "scope": "FR-001"
+      }
+    ]
+  }
+}
+```
+
+The session validates every receipt against the immutable candidate and frozen
+inventory. Duplicate receipts are deduplicated and overlapping receipts are
+unioned; they do not over-credit coverage. Missing, partial, or invalid
+receipts leave unresolved gaps and make the review inconclusive while valid
+findings remain available. A changed
+candidate, packet, inventory, or configuration refuses closure before any
+evidence is written. Reopen a completed session to submit corrected evidence.
+Assessments are reviewer-reported evidence of inspected ranges, not proof of
+comprehension. For pull requests, inspect the frozen intent source recorded in
+the inventory using its exact version and retrieval information; later edits to
+the live pull-request text do not replace that snapshot.
+
 Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories:
 `correctness`, `security`, `contract`, `delivery`, `tests`,
 `maintainability`, `style` — any other value refuses the whole file. Cite

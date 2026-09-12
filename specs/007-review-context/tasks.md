@@ -85,13 +85,13 @@ regression fixtures so the existing review workflow remains executable.
 **Goal**: Close review only with source-validated reading reports for all necessary context.
 **Independent evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_coverage.py packages/spec-kit-code-review/tests/unit/test_phase_two.py -q` -> missing/reference-only/wrong-source receipts retain gaps; valid additional reads close only the ranges they cover.
 
-- [ ] T005 [US3] Validate reading receipts at closure in packages/spec-kit-code-review/src/spec_kit_code_review/coverage.py
+- [x] T005 [US3] Validate reading receipts at closure in packages/spec-kit-code-review/src/spec_kit_code_review/coverage.py
   - **Traces**: FR-006, FR-007, SC-003, SC-004; outcome: the existing findings submission produces normalized, candidate-bound reading evidence; selected or referenced content alone receives no credit.
   - **Depends on**: T004
   - **Boundaries**: Add `coverage.py`/`tests/unit/test_coverage.py`; update `findings.py`, `cli.py`, packet instructions in `packet.py`, consumer submission schema in `commands/code-review.md`, and affected findings/phase-two fixtures. Follow D5's required coverage envelope and assessment rules, exact range hashing, overlap handling, frozen PR-intent snapshots, and candidate/packet/inventory/configuration guards. Preserve original findings input and existing atomic writers; old sessions require reopening.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_coverage.py packages/spec-kit-code-review/tests/unit/test_findings.py packages/spec-kit-code-review/tests/unit/test_phase_two.py -q` -> wrong hashes/versions, absent assessments, path escapes, duplicate/overlapping/partial reads, inventory tampering, and immutable findings are covered. Existing successful-close fixtures supply explicit receipts.
   - **Delivery**: single PR (~390 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #131; all four CI checks passed. Independent review https://github.com/tserdeiro/spec-kit/pull/131#issuecomment-5645387535 found inventory hashing before path redaction; corrected and orchestrator-reviewed. Regression: real temporary HOME with spaces opens, retrieves frozen intent, and closes; 4 snapshot tests passed. Final goldens: 19 tests and 7 subtests passed; packet/containment: 62 tests and 30 subtests passed; diff check clean. Human authorized the T005 budget exception on 2026-09-12 (496/400 before the required review fix).
 
 - [ ] T006 [US3] Report only unresolved coverage causes in packages/spec-kit-code-review/src/spec_kit_code_review/cli.py
   - **Traces**: FR-007, FR-008, SC-003, SC-004; outcome: reviewed selected/additional context can close, while missing necessary context remains inconclusive with actionable causes in JSON and human/publication summaries.

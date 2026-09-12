@@ -595,7 +595,8 @@ class AnchoredReviewTests(RunCommandCase):
         _, first = self._phase_one()
         session = Path(first["session"]["path"])
         findings = session / "findings.json"
-        findings.write_text('{"findings": []}', encoding="utf-8")
+        from tests.support.coverage import coverage_for_session
+        findings.write_text(json.dumps({"findings": [], "coverage": coverage_for_session(self.repository, session)}), encoding="utf-8")
         code, _ = self.invoke_json(
             "review", "--findings", str(findings), "--session", str(session)
         )

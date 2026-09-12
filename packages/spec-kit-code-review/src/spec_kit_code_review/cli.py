@@ -12,6 +12,7 @@ phases so the person only ever runs one command.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import secrets
@@ -81,6 +82,7 @@ from .ocr import ADAPTER_VERSION, Ocr, verify_scope_against_git, write_minimal_c
 from .anchors import load_hunks
 from .contract import matches_protected_path, protected_path_findings
 from .findings import load_document, normalize as normalize_findings, render_markdown as render_findings_markdown
+from .coverage import validate as validate_coverage
 from .packet import assemble as assemble_packet
 from .packet import digest_of as packet_digest
 from .packet import new_suffix
@@ -90,7 +92,7 @@ from .publish import build_plan as build_publication_plan
 from .publish import execute as execute_publication
 from .publish import resolve_event
 from .reporting import render_human, review_document
-from .verdict import CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
+from .verdict import CAUSE_CONTEXT, CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
 from .verdict import derive as derive_verdict
 from .sdd_context import CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
 from .review_context import resolve_scope, select_context
@@ -651,6 +653,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                     "context_selection": assembled["context_selection"],
                     "budget": assembled["budget"],
                     "packet": assembled["packet"].as_dict(),
+                    "pr_intent": {"title": getattr(pull_request, "title", "") or "", "body": getattr(pull_request, "body", "") or ""},
                 },
             )
             # The second phase validates the packet it is closing against the one
@@ -1437,7 +1440,43 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     candidate, pull_request = _reresolve_candidate(context, session, timeout=timeout)
     _verify_session_correspondence(session, candidate, diagnostics)
 
-    entries, source_digest = load_document(findings_path)
+    inventory_path = session.path / INVENTORY_FILENAME
+    try:
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AppError("the session context inventory is unavailable; reopen the review", code=EXIT_USAGE,
+                       diagnostics=[Diagnostic("coverage_inventory_unreadable", str(error), str(inventory_path))]) from error
+    packet_record = session.payload.get("packet") or {}
+    inventory_bytes = json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    recorded_inventory = str(packet_record.get("inventory_sha256") or "")
+    inventory_marker = f"- inventory_sha256: {recorded_inventory}\n"
+    if (not recorded_inventory or hashlib.sha256(inventory_bytes).hexdigest() != recorded_inventory
+            or inventory_marker not in (session.path / PACKET_FILENAME).read_text(encoding="utf-8")):
+        raise AppError("the session context inventory changed", code=EXIT_DRIFT,
+                       diagnostics=[Diagnostic("coverage_inventory_drift", "the findings cannot be validated against a replaced inventory", str(inventory_path))])
+    intent_record = session.payload.get("pr_intent") or {}
+    intent = intent_record.get("title", "") + "\n" + intent_record.get("body", "")
+    for source in inventory.get("sources", []):
+        if source["path"] == "<pull-request-intent>" and hashlib.sha256(intent.encode("utf-8")).hexdigest() != source["sha256"]:
+            raise AppError("the frozen pull-request intent changed; reopen the review", code=EXIT_DRIFT)
+    entries, source_digest, findings_document = load_document(findings_path)
+    envelope = findings_document.get("coverage")
+    receipt_reader = CommitReader(context.git, candidate.head_commit)
+    def read_receipt_source(path: str) -> str | bytes | None:
+        if path == "<pull-request-intent>":
+            return intent
+        return receipt_reader.read(path)
+    coverage = validate_coverage(
+        envelope,
+        candidate_id=candidate.candidate_id,
+        packet_sha256=str(session.payload.get("packet_sha256") or ""),
+        inventory_sha256=str(packet_record.get("inventory_sha256") or ""),
+        inventory=inventory,
+        read=read_receipt_source,
+    )
+    coverage_record = {"candidate_id": candidate.candidate_id, "packet_sha256": session.payload["packet_sha256"],
+                       "inventory_sha256": recorded_inventory, "findings_sha256": source_digest, **coverage.as_dict()}
+    coverage_causes = [InconclusiveCause(CAUSE_CONTEXT, f"{gap.get('path', 'coverage')}: {gap.get('detail', gap.get('code'))}") for gap in coverage.gaps]
     hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
     diagnostics.extend(hunks.diagnostics)
     # FR-010 / plan D1: a task PR's protected-path change is an automatic blocking finding.
@@ -1459,7 +1498,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     )
     diagnostics.extend(normalized.diagnostics)
 
-    causes = _inconclusive_causes(session)
+    causes = [*_inconclusive_causes(session), *coverage_causes]
     review_verdict = derive_verdict(normalized.findings, causes=causes)
 
     prepared = _prepared_from_session(context, session)
@@ -1512,9 +1551,8 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     # `FINDINGS_FILENAME`) is never rewritten: the normalized document is a
     # derived artifact and gets its own name, or this write would destroy the
     # very input `findings_sha256` below is the digest of.
-    write_json(
-        session.path / FINDINGS_NORMALIZED_FILENAME, {**normalized.as_dict(), "verdict": review_verdict.as_dict()}
-    )
+    write_json(session.path / FINDINGS_NORMALIZED_FILENAME,
+              {**normalized.as_dict(), "coverage": coverage_record, "verdict": review_verdict.as_dict()})
     write_text(session.path / FINDINGS_MARKDOWN_FILENAME, render_findings_markdown(normalized.findings, suffix=suffix))
     write_json(session.path / PUBLICATION_PLAN_FILENAME, plan.as_dict())
 

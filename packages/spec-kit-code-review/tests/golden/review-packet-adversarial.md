@@ -157,8 +157,8 @@ it fills in.
 
 ## 4.9 Frozen context inventory
 
-- inventory_sha256: 5815608c0f00e8f3e08dec1b5626d9d148014fba0b439b6a9c0e3efe2f07b9c3
-- required ranges: 0; selected: 0; excluded: 0; gaps: 0
+- inventory_sha256: 22a945d79273ecc3edd13cd99c57a2800b3539592fb8c4a7a1c055f0fe5d21ad
+- required ranges: 1; selected: 1; excluded: 0; gaps: 0
 - The complete inventory is beside this packet; retrieve omitted ranges from its exact source commands.
 
 ## 5. Review budget
@@ -236,9 +236,20 @@ Write every finding in English.
       "rule_source": "repo|repo-candidate|system|packet|sdd",
       "sdd_reference": "specs/003-x/spec.md#FR-014"
     }
-  ]
+  ],
+  "coverage": {
+    "candidate_id": "<candidate_id>",
+    "packet_sha256": "<packet_sha256>",
+    "inventory_sha256": "<inventory_sha256>",
+    "reads": [{"path": "specs/003-x/spec.md", "version": "<head_commit>", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]
+  }
 }
 ```
+
+For PR closure, inspect context-inventory.json beside this packet and report every required range read.
+Selected text or a retrieval command earns no credit. Hash the exact source UTF-8 bytes, preserving line ends;
+give a scope-linked assessment. Receipts are reviewer-reported and source-validated, not proof of understanding.
+Use each inventoried source version and its frozen retrieval action, including the PR-intent snapshot.
 
 ### 7.5 Anchoring
 

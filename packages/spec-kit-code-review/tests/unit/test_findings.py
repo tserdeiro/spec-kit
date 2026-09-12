@@ -184,7 +184,7 @@ class DocumentTests(unittest.TestCase):
     def test_the_documented_shape_loads_with_its_digest(self) -> None:
         self.path.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
 
-        entries, digest = load_document(self.path)
+        entries, digest, _document = load_document(self.path)
 
         self.assertEqual(len(entries), 1)
         self.assertEqual(len(digest), 64)
@@ -204,7 +204,7 @@ class DocumentTests(unittest.TestCase):
                 self.assertTrue(examples, f"{relative} has no ```json fence to check against the validator")
                 for example in examples:
                     self.path.write_text(example, encoding="utf-8")
-                    entries, _digest = load_document(self.path)
+                    entries, _digest, _document = load_document(self.path)
                     for index, finding in enumerate(entries, start=1):
                         validate_entry(finding, index=index)
 

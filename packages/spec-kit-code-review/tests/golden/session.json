@@ -264,6 +264,10 @@
   },
   "packet_sha256": "<variable>",
   "phase": "open",
+  "pr_intent": {
+    "body": "",
+    "title": ""
+  },
   "pr_metadata_sha256": "<variable>",
   "repository_root": "<workspace>/consumer",
   "review_scope_gaps": [],

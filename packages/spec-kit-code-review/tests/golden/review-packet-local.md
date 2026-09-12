@@ -231,9 +231,20 @@ Write every finding in English.
       "rule_source": "repo|repo-candidate|system|packet|sdd",
       "sdd_reference": "specs/003-x/spec.md#FR-014"
     }
-  ]
+  ],
+  "coverage": {
+    "candidate_id": "<candidate_id>",
+    "packet_sha256": "<packet_sha256>",
+    "inventory_sha256": "<inventory_sha256>",
+    "reads": [{"path": "specs/003-x/spec.md", "version": "<head_commit>", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]
+  }
 }
 ```
+
+For PR closure, inspect context-inventory.json beside this packet and report every required range read.
+Selected text or a retrieval command earns no credit. Hash the exact source UTF-8 bytes, preserving line ends;
+give a scope-linked assessment. Receipts are reviewer-reported and source-validated, not proof of understanding.
+Use each inventoried source version and its frozen retrieval action, including the PR-intent snapshot.
 
 ### 7.5 Anchoring
 

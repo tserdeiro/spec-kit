@@ -13,6 +13,7 @@ from pathlib import Path
 
 from spec_kit_code_review.errors import EXIT_SUCCESS, EXIT_USAGE
 from tests.support.fixtures import install_fake_gh, pull_request_payload
+from tests.support.coverage import coverage_for_session
 from tests.unit.test_cli import RunCommandCase
 
 
@@ -76,7 +77,8 @@ class PublicationCase(RunCommandCase):
     def write_findings(self, *entries) -> None:
         self.findings_entries = entries
         if self.session is not None:
-            self.findings_path.write_text(json.dumps({"findings": list(entries)}), encoding="utf-8")
+            self.findings_path.write_text(json.dumps({"findings": list(entries),
+                                                      "coverage": coverage_for_session(self.repository, self.session)}), encoding="utf-8")
 
     def calls(self) -> list[dict]:
         if not self.api_log.exists():
@@ -557,3 +559,56 @@ class BatchingTests(PublicationCase):
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs
     unittest.main()
+
+
+class FrozenIntentTests(PublicationCase):
+    def test_home_redacted_inventory_closes_and_its_retrieval_command_works(self):
+        import os, shlex, subprocess
+        home = self.workspace / "home"
+        home.mkdir()
+        self.evidence = home / "evidence with spaces"
+        self.environment.update(HOME=str(home), SPECKIT_CODE_REVIEW_EVIDENCE_DIR=str(self.evidence))
+        code, opened = self.invoke_json("review", "128")
+        self.assertEqual(code, 0, opened)
+        directory = next(self.evidence.glob("*/*"))
+        self.session, self.findings_path = str(directory), directory / "findings.json"
+        self.write_findings(entry())
+        inventory = json.loads((directory / "context-inventory.json").read_text())
+        command = next(item["command"] for item in inventory["required"] if item["path"] == "<pull-request-intent>")
+        self.assertIn("~/evidence with spaces", command)
+        read = subprocess.run(shlex.split(command), env={**os.environ, "HOME": str(home)}, capture_output=True, check=True)
+        intent = json.loads((directory / "session.json").read_text())["pr_intent"]
+        self.assertEqual(read.stdout.decode(), intent["title"] + "\n" + intent["body"])
+        code, result = self.invoke_json("review", "--findings", str(self.findings_path), "--session", self.session)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["verdict"]["value"], "changes-requested")
+
+    def test_redacted_intent_receipts_match_the_persisted_snapshot(self):
+        self.gh_state["pull_requests"]["128"]["body"] = "Example: ghp_" + "x" * 24
+        self._install_gh()
+        self.open_review()
+        self.assertNotIn("ghp_", (Path(self.session) / "session.json").read_text())
+        code, result = self.invoke_json("review", "--findings", str(self.findings_path), "--session", self.session)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["verdict"]["value"], "changes-requested")
+
+    def test_live_pr_edits_do_not_replace_frozen_intent(self):
+        self.open_review()
+        self.gh_state["pull_requests"]["128"]["body"] = "Changed after review"
+        self._install_gh()
+        code, result = self.invoke_json("review", "--findings", str(self.findings_path), "--session", self.session)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["verdict"]["value"], "changes-requested")
+
+    def test_frozen_intent_tampering_refuses_before_writes(self):
+        self.open_review()
+        path = Path(self.session) / "session.json"
+        recorded = json.loads(path.read_text())
+        recorded["pr_intent"]["body"] = "Tampered snapshot"
+        path.write_text(json.dumps(recorded))
+        before = self.findings_path.read_bytes()
+        code, result = self.invoke_json("review", "--findings", str(self.findings_path), "--session", self.session)
+        self.assertEqual(code, 8, result)
+        self.assertEqual(json.loads(path.read_text())["phase"], "open")
+        self.assertFalse((path.parent / "findings-normalized.json").exists())
+        self.assertEqual(self.findings_path.read_bytes(), before)
