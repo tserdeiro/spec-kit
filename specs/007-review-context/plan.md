@@ -334,5 +334,5 @@ analysis and local phase commits.
 | --- | --- | --- |
 | Clean Spec Kit analysis | Run after task generation; report remains in the conversation because analyze is read-only. | pending |
 | Technical approval of plan and tasks | Human review after analysis. | pending |
-| Reviewed Linear dry-run and synchronization | After-plan preview succeeded: one `project.create` for feature 007; no writes applied. Repeat after tasks and review before synchronization. | pending |
+| Reviewed Linear dry-run and synchronization | After-plan preview: one Project. After-tasks preview: one Project and eight Issues for feature 007. Both succeeded; zero remote writes applied. Synchronization remains pending. | pending |
 | Every executable task individually assignable and assigned | Task IDs will provide delivery units; assignment remains a human action. | pending |
