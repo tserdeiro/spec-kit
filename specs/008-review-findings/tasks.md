@@ -50,13 +50,13 @@ closure; unchanged original bytes and blocking severity; no repeated engine anal
   - **Delivery**: single PR (~390 authored lines)
   - **Completion evidence**: PR #137; 144 focused tests and 46 subtests passed, plus 11 cases after the final record-detail adjustment. Budget 394/400; diff check clean. Independent review of 54ec4ff reported one unused variable, removed in 8b61878: https://github.com/tserdeiro/spec-kit/pull/137#issuecomment-5646805420. All four CI checks passed on the implementation candidate; this final commit records completion only.
 
-- [ ] T003 [US2] Verify destructive edits and recovery boundaries in packages/spec-kit-code-review/tests/unit/test_finding_corrections.py
+- [x] T003 [US2] Verify destructive edits and recovery boundaries in packages/spec-kit-code-review/tests/unit/test_finding_corrections.py
   - **Traces**: FR-004, FR-005, FR-006, FR-007, SC-003, SC-004; outcome: adversarial corrections and stale or damaged evidence cannot produce closure or publication, and reopening preserves history without reusing it.
   - **Depends on**: T002
   - **Boundaries**: Extend `test_finding_corrections.py`, `test_phase_two.py`, `test_session.py`, and same-head reopen cases in `test_cli.py`, using existing fixtures. Exercise multiple/partial categories, missing-vs-null, boolean-vs-number changes, duplicate object keys, valid-category edits, deletion/addition/reordering, optional fields, and coverage edits. Verify whitespace/key-order-only reformatting succeeds. Exercise candidate/configuration/packet/inventory drift, missing/tampered original or records, symlinks, pending writes, repeated digest retries, old-format sessions, and closed-session rejection; include `--publish` failure cases with zero GitHub writes. Verify valid corrections retain an inconclusive verdict for existing coverage/engine gaps. Any contract fix stays in T002's named runtime modules and follows D2–D4.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_finding_corrections.py packages/spec-kit-code-review/tests/unit/test_phase_two.py packages/spec-kit-code-review/tests/unit/test_session.py packages/spec-kit-code-review/tests/unit/test_cli.py -q` -> preservation/freshness matrix passes, invalid attempts leave the session open, history survives same-head reopen, and valid correction is distinguished from a conclusive review.
   - **Delivery**: single PR (~260 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #138; 178 focused tests and 65 subtests passed, plus 69 validator/golden tests and 25 subtests. Budget 360/400; diff check clean. Independent review of b41098d found no actionable defects: https://github.com/tserdeiro/spec-kit/pull/138#issuecomment-5646967589. All four CI checks passed on that implementation candidate; this final commit records completion only.
 
 ## Final phase: Cross-cutting verification
 

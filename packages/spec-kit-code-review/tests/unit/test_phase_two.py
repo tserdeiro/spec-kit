@@ -455,6 +455,36 @@ class InconclusiveThroughTheCommandTests(PhaseTwoCase):
         self.assertIn("The review did NOT cover its intended scope", out)
         self.assertIn("budget_exceeded", out)
 
+    def test_a_valid_initial_submission_without_attempt_identity_stays_open(self) -> None:
+        payload = self.session_payload()
+        payload.pop("findings_attempt_id", None)
+        (Path(self.session) / "session.json").write_text(json.dumps(payload), encoding="utf-8")
+        code, result = self.close()
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(result["diagnostics"][0]["code"], "correction_session_format")
+        self.assertEqual(self.session_payload()["phase"], "open")
+
+    def test_a_valid_category_correction_keeps_inconclusive_blocking_verdict(self) -> None:
+        for cause in ("coverage", "engine"):
+            with self.subTest(cause=cause):
+                _, phase_one = self._phase_one()
+                self.session = phase_one["session"]["path"]
+                self.findings_path = Path(self.session) / "findings.json"
+                if cause == "coverage":
+                    self.write_findings(document={"findings": [entry(category="vibes")]})
+                else:
+                    self.write_findings(entry(category="vibes"))
+                self.close()
+                if cause == "coverage":
+                    self.write_findings(document={"findings": [entry(category="security")]})
+                else:
+                    self._set_engine_status("failed")
+                    self.write_findings(entry(category="security"))
+                code, result = self.close()
+                self.assertEqual(result["verdict"]["value"], "inconclusive")
+                self.assertEqual(result["verdict"]["blocking"], 1)
+                self.assertEqual(code, 6 if cause == "coverage" else 9)
+
 
 class BoundedContextClosureTests(RunCommandCase):
     """Closure uses real packet omissions and candidate source receipts."""
@@ -573,8 +603,122 @@ class RestoreFailureTests(PhaseTwoCase):
         self.assertEqual(self.session_payload()["phase"], "closed")
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
 
+    def test_a_retry_after_restore_failure_keeps_the_category_change_record(self) -> None:
+        from unittest import mock
+
+        from spec_kit_code_review.environment import RestoreOutcome
+
+        self.write_findings(entry(category="vibes"))
+        code, _ = self.close()
+        self.assertEqual(code, EXIT_USAGE)
+        corrected = entry(category="security")
+        self.write_findings(corrected)
+        with mock.patch("spec_kit_code_review.cli.restore", return_value=RestoreOutcome(restored=False, code=7)):
+            code, _ = self.close()
+        self.assertEqual(code, 7)
+        self.assertEqual(self.session_payload()["phase"], "open")
+        evidence = Path(self.session) / "finding-corrections"
+        records = [path for path in evidence.glob("*/*.json") if path.name != "original.json"]
+        self.assertTrue(records)
+        self.assertTrue(any(json.loads(path.read_text())["changed_categories"] for path in records))
+        code, _ = self.close()
+        self.assertEqual(code, 1)
+
 
 class NormalizationThroughTheCommandTests(PhaseTwoCase):
+    def test_invalid_correction_drift_fails_closed_without_publication(self) -> None:
+        from unittest import mock
+
+        expected = {"candidate": (8, "drift_head"), "attempt": (7, "correction_evidence_tampered"),
+                    "config": (3, "config_sha256_mismatch"), "packet": (8, "packet_sha256_mismatch"),
+                    "inventory": (8, "coverage_inventory_drift")}
+        config_path = self.root / "speckit-code-review.yml"
+        config_bytes = config_path.read_bytes()
+        for kind in expected:
+            with self.subTest(kind=kind):
+                _, phase_one = self._phase_one()
+                self.session = phase_one["session"]["path"]
+                self.findings_path = Path(self.session) / "findings.json"
+                self.write_findings(entry(category="vibes"))
+                self.close()
+                self.write_findings(entry(category="security"))
+                session_file = Path(self.session) / "session.json"
+                payload = self.session_payload()
+                if kind == "candidate":
+                    payload["candidate"]["head_commit"] = "f" * 40
+                elif kind == "attempt":
+                    payload["findings_attempt_id"] = "changed-attempt"
+                elif kind == "config":
+                    config = self.root / "speckit-code-review.yml"
+                    config.write_text(config.read_text(encoding="utf-8").replace("limit: 400", "limit: 40"), encoding="utf-8")
+                elif kind == "packet":
+                    packet = Path(self.session) / "review-packet.md"
+                    packet.write_text(packet.read_text(encoding="utf-8") + "drift", encoding="utf-8")
+                else:
+                    inventory = Path(self.session) / "context-inventory.json"
+                    data = json.loads(inventory.read_text(encoding="utf-8"))
+                    data["gaps"] = [{"code": "drift"}]
+                    inventory.write_text(json.dumps(data), encoding="utf-8")
+                session_file.write_text(json.dumps(payload), encoding="utf-8")
+                with mock.patch("spec_kit_code_review.cli.execute_publication") as publish:
+                    code, result = self.close("--publish")
+                self.assertEqual(code, expected[kind][0], result)
+                self.assertEqual(result["diagnostics"][0]["code"], expected[kind][1])
+                publish.assert_not_called()
+                self.assertEqual(self.session_payload()["phase"], "open")
+                self.assertTrue(next((Path(self.session) / "finding-corrections").glob("*/original.json")).is_file())
+                config_path.write_bytes(config_bytes)
+
+    def test_multiple_invalid_categories_require_a_complete_retry_and_keep_original_bytes(self) -> None:
+        original = {"findings": [entry(category="vibes"), entry(category=None)],
+                    "coverage": coverage_for_session(self.repository, self.session)}
+        original_bytes = json.dumps(original, indent=2).encode()
+        self.findings_path.write_bytes(original_bytes)
+        code, _ = self.close()
+        self.assertEqual(code, EXIT_USAGE)
+        partial = json.loads(original_bytes)
+        partial["findings"][0]["category"] = "security"
+        self.findings_path.write_text(json.dumps(partial), encoding="utf-8")
+        code, payload = self.close()
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "findings_category_invalid")
+        complete = json.loads(original_bytes)
+        complete["findings"][0]["category"] = "security"
+        complete["findings"][1]["category"] = "contract"
+        self.findings_path.write_text(json.dumps(complete, sort_keys=True), encoding="utf-8")
+        code, payload = self.close()
+        self.assertEqual(code, 1, payload)
+        snapshot = next((Path(self.session) / "finding-corrections").glob("*/original.json"))
+        self.assertEqual(snapshot.read_bytes(), original_bytes)
+
+    def test_category_retry_ignores_json_whitespace_and_object_key_order(self) -> None:
+        original = {"findings": [entry(category="vibes")],
+                    "coverage": coverage_for_session(self.repository, self.session)}
+        original_bytes = json.dumps(original, indent=4).encode()
+        self.findings_path.write_bytes(original_bytes)
+        self.close()
+        corrected = json.loads(original_bytes)
+        corrected["findings"][0]["category"] = "security"
+        self.findings_path.write_text(json.dumps(corrected, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+        code, payload = self.close()
+        self.assertEqual(code, 1, payload)
+        self.assertEqual(self.session_payload()["phase"], "closed")
+
+    def test_corrections_reject_truncation_of_every_optional_long_string(self) -> None:
+        limits = {"path": 4096, "existing_code": 20000, "suggestion_code": 20000, "sdd_reference": 300}
+        for field, limit in limits.items():
+            with self.subTest(field=field):
+                _, phase_one = self._phase_one()
+                self.session = phase_one["session"]["path"]
+                self.findings_path = Path(self.session) / "findings.json"
+                original = entry(category="vibes", **{field: "x" * (limit + 1)})
+                self.write_findings(original)
+                self.close()
+                self.write_findings({**original, "category": "security"})
+                code, payload = self.close()
+                self.assertEqual(code, EXIT_USAGE)
+                self.assertEqual(payload["diagnostics"][0]["code"], "correction_discarded_findings")
+                self.assertEqual(self.session_payload()["phase"], "open")
     def test_invalid_category_reports_index_catalog_and_current_session_retry(self) -> None:
         self.write_findings(entry(category="vibes"))
 
