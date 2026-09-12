@@ -54,10 +54,6 @@ _PR_EVIDENCE_RE = re.compile(
     r"spec\s*kit\s*evidence.{0,200}?(?P<feature>\d{3}[A-Za-z0-9._-]*)",
     re.IGNORECASE | re.DOTALL,
 )
-_TASK_RE = re.compile(
-    r"^\s*[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>T\d{3,})\s*(?P<title>.*?)\s*$",
-    re.MULTILINE,
-)
 _FORECAST_RE = re.compile(r"forecast[^0-9]{0,20}(?P<lines>\d+)", re.IGNORECASE)
 _DELIVERY_FORECAST_RE = re.compile(r"(?:forecast|authored|PR)[^0-9]{0,20}(?P<lines>\d+)", re.IGNORECASE)
 _STRATEGY_RE = re.compile(r"\b(?P<strategy>single|feature-chain)\b", re.IGNORECASE)
@@ -579,7 +575,7 @@ def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
             forecast_match = _DELIVERY_FORECAST_RE.search(delivery or "")
         forecast = int(forecast_match.group("lines")) if forecast_match else None
         strategy = _STRATEGY_RE.search(title) or _STRATEGY_RE.search(delivery or "")
-        paths = _task_paths(title, fields.get("boundaries", ""))
+        paths, path_gaps = _task_path_info(title, fields.get("boundaries", ""))
         identifier = match.group("id")
         gaps = []
         unknown_fields = {
@@ -590,6 +586,7 @@ def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
             if match and match.group(1).strip().lower() not in _FIELD_NAMES
         }
         gaps.extend(f"unrecognized field: {name}" for name in sorted(unknown_fields))
+        gaps.extend(path_gaps)
         for field_name in _REQUIRED_FIELDS:
             label = field_name.replace("_", " ")
             if field_name not in fields:
@@ -668,10 +665,27 @@ def _task_fields(lines: Sequence[str], fence_mask: Sequence[bool]) -> dict[str, 
     return {name: "\n".join(values) for name, values in fields.items()}
 
 
-def _task_paths(title: str, boundaries: str) -> tuple[str, ...]:
+def _task_path_info(title: str, boundaries: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     values = list(_PATH_RE.findall(title))
-    # A boundary is a matching hint only when it explicitly describes a change.
-    for clause in re.split(r"[;\n]|(?<=\.)\s+|(?<=\.)$", boundaries):
-        if re.search(r"\b(change|changed|touch|modify|edit|update)\w*\b", clause, re.IGNORECASE):
-            values.extend(_PATH_RE.findall(clause))
-    return tuple(dict.fromkeys(values))
+    gaps: list[str] = []
+    shorthand = re.compile(r"(?:[A-Za-z0-9_.@+-]+/)+\{[^}]+\}\.[A-Za-z0-9]+")
+    gaps.extend(f"unsupported path shorthand: {item}" for item in shorthand.findall(title))
+    gaps.extend(f"unsupported path shorthand: {item}" for item in shorthand.findall(boundaries))
+    boundaries_clean = shorthand.sub("", boundaries)
+    action = re.compile(
+        r"\b(do not change|preserve|keep|protect|leave|change|changed|touch|modify|edit|update)\w*\b",
+        re.IGNORECASE,
+    )
+    actions = list(action.finditer(boundaries_clean))
+    if not actions and _PATH_RE.search(boundaries_clean):
+        gaps.append(f"ambiguous changed-path wording: {boundaries_clean.strip()}")
+    for index, match in enumerate(actions):
+        segment = boundaries_clean[match.end() : actions[index + 1].start() if index + 1 < len(actions) else None]
+        clause_paths = _PATH_RE.findall(segment)
+        verb = match.group(1).lower()
+        if verb in {"preserve", "keep", "protect", "leave", "do not change"}:
+            continue
+        values.extend(clause_paths)
+        if not clause_paths and segment.strip():
+            gaps.append(f"ambiguous changed-path wording: {segment.strip()}")
+    return tuple(dict.fromkeys(values)), tuple(dict.fromkeys(gaps))

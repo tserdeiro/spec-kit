@@ -360,6 +360,52 @@ class TaskParsingTests(unittest.TestCase):
 
         self.assertEqual(entries[0].changed_path_hints, ("src/extra.py",))
 
+    def test_boundary_conjunction_keeps_protected_segment_out_of_changed_hints(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Boundary paths\n"
+            "  - **Boundaries**: Change src/extra.py and preserve src/rules.py.\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ("src/extra.py",))
+
+    def test_changed_path_lists_keep_both_paths_and_comma_protection(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Boundary list\n"
+            "  - **Boundaries**: Change src/a.py and src/b.py, preserve src/rules.py.\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ("src/a.py", "src/b.py"))
+
+    def test_unmarked_boundary_path_is_ambiguous(self) -> None:
+        entries = parse_tasks("- [ ] T001 Boundary\n  - **Boundaries**: src/unknown.py\n")
+
+        self.assertTrue(any(gap.startswith("ambiguous changed-path wording:") for gap in entries[0].gaps))
+
+    def test_protected_and_changed_action_order_is_respected(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Boundary order\n"
+            "  - **Boundaries**: preserve src/rules.py and change src/extra.py.\n"
+            "  - **Evidence**: command\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ("src/extra.py",))
+
+    def test_negated_change_is_protected(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Boundary negation\n"
+            "  - **Boundaries**: do not change src/rules.py.\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ())
+
+    def test_unsupported_path_shorthand_is_a_gap(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Shorthand\n"
+            "  - **Boundaries**: Change packages/spec_kit_linear/src/spec_kit_linear/{github,work_state}.py.\n"
+        )
+
+        self.assertIn("unsupported path shorthand: packages/spec_kit_linear/src/spec_kit_linear/{github,work_state}.py", entries[0].gaps)
+
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs
     unittest.main()
