@@ -13,7 +13,7 @@ import hashlib
 import unittest
 from pathlib import Path
 
-from spec_kit_code_review.errors import EXIT_DRIFT, EXIT_SUCCESS, EXIT_USAGE
+from spec_kit_code_review.errors import EXIT_DRIFT, EXIT_ENVIRONMENT, EXIT_SUCCESS, EXIT_USAGE
 from tests.support.fixtures import install_fake_gh, pull_request_payload
 from tests.support.coverage import coverage_for_session
 from tests.unit.test_cli import RunCommandCase
@@ -38,6 +38,11 @@ def entry(**overrides):
 class PhaseTwoCase(RunCommandCase):
     def setUp(self) -> None:
         super().setUp()
+        self.invocations = self.workspace / "engine-invocations.log"
+        ocr_state = self.bin / "ocr-state.json"
+        state = json.loads(ocr_state.read_text(encoding="utf-8"))
+        state["record_invocations"] = str(self.invocations)
+        ocr_state.write_text(json.dumps(state), encoding="utf-8")
         code, payload = self._phase_one()
         self.assertEqual(code, EXIT_SUCCESS)
         self.session = payload["session"]["path"]
@@ -584,6 +589,58 @@ class NormalizationThroughTheCommandTests(PhaseTwoCase):
         self.assertIn("retry the current session", diagnostic["message"])
         self.assertIn('bash "$CR" review --findings', diagnostic["message"])
         self.assertIn(str(self.findings_path), diagnostic["message"])
+        self.assertEqual(self.session_payload()["phase"], "open")
+
+    def test_invalid_category_can_be_corrected_in_same_session_without_new_engine_run(self) -> None:
+        before_calls = self.invocations.read_bytes()
+        original = json.dumps({"findings": [entry(category="vibes")],
+                               "coverage": coverage_for_session(self.repository, self.session)}, indent=2).encode()
+        self.findings_path.write_bytes(original)
+        code, rejected = self.close()
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(self.session_payload()["phase"], "open")
+        evidence = Path(self.session) / "finding-corrections"
+        snapshot = next(evidence.glob("*/original.json"))
+        self.assertEqual(snapshot.read_bytes(), original)
+        corrected = json.loads(original)
+        corrected["findings"][0]["category"] = "security"
+        self.findings_path.write_text(json.dumps(corrected), encoding="utf-8")
+        code, result = self.close()
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["findings"][0]["severity"], "blocking")
+        self.assertEqual(self.session_payload()["phase"], "closed")
+        self.assertEqual(self.invocations.read_bytes(), before_calls)
+        records = list(evidence.glob("*/*.json"))
+        self.assertGreaterEqual(len(records), 2)
+        self.assertTrue(any(json.loads(path.read_text()).get("status") == "validated" for path in records))
+
+    def test_correction_that_would_discard_a_finding_stays_open(self) -> None:
+        self.write_findings(entry(category="vibes", path="src/never_existed.py"))
+        self.close()
+        self.write_findings(entry(category="security", path="src/never_existed.py"))
+        code, payload = self.close()
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "correction_discarded_findings")
+        self.assertEqual(self.session_payload()["phase"], "open")
+
+    def test_correction_that_would_truncate_a_finding_stays_open(self) -> None:
+        huge = entry(category="vibes", content="x" * 20001)
+        self.write_findings(huge)
+        self.close()
+        huge["category"] = "security"
+        self.write_findings(huge)
+        code, payload = self.close()
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "correction_discarded_findings")
+        self.assertEqual(self.session_payload()["phase"], "open")
+
+    def test_evidence_write_failure_leaves_category_review_open(self) -> None:
+        from unittest import mock
+        self.write_findings(entry(category="vibes"))
+        with mock.patch("spec_kit_code_review.session.os.replace", side_effect=OSError("read-only")):
+            code, payload = self.close()
+        self.assertEqual(code, EXIT_ENVIRONMENT)
+        self.assertEqual(payload["diagnostics"][0]["code"], "evidence_unwritable")
         self.assertEqual(self.session_payload()["phase"], "open")
 
     def test_a_hallucinated_path_is_discarded_and_recorded(self) -> None:
