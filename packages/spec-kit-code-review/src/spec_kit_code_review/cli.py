@@ -12,12 +12,14 @@ phases so the person only ever runs one command.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import secrets
 import shlex
 import sys
 import tempfile
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -50,12 +52,13 @@ from .errors import (
     Diagnostic,
 )
 from .evidence import ensure_root, harden_directories, repository_id, resolve_evidence_root
-from .git import MINIMUM_GIT_VERSION, Git, open_git
+from .git import MINIMUM_GIT_VERSION, Git, open_git, validate_repository_relative_path
 from .github import open_github, require_github, validate_number, validate_repository
 from .session import (
     FINDINGS_FILENAME,
     FINDINGS_MARKDOWN_FILENAME,
     FINDINGS_NORMALIZED_FILENAME,
+    INVENTORY_FILENAME,
     PUBLICATION_PLAN_FILENAME,
     PUBLICATION_RESULT_FILENAME,
     write_json,
@@ -79,6 +82,7 @@ from .ocr import ADAPTER_VERSION, Ocr, verify_scope_against_git, write_minimal_c
 from .anchors import load_hunks
 from .contract import matches_protected_path, protected_path_findings
 from .findings import load_document, normalize as normalize_findings, render_markdown as render_findings_markdown
+from .coverage import validate as validate_coverage
 from .packet import assemble as assemble_packet
 from .packet import digest_of as packet_digest
 from .packet import new_suffix
@@ -88,9 +92,10 @@ from .publish import build_plan as build_publication_plan
 from .publish import execute as execute_publication
 from .publish import resolve_event
 from .reporting import render_human, review_document
-from .verdict import CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
+from .verdict import CAUSE_CONTEXT, CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
 from .verdict import derive as derive_verdict
-from .sdd_context import CommitReader, WorkingTreeReader, load_context, resolve_feature
+from .sdd_context import CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
+from .review_context import resolve_scope, select_context
 from .rules import RuleResolution, parse_rule_document, resolve_rules
 from .process import resolve_executable, run_command, sha256_file
 from .redaction import redact_payload, redact_text
@@ -623,6 +628,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                 diagnostics=diagnostics,
             )
             write_text(directory / PACKET_FILENAME, assembled["packet"].text)
+            write_json(directory / INVENTORY_FILENAME, assembled["packet"].inventory)
             session = open_session(
                 directory=directory,
                 candidate=candidate.as_dict(),
@@ -643,8 +649,11 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                     "scope": engine["scope"],
                     "rules": engine["rules"],
                     "sdd": assembled["sdd"],
+                    "review_scope_gaps": assembled["scope"]["gaps"],
+                    "context_selection": assembled["context_selection"],
                     "budget": assembled["budget"],
                     "packet": assembled["packet"].as_dict(),
+                    "pr_intent": {"title": getattr(pull_request, "title", "") or "", "body": getattr(pull_request, "body", "") or ""},
                 },
             )
             # The second phase validates the packet it is closing against the one
@@ -671,6 +680,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
         session=session.summary(),
         engine=engine["engine"],
         scope=engine["scope"],
+        review_scope=assembled["scope"],
         rules=engine["rules"],
         sdd=assembled["sdd"],
         budget=assembled["budget"],
@@ -753,6 +763,13 @@ def _sdd_diagnostics(resolution, sdd) -> list[Diagnostic]:
     return []
 
 
+def _scope_diagnostics(scope) -> list[Diagnostic]:
+    return [
+        Diagnostic("review_scope_unresolved", gap.detail, severity="warning")
+        for gap in scope.gaps
+    ]
+
+
 def _assemble_packet(
     context: CommandContext,
     config,
@@ -772,6 +789,7 @@ def _assemble_packet(
         reader,
         changed_paths=changed,
         pr_body=getattr(pull_request, "body", None),
+        head_ref_name=getattr(pull_request, "head_ref_name", None),
     )
     sdd = load_context(
         reader,
@@ -781,6 +799,25 @@ def _assemble_packet(
     )
     diagnostics.extend(sdd.diagnostics)
     diagnostics.extend(_sdd_diagnostics(resolution, sdd))
+
+    base_entries = ()
+    if resolution.feature:
+        base_text = CommitReader(context.git, candidate.merge_base).read(
+            f"specs/{resolution.feature}/tasks.md"
+        )
+        base_entries = parse_tasks(base_text or "")
+    review_scope = resolve_scope(
+        candidate,
+        pull_request=pull_request,
+        sdd=sdd,
+        changed_paths=changed,
+        base_task_entries=base_entries,
+    )
+    diagnostics.extend(_scope_diagnostics(review_scope))
+    context_selection = select_context(sdd, review_scope)
+    diagnostics.extend(
+        Diagnostic(gap.code, gap.detail, severity="warning") for gap in context_selection.gaps
+    )
 
     budget_report = compute_budget(
         context.git,
@@ -801,6 +838,8 @@ def _assemble_packet(
         rules=engine["rules_resolution"],
         rule_assignments=engine["rule_assignments"],
         sdd=sdd,
+        review_scope=review_scope,
+        context_selection=context_selection,
         budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
@@ -819,7 +858,13 @@ def _assemble_packet(
                 severity="warning",
             )
         )
-    return {"packet": assembled, "sdd": sdd.as_dict(), "budget": budget_report.as_dict()}
+    return {
+        "packet": assembled,
+        "sdd": sdd.as_dict(),
+        "scope": review_scope.as_dict(),
+        "context_selection": context_selection.as_dict(),
+        "budget": budget_report.as_dict(),
+    }
 
 
 def _run_engine(
@@ -1029,7 +1074,8 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
     # is the operator's own, so the candidate/base distinction does not apply.
     reader = WorkingTreeReader(context.root)
     reviewed_paths = [entry.path for entry in preview.entries]
-    feature = resolve_feature(reader, changed_paths=reviewed_paths)
+    advisory_sources = _capture_advisory_sources(context.root, context.git, reviewed_paths)
+    feature = resolve_feature(reader, changed_paths=reviewed_paths, head_ref_name=origin.branch)
     sdd = load_context(
         reader,
         resolution=feature,
@@ -1038,6 +1084,19 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
     )
     diagnostics.extend(sdd.diagnostics)
     diagnostics.extend(_sdd_diagnostics(feature, sdd))
+    base_entries = ()
+    if feature.feature:
+        base_reader = CommitReader(context.git, head)
+        base_text = base_reader.read(f"specs/{feature.feature}/tasks.md")
+        base_entries = parse_tasks(base_text or "")
+    advisory_scope = resolve_scope(
+        SimpleNamespace(candidate_id="working-tree", merge_base=head, head_commit=head),
+        pull_request=SimpleNamespace(head_ref_name=origin.branch),
+        sdd=sdd,
+        changed_paths=reviewed_paths,
+        base_task_entries=base_entries,
+    )
+    context_selection = select_context(sdd, advisory_scope)
 
     budget_report = compute_working_tree_budget(
         context.git, context.root, limit=int(config.get("budget", "limit", 400) or 400)
@@ -1055,6 +1114,8 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         rules=resolution,
         rule_assignments=assignments,
         sdd=sdd,
+        review_scope=advisory_scope,
+        context_selection=context_selection,
         budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
@@ -1062,6 +1123,7 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         include_checklists=bool(config.get("packet", "include_checklists", True)),
         generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         advisory=True,
+        working_sources=advisory_sources,
     )
     diagnostics.extend(packet.warnings)
     for truncation in packet.truncations:
@@ -1075,6 +1137,7 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         )
     packet_path = directory / PACKET_FILENAME
     write_text(packet_path, packet.text)
+    write_json(directory / INVENTORY_FILENAME, packet.inventory)
     _point_at_latest(directory)
     diagnostics.append(
         Diagnostic(
@@ -1084,6 +1147,7 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
             severity="info",
         )
     )
+
     diagnostics.append(
         Diagnostic(
             "advisory",
@@ -1099,9 +1163,54 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         scope=preview.as_dict(),
         rules={**resolution.as_dict(), "assignments": assignments.as_dict()["assignments"]},
         sdd=sdd.as_dict(),
+        context_selection=context_selection.as_dict(),
         budget=budget_report.as_dict(),
+        advisory_evidence={
+            "mode": "advisory",
+            "coverage_path": str(directory / "coverage.json"),
+            "packet_sha256": packet.packet_sha256,
+            "inventory_sha256": packet.inventory_sha256,
+            "sources": [dict(item) for item in packet.inventory.get("sources", ())],
+            "reusable_for_pull_request": False,
+        },
         packet={**packet.as_dict(), "path": str(packet_path)},
     )
+
+
+def _capture_advisory_sources(root: Path, git: Git, paths: list[str]) -> tuple[dict[str, Any], ...]:
+    """Capture the reviewed working-tree paths once, before packet rendering."""
+
+    records: list[dict[str, Any]] = []
+    for path in paths:
+        record: dict[str, Any] = {"path": path, "version": "working-tree", "kind": "code"}
+        try:
+            validate_repository_relative_path(path)
+            target = root / path
+            path_object = Path(path)
+            resolved = target.resolve()
+            root_resolved = root.resolve()
+            if (
+                path_object.is_absolute()
+                or ".." in path_object.parts
+                or not resolved.is_relative_to(root_resolved)
+                or target.is_symlink()
+            ):
+                raise OSError("working-tree source is unavailable")
+            if not target.exists() and not target.is_symlink():
+                existed_at_head = git.run("cat-file", "-e", f"HEAD:{path}").ok
+                if existed_at_head:
+                    record.update(sha256=None, available=True, status="deleted")
+                else:
+                    record.update(sha256=None, available=False, status="unavailable")
+                records.append(record)
+                continue
+            if not target.is_file():
+                raise OSError("working-tree source is unavailable")
+            record.update(sha256=hashlib.sha256(target.read_bytes()).hexdigest(), available=True, status="present")
+        except (AppError, OSError, ValueError):
+            record.update(sha256=None, available=False, status="unavailable")
+        records.append(record)
+    return tuple(records)
 
 
 def _point_at_latest(directory: Path) -> None:
@@ -1384,7 +1493,43 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     candidate, pull_request = _reresolve_candidate(context, session, timeout=timeout)
     _verify_session_correspondence(session, candidate, diagnostics)
 
-    entries, source_digest = load_document(findings_path)
+    inventory_path = session.path / INVENTORY_FILENAME
+    try:
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AppError("the session context inventory is unavailable; reopen the review", code=EXIT_USAGE,
+                       diagnostics=[Diagnostic("coverage_inventory_unreadable", str(error), str(inventory_path))]) from error
+    packet_record = session.payload.get("packet") or {}
+    inventory_bytes = json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    recorded_inventory = str(packet_record.get("inventory_sha256") or "")
+    inventory_marker = f"- inventory_sha256: {recorded_inventory}\n"
+    if (not recorded_inventory or hashlib.sha256(inventory_bytes).hexdigest() != recorded_inventory
+            or inventory_marker not in (session.path / PACKET_FILENAME).read_text(encoding="utf-8")):
+        raise AppError("the session context inventory changed", code=EXIT_DRIFT,
+                       diagnostics=[Diagnostic("coverage_inventory_drift", "the findings cannot be validated against a replaced inventory", str(inventory_path))])
+    intent_record = session.payload.get("pr_intent") or {}
+    intent = intent_record.get("title", "") + "\n" + intent_record.get("body", "")
+    for source in inventory.get("sources", []):
+        if source["path"] == "<pull-request-intent>" and hashlib.sha256(intent.encode("utf-8")).hexdigest() != source["sha256"]:
+            raise AppError("the frozen pull-request intent changed; reopen the review", code=EXIT_DRIFT)
+    entries, source_digest, findings_document = load_document(findings_path)
+    envelope = findings_document.get("coverage")
+    receipt_reader = CommitReader(context.git, candidate.head_commit)
+    def read_receipt_source(path: str) -> str | bytes | None:
+        if path == "<pull-request-intent>":
+            return intent
+        return receipt_reader.read(path)
+    coverage = validate_coverage(
+        envelope,
+        candidate_id=candidate.candidate_id,
+        packet_sha256=str(session.payload.get("packet_sha256") or ""),
+        inventory_sha256=str(packet_record.get("inventory_sha256") or ""),
+        inventory=inventory,
+        read=read_receipt_source,
+    )
+    coverage_record = {"candidate_id": candidate.candidate_id, "packet_sha256": session.payload["packet_sha256"],
+                       "inventory_sha256": recorded_inventory, "findings_sha256": source_digest, **coverage.as_dict()}
+    coverage_causes = [InconclusiveCause(CAUSE_CONTEXT, _coverage_gap_detail(gap)) for gap in coverage.gaps]
     hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
     diagnostics.extend(hunks.diagnostics)
     # FR-010 / plan D1: a task PR's protected-path change is an automatic blocking finding.
@@ -1406,7 +1551,8 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     )
     diagnostics.extend(normalized.diagnostics)
 
-    causes = _inconclusive_causes(session)
+    session.payload["coverage"] = coverage_record
+    causes = [*_inconclusive_causes(session, inventory), *coverage_causes]
     review_verdict = derive_verdict(normalized.findings, causes=causes)
 
     prepared = _prepared_from_session(context, session)
@@ -1452,6 +1598,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         batch_size=int(config.get("publish", "batch_size", 25) or 25),
         max_inline_comments=int(config.get("publish", "max_inline_comments", 100) or 100),
         evidence_path=str(session.path),
+        coverage=coverage_record,
     )
     diagnostics.extend(plan.diagnostics)
 
@@ -1459,9 +1606,8 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     # `FINDINGS_FILENAME`) is never rewritten: the normalized document is a
     # derived artifact and gets its own name, or this write would destroy the
     # very input `findings_sha256` below is the digest of.
-    write_json(
-        session.path / FINDINGS_NORMALIZED_FILENAME, {**normalized.as_dict(), "verdict": review_verdict.as_dict()}
-    )
+    write_json(session.path / FINDINGS_NORMALIZED_FILENAME,
+              {**normalized.as_dict(), "coverage": coverage_record, "verdict": review_verdict.as_dict()})
     write_text(session.path / FINDINGS_MARKDOWN_FILENAME, render_findings_markdown(normalized.findings, suffix=suffix))
     write_json(session.path / PUBLICATION_PLAN_FILENAME, plan.as_dict())
 
@@ -1499,6 +1645,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         diagnostics=diagnostics,
         session=session.summary(),
         publication_plan=plan.as_dict(),
+        coverage=coverage_record,
     )
     payload["human"] = render_human(
         findings=normalized,
@@ -1506,6 +1653,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         budget=budget,
         evidence_path=str(session.path),
         packet_sha256=str(session.payload.get("packet_sha256") or ""),
+        coverage=coverage_record,
     )
     if args.publish:
         # Publication is always explicit, and always after the review is closed
@@ -1544,22 +1692,51 @@ class _BudgetView:
 ENGINE_STATUS_COMPLETE: tuple[str, ...] = ("success", "completed_with_warnings")
 
 
-def _inconclusive_causes(session: ReviewSession) -> list[InconclusiveCause]:
+def _inconclusive_causes(session: ReviewSession, inventory: Mapping[str, Any]) -> list[InconclusiveCause]:
     """Everything the first phase recorded that means "the scope was not covered".
 
-    An engine that failed, or a truncation that kept part of the candidate out of
-    the packet. They are read from the session rather than recomputed, because
-    the first phase is where they happened.
+    Engine failures, non-inventoried truncations, and unresolved scope or
+    context-selection gaps are recorded in phase one. Inventoried SDD and
+    pull-request-intent omissions are validated by coverage receipts instead.
     """
 
     causes: list[InconclusiveCause] = []
     packet = session.payload.get("packet") or {}
+    inventory_paths = {
+        str(source.get("path"))
+        for source in inventory.get("sources", ())
+        if isinstance(source, Mapping)
+    }
     for truncation in packet.get("truncations") or ():
+        path = str(truncation.get("path") or "")
+        # SDD and frozen PR intent truncations are represented as required
+        # ranges in the inventory. A validated receipt can therefore clear the
+        # omission; other packet truncations still block closure immediately.
+        if path in inventory_paths or (
+            path == "(pull-request body)" and "<pull-request-intent>" in inventory_paths
+        ):
+            continue
         causes.append(
             InconclusiveCause(
                 CAUSE_SCOPE,
-                f"{truncation.get('path')}: {truncation.get('omitted_bytes')} byte(s) did not fit in the packet, so "
+                f"{path}: {truncation.get('omitted_bytes')} byte(s) did not fit in the packet, so "
                 f"that content was not reviewed ({truncation.get('command')})",
+            )
+        )
+    for gap in session.payload.get("review_scope_gaps", ()):
+        causes.append(
+            InconclusiveCause(
+                CAUSE_SCOPE,
+                f"scope is unresolved for {', '.join(gap.get('affected') or ()) or 'the candidate'}: "
+                f"{gap.get('code', 'scope_gap')}: {gap.get('detail', 'necessary candidate association is unknown')}",
+            )
+        )
+    for gap in (session.payload.get("context_selection") or {}).get("gaps", ()):
+        causes.append(
+            InconclusiveCause(
+                CAUSE_SCOPE,
+                f"context selection is unresolved for {', '.join(gap.get('affected') or ()) or 'the candidate'}: "
+                f"{gap.get('code', 'context_selection_gap')}: {gap.get('detail', 'necessary context selection is unknown')}",
             )
         )
     # An allowlist, deliberately: a status this version does not know is a status
@@ -1577,6 +1754,21 @@ def _inconclusive_causes(session: ReviewSession) -> list[InconclusiveCause]:
     # Discarded findings are deliberately *not* a cause: a hallucinated finding
     # says something about the reviewer, not about the coverage of the candidate.
     return causes
+
+
+def _coverage_gap_detail(gap: Mapping[str, Any]) -> str:
+    """Render one coverage gap with its exact range and safe retrieval hint."""
+
+    location = str(gap.get("path", "coverage"))
+    if gap.get("start_line") is not None and gap.get("end_line") is not None:
+        location += f":{gap['start_line']}-{gap['end_line']}"
+    detail = f"{gap.get('code', 'coverage_gap')}: {location}: {gap.get('detail', 'coverage is unresolved')}"
+    if gap.get("version"):
+        detail += f" (version {gap['version']}"
+        if gap.get("command"):
+            detail += f"; retrieve with {gap['command']}"
+        detail += ")"
+    return detail
 
 
 # -- publication -------------------------------------------------------------

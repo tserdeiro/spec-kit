@@ -184,7 +184,7 @@ class DocumentTests(unittest.TestCase):
     def test_the_documented_shape_loads_with_its_digest(self) -> None:
         self.path.write_text(json.dumps({"findings": [entry()]}), encoding="utf-8")
 
-        entries, digest = load_document(self.path)
+        entries, digest, _document = load_document(self.path)
 
         self.assertEqual(len(entries), 1)
         self.assertEqual(len(digest), 64)
@@ -203,10 +203,41 @@ class DocumentTests(unittest.TestCase):
                 examples = re.findall(r"```json\n(.*?)\n```", text, flags=re.DOTALL)
                 self.assertTrue(examples, f"{relative} has no ```json fence to check against the validator")
                 for example in examples:
-                    self.path.write_text(example, encoding="utf-8")
-                    entries, _digest = load_document(self.path)
-                    for index, finding in enumerate(entries, start=1):
-                        validate_entry(finding, index=index)
+                    document = json.loads(example)
+                    if isinstance(document, dict) and "findings" in document:
+                        self.path.write_text(example, encoding="utf-8")
+                        entries, _digest, _document = load_document(self.path)
+                        for index, finding in enumerate(entries, start=1):
+                            validate_entry(finding, index=index)
+                    elif isinstance(document, dict) and document.get("mode") == "advisory":
+                        self.assertEqual(
+                            set(document), {"mode", "packet_sha256", "inventory_sha256", "sources", "reads"}
+                        )
+                        self.assertEqual(document["mode"], "advisory")
+                        for digest in ("packet_sha256", "inventory_sha256"):
+                            self.assertRegex(document[digest], r"^[0-9a-fA-F]{64}$|^<[^>]+>$")
+                        self.assertIsInstance(document["sources"], list)
+                        self.assertIsInstance(document["reads"], list)
+                        for source in document["sources"]:
+                            fields = {"path", "version", "sha256"}
+                            if "kind" in source:
+                                fields |= {"kind", "status", "available"}
+                                self.assertEqual(source["kind"], "code")
+                                self.assertIn(source["status"], {"present", "deleted", "unavailable"})
+                                self.assertIs(source["available"], source["status"] != "unavailable")
+                                if source["status"] != "present":
+                                    self.assertIsNone(source["sha256"])
+                            self.assertEqual(set(source), fields)
+                            self.assertEqual(source["version"], "working-tree")
+                            if source.get("status", "present") == "present":
+                                self.assertRegex(source["sha256"], r"^[0-9a-fA-F]{64}$|^<[^>]+>$")
+                        for receipt in document["reads"]:
+                            self.assertEqual(
+                                set(receipt),
+                                {"path", "version", "start_line", "end_line", "sha256", "assessment", "scope"},
+                            )
+                    else:
+                        self.fail(f"undocumented JSON fence shape in {relative}: {document!r}")
 
     def test_malformed_json_says_where_it_broke(self) -> None:
         error = self._rejects('{"findings": [', "findings_invalid_json")

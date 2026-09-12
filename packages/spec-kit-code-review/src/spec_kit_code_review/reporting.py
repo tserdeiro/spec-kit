@@ -34,6 +34,7 @@ def review_document(
     diagnostics: Sequence[Diagnostic],
     session: Mapping[str, Any] | None = None,
     publication_plan: Mapping[str, Any] | None = None,
+    coverage: Mapping[str, Any] | None = None,
     message: str = "",
     retryable: bool = False,
 ) -> dict[str, Any]:
@@ -58,6 +59,7 @@ def review_document(
         "findings": [finding.as_dict() for finding in findings.findings],
         "discarded_findings": list(findings.discarded),
         "verdict": verdict.as_dict(),
+        **({"coverage": dict(coverage)} if coverage is not None else {}),
         "warnings": warnings,
         "diagnostics": [item.as_dict() for item in diagnostics],
         "operations": [],
@@ -73,6 +75,7 @@ def render_human(
     budget: Mapping[str, Any] | None,
     evidence_path: str | None,
     packet_sha256: str = "",
+    coverage: Mapping[str, Any] | None = None,
 ) -> str:
     """Summary, findings by severity, budget, verdict, evidence path -- in that order."""
 
@@ -93,6 +96,15 @@ def render_human(
         )
     if packet_sha256:
         lines.append(f"packet_sha256: {packet_sha256}")
+    if coverage is not None:
+        covered = coverage.get("covered", ())
+        uncovered = coverage.get("uncovered", ())
+        lines.append(f"coverage: {len(covered)} covered range(s); {len(uncovered)} uncovered range(s)")
+        for item in uncovered:
+            lines.append(
+                f"  - uncovered {item.get('path')}:{item.get('start_line')}-{item.get('end_line')} "
+                f"(version {item.get('version')}; retrieve with {item.get('command', 'the recorded source command')})"
+            )
 
     lines.extend(["", f"VERDICT: {describe(verdict)}"])
     if verdict.inconclusive:

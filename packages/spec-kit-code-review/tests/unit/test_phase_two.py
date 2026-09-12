@@ -8,13 +8,14 @@ written.
 
 from __future__ import annotations
 
-import hashlib
 import json
+import hashlib
 import unittest
 from pathlib import Path
 
-from spec_kit_code_review.errors import EXIT_SUCCESS, EXIT_USAGE
+from spec_kit_code_review.errors import EXIT_DRIFT, EXIT_SUCCESS, EXIT_USAGE
 from tests.support.fixtures import install_fake_gh, pull_request_payload
+from tests.support.coverage import coverage_for_session
 from tests.unit.test_cli import RunCommandCase
 
 
@@ -45,6 +46,8 @@ class PhaseTwoCase(RunCommandCase):
 
     def write_findings(self, *entries, document=None) -> None:
         payload = document if document is not None else {"findings": list(entries)}
+        if document is None:
+            payload["coverage"] = coverage_for_session(self.repository, self.session)
         self.findings_path.write_text(json.dumps(payload), encoding="utf-8")
 
     def close(self, *extra: str) -> tuple[int, dict]:
@@ -58,7 +61,7 @@ class HappyPathTests(PhaseTwoCase):
     def test_the_session_closes_with_a_verdict_and_the_environment_withdrawn(self) -> None:
         code, payload = self.close()
 
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 1, payload)
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
         self.assertEqual(payload["verdict"]["blocking"], 1)
         self.assertFalse(payload["verdict"]["is_approval"])
@@ -84,6 +87,15 @@ class HappyPathTests(PhaseTwoCase):
         recorded = json.loads((directory / "findings-normalized.json").read_text(encoding="utf-8"))
         self.assertEqual(recorded["findings"][0]["id"], "F001")
         self.assertEqual(recorded["verdict"]["value"], "changes-requested")
+
+    def test_missing_coverage_keeps_blocking_findings_and_original_input(self):
+        self.write_findings(document={"findings": [entry()]})
+        before = self.findings_path.read_bytes()
+        code, result = self.close()
+        self.assertEqual(code, 6, result)
+        self.assertEqual(result["verdict"]["value"], "inconclusive")
+        self.assertEqual(result["verdict"]["blocking"], 1)
+        self.assertEqual(self.findings_path.read_bytes(), before)
 
     def test_the_findings_input_is_never_overwritten_by_its_own_normalization(self) -> None:
         # The bind forces the agent's input to `findings.json`; the normalized
@@ -157,6 +169,17 @@ class HappyPathTests(PhaseTwoCase):
         self.assertIn("VERDICT: changes-requested", payload["human"])
         self.assertIn(self.session, payload["human"])
 
+    def test_validated_coverage_is_preserved_in_the_session_and_result(self) -> None:
+        _code, payload = self.close()
+
+        self.assertIn("coverage", payload)
+        self.assertIn("coverage", self.session_payload())
+        self.assertEqual(payload["coverage"]["uncovered"], [])
+        self.assertTrue(payload["coverage"]["covered"])
+        self.assertIn("coverage: ", payload["human"])
+        publication = json.loads((Path(self.session) / "publication-plan.json").read_text(encoding="utf-8"))
+        self.assertIn("coverage: ", publication["summary_body"])
+
 
 class CorrespondenceTests(PhaseTwoCase):
     """Everything that means "this is not the review phase 1 opened"."""
@@ -176,6 +199,18 @@ class CorrespondenceTests(PhaseTwoCase):
 
         self.assertEqual(code, EXIT_USAGE)
         self.assertEqual(payload["diagnostics"][0]["code"], "session_path_missing")
+
+    def test_inventory_drift_is_refused_before_closure(self) -> None:
+        inventory = Path(self.session) / "context-inventory.json"
+        document = json.loads(inventory.read_text(encoding="utf-8"))
+        document["gaps"] = [{"code": "tampered"}]
+        inventory.write_text(json.dumps(document), encoding="utf-8")
+        code, payload = self.close()
+
+        self.assertEqual(code, EXIT_DRIFT)
+        self.assertEqual(payload["diagnostics"][0]["code"], "coverage_inventory_drift")
+        self.assertEqual(self.session_payload()["phase"], "open")
+        self.assertFalse((Path(self.session) / "findings-normalized.json").exists())
 
     def test_findings_outside_the_session_are_a_usage_error_naming_the_expected_location(self) -> None:
         outside = self.workspace / "findings-from-another-review.json"
@@ -362,7 +397,7 @@ class InconclusiveThroughTheCommandTests(PhaseTwoCase):
 
         code, payload = self.close()
 
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 1, payload)
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
 
     def test_an_inconclusive_review_with_blocking_findings_exits_one(self) -> None:
@@ -414,6 +449,65 @@ class InconclusiveThroughTheCommandTests(PhaseTwoCase):
         self.assertIn("VERDICT: inconclusive", out)
         self.assertIn("The review did NOT cover its intended scope", out)
         self.assertIn("budget_exceeded", out)
+
+
+class BoundedContextClosureTests(RunCommandCase):
+    """Closure uses real packet omissions and candidate source receipts."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.repository.checkout("feature")
+        plan = "# Plan\n\n" + "\n".join(f"constraint {index}" for index in range(12000)) + "\n"
+        self.repository.write("specs/001-review-skeleton/plan.md", plan)
+        self.repository.git("add", "specs/001-review-skeleton/plan.md")
+        self.repository.git("commit", "-m", "bound the review context")
+        self.head = self.repository.head()
+        self.repository.checkout("main")
+        self._engine_reports("src/feature.py", "specs/001-review-skeleton/plan.md")
+
+    def _open_bounded(self) -> tuple[Path, dict]:
+        code, payload = self._phase_one()
+        self.assertEqual(code, EXIT_SUCCESS, payload)
+        session = Path(payload["session"]["path"])
+        inventory = json.loads((session / "context-inventory.json").read_text(encoding="utf-8"))
+        self.assertTrue(inventory["omitted_required"], inventory)
+        return session, inventory
+
+    def test_full_receipts_clear_real_packet_omissions(self) -> None:
+        session, inventory = self._open_bounded()
+        findings = session / "findings.json"
+        findings.write_text(json.dumps({"findings": [], "coverage": coverage_for_session(self.repository, session)}), encoding="utf-8")
+
+        code, payload = self.invoke_json("review", "--findings", str(findings), "--session", str(session))
+
+        self.assertEqual(code, EXIT_SUCCESS, payload)
+        self.assertEqual(payload["verdict"]["value"], "no-blocking-findings")
+        self.assertEqual(payload["coverage"]["uncovered"], [])
+
+    def test_partial_receipt_keeps_exact_gap_and_other_causes(self) -> None:
+        session, inventory = self._open_bounded()
+        complete = coverage_for_session(self.repository, session)
+        partial = {**complete, "reads": complete["reads"][:1]}
+        session_file = session / "session.json"
+        recorded = json.loads(session_file.read_text(encoding="utf-8"))
+        recorded["engine"]["status"] = "failed"
+        recorded["context_selection"] = {"gaps": [{"code": "reference_missing", "detail": "required reference is absent", "affected": ["T001"]}]}
+        session_file.write_text(json.dumps(recorded), encoding="utf-8")
+        findings = session / "findings.json"
+        findings.write_text(json.dumps({"findings": [], "coverage": partial}), encoding="utf-8")
+
+        code, payload = self.invoke_json("review", "--findings", str(findings), "--session", str(session))
+
+        self.assertEqual(code, 9, payload)
+        self.assertEqual(payload["verdict"]["value"], "inconclusive")
+        causes = json.dumps(payload["verdict"]["causes"])
+        self.assertIn("engine", causes)
+        self.assertIn("reference_missing", causes)
+        expected = {(item["path"], item["start"], item["end"]) for item in inventory["required"]}
+        first = partial["reads"][0]
+        expected.discard((first["path"], first["start_line"], first["end_line"]))
+        actual = {(item["path"], item["start_line"], item["end_line"]) for item in payload["coverage"]["uncovered"]}
+        self.assertEqual(actual, expected)
 
 
 class HumanRenderTests(PhaseTwoCase):
@@ -550,6 +644,7 @@ class ProtectedPathThroughTheCommandTests(RunCommandCase):
                         base_branch=base_branch,
                         base_commit=base_commit,
                         head_commit=head_commit,
+                        head_ref_name="004-feature",
                     )
                 },
             },
@@ -557,17 +652,22 @@ class ProtectedPathThroughTheCommandTests(RunCommandCase):
         code, opened = self.invoke_json("review", str(self.PR_NUMBER))
         self.assertEqual(code, EXIT_SUCCESS, opened)
         session = opened["session"]["path"]
-        findings_path = Path(session) / "findings.json"
-        findings_path.write_text(json.dumps({"findings": []}), encoding="utf-8")
-        return self.invoke_json("review", "--findings", str(findings_path), "--session", session)
+        self.session = session
+        self.findings_path = Path(session) / "findings.json"
+        self.findings_path.write_text(json.dumps({"findings": [], "coverage": coverage_for_session(self.repository, session)}), encoding="utf-8")
+        return self.invoke_json("review", "--findings", str(self.findings_path), "--session", session)
 
     def test_a_protected_path_on_a_task_base_reaches_changes_requested(self) -> None:
+        self.repository.write(".specify/feature.json", json.dumps({"feature": "004-x"}))
+        self.repository.git("add", ".specify/feature.json")
+        self.repository.git("commit", "-m", "select the protected feature")
+        self.repository.commit("specs/004-x/plan.md", "# Plan\nReview the protected contract.\n", "seed feature plan")
         feature_base = self.repository.commit("specs/004-x/spec.md", "Initial spec.\n", "seed the protected path")
         head = self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\n", "touch the spec")
 
         code, payload = self._review(base_branch="004-feature", base_commit=feature_base, head_commit=head)
 
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 1, payload)
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
         finding = payload["findings"][0]
         self.assertEqual((finding["severity"], finding["category"], finding["path"]), ("blocking", "contract", "specs/004-x/spec.md"))

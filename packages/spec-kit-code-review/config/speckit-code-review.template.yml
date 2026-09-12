@@ -11,7 +11,9 @@ engine:
   timeout_seconds: 300
 
 packet:
+  # UTF-8 source bytes are shared across every excerpt from one artifact.
   max_bytes_per_artifact: 60000
+  # Final rendered packet bytes, including metadata, escaping and instructions.
   max_total_bytes: 400000
   include_checklists: true
   include_pr_body: true

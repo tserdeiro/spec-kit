@@ -66,6 +66,29 @@ class SddCase(unittest.TestCase):
 
 
 class DiscoveryOrderTests(SddCase):
+    def test_conflicting_candidate_evidence_is_ambiguous(self) -> None:
+        self.repository.write("specs/002-other/spec.md", "# Other\n")
+        self.repository.git("add", "--all")
+        self.repository.git("commit", "-m", "touch another feature")
+        for changed_paths, pr_body in ((["specs/002-other/spec.md"], None), ([], "Spec Kit evidence: specs/002-other/tasks.md")):
+            with self.subTest(pr_body=pr_body):
+                resolution = resolve_feature(
+                    CommitReader(self.git, self.repository.head()), changed_paths=changed_paths,
+                    head_ref_name="001-review-skeleton", pr_body=pr_body,
+                )
+                self.assertTrue(resolution.ambiguous)
+                self.assertEqual(set(resolution.candidates), {"001-review-skeleton", "002-other"})
+
+    def test_issue_key_branch_does_not_inherit_active_feature(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-fix-timeout",
+        )
+
+        self.assertIsNone(resolution.feature)
+        self.assertEqual(resolution.source, SOURCE_NONE)
+
     def test_an_explicit_feature_wins(self) -> None:
         self.repository.write("specs/002-other/spec.md", "# Other\n")
         self.repository.git("add", "--all")
@@ -291,9 +314,136 @@ class TaskParsingTests(unittest.TestCase):
         self.assertIsNone(entries[0].forecast)
         self.assertIsNone(entries[0].strategy)
         self.assertFalse(entries[0].done)
+        self.assertIn("missing field: traces", entries[0].gaps)
+        self.assertIn("missing field: completion evidence", entries[0].gaps)
 
     def test_prose_is_not_a_task(self) -> None:
         self.assertEqual(parse_tasks("Some prose about T001 and its forecast: 900 lines.\n"), ())
+
+    def test_complete_blocks_keep_ranges_and_indented_fields(self) -> None:
+        text = """# Phase\n\n- [ ] T001 Add `src/app.py`\n  - **Traces**: FR-002, SC-001\n  - **Depends on**: T000\n  - **Boundaries**: Change `src/app.py`. Preserve `src/rules.py`.\n  - **Delivery**: single PR (~280 authored lines)\n  - **Completion evidence**: focused tests pass\n\n- [x] T002 Finish it\n  - **Evidence**: `pytest tests/unit`\n\n## Next phase\n- [ ] T003 A later task\n"""
+        first, second, third = parse_tasks(text)
+
+        self.assertEqual((first.source_start, first.source_end), (3, 9))
+        self.assertEqual(first.block_text, "".join(text.splitlines(keepends=True)[2:9]))
+        self.assertEqual(first.traces, ("FR-002", "SC-001"))
+        self.assertEqual(first.dependencies, ("T000",))
+        self.assertEqual(first.changed_path_hints, ("src/app.py",))
+        self.assertEqual(first.completion_evidence, "focused tests pass")
+        self.assertEqual(first.delivery, "single PR (~280 authored lines)")
+        self.assertEqual(first.forecast, 280)
+        self.assertEqual((second.source_start, second.source_end), (10, 12))
+        self.assertEqual((third.source_start, third.source_end), (14, 14))
+
+    def test_fenced_task_examples_are_ignored_but_fenced_evidence_is_retained(self) -> None:
+        text = """```markdown\n- [ ] T900 Example only\n```\n- [ ] T001 Real task\n  - **Evidence**:\n    ```markdown\n    - [ ] T901 evidence text\n    ```\n- [ ] T002 Final task\n"""
+        entries = parse_tasks(text)
+
+        self.assertEqual([entry.identifier for entry in entries], ["T001", "T002"])
+        self.assertIn("T901", entries[0].block_text)
+
+    def test_nested_task_like_evidence_is_not_a_task(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Real task\n"
+            "  - **Evidence**:\n"
+            "    - [ ] T901 evidence item\n"
+            "  - **Completion evidence**: fields remain attached\n"
+        )
+
+        self.assertEqual([entry.identifier for entry in entries], ["T001"])
+        self.assertEqual(entries[0].completion_evidence, "fields remain attached")
+        self.assertIn("T901 evidence item", entries[0].block_text)
+
+    def test_duplicate_ids_are_retained_with_a_gap(self) -> None:
+        entries = parse_tasks("- [ ] T001 First\n- [ ] T001 Duplicate\n")
+
+        self.assertIn("duplicate task identifier", entries[0].gaps)
+        self.assertIn("duplicate task identifier", entries[1].gaps)
+
+    def test_missing_dependency_is_a_gap(self) -> None:
+        entries = parse_tasks("- [ ] T001 First\n  - **Depends on**: T999\n")
+
+        self.assertIn("unresolved dependency: T999", entries[0].gaps)
+
+    def test_empty_required_field_is_a_gap(self) -> None:
+        entries = parse_tasks("- [ ] T001 First\n  - **Evidence**:\n")
+
+        self.assertIn("empty field: evidence", entries[0].gaps)
+
+    def test_unrecognized_canonical_field_is_a_gap(self) -> None:
+        entries = parse_tasks("- [ ] T001 First\n  - **Unknown field**: value\n")
+
+        self.assertIn("unrecognized field: Unknown field", entries[0].gaps)
+
+    def test_boundary_hints_keep_extension_periods_and_exclude_protected_paths(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 No path in title\n"
+            "  - **Boundaries**: Change src/extra.py. Preserve src/rules.py.\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ("src/extra.py",))
+
+    def test_boundary_conjunction_keeps_protected_segment_out_of_changed_hints(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Boundary paths\n"
+            "  - **Boundaries**: Change src/extra.py and preserve src/rules.py.\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ("src/extra.py",))
+
+    def test_changed_path_lists_keep_both_paths_and_comma_protection(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Boundary list\n"
+            "  - **Boundaries**: Change src/a.py and src/b.py, preserve src/rules.py.\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ("src/a.py", "src/b.py"))
+
+    def test_unmarked_boundary_path_is_ambiguous(self) -> None:
+        entries = parse_tasks("- [ ] T001 Boundary\n  - **Boundaries**: src/unknown.py\n")
+
+        self.assertTrue(any(gap.startswith("ambiguous changed-path wording:") for gap in entries[0].gaps))
+
+    def test_protected_and_changed_action_order_is_respected(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Boundary order\n"
+            "  - **Boundaries**: preserve src/rules.py and change src/extra.py.\n"
+            "  - **Evidence**: command\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ("src/extra.py",))
+
+    def test_negated_change_is_protected(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Boundary negation\n"
+            "  - **Boundaries**: do not change src/rules.py.\n"
+        )
+
+        self.assertEqual(entries[0].changed_path_hints, ())
+
+    def test_prose_changed_path_and_change_py_do_not_create_false_gaps(self) -> None:
+        cases = (
+            ("distinguish changed-path hints from protected paths; change src/change.py.", False),
+            ("ordinary prose without a path; change src/change.py.", False),
+            ("src/before.py; change src/change.py.", True),
+        )
+        for boundaries, ambiguous in cases:
+            with self.subTest(boundaries=boundaries):
+                entry = parse_tasks(
+                    "- [ ] T001 Canonical changed-path hints\n"
+                    f"  - **Boundaries**: {boundaries}\n"
+                )[0]
+                self.assertEqual(entry.changed_path_hints, ("src/change.py",))
+                has_gap = any(gap.startswith("ambiguous changed-path wording:") for gap in entry.gaps)
+                self.assertEqual(has_gap, ambiguous)
+
+    def test_unsupported_path_shorthand_is_a_gap(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Shorthand\n"
+            "  - **Boundaries**: Change packages/spec_kit_linear/src/spec_kit_linear/{github,work_state}.py.\n"
+        )
+
+        self.assertIn("unsupported path shorthand: packages/spec_kit_linear/src/spec_kit_linear/{github,work_state}.py", entries[0].gaps)
 
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs

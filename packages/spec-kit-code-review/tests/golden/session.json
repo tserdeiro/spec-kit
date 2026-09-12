@@ -30,6 +30,86 @@
   "candidate_id": "<variable>",
   "config_sha256": "<variable>",
   "containment_suffix": "<variable>",
+  "context_selection": {
+    "excluded": [],
+    "gaps": [],
+    "required": [
+      {
+        "end": 3,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 10,
+        "path": "<variable>",
+        "reason": "complete feature contract",
+        "start": 1
+      },
+      {
+        "end": 6,
+        "path": "<variable>",
+        "reason": "complete feature contract",
+        "start": 1
+      },
+      {
+        "end": 16,
+        "path": "<variable>",
+        "reason": "task ledger shared prose; direct dependency evidence T001; complete task block T002",
+        "start": 1
+      }
+    ],
+    "selected": [
+      {
+        "end": 3,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 10,
+        "path": "<variable>",
+        "reason": "complete feature contract",
+        "start": 1
+      },
+      {
+        "end": 6,
+        "path": "<variable>",
+        "reason": "complete feature contract",
+        "start": 1
+      },
+      {
+        "end": 16,
+        "path": "<variable>",
+        "reason": "task ledger shared prose; direct dependency evidence T001; complete task block T002",
+        "start": 1
+      }
+    ]
+  },
   "engine": {
     "adapter_version": "2",
     "config_path": "<variable>",
@@ -91,6 +171,7 @@
   "packet": {
     "bytes": "<variable>",
     "containment_suffix": "<variable>",
+    "inventory_sha256": "<variable>",
     "packet_sha256": "<variable>",
     "pr_metadata_sha256": "<variable>",
     "seeded_findings": [],
@@ -98,8 +179,13 @@
   },
   "packet_sha256": "<variable>",
   "phase": "open",
+  "pr_intent": {
+    "body": "",
+    "title": ""
+  },
   "pr_metadata_sha256": "<variable>",
   "repository_root": "<workspace>/consumer",
+  "review_scope_gaps": [],
   "rules": {
     "assignments": [
       {
@@ -194,22 +280,50 @@
     },
     "task_entries": [
       {
+        "block_text": "- [x] T001 Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)\n  - **Traces**: FR-001\n  - **Depends on**: none\n  - **Boundaries**: Change the candidate resolver.\n  - **Evidence**: focused tests pass\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n",
+        "changed_path_hints": [],
+        "completion_evidence": "focused tests pass",
+        "delivery": "single PR",
+        "dependencies": [],
         "done": true,
         "forecast": 120,
+        "gaps": [],
         "id": "T001",
         "pr_strategy": "single",
         "reached": false,
         "referenced_paths": [],
-        "title": "Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)"
+        "source_range": [
+          3,
+          9
+        ],
+        "title": "Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)",
+        "traces": [
+          "FR-001"
+        ]
       },
       {
+        "block_text": "- [ ] T002 Report prerequisites without any write (forecast: 90 lines, PR strategy: single)\n  - **Traces**: FR-002\n  - **Depends on**: T001\n  - **Boundaries**: Change prerequisite reporting.\n  - **Evidence**: focused tests pass\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n",
+        "changed_path_hints": [],
+        "completion_evidence": "focused tests pass",
+        "delivery": "single PR",
+        "dependencies": [
+          "T001"
+        ],
         "done": false,
         "forecast": 90,
+        "gaps": [],
         "id": "T002",
         "pr_strategy": "single",
         "reached": false,
         "referenced_paths": [],
-        "title": "Report prerequisites without any write (forecast: 90 lines, PR strategy: single)"
+        "source_range": [
+          10,
+          16
+        ],
+        "title": "Report prerequisites without any write (forecast: 90 lines, PR strategy: single)",
+        "traces": [
+          "FR-002"
+        ]
       }
     ],
     "tasks": {

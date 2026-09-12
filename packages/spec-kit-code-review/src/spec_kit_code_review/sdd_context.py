@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Sequence
@@ -41,23 +42,24 @@ SOURCE_FLAG = "flag"
 SOURCE_FEATURE_JSON = "feature.json"
 SOURCE_DIFF = "diff"
 SOURCE_PR_BODY = "pr-body"
+SOURCE_BRANCH = "head-branch"
 SOURCE_BUG = "bug"
 SOURCE_NONE = "none"
 
 _FEATURE_DIRECTORY_RE = re.compile(r"^specs/(?P<feature>\d{3}[A-Za-z0-9._-]*)/")
 _BUG_DIRECTORY_RE = re.compile(r"^\.specify/bugs/(?P<slug>[A-Za-z0-9._-]+)/")
 _FEATURE_NUMBER_RE = re.compile(r"^\d{3}$")
+_TASK_BRANCH_RE = re.compile(r"^(?P<number>\d{3})(?:-[A-Za-z0-9._-]+)?-T(?P<task>\d{3,})(?:-[A-Za-z0-9._-]+)?$")
+_FEATURE_BRANCH_RE = re.compile(r"^\d{3}(?:-[A-Za-z0-9._-]+)?$")
+_ISSUE_BRANCH_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9]+-\d+(?:[-/].*)?|(?:bug|chore|fix)(?:[-/].*)?)$", re.IGNORECASE)
 # Doc "Resolucion del contexto SDD" path 4: the pull-request body carries a
 # "Spec Kit evidence" reference, per the canonical pull-request template.
 _PR_EVIDENCE_RE = re.compile(
     r"spec\s*kit\s*evidence.{0,200}?(?P<feature>\d{3}[A-Za-z0-9._-]*)",
     re.IGNORECASE | re.DOTALL,
 )
-_TASK_RE = re.compile(
-    r"^\s*[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>T\d{3,})\s*(?P<title>.*?)\s*$",
-    re.MULTILINE,
-)
 _FORECAST_RE = re.compile(r"forecast[^0-9]{0,20}(?P<lines>\d+)", re.IGNORECASE)
+_DELIVERY_FORECAST_RE = re.compile(r"(?:forecast|authored|PR)[^0-9]{0,20}(?P<lines>\d+)", re.IGNORECASE)
 _STRATEGY_RE = re.compile(r"\b(?P<strategy>single|feature-chain)\b", re.IGNORECASE)
 # A repository-relative path as a task would write it: at least one slash, and a
 # file extension, so ordinary prose ("feature-chain", "PR strategy") is not read
@@ -65,6 +67,19 @@ _STRATEGY_RE = re.compile(r"\b(?P<strategy>single|feature-chain)\b", re.IGNORECA
 _PATH_RE = re.compile(r"[A-Za-z0-9_.@+-]+(?:/[A-Za-z0-9_.@+-]+)+\.[A-Za-z0-9]+")
 _REQUIREMENT_RE = re.compile(r"^\s*[-*]?\s*\**\s*(?P<id>(?:FR|NFR|SC)-\d+)\b", re.MULTILINE)
 _CHECKLIST_ITEM_RE = re.compile(r"^\s*[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>CHK\d+)?", re.MULTILINE)
+_TASK_LINE_RE = re.compile(r"^[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>T\d{3,})\s*(?P<title>.*?)\s*$")
+_FIELD_RE = re.compile(r"^\s{2,}[-*]\s+\*\*(?P<name>[^*]+)\*\*:\s*(?P<value>.*)\s*$")
+_FIELD_NAMES = {
+    "traces": "traces",
+    "depends on": "dependencies",
+    "dependencies": "dependencies",
+    "boundaries": "boundaries",
+    "evidence": "evidence",
+    "delivery": "delivery",
+    "delivery forecast": "delivery",
+    "completion evidence": "completion_evidence",
+}
+_REQUIRED_FIELDS = ("traces", "dependencies", "boundaries", "evidence", "delivery", "completion_evidence")
 
 
 class Reader:
@@ -117,7 +132,7 @@ class WorkingTreeReader(Reader):
     def read(self, path: str) -> str | None:
         target = self.root / path
         try:
-            return target.read_text(encoding="utf-8")
+            return target.read_bytes().decode("utf-8")
         except (OSError, UnicodeDecodeError):
             return None
 
@@ -159,6 +174,21 @@ class TaskEntry:
     strategy: str | None
     referenced_paths: tuple[str, ...] = ()
     reached: bool = False
+    source_start: int | None = None
+    source_end: int | None = None
+    block_text: str = ""
+    traces: tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
+    changed_path_hints: tuple[str, ...] = ()
+    delivery: str | None = None
+    completion_evidence: str | None = None
+    gaps: tuple[str, ...] = ()
+
+    @property
+    def source_range(self) -> tuple[int, int] | None:
+        if self.source_start is None or self.source_end is None:
+            return None
+        return self.source_start, self.source_end
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -169,6 +199,14 @@ class TaskEntry:
             "pr_strategy": self.strategy,
             "referenced_paths": list(self.referenced_paths),
             "reached": self.reached,
+            "source_range": list(self.source_range) if self.source_range else None,
+            "block_text": self.block_text,
+            "traces": list(self.traces),
+            "dependencies": list(self.dependencies),
+            "changed_path_hints": list(self.changed_path_hints),
+            "delivery": self.delivery,
+            "completion_evidence": self.completion_evidence,
+            "gaps": list(self.gaps),
         }
 
 
@@ -264,6 +302,7 @@ def resolve_feature(
     changed_paths: Sequence[str],
     explicit: str | None = None,
     pr_body: str | None = None,
+    head_ref_name: str | None = None,
 ) -> FeatureResolution:
     """Find the candidate's feature, in the documented order, without guessing.
 
@@ -288,11 +327,25 @@ def resolve_feature(
             return FeatureResolution(source=SOURCE_FLAG, diagnostics=tuple(diagnostics))
         return FeatureResolution(feature=feature, source=SOURCE_FLAG, diagnostics=tuple(diagnostics))
 
-    declared = _feature_from_feature_json(reader)
+    branch_feature = _feature_from_head_ref(reader, head_ref_name)
+    short_path = bool(head_ref_name and _ISSUE_BRANCH_RE.match(head_ref_name.strip()))
+    # An issue-key bug/chore branch is deliberately independent of any active
+    # feature.json in the operator checkout. Bug artifacts are still discovered
+    # below; ordinary short-path work stays ledger-free.
+    declared = None if short_path else _feature_from_feature_json(reader)
+    declared_feature = _normalize_feature(reader, declared) if declared else None
+    touched = _features_touched(changed_paths)
+    referenced = _feature_from_pr_body(pr_body)
+    pr_feature = _normalize_feature(reader, referenced) if referenced else None
+    identities = tuple(dict.fromkeys(item for item in (branch_feature, declared_feature, *touched, pr_feature) if item))
+    if len(identities) > 1:
+        source = SOURCE_BRANCH if branch_feature is not None else SOURCE_DIFF
+        return _ambiguous_feature(source, identities, diagnostics)
+    if branch_feature is not None:
+        return FeatureResolution(feature=branch_feature, source=SOURCE_BRANCH, diagnostics=tuple(diagnostics))
     if declared is not None:
-        feature = _normalize_feature(reader, declared)
-        if feature is not None:
-            return FeatureResolution(feature=feature, source=SOURCE_FEATURE_JSON, diagnostics=tuple(diagnostics))
+        if declared_feature is not None and (not touched or set(touched) == {declared_feature}):
+            return FeatureResolution(feature=declared_feature, source=SOURCE_FEATURE_JSON, diagnostics=tuple(diagnostics))
         diagnostics.append(
             Diagnostic(
                 "sdd_feature_json_stale",
@@ -301,7 +354,6 @@ def resolve_feature(
             )
         )
 
-    touched = _features_touched(changed_paths)
     if len(touched) == 1:
         return FeatureResolution(feature=touched[0], source=SOURCE_DIFF, diagnostics=tuple(diagnostics))
     if len(touched) > 1:
@@ -317,11 +369,8 @@ def resolve_feature(
             source=SOURCE_DIFF, candidates=touched, ambiguous=True, diagnostics=tuple(diagnostics)
         )
 
-    referenced = _feature_from_pr_body(pr_body)
-    if referenced is not None:
-        feature = _normalize_feature(reader, referenced)
-        if feature is not None:
-            return FeatureResolution(feature=feature, source=SOURCE_PR_BODY, diagnostics=tuple(diagnostics))
+    if pr_feature is not None and not short_path:
+        return FeatureResolution(feature=pr_feature, source=SOURCE_PR_BODY, diagnostics=tuple(diagnostics))
 
     bugs = _bugs_touched(changed_paths)
     if len(bugs) == 1:
@@ -369,6 +418,31 @@ def _feature_from_pr_body(body: str | None) -> str | None:
         return None
     match = _PR_EVIDENCE_RE.search(body)
     return match.group("feature") if match else None
+
+
+def _feature_from_head_ref(reader: Reader, branch: str | None) -> str | None:
+    if not branch:
+        return None
+    value = branch.strip().strip("/")
+    directories = _feature_directories(reader)
+    if value in directories:
+        return value
+    if _FEATURE_BRANCH_RE.match(value):
+        number = value.split("-", 1)[0]
+        matches = [name for name in directories if name == number or name.startswith(f"{number}-")]
+        if len(matches) == 1:
+            return matches[0]
+    match = _TASK_BRANCH_RE.match(value)
+    if not match:
+        return None
+    number = match.group("number")
+    matches = [name for name in directories if name == number or name.startswith(f"{number}-")]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _ambiguous_feature(source: str, candidates: tuple[str, ...], diagnostics: list[Diagnostic]) -> FeatureResolution:
+    diagnostics.append(Diagnostic("sdd_context_ambiguous", f"candidate feature evidence conflicts ({', '.join(candidates)}); name one with --feature", severity="warning"))
+    return FeatureResolution(source=source, candidates=candidates, ambiguous=True, diagnostics=tuple(diagnostics))
 
 
 def _features_touched(changed_paths: Sequence[str]) -> tuple[str, ...]:
@@ -507,25 +581,148 @@ def mark_reached(entries: Sequence[TaskEntry], changed_paths: Sequence[str]) -> 
 
 
 def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
-    """Read ``tasks.md`` entries with whatever they declared about their size.
+    """Parse real task blocks, retaining their exact source and line ranges.
 
-    Loose by design: the format is a human document, so an entry without a
-    forecast or a strategy is reported as it is rather than rejected.
+    Task-like lines in fenced examples are data, not entries. A real block ends
+    at the next real task or an unindented heading; all other lines, including
+    fenced evidence, remain part of its source text.
     """
 
+    lines = text.splitlines(keepends=True)
+    fence_mask = _fence_mask(lines)
+    starts: list[tuple[int, re.Match[str]]] = []
+    for number, line in enumerate(lines, 1):
+        if not fence_mask[number - 1]:
+            match = _TASK_LINE_RE.match(line.rstrip("\r\n"))
+            if match:
+                starts.append((number, match))
+
     entries: list[TaskEntry] = []
-    for match in _TASK_RE.finditer(text):
+    for index, (start, match) in enumerate(starts):
+        end = (starts[index + 1][0] - 1) if index + 1 < len(starts) else len(lines)
+        for boundary in range(start, end + 1):
+            if boundary == start:
+                continue
+            if not fence_mask[boundary - 1] and lines[boundary - 1].startswith("#"):
+                end = boundary - 1
+                break
+        block = "".join(lines[start - 1 : end])
         title = match.group("title").strip()
-        forecast = _FORECAST_RE.search(title)
-        strategy = _STRATEGY_RE.search(title)
+        fields = _task_fields(lines[start - 1 : end], fence_mask[start - 1 : end])
+        forecast_match = _FORECAST_RE.search(title)
+        delivery = fields.get("delivery")
+        if forecast_match is None:
+            forecast_match = _DELIVERY_FORECAST_RE.search(delivery or "")
+        forecast = int(forecast_match.group("lines")) if forecast_match else None
+        strategy = _STRATEGY_RE.search(title) or _STRATEGY_RE.search(delivery or "")
+        paths, path_gaps = _task_path_info(title, fields.get("boundaries", ""))
+        identifier = match.group("id")
+        gaps = []
+        unknown_fields = {
+            match.group(1).strip()
+            for offset, line in enumerate(lines[start - 1 : end])
+            if not fence_mask[start - 1 + offset]
+            for match in [re.match(r"^\s{2,}[-*]\s+\*\*([^*]+)\*\*:", line.rstrip("\r\n"))]
+            if match and match.group(1).strip().lower() not in _FIELD_NAMES
+        }
+        gaps.extend(f"unrecognized field: {name}" for name in sorted(unknown_fields))
+        gaps.extend(path_gaps)
+        for field_name in _REQUIRED_FIELDS:
+            label = field_name.replace("_", " ")
+            if field_name not in fields:
+                gaps.append(f"missing field: {label}")
+            elif not fields[field_name].strip():
+                gaps.append(f"empty field: {label}")
         entries.append(
             TaskEntry(
-                identifier=match.group("id"),
+                identifier=identifier,
                 title=title,
                 done=match.group("done").lower() == "x",
-                forecast=int(forecast.group("lines")) if forecast else None,
+                forecast=forecast,
                 strategy=strategy.group("strategy").lower() if strategy else None,
-                referenced_paths=tuple(dict.fromkeys(_PATH_RE.findall(title))),
+                referenced_paths=paths,
+                source_start=start,
+                source_end=end,
+                block_text=block,
+                traces=tuple(dict.fromkeys(re.findall(r"\b(?:FR|NFR|SC)-\d+\b", fields.get("traces", "")))),
+                dependencies=tuple(dict.fromkeys(re.findall(r"\bT\d{3,}\b", fields.get("dependencies", "")))),
+                changed_path_hints=paths,
+                delivery=delivery,
+                completion_evidence=fields.get("completion_evidence"),
+                gaps=tuple(gaps),
             )
         )
-    return tuple(entries)
+    identifiers = {entry.identifier for entry in entries}
+    counts = Counter(entry.identifier for entry in entries)
+    normalized: list[TaskEntry] = []
+    for entry in entries:
+        gaps = list(entry.gaps)
+        if counts[entry.identifier] > 1 and "duplicate task identifier" not in gaps:
+            gaps.append("duplicate task identifier")
+        gaps.extend(
+            f"unresolved dependency: {dependency}"
+            for dependency in entry.dependencies
+            if dependency not in identifiers
+        )
+        normalized.append(replace(entry, gaps=tuple(dict.fromkeys(gaps))))
+    return tuple(normalized)
+
+
+def _fence_mask(lines: Sequence[str]) -> tuple[bool, ...]:
+    mask: list[bool] = []
+    fenced = False
+    marker_char = ""
+    marker_length = 0
+    for line in lines:
+        marker = re.match(r"^\s*(`{3,}|~{3,})(?P<rest>[^\r\n]*)", line)
+        mask.append(fenced)
+        if not marker:
+            continue
+        value, rest = marker.group(1), marker.group("rest")
+        if not fenced:
+            fenced, marker_char, marker_length = True, value[0], len(value)
+        elif value[0] == marker_char and len(value) >= marker_length and not rest.strip():
+            fenced = False
+    return tuple(mask)
+
+
+def _task_fields(lines: Sequence[str], fence_mask: Sequence[bool]) -> dict[str, str]:
+    fields: dict[str, list[str]] = {}
+    current: str | None = None
+    for offset, line in enumerate(lines[1:], 1):
+        if fence_mask[offset]:
+            if current and line.startswith(("  ", "\t")) and line.strip():
+                fields[current].append(line.strip())
+            continue
+        match = _FIELD_RE.match(line.rstrip("\r\n"))
+        if match:
+            current = _FIELD_NAMES.get(match.group("name").strip().lower())
+            if current:
+                fields[current] = [match.group("value").strip()]
+            continue
+        if current and line.startswith(("  ", "\t")) and line.strip():
+            fields[current].append(line.strip())
+    return {name: "\n".join(values) for name, values in fields.items()}
+
+
+def _task_path_info(title: str, boundaries: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    values = list(_PATH_RE.findall(title))
+    gaps: list[str] = []
+    shorthand = re.compile(r"(?:[A-Za-z0-9_.@+-]+/)+\{[^}]+\}\.[A-Za-z0-9]+")
+    gaps.extend(f"unsupported path shorthand: {item}" for item in shorthand.findall(title))
+    gaps.extend(f"unsupported path shorthand: {item}" for item in shorthand.findall(boundaries))
+    boundaries_clean = shorthand.sub("", boundaries)
+    action = re.compile(r"\b(do not change|preserve|keep|protect|leave|change|changed|touch|modify|edit|update)\b(?=\s|[:;,]|$)", re.IGNORECASE)
+    actions = list(action.finditer(boundaries_clean))
+    if actions and _PATH_RE.search(boundaries_clean[: actions[0].start()]):
+        gaps.append(f"ambiguous changed-path wording: {boundaries_clean[: actions[0].start()].strip()}")
+    if not actions and _PATH_RE.search(boundaries_clean):
+        gaps.append(f"ambiguous changed-path wording: {boundaries_clean.strip()}")
+    for index, match in enumerate(actions):
+        segment = boundaries_clean[match.end() : actions[index + 1].start() if index + 1 < len(actions) else None]
+        clause_paths = _PATH_RE.findall(segment)
+        verb = match.group(1).lower()
+        if verb in {"preserve", "keep", "protect", "leave", "do not change"}:
+            continue
+        values.extend(clause_paths)
+    return tuple(dict.fromkeys(values)), tuple(dict.fromkeys(gaps))

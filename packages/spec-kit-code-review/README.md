@@ -26,6 +26,21 @@ is advisory: no immutable candidate, no session, no publishable verdict. With a
 pull request it reviews the anchored candidate `(merge_base, head_commit)`,
 identified by `candidate_id = sha256("<merge_base>\n<head_commit>\n")`.
 
+An advisory response reports `advisory_evidence.coverage_path` beside the
+packet. After reading the packet, the host may write `coverage.json` there with
+the packet and inventory digests, working-tree source hashes, exact inclusive
+line-range receipts, and scope-linked assessments. Compare those source hashes
+before reporting; compare the complete reviewed-path set in
+`context-inventory.json` as well, including new, deleted, and unavailable
+paths. A tracked deletion remains valid while the path stays absent; an
+unavailable or symlinked path is an explicit gap. Recompute membership with
+`git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only
+--end-of-options HEAD` plus `git ls-files --others --exclude-standard -z`.
+The NUL-delimited results are unioned: the first covers staged and unstaged
+tracked changes against `HEAD`, and the second adds untracked paths. Any changed, added, or removed
+source requires a fresh packet. This evidence is host-reported and advisory only. It is never reusable for pull-request
+coverage, which uses the session findings envelope below.
+
 An anchored review runs in two internal invocations — a CLI cannot wait for the
 agent to read a packet, because the agent is what invokes it. The agent-facing
 command file (`commands/code-review.md`) drives both, so a person runs one
@@ -48,7 +63,13 @@ findings path outside that session is a usage error.
       "title": "…",
       "content": "…"
     }
-  ]
+  ],
+  "coverage": {
+    "candidate_id": "<candidate_id>",
+    "packet_sha256": "<packet_sha256>",
+    "inventory_sha256": "<inventory_sha256>",
+    "reads": [{"path": "specs/003-example/spec.md", "version": "<head_commit>", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]
+  }
 }
 ```
 
@@ -201,11 +222,13 @@ bash packages/spec-kit-code-review/scripts/conformance/publish.sh
 uv run pytest packages/spec-kit-code-review/tests/conformance -v   # the real binary
 ```
 
-The conformance scripts drive the *installed* extension in a temporary Spec Kit
-consumer, with this repository's own fakes for `ocr` and `gh`. Verifying the
-**real** binary is a separate step (`tests/conformance/test_real_ocr.py`); it
-uses whatever `doctor --fix` installed at the canonical path, and skips loudly
-rather than passing quietly when the pinned version is not there.
+`review.sh` is fake-tool conformance evidence: it drives the *installed*
+extension in a temporary consumer and checks late-task, shared multi-task,
+full-feature, ledger-free short-path, receipt, packet-limit, and checkout
+invariants with the repository's fake `ocr` and `gh`. This does not establish
+entry 23 live-host acceptance. The separate `tests/conformance/test_real_ocr.py`
+checks the pinned binary installed by `doctor --fix` and skips loudly when
+that binary is unavailable.
 
 Install into a temporary consumer with
 `specify extension add /path/to/spec-kit-code-review --dev`. The installed copy
