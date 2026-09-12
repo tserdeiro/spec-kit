@@ -215,11 +215,13 @@ bash packages/spec-kit-code-review/scripts/conformance/publish.sh
 uv run pytest packages/spec-kit-code-review/tests/conformance -v   # the real binary
 ```
 
-The conformance scripts drive the *installed* extension in a temporary Spec Kit
-consumer, with this repository's own fakes for `ocr` and `gh`. Verifying the
-**real** binary is a separate step (`tests/conformance/test_real_ocr.py`); it
-uses whatever `doctor --fix` installed at the canonical path, and skips loudly
-rather than passing quietly when the pinned version is not there.
+`review.sh` is fake-tool conformance evidence: it drives the *installed*
+extension in a temporary consumer and checks late-task, shared multi-task,
+full-feature, ledger-free short-path, receipt, packet-limit, and checkout
+invariants with the repository's fake `ocr` and `gh`. This does not establish
+entry 23 live-host acceptance. The separate `tests/conformance/test_real_ocr.py`
+checks the pinned binary installed by `doctor --fix` and skips loudly when
+that binary is unavailable.
 
 Install into a temporary consumer with
 `specify extension add /path/to/spec-kit-code-review --dev`. The installed copy
