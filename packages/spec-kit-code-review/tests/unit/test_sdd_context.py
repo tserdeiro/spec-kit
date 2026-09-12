@@ -317,6 +317,18 @@ class TaskParsingTests(unittest.TestCase):
         self.assertEqual([entry.identifier for entry in entries], ["T001", "T002"])
         self.assertIn("T901", entries[0].block_text)
 
+    def test_nested_task_like_evidence_is_not_a_task(self) -> None:
+        entries = parse_tasks(
+            "- [ ] T001 Real task\n"
+            "  - **Evidence**:\n"
+            "    - [ ] T901 evidence item\n"
+            "  - **Completion evidence**: fields remain attached\n"
+        )
+
+        self.assertEqual([entry.identifier for entry in entries], ["T001"])
+        self.assertEqual(entries[0].completion_evidence, "fields remain attached")
+        self.assertIn("T901 evidence item", entries[0].block_text)
+
     def test_duplicate_ids_are_retained_with_a_gap(self) -> None:
         entries = parse_tasks("- [ ] T001 First\n- [ ] T001 Duplicate\n")
 
