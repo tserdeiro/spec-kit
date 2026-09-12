@@ -849,6 +849,32 @@ class LinearClient:
                     raise _schema_error("linear_native_branch", f"Linear response '{alias}' must be an object or null")
         return resolved
 
+    def resolve_issue_contexts(
+        self,
+        identifiers: Sequence[str],
+    ) -> dict[str, RemoteIssueContext | None]:
+        """Read distinct Issue contexts in bounded aliased GraphQL reads."""
+
+        distinct = list(dict.fromkeys(identifiers))
+        if any(not isinstance(identifier, str) or not identifier for identifier in distinct):
+            raise ValueError("Issue identifiers must be non-empty strings")
+        resolved: dict[str, RemoteIssueContext | None] = {}
+        for offset in range(0, len(distinct), MAX_PAGE_SIZE):
+            batch = distinct[offset : offset + MAX_PAGE_SIZE]
+            data = self.query(_issue_context_query(len(batch)), {f"issue{index}": identifier for index, identifier in enumerate(batch)})
+            for index, identifier in enumerate(batch):
+                alias = f"issue{index}"
+                if alias not in data:
+                    raise _schema_error("linear_issue_context", f"Linear response is missing '{alias}'")
+                value = data[alias]
+                if value is not None and not isinstance(value, dict):
+                    raise _schema_error(
+                        "linear_issue_context",
+                        f"Linear response '{alias}' must be an object or null",
+                    )
+                resolved[identifier] = None if value is None else _remote_issue_context(value)
+        return resolved
+
     def discover_projects(self, project_label_id: str) -> tuple[RemoteProject, ...]:
         """Discover every project under a repository label and its local graph."""
 
@@ -1287,6 +1313,15 @@ def _issue_branch_search_query(count: int) -> str:
         for index in range(count)
     )
     return f"query IssueVcsBranchSearch({variables}) {{\n{fields}\n}}"
+
+
+def _issue_context_query(count: int) -> str:
+    variables = ", ".join(f"$issue{index}: String!" for index in range(count))
+    fields = "\n".join(
+        f"  issue{index}: issue(id: $issue{index}) {{\n{_ISSUE_BRANCH_FIELDS}\n  }}"
+        for index in range(count)
+    )
+    return f"query IssueContexts({variables}) {{\n{fields}\n}}"
 
 
 def _remote_issue_context(node: Mapping[str, object]) -> RemoteIssueContext:

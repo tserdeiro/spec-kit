@@ -2,9 +2,9 @@
 """Internal bridge: read one JSON request on stdin and print one JSON result.
 
 Usage: ``resolve_work_item.py [--root PATH] [--config PATH]``. The request is
-one JSON object, ``{"issue_key": "TEAM-123"}``; the result contains native
-Issue context and the exact suggested branch. This is an internal bridge, not
-a public ``spec-kit-linear`` command.
+one JSON object with ``issue_key`` or ``branch_names``/``pull_requests`` arrays;
+the result preserves ordered per-observation native contexts. This is an
+internal bridge, not a public ``spec-kit-linear`` command.
 """
 
 from __future__ import annotations

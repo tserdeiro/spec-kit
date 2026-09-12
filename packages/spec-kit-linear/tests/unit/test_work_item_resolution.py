@@ -46,6 +46,14 @@ class FakeClient:
             return context(identifier)
         return self.issue
 
+    def resolve_branch_issues(self, branches: list[str]) -> dict[str, RemoteIssueContext | None]:
+        self.calls.append(("branches", tuple(branches)))
+        return {branch: self.issue for branch in branches}
+
+    def resolve_issue_contexts(self, identifiers: list[str]) -> dict[str, RemoteIssueContext | None]:
+        self.calls.append(("issues", tuple(identifiers)))
+        return {identifier: context(identifier) for identifier in identifiers}
+
 
 class WorkItemResolutionTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -166,6 +174,109 @@ class WorkItemResolutionTests(unittest.TestCase):
                                 config_path=config_path,
                                 client_factory=lambda *_: self.client,
                             )
+
+    def test_strict_branch_key_falls_back_after_native_null(self) -> None:
+        result = self.resolve({"branch_names": ["WOR-12-fix"]})
+        self.assertEqual(result["observations"][0]["status"], "resolved")
+        self.assertEqual(self.client.calls, [("branches", ("WOR-12-fix",)), ("issues", ("WOR-12",))])
+
+    def test_unknown_native_branch_is_unresolved(self) -> None:
+        result = self.resolve({"branch_names": ["users/alice/fix"]})
+        self.assertEqual(result["observations"][0]["status"], "unresolved")
+        self.assertEqual(self.client.calls, [("branches", ("users/alice/fix",))])
+
+    def test_native_branch_without_explicit_key_resolves(self) -> None:
+        self.client.issue = context(branch="users/alice/fix")
+        result = self.resolve({"branch_names": ["users/alice/fix"]})
+        self.assertEqual(result["observations"][0]["status"], "resolved")
+
+    def test_native_wrong_team_is_a_conflict_observation(self) -> None:
+        self.client.issue = context(team_id="99999999-9999-4999-8999-999999999999")
+        result = self.resolve({"branch_names": ["users/alice/fix"]})
+        self.assertEqual(result["observations"][0]["status"], "conflict")
+
+    def test_tracker_section_cases(self) -> None:
+        cases = [
+            ("Mention WOR-12 here.\n\n## Work item\n\n- Tracker: Fixes WOR-12\n\n## Outcome\n\nWOR-99", "resolved"),
+            ("## Work item\n\n- Tracker: Fixes WOR-12\n\n## Outcome\n\n## Work item\n\n- Tracker: Fixes WOR-13", "conflict"),
+            ("## Work item\n\n```markdown\n- Tracker: Fixes WOR-12\n```\n", "unresolved"),
+            ("## Work item\n\n    - Tracker: Fixes WOR-12", "unresolved"),
+            ("## Work item\n\n\t- Tracker: Fixes WOR-12", "unresolved"),
+            ("## Work item\n\n- Tracker: Fixes WOR-12\n\n# Outcome\n\n- Tracker: Fixes WOR-13", "resolved"),
+        ]
+        for body, expected in cases:
+            with self.subTest(body=body):
+                result = self.resolve({"pull_requests": [{"head_branch": "old-title", "body": body}]})
+                self.assertEqual(result["observations"][0]["status"], expected)
+
+    def test_tracker_and_strict_branch_conflict_stays_per_observation(self) -> None:
+        result = self.resolve(
+            {"pull_requests": [{"head_branch": "WOR-1-fix", "body": "## Work item\n\n- Tracker: Fixes WOR-2"}]}
+        )
+        self.assertEqual(result["observations"][0]["status"], "conflict")
+        self.assertEqual(self.client.calls, [("branches", ("WOR-1-fix",))])
+
+    def test_feature_head_is_excluded_before_tracker_and_nested_head_is_not(self) -> None:
+        result = self.resolve(
+            {
+                "pull_requests": [
+                    {"head_branch": "001-T002-change", "body": "## Work item\n\n- Tracker: Fixes WOR-1"},
+                    {"head_branch": "users/alice/001-T002-change"},
+                ]
+            }
+        )
+        self.assertEqual([item["status"] for item in result["observations"]], ["excluded", "unresolved"])
+
+    def test_excluded_observations_do_not_load_credentials(self) -> None:
+        failure = AppError("credentials are missing", code=4, category="credentials")
+        with patch("spec_kit_linear.work_item_resolution.load_credentials", side_effect=failure):
+            issue = resolve_work_item({"issue_key": "009-T002-change"}, root=self.root, client_factory=lambda *_: self.client)
+            batch = resolve_work_item({"branch_names": ["009-feature"]}, root=self.root, client_factory=lambda *_: self.client)
+        self.assertEqual((issue["status"], batch["status"]), ("excluded", "excluded"))
+
+    def test_all_feature_heads_return_excluded_batch_without_remote_reads(self) -> None:
+        result = self.resolve({"branch_names": ["001-feature", "001-T002-change"]})
+        self.assertEqual((result["category"], result["status"]), ("excluded", "excluded"))
+        self.assertEqual(len(result["observations"]), 2)
+        self.assertEqual(self.client.calls, [])
+
+    def test_same_head_conflicting_pull_requests_keep_two_conflicts(self) -> None:
+        result = self.resolve(
+            {
+                "pull_requests": [
+                    {"head_branch": "old-title", "body": "## Work item\n\n- Tracker: Fixes WOR-12"},
+                    {"head_branch": "old-title", "body": "## Work item\n\n- Tracker: Fixes WOR-13"},
+                ]
+            }
+        )
+        self.assertEqual(len(result["observations"]), 2)
+        self.assertEqual([item["status"] for item in result["observations"]], ["conflict", "conflict"])
+        self.assertEqual(self.client.calls, [("branches", ("old-title",))])
+
+    def test_same_head_branch_and_conflicting_tracker_have_no_resolved_row(self) -> None:
+        self.client.issue = context("WOR-1", branch="WOR-1-fix")
+        result = self.resolve(
+            {
+                "branch_names": ["WOR-1-fix"],
+                "pull_requests": [{"head_branch": "WOR-1-fix", "body": "## Work item\n\n- Tracker: Fixes WOR-2"}],
+            }
+        )
+        self.assertEqual([item["status"] for item in result["observations"]], ["conflict", "conflict"])
+
+    def test_same_head_wrong_team_tracker_conflicts_for_every_observation(self) -> None:
+        self.client.issue = context("WOR-12", branch="old-title")
+        result = self.resolve(
+            {
+                "branch_names": ["old-title"],
+                "pull_requests": [{"head_branch": "old-title", "body": "## Work item\n\n- Tracker: Fixes OTHER-13"}],
+            }
+        )
+        self.assertEqual([item["status"] for item in result["observations"]], ["conflict", "conflict"])
+
+    def test_batch_fields_are_arrays(self) -> None:
+        for payload in ({"branch_names": "WOR-1"}, {"pull_requests": {"head_branch": "WOR-1"}}):
+            with self.subTest(payload=payload), self.assertRaisesRegex(AppError, "must be an array"):
+                self.resolve(payload)
 
 
 if __name__ == "__main__":

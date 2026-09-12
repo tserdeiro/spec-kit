@@ -102,6 +102,19 @@ class LinearClientTests(unittest.TestCase):
         self.assertEqual(malformed.exception.code, 9)
         self.assertIn("team", str(malformed.exception))
 
+    def test_resolve_issue_contexts_batches_distinct_keys_and_preserves_null(self) -> None:
+        client, opener, _ = self._client(
+            [MemoryResponse({"data": {"issue0": self._issue_node(), "issue1": None}})]
+        )
+
+        found = client.resolve_issue_contexts(["WOR-12", "WOR-13", "WOR-12"])
+
+        self.assertEqual(set(found), {"WOR-12", "WOR-13"})
+        self.assertEqual(found["WOR-12"].identifier, "WOR-12")
+        self.assertIsNone(found["WOR-13"])
+        self.assertEqual(opener.requests[0]["payload"]["variables"], {"issue0": "WOR-12", "issue1": "WOR-13"})
+        self.assertIn("IssueContexts", str(opener.requests[0]["payload"]["query"]))
+
     def test_query_uses_authorization_request_id_and_only_named_queries(self) -> None:
         client, opener, _ = self._client([MemoryResponse({"data": {"viewer": {"id": "viewer"}}})])
 
