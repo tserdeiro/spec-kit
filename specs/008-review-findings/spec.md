@@ -136,8 +136,9 @@ session with every finding and its severity preserved.
 
 ## Assumptions and dependencies
 
-- **A-001**: Reliability entry 04 follows entry 03 in delivery order and has no
-  additional functional dependency. Feature numbers are assigned independently.
+- **A-001**: On 2026-09-12 the human decided not to implement reliability entry 03.
+  Entry 04 proceeds directly after entry 02 and has no additional functional
+  dependency. Feature numbers are assigned independently.
 - **A-002**: A correction changes classification only. If understanding a finding
   requires substantive changes or fresh code analysis, the reviewer starts a new
   review under the existing lifecycle and preserves the previous evidence.

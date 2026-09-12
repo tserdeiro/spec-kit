@@ -1,7 +1,8 @@
 # Tasks: Correct review finding categories
 
 **Inputs**: [spec.md](spec.md), [plan.md](plan.md)
-**Next work**: T001 after technical approval and the delivery gates in the plan.
+**Next work**: T001; human approval and assignment to supervised Luna agents
+were given on 2026-09-12.
 
 ## Delivery strategy
 
@@ -16,8 +17,8 @@
   existing 2× forecast stop. Forecasts below include implementation, tests,
   fixture changes, and conformance. Record actual evidence before checking a task.
 - Product approval, commits, remote synchronization, task assignment, and the
-  feature PR retain their current authorization gates. Confirm entry 03's
-  delivery before implementation, as recorded in the plan's rollout section.
+  feature PR retain their current authorization gates. The human decided on
+  2026-09-12 to omit entry 03; this feature follows entry 02 directly.
 - The smallest demonstrable slice is T001–T002. Completing this feature includes
   T003's adversarial checks and T004's installed-consumer evidence.
 

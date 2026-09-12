@@ -48,7 +48,7 @@ any additional API against its official source before implementation.
 | IV. Durable repository truth | PASS | PASS | Original bytes and correction outcomes tied to the current review attempt. |
 | V. Source/consumer boundary | PASS | PASS | Private consumer evidence; independently installed package. |
 | VI. Traceable delivery units | PASS | PASS | Sequential task chain, FR/SC traces, whole-deliverable forecasts below 400 lines. |
-| Sequential delivery and human gates | PASS | PASS | Entry 04 remains bounded; implementation follows entry 03, approval and remote gates stay explicit. |
+| Sequential delivery and human gates | PASS | PASS | Entry 04 remains bounded; human waived entry 03 on 2026-09-12; approval and remote gates stay explicit. |
 
 ## System boundaries and interfaces
 
@@ -198,10 +198,9 @@ missing correction fields as evidence of a new-format session.
 - **Retry/idempotency**: Repeat the existing `review --findings ... --session ...`
   invocation after editing only invalid categories. Reuse packet/engine analysis;
   repeat validation and correspondence checks. Same digest, same record.
-- **Rollout**: Deliver after reliability entry 03; current checkout provides the
-  concrete seams and has feature 007. Entry 03's artifacts are absent here, so
-  verify its delivery/order before starting implementation. Run installed
-  conformance before separately authorized release/publication.
+- **Rollout**: The human decided on 2026-09-12 not to implement reliability
+  entry 03. Deliver this feature directly after feature 007 (entry 02). Run
+  installed conformance before separately authorized release/publication.
 - **Rollback**: Restore the previous package and start a fresh review. Keep
   original and correction files as historical evidence; do not replay them as
   findings for another review attempt.
@@ -272,6 +271,6 @@ packages/spec-kit-code-review/
 | Gate | Evidence | Status |
 | --- | --- | --- |
 | Clean Spec Kit analysis | Artifact review: 7 FR + 4 SC covered by 4 tasks; zero unresolved inconsistencies. Final read-only pass verifies these counts. | complete |
-| Technical approval of plan and tasks | Human review requested after artifact preparation | pending |
+| Technical approval of plan and tasks | Human authorized commits and implementation on 2026-09-12 | complete |
 | Reviewed Linear dry-run and synchronization | Plan preview: one Project; task preview: one Project + four Issues. Review and authorized synchronization remain pending. | pending |
-| Every executable task individually assignable and assigned | Task ledger provides delivery units; assignees remain a human decision | pending |
+| Every executable task individually assignable and assigned | Human assigned all four tasks to fresh Luna agents, supervised by the orchestrator, on 2026-09-12 | complete |
