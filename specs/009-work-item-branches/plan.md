@@ -89,6 +89,12 @@ null. A non-null native disagreement is a conflict; a name without explicit
 identity and with null lookup stays unresolved. Native transport failure remains
 failed evidence, distinct from a successful null result.
 
+Only the leading strict default key and canonical Tracker fields are explicit
+textual identities. Additional Issue-like tokens make a branch-only, native-null
+fallback ambiguous; a native match or an agreeing canonical Tracker plus Issue
+read resolves that ambiguity. Names outside the strict default layout require
+native or canonical Tracker evidence.
+
 ### D2. Resolve and adopt before mutating Git
 
 - **Decision**: Put setup in a small preset `work_item_start.py`, called by
