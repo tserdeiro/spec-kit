@@ -18,6 +18,7 @@ import secrets
 import shlex
 import sys
 import tempfile
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -91,7 +92,7 @@ from .reporting import render_human, review_document
 from .verdict import CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
 from .verdict import derive as derive_verdict
 from .sdd_context import CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
-from .review_context import resolve_scope
+from .review_context import resolve_scope, select_context
 from .rules import RuleResolution, parse_rule_document, resolve_rules
 from .process import resolve_executable, run_command, sha256_file
 from .redaction import redact_payload, redact_text
@@ -645,6 +646,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                     "rules": engine["rules"],
                     "sdd": assembled["sdd"],
                     "review_scope_gaps": assembled["scope"]["gaps"],
+                    "context_selection": assembled["context_selection"],
                     "budget": assembled["budget"],
                     "packet": assembled["packet"].as_dict(),
                 },
@@ -807,6 +809,10 @@ def _assemble_packet(
         base_task_entries=base_entries,
     )
     diagnostics.extend(_scope_diagnostics(review_scope))
+    context_selection = select_context(sdd, review_scope)
+    diagnostics.extend(
+        Diagnostic(gap.code, gap.detail, severity="warning") for gap in context_selection.gaps
+    )
 
     budget_report = compute_budget(
         context.git,
@@ -828,6 +834,7 @@ def _assemble_packet(
         rule_assignments=engine["rule_assignments"],
         sdd=sdd,
         review_scope=review_scope,
+        context_selection=context_selection,
         budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
@@ -850,6 +857,7 @@ def _assemble_packet(
         "packet": assembled,
         "sdd": sdd.as_dict(),
         "scope": review_scope.as_dict(),
+        "context_selection": context_selection.as_dict(),
         "budget": budget_report.as_dict(),
     }
 
@@ -1070,6 +1078,13 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
     )
     diagnostics.extend(sdd.diagnostics)
     diagnostics.extend(_sdd_diagnostics(feature, sdd))
+    advisory_scope = resolve_scope(
+        SimpleNamespace(candidate_id="working-tree", merge_base=head, head_commit=head),
+        pull_request=SimpleNamespace(head_ref_name=origin.branch),
+        sdd=sdd,
+        changed_paths=reviewed_paths,
+    )
+    context_selection = select_context(sdd, advisory_scope)
 
     budget_report = compute_working_tree_budget(
         context.git, context.root, limit=int(config.get("budget", "limit", 400) or 400)
@@ -1087,6 +1102,8 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         rules=resolution,
         rule_assignments=assignments,
         sdd=sdd,
+        review_scope=advisory_scope,
+        context_selection=context_selection,
         budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
@@ -1131,6 +1148,7 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         scope=preview.as_dict(),
         rules={**resolution.as_dict(), "assignments": assignments.as_dict()["assignments"]},
         sdd=sdd.as_dict(),
+        context_selection=context_selection.as_dict(),
         budget=budget_report.as_dict(),
         packet={**packet.as_dict(), "path": str(packet_path)},
     )

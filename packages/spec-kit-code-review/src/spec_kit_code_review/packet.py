@@ -396,6 +396,7 @@ def assemble(
     rule_assignments: Sequence[Any] = (),
     sdd: Any | None = None,
     review_scope: Any | None = None,
+    context_selection: Any | None = None,
     budget: Any | None = None,
     max_bytes_per_artifact: int = DEFAULT_MAX_BYTES_PER_ARTIFACT,
     max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
@@ -458,6 +459,7 @@ def assemble(
             _section_sdd(
                 sdd,
                 review_scope=review_scope,
+                context_selection=context_selection,
                 candidate=candidate,
                 advisory=advisory,
                 suffix=session_suffix,
@@ -847,6 +849,7 @@ def _section_sdd(
     sdd: Any | None,
     *,
     review_scope: Any | None = None,
+    context_selection: Any | None = None,
     candidate: Any,
     advisory: bool = False,
     suffix: str,
@@ -879,6 +882,23 @@ def _section_sdd(
         for gap in scope.get("gaps") or ():
             detail = gap.get("detail", gap) if isinstance(gap, dict) else str(gap)
             lines.append(f"- unresolved scope: {_one_line(visible(detail))}")
+    if context_selection is not None:
+        selection = context_selection.as_dict() if hasattr(context_selection, "as_dict") else dict(context_selection)
+        lines.extend(
+            [
+                f"- required source ranges: {len(selection.get('required') or ())}",
+                f"- selected source ranges: {len(selection.get('selected') or ())}",
+                f"- deliberate exclusions: {len(selection.get('excluded') or ())}",
+            ]
+        )
+        for gap in selection.get("gaps") or ():
+            detail = gap.get("detail", gap) if isinstance(gap, dict) else str(gap)
+            lines.append(f"- unresolved context: {_one_line(visible(detail))}")
+        for item in selection.get("selected") or ():
+            lines.append(
+                f"- selected: {code_span(item.get('path', ''))} lines {item.get('start')}–{item.get('end')} "
+                f"({_one_line(visible(item.get('reason', 'required context')))})"
+            )
     if sdd is None:
         return "\n".join(lines + ["_No SDD context was loaded._"])
 
@@ -893,13 +913,13 @@ def _section_sdd(
         candidates = ", ".join(code_span(item) for item in resolution.candidates)
         lines.append(f"- ambiguous between: {candidates} — the review continues without context")
 
-    def _artifact(number: str, title: str, artifact: Any | None) -> None:
+    def _artifact(number: str, title: str, artifact: Any | None, text_override: str | None = None) -> None:
         lines.extend(["", f"### {number} {title}", ""])
         if artifact is None or not artifact.present:
             lines.append(f"_Absent at {source}._")
             return
         text, truncation = truncate(
-            artifact.text or "",
+            artifact.text if text_override is None else text_override,
             limit=max_bytes,
             path=artifact.path,
             command=(
@@ -918,24 +938,35 @@ def _section_sdd(
         # the artifact did not fit, in which case the packet says which text the
         # digest belongs to rather than letting the reviewer's check fail
         # mysteriously.
-        label = "sha256 (of the untruncated original)" if truncation else "sha256"
+        label = "sha256 (of the whole source)" if text_override is not None else ("sha256 (of the untruncated original)" if truncation else "sha256")
         lines.append(f"- {label}: {artifact.sha256}")
         lines.append("")
         lines.append(block.text)
 
     _artifact("4.1", "Constitution", sdd.constitution)
     _artifact("4.2", "Active feature", sdd.feature_json)
-    _artifact("4.3", "Specification", sdd.spec)
+    _artifact("4.3", "Specification", sdd.spec, _selected_artifact_text(sdd.spec, context_selection))
     if sdd.requirement_ids:
         lines.extend(["", f"Requirement identifiers: {', '.join(sdd.requirement_ids)}"])
-    _artifact("4.4", "Plan", sdd.plan)
-    _artifact("4.5", "Tasks", sdd.tasks)
+    _artifact("4.4", "Plan", sdd.plan, _selected_artifact_text(sdd.plan, context_selection))
+    _artifact("4.5", "Tasks", sdd.tasks, _selected_artifact_text(sdd.tasks, context_selection))
     if sdd.task_entries:
         # Doc 4.5: "the tasks *reached by this candidate*". A task is reached when
         # it names a path the candidate actually changed; when no task names any
         # path there is no signal to filter on, and the packet says so rather
         # than pretending the whole backlog belongs to this pull request.
-        reached = [entry for entry in sdd.task_entries if getattr(entry, "reached", False)]
+        selected_task_ranges = []
+        if context_selection is not None:
+            raw_ranges = context_selection.selected if hasattr(context_selection, "selected") else context_selection.get("selected", ())
+            selected_task_ranges = [item.as_dict() if hasattr(item, "as_dict") else item for item in raw_ranges if (item.path if hasattr(item, "path") else item.get("path")) == sdd.tasks.path]
+        reached = (
+            [entry for entry in sdd.task_entries if any(
+                entry.source_range and item["start"] <= entry.source_range[0] and item["end"] >= entry.source_range[1]
+                for item in selected_task_ranges
+            )]
+            if selected_task_ranges
+            else [entry for entry in sdd.task_entries if getattr(entry, "reached", False)]
+        )
         scoped = bool(reached) or any(getattr(entry, "referenced_paths", ()) for entry in sdd.task_entries)
         shown = reached if scoped else list(sdd.task_entries)
         lines.extend(
@@ -982,6 +1013,18 @@ def _section_sdd(
                 detail_blocks.append(detail_block.text)
         if detail_blocks:
             lines.extend(["", *detail_blocks])
+    if context_selection is not None:
+        selection = context_selection.as_dict() if hasattr(context_selection, "as_dict") else dict(context_selection)
+        excluded = selection.get("excluded") or ()
+        if excluded:
+            lines.extend(["", "Remaining source access (deliberately excluded ranges):", ""])
+            for item in excluded:
+                path = item.get("path", "")
+                lines.append(
+                    f"- {code_span(path)} lines {item.get('start')}–{item.get('end')}: "
+                    f"{_one_line(visible(item.get('reason', 'out of scope')))}; "
+                    f"retrieve with `git show {candidate.head_commit}:{shell_quote(path)}`"
+                )
     if include_checklists:
         summary = sdd.checklist_summary or {}
         lines.extend(
@@ -1012,6 +1055,22 @@ def _section_sdd(
             warnings.extend(block.warnings)
             lines.extend([f"- {code_span(artifact.path)} (sha256 {artifact.sha256})", "", block.text])
     return "\n".join(lines)
+
+
+def _selected_artifact_text(artifact: Any | None, selection: Any | None) -> str | None:
+    """Return selected source lines, or ``None`` to retain legacy full output."""
+    if artifact is None or selection is None or not artifact.present:
+        return None
+    ranges = selection.selected if hasattr(selection, "selected") else selection.get("selected", ())
+    ranges = [item.as_dict() if hasattr(item, "as_dict") else item for item in ranges]
+    relevant = [item for item in ranges if item.get("path") == artifact.path]
+    if not relevant:
+        return ""
+    lines = (artifact.text or "").splitlines(keepends=True)
+    chunks = []
+    for item in sorted(relevant, key=lambda value: (value["start"], value["end"])):
+        chunks.append("".join(lines[item["start"] - 1:item["end"]]))
+    return "".join(chunks)
 
 
 def _section_budget(budget: Any | None) -> str:
