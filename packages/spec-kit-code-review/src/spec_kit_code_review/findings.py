@@ -364,7 +364,7 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
             "every required field of the packet's schema must be present",
         )
 
-    path = _require_string(entry, "path", index=index, limit=4096)
+    path = _require_string(entry, "path", index=index, limit=4096, truncated=truncated)
     try:
         validate_repository_relative_path(path)
     except AppError as error:
@@ -420,12 +420,12 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
         content=_require_string(entry, "content", index=index, limit=MAX_CONTENT_CHARS, truncated=truncated),
         side=side,
         existing_code=(
-            _require_string(entry, "existing_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True)
+            _require_string(entry, "existing_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True, truncated=truncated)
             if entry.get("existing_code") is not None
             else None
         ),
         suggestion_code=(
-            _require_string(entry, "suggestion_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True)
+            _require_string(entry, "suggestion_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True, truncated=truncated)
             if entry.get("suggestion_code") is not None
             else None
         ),
@@ -433,7 +433,7 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
         sdd_reference=(
             " ".join(
                 visible(
-                    _require_string(entry, "sdd_reference", index=index, limit=MAX_REFERENCE_CHARS, allow_empty=True)
+                    _require_string(entry, "sdd_reference", index=index, limit=MAX_REFERENCE_CHARS, allow_empty=True, truncated=truncated)
                 ).split()
             )
             or None
@@ -473,8 +473,7 @@ def normalize(
             diagnostics.append(
                 Diagnostic(
                     "findings_truncated_field",
-                    f"{finding.path}:{finding.start_line}: {', '.join(sorted(set(cut)))} exceeded the limit and was "
-                    f"cut ({MAX_TITLE_CHARS} characters for a title, {MAX_CONTENT_CHARS} for content)",
+                    f"{finding.path}:{finding.start_line}: {', '.join(sorted(set(cut)))} exceeded its configured limit and was cut",
                     finding.path,
                     severity="warning",
                 )

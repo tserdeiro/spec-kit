@@ -615,6 +615,30 @@ class AnchoredReviewTests(RunCommandCase):
         self.assertFalse(any(path.exists() for path in cleared), cleared)
         self.assertEqual(self._session_payload()["phase"], "open")
 
+    def test_same_head_reopen_gets_a_new_attempt_and_rejects_the_closed_retry(self) -> None:
+        _, first = self._phase_one()
+        old_session = Path(first["session"]["path"])
+        findings = old_session / "findings.json"
+        original = json.dumps({"findings": [{"category": "vibes"}]}).encode()
+        findings.write_bytes(original)
+        code, _ = self.invoke_json("review", "--findings", str(findings), "--session", str(old_session))
+        self.assertEqual(code, EXIT_USAGE)
+        old_attempt = json.loads((old_session / "session.json").read_text())["findings_attempt_id"]
+        _, reopened = self._phase_one()
+        new_session = Path(reopened["session"]["path"])
+        new_attempt = json.loads((new_session / "session.json").read_text())["findings_attempt_id"]
+        self.assertNotEqual(old_attempt, new_attempt)
+        self.assertEqual((old_session / "finding-corrections" / old_attempt / "original.json").read_bytes(), original)
+        self.assertEqual((new_session / "finding-corrections" / old_attempt / "original.json").read_bytes(), original)
+        from tests.support.coverage import coverage_for_session
+        valid = new_session / "findings.json"
+        valid.write_text(json.dumps({"findings": [], "coverage": coverage_for_session(self.repository, new_session)}), encoding="utf-8")
+        code, _ = self.invoke_json("review", "--findings", str(valid), "--session", str(new_session))
+        self.assertEqual(code, EXIT_SUCCESS)
+        code, payload = self.invoke_json("review", "--findings", str(valid), "--session", str(new_session))
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertEqual(payload["diagnostics"][0]["code"], "session_not_open")
+
     def test_a_reclaim_that_would_destroy_work_stops_instead(self) -> None:
         _, first = self._phase_one()
         worktree = Path(first["environment"]["worktree_path"])
