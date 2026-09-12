@@ -29,7 +29,8 @@ import hashlib
 import re
 import secrets
 import shlex
-from dataclasses import dataclass, field
+import json
+from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
 
 from . import __version__
@@ -243,6 +244,9 @@ class Truncation:
     omitted_bytes: int
     omitted_lines: int
     command: str
+    omitted_start: int | None = None
+    omitted_end: int | None = None
+    source_start: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -250,6 +254,9 @@ class Truncation:
             "omitted_bytes": self.omitted_bytes,
             "omitted_lines": self.omitted_lines,
             "command": self.command,
+            "omitted_start": self.omitted_start,
+            "omitted_end": self.omitted_end,
+            "source_start": self.source_start,
         }
 
 
@@ -257,13 +264,13 @@ def truncate(text: str, *, limit: int, path: str, command: str) -> tuple[str, Tr
     """Cut at a line boundary, deterministically, and say exactly what was cut."""
 
     raw = text or ""
-    if limit <= 0 or len(raw.encode("utf-8")) <= limit:
+    if limit > 0 and len(raw.encode("utf-8")) <= limit:
         return raw, None
     kept: list[str] = []
     used = 0
-    lines = raw.splitlines()
+    lines = raw.splitlines(keepends=True)
     for index, line in enumerate(lines):
-        cost = len(line.encode("utf-8")) + 1
+        cost = len(line.encode("utf-8"))
         if used + cost > limit:
             omitted_lines = len(lines) - index
             omitted_bytes = len(raw.encode("utf-8")) - used
@@ -271,12 +278,35 @@ def truncate(text: str, *, limit: int, path: str, command: str) -> tuple[str, Tr
                 f"[… truncated: {omitted_bytes} byte(s) and {omitted_lines} line(s) omitted. "
                 f"Read the whole file with: {command} …]"
             )
-            return "\n".join(kept + [mark]), Truncation(
-                path=path, omitted_bytes=omitted_bytes, omitted_lines=omitted_lines, command=command
+            return "".join(kept) + mark, Truncation(
+                path=path, omitted_bytes=omitted_bytes, omitted_lines=omitted_lines, command=command,
+                omitted_start=index + 1, omitted_end=len(lines)
             )
         kept.append(line)
         used += cost
-    return "\n".join(kept), None
+    return "".join(kept), None
+
+
+@dataclass
+class _SourceBudget:
+    """Aggregate UTF-8 allowance shared by every rendering of one source."""
+
+    limit: int
+    used: dict[str, int] = field(default_factory=dict)
+
+    def take(self, text: str, *, path: str, command: str, source_start: int | None = None) -> tuple[str, Truncation | None]:
+        raw = text or ""
+        remaining = max(0, self.limit - self.used.get(path, 0))
+        rendered, truncation = truncate(raw, limit=remaining, path=path, command=command)
+        consumed = len(raw.encode("utf-8"))
+        if truncation is not None:
+            consumed -= truncation.omitted_bytes
+            if source_start is not None:
+                truncation = replace(truncation, omitted_start=source_start + truncation.omitted_start - 1,
+                                     omitted_end=source_start + truncation.omitted_end - 1,
+                                     source_start=source_start)
+        self.used[path] = self.used.get(path, 0) + consumed
+        return rendered, truncation
 
 
 CANONICAL_SUFFIX = "<session-suffix>"
@@ -347,6 +377,8 @@ class Packet:
     warnings: list[Diagnostic] = field(default_factory=list)
     truncations: list[Truncation] = field(default_factory=list)
     seeded_findings: list[dict[str, Any]] = field(default_factory=list)
+    inventory: dict[str, Any] = field(default_factory=dict)
+    inventory_sha256: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -356,6 +388,7 @@ class Packet:
             "bytes": len(self.text.encode("utf-8")),
             "truncations": [item.as_dict() for item in self.truncations],
             "seeded_findings": list(self.seeded_findings),
+            "inventory_sha256": self.inventory_sha256,
         }
 
 
@@ -417,9 +450,10 @@ def assemble(
     warnings: list[Diagnostic] = []
     truncations: list[Truncation] = []
 
-    def _build(session_suffix: str, escape: bool) -> tuple[str, str, list[Diagnostic], list[Truncation]]:
+    def _build(session_suffix: str, escape: bool, source_limit: int) -> tuple[str, str, list[Diagnostic], list[Truncation], dict[str, Any]]:
         block_warnings: list[Diagnostic] = []
         block_truncations: list[Truncation] = []
+        source_budget = _SourceBudget(source_limit)
         header = _section_zero(
             candidate=candidate,
             advisory=advisory,
@@ -435,6 +469,7 @@ def assemble(
             warnings=block_warnings,
             truncations=block_truncations,
             max_bytes=max_bytes_per_artifact,
+            source_budget=source_budget,
             escape=escape,
         )
         body_sections = [
@@ -446,6 +481,7 @@ def assemble(
                 truncations=block_truncations,
                 max_bytes=max_bytes_per_artifact,
                 escape=escape,
+                source_budget=source_budget,
             ),
             _section_rules(
                 rules,
@@ -455,6 +491,7 @@ def assemble(
                 truncations=block_truncations,
                 max_bytes=max_bytes_per_artifact,
                 escape=escape,
+                source_budget=source_budget,
             ),
             _section_sdd(
                 sdd,
@@ -469,11 +506,16 @@ def assemble(
                 max_bytes=max_bytes_per_artifact,
                 escape=escape,
                 pull_request_body=metadata["body"] if include_pr_body else "",
+                source_budget=source_budget,
             ),
             _section_budget(budget),
             _section_diff_commands(candidate, preview, advisory=advisory, suffix=session_suffix),
             _section_instructions(advisory=advisory),
         ]
+        inventory = _context_inventory(review_scope, context_selection, sdd, block_truncations, candidate=candidate,
+                                       per_source=source_limit, total=max_total_bytes, advisory=advisory)
+        summary = _inventory_summary(inventory)
+        body_sections.insert(4, summary)
         region = "\n\n".join(section.strip("\n") for section in body_sections if section.strip()) + "\n"
         whole = f"{header.rstrip()}\n\n{hashed_region_marker(session_suffix)}\n\n{region}"
         return (
@@ -481,6 +523,7 @@ def assemble(
             _normalize(region, suffix=session_suffix),
             block_warnings,
             block_truncations,
+            inventory,
         )
 
     # Doc "Contención" rule 3: on collision the suffix is regenerated, up to three
@@ -489,13 +532,42 @@ def assemble(
     # play -- the one section 0 and `session.json` declare, and the only one the
     # canonical region has to normalize.
     session_suffix = suffix or new_suffix()
-    for attempt in range(MAX_SUFFIX_ATTEMPTS + 1):
-        escape = attempt == MAX_SUFFIX_ATTEMPTS
-        try:
-            text, hashed_region, warnings, truncations = _build(session_suffix, escape)
-            break
-        except SuffixCollision:
-            session_suffix = new_suffix()
+    def _fit(source_limit: int):
+        nonlocal session_suffix
+        for attempt in range(MAX_SUFFIX_ATTEMPTS + 1):
+            try:
+                built = _build(session_suffix, attempt == MAX_SUFFIX_ATTEMPTS, source_limit)
+                return built, session_suffix
+            except SuffixCollision:
+                session_suffix = new_suffix()
+        raise AssertionError("unreachable")
+
+    effective_source_limit = max_bytes_per_artifact
+    (text, hashed_region, warnings, truncations, inventory), session_suffix = _fit(max_bytes_per_artifact)
+    if max_total_bytes and len(text.encode("utf-8")) > max_total_bytes:
+        minimum, minimum_suffix = _fit(0)
+        if len(minimum[0].encode("utf-8")) > max_total_bytes:
+            raise AppError(
+                f"packet.max_total_bytes={max_total_bytes} is smaller than the trusted packet envelope "
+                f"({len(minimum[0].encode('utf-8'))} bytes)",
+                code=EXIT_ENGINE,
+                diagnostics=[Diagnostic("packet_limit_impossible", "increase packet.max_total_bytes before opening a session")],
+            )
+        session_suffix = minimum_suffix
+        low, high = 0, max_bytes_per_artifact
+        best = minimum
+        best_suffix = minimum_suffix
+        best_limit = 0
+        while low <= high:
+            candidate_limit = (low + high) // 2
+            candidate_build, candidate_suffix = _fit(candidate_limit)
+            if len(candidate_build[0].encode("utf-8")) <= max_total_bytes:
+                best, best_suffix, best_limit, low = candidate_build, candidate_suffix, candidate_limit, candidate_limit + 1
+            else:
+                high = candidate_limit - 1
+        text, hashed_region, warnings, truncations, inventory = best
+        session_suffix = best_suffix
+        effective_source_limit = best_limit
     marker = hashed_region_marker(session_suffix)
 
     if text.count(marker) != 1:
@@ -515,14 +587,7 @@ def assemble(
 
     total = len(text.encode("utf-8"))
     if max_total_bytes and total > max_total_bytes:
-        warnings.append(
-            Diagnostic(
-                "packet_over_total_budget",
-                f"the packet is {total} bytes, over the configured packet.max_total_bytes of {max_total_bytes}; "
-                "individual artifacts were already truncated, so this is reported rather than cut further",
-                severity="warning",
-            )
-        )
+        raise AppError("packet content exceeds its configured total limit", code=EXIT_ENGINE)
 
     seeded: list[dict[str, Any]] = []
     if rules is not None:
@@ -539,6 +604,7 @@ def assemble(
         )
 
     canonical = canonicalize(hashed_region, session_suffix)
+    inventory_bytes = json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return Packet(
         text=text,
         hashed_region=hashed_region,
@@ -549,6 +615,8 @@ def assemble(
         warnings=warnings,
         truncations=truncations,
         seeded_findings=seeded,
+        inventory=inventory,
+        inventory_sha256=hashlib.sha256(inventory_bytes).hexdigest(),
     )
 
 
@@ -593,6 +661,74 @@ def _normalize(text: str, *, suffix: str) -> str:
 # -- sections ---------------------------------------------------------------
 
 
+def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any | None,
+                       truncations: Sequence[Truncation] = (), candidate: Any | None = None,
+                       per_source: int = DEFAULT_MAX_BYTES_PER_ARTIFACT, total: int = DEFAULT_MAX_TOTAL_BYTES,
+                       advisory: bool = False) -> dict[str, Any]:
+    scope = review_scope.as_dict() if hasattr(review_scope, "as_dict") else dict(review_scope or {})
+    selected = selection.as_dict() if hasattr(selection, "as_dict") else dict(selection or {})
+    sources = []
+    if sdd is not None:
+        for artifact in sdd.artifacts():
+            if artifact.present:
+                sources.append({"path": artifact.path, "sha256": artifact.sha256,
+                                "version": "working-tree" if advisory else getattr(candidate, "head_commit", None)})
+    omitted = [item for item in truncations if item.omitted_start and item.omitted_end]
+    def ranges(name: str, *, clip: bool = False) -> list[dict[str, Any]]:
+        result = []
+        for item in selected.get(name, []):
+            entry = dict(item)
+            ref = getattr(candidate, "head_commit", None) or scope.get("head_commit")
+            if advisory:
+                entry["command"] = f"cat {shlex.quote(str(entry.get('path', '')))}"
+            else:
+                entry["command"] = f"git show {shlex.quote(str(ref))}:{shlex.quote(str(entry.get('path', '')))}"
+            cuts = [cut for cut in omitted if clip and cut.path == entry.get("path") and cut.source_start is not None]
+            pieces = [(int(entry.get("start", 1)), int(entry.get("end", 1)))]
+            for cut in cuts:
+                next_pieces = []
+                for start, end in pieces:
+                    if cut.omitted_end < start or cut.omitted_start > end:
+                        next_pieces.append((start, end)); continue
+                    if start < cut.omitted_start:
+                        next_pieces.append((start, cut.omitted_start - 1))
+                    if cut.omitted_end < end:
+                        next_pieces.append((cut.omitted_end + 1, end))
+                pieces = next_pieces
+            for start, end in pieces:
+                clipped = dict(entry); clipped.update(start=start, end=end)
+                result.append(clipped)
+        return result
+    required_ranges = ranges("required")
+    selected_ranges = ranges("selected", clip=True)
+    omitted_required = [item for item in omitted if item.source_start is not None and any(
+        item.path == req.get("path") and item.omitted_start <= int(req.get("end", 0))
+        and item.omitted_end >= int(req.get("start", 1)) for req in selected.get("required", []))]
+    return {"scope": scope, "sources": sources, "required": required_ranges,
+            "selected": selected_ranges, "excluded": ranges("excluded"),
+            "omitted_required": [item.as_dict() for item in omitted_required],
+            "gaps": selected.get("gaps", []),
+            "omitted": [item.as_dict() for item in truncations],
+            "effective_limits": {"per_source_bytes": per_source, "total_bytes": total}}
+
+
+def _inventory_summary(inventory: dict[str, Any]) -> str:
+    raw = json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hashlib.sha256(raw).hexdigest()
+    return "\n".join(["## 4.9 Frozen context inventory", "",
+        f"- inventory_sha256: {digest}",
+        f"- required ranges: {len(inventory.get('required', ())) }; selected: {len(inventory.get('selected', ())) }; "
+        f"excluded: {len(inventory.get('excluded', ())) }; gaps: {len(inventory.get('gaps', ())) }",
+        "- The complete inventory is beside this packet; retrieve omitted ranges from its exact source commands."])
+
+
+def _source_text(text: str, *, path: str, command: str, budget: _SourceBudget | None,
+                 limit: int, source_start: int | None = None) -> tuple[str, Truncation | None]:
+    if budget is not None:
+        return budget.take(text, path=path, command=command, source_start=source_start)
+    return truncate(text, limit=limit, path=path, command=command)
+
+
 def _section_zero(
     *,
     candidate: Any,
@@ -610,6 +746,7 @@ def _section_zero(
     truncations: list[Truncation],
     max_bytes: int,
     escape: bool = False,
+    source_budget: _SourceBudget | None = None,
 ) -> str:
     """Section 0: everything that may change without the candidate changing.
 
@@ -664,11 +801,12 @@ def _section_zero(
         ]
     )
     if include_pr_body and metadata["body"]:
-        body, truncation = truncate(
+        body, truncation = _source_text(
             metadata["body"],
-            limit=max_bytes,
             path="(pull-request body)",
             command="gh pr view <number> --json body",
+            budget=source_budget,
+            limit=max_bytes,
         )
         if truncation:
             truncations.append(truncation)
@@ -726,12 +864,14 @@ def _section_scope(
     truncations: list[Truncation],
     max_bytes: int,
     escape: bool = False,
+    source_budget: _SourceBudget | None = None,
 ) -> str:
-    raw, truncation = truncate(
+    raw, truncation = _source_text(
         getattr(preview, "raw", "") or "",
-        limit=max_bytes,
         path="(engine preview output)",
         command="cat <evidence>/raw/ocr-delegate-preview.stdout",
+        budget=source_budget,
+        limit=max_bytes,
     )
     if truncation:
         truncations.append(truncation)
@@ -773,6 +913,7 @@ def _section_rules(
     truncations: list[Truncation],
     max_bytes: int,
     escape: bool = False,
+    source_budget: _SourceBudget | None = None,
 ) -> str:
     lines = ["## 3. Applicable criteria", ""]
     if rules is None:
@@ -794,11 +935,12 @@ def _section_rules(
         # content, in one of this module's own list items.
         lines.append(f"- fail-closed: {_one_line(visible(rules.reason))}")
 
-    raw_text, truncation = truncate(
+    raw_text, truncation = _source_text(
         getattr(assignments, "raw", "") or "",
-        limit=max_bytes,
         path="(engine rule output)",
         command="cat <evidence>/raw/ocr-delegate-rule.stdout",
+        budget=source_budget,
+        limit=max_bytes,
     )
     if truncation:
         truncations.append(truncation)
@@ -821,8 +963,17 @@ def _section_rules(
             lines.append(f"  - {_one_line(visible(rule))}")
 
     if rules.candidate is not None and rules.candidate_path is not None:
-        audited = contain(
+        candidate_text, candidate_truncation = _source_text(
             rules.candidate.text or "",
+            path=str(rules.candidate_path),
+            command=f"cat {shell_quote(str(rules.candidate_path))}",
+            budget=source_budget,
+            limit=max_bytes,
+        )
+        if candidate_truncation:
+            truncations.append(candidate_truncation)
+        audited = contain(
+            candidate_text,
             suffix=suffix,
             origin=f"the rules proposed at {visible(rules.candidate.ref)} ({visible(rules.candidate_kind)})",
             escape_on_collision=escape,
@@ -859,6 +1010,7 @@ def _section_sdd(
     max_bytes: int,
     escape: bool = False,
     pull_request_body: str = "",
+    source_budget: _SourceBudget | None = None,
 ) -> str:
     source = "the working tree" if advisory else "the candidate's head commit"
     lines = [
@@ -875,13 +1027,16 @@ def _section_sdd(
         lines.extend(
             [
                 f"- review scope: {scope.get('kind', 'unknown')}",
-                f"- scope tasks: {', '.join(scope.get('task_ids') or ()) or '(none)'}",
+                f"- scope tasks: {len(scope.get('task_ids') or ())} (full list in context-inventory.json)",
                 f"- scope evidence: {len(scope.get('evidence') or {})} recorded signal(s)",
             ]
         )
-        for gap in scope.get("gaps") or ():
-            detail = gap.get("detail", gap) if isinstance(gap, dict) else str(gap)
-            lines.append(f"- unresolved scope: {_one_line(visible(detail))}")
+        if context_selection is None:
+            for gap in scope.get("gaps") or ():
+                detail = gap.get("detail", gap) if isinstance(gap, dict) else str(gap)
+                lines.append(f"- unresolved scope: {_one_line(visible(detail))}")
+        elif scope.get("gaps"):
+            lines.append(f"- unresolved scope gaps: {len(scope.get('gaps'))} (full details in context-inventory.json)")
     if context_selection is not None:
         selection = context_selection.as_dict() if hasattr(context_selection, "as_dict") else dict(context_selection)
         lines.extend(
@@ -891,14 +1046,9 @@ def _section_sdd(
                 f"- deliberate exclusions: {len(selection.get('excluded') or ())}",
             ]
         )
-        for gap in selection.get("gaps") or ():
-            detail = gap.get("detail", gap) if isinstance(gap, dict) else str(gap)
-            lines.append(f"- unresolved context: {_one_line(visible(detail))}")
-        for item in selection.get("selected") or ():
-            lines.append(
-                f"- selected: {code_span(item.get('path', ''))} lines {item.get('start')}–{item.get('end')} "
-                f"({_one_line(visible(item.get('reason', 'required context')))})"
-            )
+        if selection.get("gaps"):
+            lines.append(f"- unresolved context gaps: {len(selection.get('gaps'))} (full details in context-inventory.json)")
+        lines.append("- selected ranges and retrieval commands: context-inventory.json")
     if sdd is None:
         return "\n".join(lines + ["_No SDD context was loaded._"])
 
@@ -918,18 +1068,38 @@ def _section_sdd(
         if artifact is None or not artifact.present:
             lines.append(f"_Absent at {source}._")
             return
-        text, truncation = truncate(
-            artifact.text if text_override is None else text_override,
-            limit=max_bytes,
-            path=artifact.path,
-            command=(
-                f"cat {shell_quote(artifact.path)}"
-                if advisory
-                else f"git show {candidate.head_commit}:{shell_quote(artifact.path)}"
-            ),
-        )
-        if truncation:
-            truncations.append(truncation)
+        command = f"cat {shell_quote(artifact.path)}" if advisory else f"git show {candidate.head_commit}:{shell_quote(artifact.path)}"
+        if text_override is not None and context_selection is not None:
+            ranges = context_selection.selected if hasattr(context_selection, "selected") else context_selection.get("selected", ())
+            ranges = [item.as_dict() if hasattr(item, "as_dict") else item for item in ranges if (item.path if hasattr(item, "path") else item.get("path")) == artifact.path]
+            chunks = []
+            truncation_items = []
+            source_lines = (artifact.text or "").splitlines(keepends=True)
+            ordered_ranges = sorted(ranges, key=lambda value: (value["start"], value["end"]))
+            for position, item in enumerate(ordered_ranges):
+                if source_budget is not None and source_budget.used.get(artifact.path, 0) >= source_budget.limit:
+                    for omitted_item in ordered_ranges[position:]:
+                        omitted_text = "".join(source_lines[omitted_item["start"] - 1:omitted_item["end"]])
+                        truncation_items.append(Truncation(
+                            path=artifact.path, omitted_bytes=len(omitted_text.encode("utf-8")),
+                            omitted_lines=omitted_item["end"] - omitted_item["start"] + 1, command=command,
+                            omitted_start=omitted_item["start"], omitted_end=omitted_item["end"],
+                            source_start=omitted_item["start"]))
+                    break
+                chunk, cut = _source_text("".join(source_lines[item["start"] - 1:item["end"]]), path=artifact.path,
+                                           command=command, budget=source_budget, limit=max_bytes,
+                                           source_start=item["start"])
+                chunks.append(chunk)
+                if cut:
+                    truncation_items.append(cut)
+            text, truncation = "".join(chunks), None
+            truncations.extend(truncation_items)
+        else:
+            text, truncation = _source_text(artifact.text if text_override is None else text_override,
+                                            path=artifact.path, command=command, budget=source_budget, limit=max_bytes,
+                                            source_start=1)
+            if truncation:
+                truncations.append(truncation)
         block = contain(
             text, suffix=suffix, origin=f"{code_span(artifact.path)} at {source}", escape_on_collision=escape
         )
@@ -968,7 +1138,7 @@ def _section_sdd(
             else [entry for entry in sdd.task_entries if getattr(entry, "reached", False)]
         )
         scoped = bool(reached) or any(getattr(entry, "referenced_paths", ()) for entry in sdd.task_entries)
-        shown = reached if scoped else list(sdd.task_entries)
+        shown = [] if context_selection is not None else (reached if scoped else list(sdd.task_entries))[:50]
         lines.extend(
             [
                 "",
@@ -1003,14 +1173,23 @@ def _section_sdd(
             if entry.gaps:
                 details.append(f"gaps: {', '.join(entry.gaps)}")
             if details:
+                detail_source = "\n".join([f"{entry.identifier}: {item}" for item in details])
+                detail_source, detail_truncation = _source_text(
+                    detail_source, path=sdd.tasks.path if sdd.tasks else "tasks.md",
+                    command=f"git show {candidate.head_commit}:{shell_quote(sdd.tasks.path if sdd.tasks else 'tasks.md')}",
+                    budget=source_budget, limit=max_bytes)
+                if detail_truncation:
+                    truncations.append(detail_truncation)
                 detail_block = contain(
-                    "\n".join([f"{entry.identifier}: {item}" for item in details]),
+                    detail_source,
                     suffix=suffix,
                     origin="parsed task metadata",
                     escape_on_collision=escape,
                 )
                 warnings.extend(detail_block.warnings)
                 detail_blocks.append(detail_block.text)
+        if context_selection is not None:
+            lines.append("| _Task definitions and blocks are in context-inventory.json_ | — | — | — | — |")
         if detail_blocks:
             lines.extend(["", *detail_blocks])
     if context_selection is not None:
@@ -1018,13 +1197,15 @@ def _section_sdd(
         excluded = selection.get("excluded") or ()
         if excluded:
             lines.extend(["", "Remaining source access (deliberately excluded ranges):", ""])
-            for item in excluded:
+            for item in (() if context_selection is not None else list(excluded)[:50]):
                 path = item.get("path", "")
                 lines.append(
                     f"- {code_span(path)} lines {item.get('start')}–{item.get('end')}: "
                     f"{_one_line(visible(item.get('reason', 'out of scope')))}; "
                     f"retrieve with `git show {candidate.head_commit}:{shell_quote(path)}`"
                 )
+            if context_selection is None and len(excluded) > 50:
+                lines.append(f"- … {len(excluded) - 50} additional exclusions are in the external inventory")
     if include_checklists:
         summary = sdd.checklist_summary or {}
         lines.extend(
@@ -1046,8 +1227,14 @@ def _section_sdd(
             if not artifact.present:
                 lines.append(f"- {code_span(artifact.path)}: absent")
                 continue
+            bug_text, bug_truncation = _source_text(
+                artifact.text or "", path=artifact.path,
+                command=(f"cat {shell_quote(artifact.path)}" if advisory else f"git show {candidate.head_commit}:{shell_quote(artifact.path)}"),
+                budget=source_budget, limit=max_bytes, source_start=1)
+            if bug_truncation:
+                truncations.append(bug_truncation)
             block = contain(
-                artifact.text or "",
+                bug_text,
                 suffix=suffix,
                 origin=f"{code_span(artifact.path)} at {source}",
                 escape_on_collision=escape,

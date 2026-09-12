@@ -161,6 +161,12 @@ No task in `tasks.md` names a path, so this is the **whole** task list, not the 
 
 These are a readiness signal. Do **not** turn checklist items into review tasks.
 
+## 4.9 Frozen context inventory
+
+- inventory_sha256: 5db141014cc3f0802ccfeb5579dc6d516209e303ec009e43415198c6338351a8
+- required ranges: 0; selected: 0; excluded: 0; gaps: 0
+- The complete inventory is beside this packet; retrieve omitted ranges from its exact source commands.
+
 ## 5. Review budget
 
 - counted (authored executable lines added): 180

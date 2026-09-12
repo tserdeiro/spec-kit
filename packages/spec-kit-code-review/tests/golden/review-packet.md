@@ -171,6 +171,12 @@ it fills in.
 
 _The body follows none of the template's canonical sections._
 
+## 4.9 Frozen context inventory
+
+- inventory_sha256: 5a39591f7b4bfcbb8c79e58b43b82e516d4597d9d422a7569de7a3131dee7429
+- required ranges: 0; selected: 0; excluded: 0; gaps: 0
+- The complete inventory is beside this packet; retrieve omitted ranges from its exact source commands.
+
 ## 5. Review budget
 
 - counted (authored executable lines added): 180

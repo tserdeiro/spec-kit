@@ -55,6 +55,10 @@ class AdvisoryReviewTests(WorkingTreeCase):
         self.assertNotIn("Pull-request metadata", packet)
         self.assertNotIn("### 4.7 Pull-request body", packet)
         self.assertIn("advisory", payload["message"])
+        inventory = json.loads((Path(payload["packet"]["path"]).parent / "context-inventory.json").read_text(encoding="utf-8"))
+        self.assertTrue(inventory["sources"])
+        self.assertTrue(all(item["version"] == "working-tree" for item in inventory["sources"]))
+        self.assertTrue(all(item["command"].startswith("cat ") for item in inventory["selected"]))
         codes = {item["code"] for item in payload["diagnostics"]}
         self.assertIn("advisory", codes)
         self.assertIn("working_tree_review", codes)
