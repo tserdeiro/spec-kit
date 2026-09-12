@@ -37,7 +37,9 @@ from this working-tree snapshot and remains explicitly advisory:
   "packet_sha256": "<packet_sha256>",
   "inventory_sha256": "<inventory_sha256>",
   "sources": [
-    {"path": "specs/003-example/spec.md", "version": "working-tree", "sha256": "<source-sha256>"}
+    {"path": "specs/003-example/spec.md", "version": "working-tree", "sha256": "<source-sha256>"},
+    {"path": "src/module.py", "version": "working-tree", "kind": "code", "status": "present", "available": true, "sha256": "<source-sha256>"},
+    {"path": "src/deleted.py", "version": "working-tree", "kind": "code", "status": "deleted", "available": true, "sha256": null}
   ],
   "reads": [
     {
@@ -53,11 +55,29 @@ from this working-tree snapshot and remains explicitly advisory:
 }
 ```
 
-Copy source entries and required ranges from `context-inventory.json`. Read each
+Copy source entries and required ranges from `context-inventory.json`. The
+inventory's `scope.changed_paths` is the baseline set of reviewed paths; its
+`sources` entries describe each path, including `present`, `deleted`, or
+`unavailable` status. Read each
 exact inclusive UTF-8 range with a host file tool, preserving line endings, and
-hash those bytes. Before reporting, compare current source hashes with the
-inventory. If any source changed or cannot be read, discard the record and make
-a fresh advisory packet. This record is host-reported, is not CLI-validated or
+hash those bytes. Before reporting, compare current source hashes and the
+complete set of reviewed paths with the inventory. If any source changed,
+was added, or was removed, discard the record and make a fresh advisory packet.
+A deleted tracked path is valid when it remains absent; an unavailable or
+symlinked path is an explicit coverage gap. Recompute membership with the same
+read-only Git path set used by the command:
+
+```bash
+git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only --end-of-options HEAD
+git ls-files --others --exclude-standard -z
+```
+
+The two NUL-delimited results are a union: the first covers staged and
+unstaged tracked changes against `HEAD`, and the second adds untracked paths.
+SDD source entries keep the three fields shown for `spec.md`; working code
+entries add `kind`, `status`, and `available`.
+
+This record is host-reported, is not CLI-validated or
 publishable, and cannot be reused as coverage for a pull-request review.
 
 ## Reviewing a pull request

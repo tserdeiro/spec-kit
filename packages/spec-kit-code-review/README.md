@@ -30,8 +30,15 @@ An advisory response reports `advisory_evidence.coverage_path` beside the
 packet. After reading the packet, the host may write `coverage.json` there with
 the packet and inventory digests, working-tree source hashes, exact inclusive
 line-range receipts, and scope-linked assessments. Compare those source hashes
-before reporting; a changed source requires a fresh packet. This evidence is
-host-reported and advisory only. It is never reusable for pull-request
+before reporting; compare the complete reviewed-path set in
+`context-inventory.json` as well, including new, deleted, and unavailable
+paths. A tracked deletion remains valid while the path stays absent; an
+unavailable or symlinked path is an explicit gap. Recompute membership with
+`git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only
+--end-of-options HEAD` plus `git ls-files --others --exclude-standard -z`.
+The NUL-delimited results are unioned: the first covers staged and unstaged
+tracked changes against `HEAD`, and the second adds untracked paths. Any changed, added, or removed
+source requires a fresh packet. This evidence is host-reported and advisory only. It is never reusable for pull-request
 coverage, which uses the session findings envelope below.
 
 An anchored review runs in two internal invocations — a CLI cannot wait for the

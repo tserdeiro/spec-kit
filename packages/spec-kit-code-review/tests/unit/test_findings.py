@@ -219,7 +219,18 @@ class DocumentTests(unittest.TestCase):
                         self.assertIsInstance(document["sources"], list)
                         self.assertIsInstance(document["reads"], list)
                         for source in document["sources"]:
-                            self.assertEqual(set(source), {"path", "version", "sha256"})
+                            fields = {"path", "version", "sha256"}
+                            if "kind" in source:
+                                fields |= {"kind", "status", "available"}
+                                self.assertEqual(source["kind"], "code")
+                                self.assertIn(source["status"], {"present", "deleted", "unavailable"})
+                                self.assertIs(source["available"], source["status"] != "unavailable")
+                                if source["status"] != "present":
+                                    self.assertIsNone(source["sha256"])
+                            self.assertEqual(set(source), fields)
+                            self.assertEqual(source["version"], "working-tree")
+                            if source.get("status", "present") == "present":
+                                self.assertRegex(source["sha256"], r"^[0-9a-fA-F]{64}$|^<[^>]+>$")
                         for receipt in document["reads"]:
                             self.assertEqual(
                                 set(receipt),

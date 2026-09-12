@@ -40,11 +40,35 @@ class WorkingTreeCase(CliCase):
     def _packet(self, payload: dict) -> str:
         return Path(payload["packet"]["path"]).read_text(encoding="utf-8")
 
+    def _inventory(self, payload: dict) -> dict:
+        path = Path(payload["packet"]["path"]).parent / "context-inventory.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _ledger(self, first: str, second: str, *, prefix: str = "") -> str:
+        return (
+            "# Tasks: Review skeleton\n\n"
+            f"{prefix}"
+            f"- [x] T001 {first}\n"
+            "  - **Traces**: FR-001\n"
+            "  - **Depends on**: none\n"
+            "  - **Boundaries**: Change the first task.\n"
+            "  - **Evidence**: focused tests pass\n"
+            "  - **Delivery**: single PR\n"
+            "  - **Completion evidence**: focused tests pass\n"
+            f"- [ ] T002 {second}\n"
+            "  - **Traces**: FR-002\n"
+            "  - **Depends on**: none\n"
+            "  - **Boundaries**: Change the second task.\n"
+            "  - **Evidence**: focused tests pass\n"
+            "  - **Delivery**: single PR\n"
+            "  - **Completion evidence**: focused tests pass\n"
+        )
+
 
 class AdvisoryReviewTests(WorkingTreeCase):
     def test_the_packet_is_produced_and_says_it_is_advisory(self) -> None:
-        self._dirty("src/uncommitted.py")
-        self._engine_reports("src/uncommitted.py")
+        self._dirty("src/module.py")
+        self._engine_reports("src/module.py")
 
         code, payload = self.invoke_json("review")
 
@@ -82,6 +106,8 @@ class AdvisoryReviewTests(WorkingTreeCase):
         self.assertIn('"mode": "advisory"', packet)
         self.assertIn("create `coverage.json` beside this packet with the host's file tools", packet)
         self.assertIn("compare every current source hash with the packet inventory", packet)
+        self.assertIn("complete set of reviewed paths", packet)
+        self.assertIn("added or removed", packet)
         self.assertIn("do not report findings as covered from stale reads", packet)
         self.assertIn("Do not reuse it as coverage for a pull-request review", packet)
         self.assertNotIn("For PR closure, inspect context-inventory.json", packet)
@@ -97,8 +123,11 @@ class AdvisoryReviewTests(WorkingTreeCase):
             (Path(first["packet"]["path"]).parent / "context-inventory.json").read_text(encoding="utf-8")
         )
         source = next(item for item in first_inventory["sources"] if item["path"].endswith("/spec.md"))
+        code_source = next(item for item in first_inventory["sources"] if item["path"] == "src/uncommitted.py")
         source_path = self.root / source["path"]
         source_path.write_text(source_path.read_text(encoding="utf-8") + "\nDrifted source.\n", encoding="utf-8")
+        code_path = self.root / code_source["path"]
+        code_path.write_text(code_path.read_text(encoding="utf-8") + "drifted = True\n", encoding="utf-8")
         self._engine_reports("src/uncommitted.py", source["path"])
 
         _code, second = self.invoke_json("review")
@@ -106,9 +135,99 @@ class AdvisoryReviewTests(WorkingTreeCase):
             (Path(second["packet"]["path"]).parent / "context-inventory.json").read_text(encoding="utf-8")
         )
         updated = next(item for item in second_inventory["sources"] if item["path"] == source["path"])
+        updated_code = next(item for item in second_inventory["sources"] if item["path"] == code_source["path"])
         self.assertEqual(updated["sha256"], hashlib.sha256(source_path.read_bytes()).hexdigest())
+        self.assertEqual(updated_code["sha256"], hashlib.sha256(code_path.read_bytes()).hexdigest())
         self.assertNotEqual(source["sha256"], updated["sha256"])
+        self.assertNotEqual(code_source["sha256"], updated_code["sha256"])
         self.assertNotEqual(first["packet"]["inventory_sha256"], second["packet"]["inventory_sha256"])
+
+    def test_advisory_inventory_hashes_reviewed_untracked_code_and_tracks_membership(self) -> None:
+        self._dirty("src/uncommitted.py")
+        self._engine_reports("src/uncommitted.py")
+
+        _code, payload = self.invoke_json("review")
+
+        source = next(item for item in self._inventory(payload)["sources"] if item["path"] == "src/uncommitted.py")
+        self.assertEqual(source["kind"], "code")
+        self.assertTrue(source["available"])
+        self.assertEqual(source["sha256"], hashlib.sha256((self.root / source["path"]).read_bytes()).hexdigest())
+
+    def test_advisory_code_only_drift_changes_code_hash_without_sdd_change(self) -> None:
+        self._dirty("src/uncommitted.py")
+        self._engine_reports("src/uncommitted.py")
+        _code, first = self.invoke_json("review")
+        first_inventory = self._inventory(first)
+        first_code = next(item for item in first_inventory["sources"] if item["path"] == "src/uncommitted.py")
+        first_sdd = next(item for item in first_inventory["sources"] if item["path"].endswith("/spec.md"))
+
+        code_path = self.root / "src/uncommitted.py"
+        code_path.write_text(code_path.read_text(encoding="utf-8") + "drifted = True\n", encoding="utf-8")
+        self._engine_reports("src/uncommitted.py")
+        _code, second = self.invoke_json("review")
+        second_inventory = self._inventory(second)
+        second_code = next(item for item in second_inventory["sources"] if item["path"] == "src/uncommitted.py")
+        second_sdd = next(item for item in second_inventory["sources"] if item["path"].endswith("/spec.md"))
+
+        self.assertNotEqual(first_code["sha256"], second_code["sha256"])
+        self.assertEqual(first_sdd["sha256"], second_sdd["sha256"])
+
+    def test_advisory_inventory_marks_deleted_reviewed_code_unavailable(self) -> None:
+        target = self.root / "src" / "module.py"
+        target.unlink()
+        self._engine_reports("src/module.py")
+
+        _code, payload = self.invoke_json("review")
+
+        source = next(item for item in self._inventory(payload)["sources"] if item["path"] == "src/module.py")
+        self.assertTrue(source["available"])
+        self.assertIsNone(source["sha256"])
+        self.assertEqual(source["status"], "deleted")
+
+    def test_advisory_inventory_marks_staged_deleted_reviewed_code_deleted(self) -> None:
+        self.repository.git("rm", "-q", "src/module.py")
+        self._engine_reports("src/module.py")
+
+        _code, payload = self.invoke_json("review")
+
+        source = next(item for item in self._inventory(payload)["sources"] if item["path"] == "src/module.py")
+        self.assertTrue(source["available"])
+        self.assertIsNone(source["sha256"])
+        self.assertEqual(source["status"], "deleted")
+
+    def test_advisory_inventory_detects_reviewed_path_membership_change(self) -> None:
+        self._dirty("src/module.py")
+        self._engine_reports("src/module.py")
+        _code, first = self.invoke_json("review")
+        first_paths = set(self._inventory(first)["scope"]["changed_paths"])
+
+        (self.root / "src" / "module.py").unlink()
+        self._dirty("src/new.py")
+        self._engine_reports("src/module.py", "src/new.py")
+        _code, second = self.invoke_json("review")
+        second_inventory = self._inventory(second)
+        second_paths = set(second_inventory["scope"]["changed_paths"])
+
+        self.assertEqual(first_paths, {"src/module.py"})
+        self.assertEqual(second_paths, {"src/module.py", "src/new.py"})
+        self.assertEqual(
+            {item["path"] for item in second_inventory["sources"] if item.get("kind") == "code"},
+            {"src/module.py", "src/new.py"},
+        )
+
+    def test_advisory_inventory_marks_symlinked_code_unavailable(self) -> None:
+        outside = self.workspace / "outside.py"
+        outside.write_text("outside = True\n", encoding="utf-8")
+        link = self.root / "src" / "linked.py"
+        link.symlink_to(outside)
+        self._engine_reports("src/linked.py")
+
+        _code, payload = self.invoke_json("review")
+
+        source = next(item for item in self._inventory(payload)["sources"] if item["path"] == "src/linked.py")
+        self.assertFalse(source["available"])
+        self.assertIsNone(source["sha256"])
+        self.assertEqual(source["status"], "unavailable")
 
     def test_untracked_content_is_reviewed_and_counted(self) -> None:
         # `git diff` cannot see an untracked file, and the usual remedy writes to
@@ -199,6 +318,61 @@ class AdvisoryReviewTests(WorkingTreeCase):
 
 
 class ContextTests(WorkingTreeCase):
+    def test_unchanged_large_ledger_selects_only_the_changed_task(self) -> None:
+        self.repository.branch("001-T002-late")
+        large_prefix = "Earlier task detail that is outside this review.\n" * 1800
+        self.repository.commit(
+            "specs/001-review-skeleton/tasks.md",
+            self._ledger("Implement src/t1.py", "Implement src/t2.py", prefix=large_prefix),
+            "large task ledger",
+        )
+        self._dirty("src/t2.py")
+        self._engine_reports("src/t2.py")
+
+        code, payload = self.invoke_json("review")
+
+        self.assertEqual(code, EXIT_SUCCESS, payload["diagnostics"])
+        scope = self._inventory(payload)["scope"]
+        self.assertEqual(scope["kind"], "task")
+        self.assertEqual(scope["task_ids"], ["T002"])
+        selected = self._inventory(payload)["selected"]
+        excluded = self._inventory(payload)["excluded"]
+        self.assertTrue(any(item["reason"] == "complete task block T002" for item in selected))
+        self.assertTrue(any(item["reason"] == "outside selected scope" for item in excluded))
+
+    def test_changed_task_ledger_unions_with_changed_code_task(self) -> None:
+        self.repository.branch("001-T002-late")
+        self.repository.commit(
+            "specs/001-review-skeleton/tasks.md",
+            self._ledger("Implement src/t1.py", "Implement src/t2.py"),
+            "task ledger paths",
+        )
+        changed = self._ledger("Implement src/t1.py with the new behavior", "Implement src/t2.py")
+        self._dirty("src/t2.py")
+        self.repository.write("specs/001-review-skeleton/tasks.md", changed)
+        self._engine_reports("src/t2.py", "specs/001-review-skeleton/tasks.md")
+
+        code, payload = self.invoke_json("review")
+
+        self.assertEqual(code, EXIT_SUCCESS, payload["diagnostics"])
+        scope = self._inventory(payload)["scope"]
+        self.assertEqual(scope["kind"], "multi-task")
+        self.assertEqual(scope["task_ids"], ["T001", "T002"])
+        self.assertEqual(scope["evidence"]["changed_task_blocks"], ["T001"])
+
+    def test_issue_key_branch_keeps_advisory_review_on_the_short_path(self) -> None:
+        self.repository.branch("OPS-42-fix-timeout")
+        self._dirty("src/timeout.py")
+        self._engine_reports("src/timeout.py")
+
+        code, payload = self.invoke_json("review")
+
+        self.assertEqual(code, EXIT_SUCCESS, payload["diagnostics"])
+        scope = self._inventory(payload)["scope"]
+        self.assertEqual(scope["kind"], "short-path")
+        self.assertEqual(scope["task_ids"], [])
+        self.assertIsNone(scope["feature"])
+
     def test_the_sdd_context_and_rules_come_from_the_working_tree(self) -> None:
         # Uncommitted edits to both are exactly what a pre-pull-request review
         # should be reading: they are the operator's own work in progress.
