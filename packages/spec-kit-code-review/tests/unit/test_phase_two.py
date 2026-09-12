@@ -8,13 +8,14 @@ written.
 
 from __future__ import annotations
 
-import hashlib
 import json
+import hashlib
 import unittest
 from pathlib import Path
 
-from spec_kit_code_review.errors import EXIT_SUCCESS, EXIT_USAGE
+from spec_kit_code_review.errors import EXIT_DRIFT, EXIT_SUCCESS, EXIT_USAGE
 from tests.support.fixtures import install_fake_gh, pull_request_payload
+from tests.support.coverage import coverage_for_session
 from tests.unit.test_cli import RunCommandCase
 
 
@@ -45,6 +46,8 @@ class PhaseTwoCase(RunCommandCase):
 
     def write_findings(self, *entries, document=None) -> None:
         payload = document if document is not None else {"findings": list(entries)}
+        if document is None:
+            payload["coverage"] = coverage_for_session(self.repository, self.session)
         self.findings_path.write_text(json.dumps(payload), encoding="utf-8")
 
     def close(self, *extra: str) -> tuple[int, dict]:
@@ -58,7 +61,7 @@ class HappyPathTests(PhaseTwoCase):
     def test_the_session_closes_with_a_verdict_and_the_environment_withdrawn(self) -> None:
         code, payload = self.close()
 
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 1, payload)
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
         self.assertEqual(payload["verdict"]["blocking"], 1)
         self.assertFalse(payload["verdict"]["is_approval"])
@@ -84,6 +87,15 @@ class HappyPathTests(PhaseTwoCase):
         recorded = json.loads((directory / "findings-normalized.json").read_text(encoding="utf-8"))
         self.assertEqual(recorded["findings"][0]["id"], "F001")
         self.assertEqual(recorded["verdict"]["value"], "changes-requested")
+
+    def test_missing_coverage_keeps_blocking_findings_and_original_input(self):
+        self.write_findings(document={"findings": [entry()]})
+        before = self.findings_path.read_bytes()
+        code, result = self.close()
+        self.assertEqual(code, 6, result)
+        self.assertEqual(result["verdict"]["value"], "inconclusive")
+        self.assertEqual(result["verdict"]["blocking"], 1)
+        self.assertEqual(self.findings_path.read_bytes(), before)
 
     def test_the_findings_input_is_never_overwritten_by_its_own_normalization(self) -> None:
         # The bind forces the agent's input to `findings.json`; the normalized
@@ -176,6 +188,18 @@ class CorrespondenceTests(PhaseTwoCase):
 
         self.assertEqual(code, EXIT_USAGE)
         self.assertEqual(payload["diagnostics"][0]["code"], "session_path_missing")
+
+    def test_inventory_drift_is_refused_before_closure(self) -> None:
+        inventory = Path(self.session) / "context-inventory.json"
+        document = json.loads(inventory.read_text(encoding="utf-8"))
+        document["gaps"] = [{"code": "tampered"}]
+        inventory.write_text(json.dumps(document), encoding="utf-8")
+        code, payload = self.close()
+
+        self.assertEqual(code, EXIT_DRIFT)
+        self.assertEqual(payload["diagnostics"][0]["code"], "coverage_inventory_drift")
+        self.assertEqual(self.session_payload()["phase"], "open")
+        self.assertFalse((Path(self.session) / "findings-normalized.json").exists())
 
     def test_findings_outside_the_session_are_a_usage_error_naming_the_expected_location(self) -> None:
         outside = self.workspace / "findings-from-another-review.json"
@@ -362,7 +386,7 @@ class InconclusiveThroughTheCommandTests(PhaseTwoCase):
 
         code, payload = self.close()
 
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 1, payload)
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
 
     def test_an_inconclusive_review_with_blocking_findings_exits_one(self) -> None:
@@ -558,9 +582,10 @@ class ProtectedPathThroughTheCommandTests(RunCommandCase):
         code, opened = self.invoke_json("review", str(self.PR_NUMBER))
         self.assertEqual(code, EXIT_SUCCESS, opened)
         session = opened["session"]["path"]
-        findings_path = Path(session) / "findings.json"
-        findings_path.write_text(json.dumps({"findings": []}), encoding="utf-8")
-        return self.invoke_json("review", "--findings", str(findings_path), "--session", session)
+        self.session = session
+        self.findings_path = Path(session) / "findings.json"
+        self.findings_path.write_text(json.dumps({"findings": [], "coverage": coverage_for_session(self.repository, session)}), encoding="utf-8")
+        return self.invoke_json("review", "--findings", str(self.findings_path), "--session", session)
 
     def test_a_protected_path_on_a_task_base_reaches_changes_requested(self) -> None:
         self.repository.write(".specify/feature.json", json.dumps({"feature": "004-x"}))
@@ -571,7 +596,7 @@ class ProtectedPathThroughTheCommandTests(RunCommandCase):
 
         code, payload = self._review(base_branch="004-feature", base_commit=feature_base, head_commit=head)
 
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 1, payload)
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
         finding = payload["findings"][0]
         self.assertEqual((finding["severity"], finding["category"], finding["path"]), ("blocking", "contract", "specs/004-x/spec.md"))

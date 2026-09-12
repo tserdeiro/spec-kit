@@ -513,7 +513,10 @@ def assemble(
             _section_instructions(advisory=advisory),
         ]
         inventory = _context_inventory(review_scope, context_selection, sdd, block_truncations, candidate=candidate,
-                                       per_source=source_limit, total=max_total_bytes, advisory=advisory)
+                                       per_source=source_limit, total=max_total_bytes, advisory=advisory,
+                                       intent_body=(metadata["title"] + "\n" + metadata["body"]) if pull_request else "",
+                                       intent_version=metadata_digest, intent_selected=include_pr_body,
+                                       intent_command="python3 -c " + shlex.quote('import json,sys; d=json.load(open(sys.argv[1]))["pr_intent"]; sys.stdout.write(d["title"]+"\\n"+d["body"])') + " " + shlex.quote(str(evidence_path).rstrip("/") + "/session.json"))
         summary = _inventory_summary(inventory)
         body_sections.insert(4, summary)
         region = "\n\n".join(section.strip("\n") for section in body_sections if section.strip()) + "\n"
@@ -664,7 +667,8 @@ def _normalize(text: str, *, suffix: str) -> str:
 def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any | None,
                        truncations: Sequence[Truncation] = (), candidate: Any | None = None,
                        per_source: int = DEFAULT_MAX_BYTES_PER_ARTIFACT, total: int = DEFAULT_MAX_TOTAL_BYTES,
-                       advisory: bool = False) -> dict[str, Any]:
+                       advisory: bool = False, intent_body: str = "", intent_version: str = "",
+                       intent_selected: bool = True, intent_command: str = "") -> dict[str, Any]:
     scope = review_scope.as_dict() if hasattr(review_scope, "as_dict") else dict(review_scope or {})
     selected = selection.as_dict() if hasattr(selection, "as_dict") else dict(selection or {})
     sources = []
@@ -673,6 +677,9 @@ def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any
             if artifact.present:
                 sources.append({"path": artifact.path, "sha256": artifact.sha256,
                                 "version": "working-tree" if advisory else getattr(candidate, "head_commit", None)})
+    if intent_body and not advisory:
+        sources.append({"path": "<pull-request-intent>", "sha256": hashlib.sha256(intent_body.encode("utf-8")).hexdigest(),
+                        "version": intent_version})
     omitted = [item for item in truncations if item.omitted_start and item.omitted_end]
     def ranges(name: str, *, clip: bool = False) -> list[dict[str, Any]]:
         result = []
@@ -699,16 +706,30 @@ def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any
                 clipped = dict(entry); clipped.update(start=start, end=end)
                 result.append(clipped)
         return result
+    intent_omitted = []
     required_ranges = ranges("required")
     selected_ranges = ranges("selected", clip=True)
+    if intent_body and not advisory:
+        intent_range = {"path": "<pull-request-intent>", "start": 1, "end": len(intent_body.splitlines()),
+                        "reason": "frozen pull-request intent", "command": intent_command}
+        required_ranges.append(intent_range)
+        intent_end = intent_range["end"] if intent_selected else 1
+        for cut in omitted:
+            if cut.path == "(pull-request body)":
+                intent_end = min(intent_end, cut.omitted_start)
+        selected_ranges.append({**intent_range, "end": intent_end})
+        if intent_end < intent_range["end"]:
+            intent_omitted.append({"path": "<pull-request-intent>", "omitted_start": intent_end + 1,
+                                   "omitted_end": intent_range["end"], "command": intent_command,
+                                   "reason": "frozen intent not rendered; inspect the session snapshot"})
     omitted_required = [item for item in omitted if item.source_start is not None and any(
         item.path == req.get("path") and item.omitted_start <= int(req.get("end", 0))
         and item.omitted_end >= int(req.get("start", 1)) for req in selected.get("required", []))]
     return {"scope": scope, "sources": sources, "required": required_ranges,
             "selected": selected_ranges, "excluded": ranges("excluded"),
-            "omitted_required": [item.as_dict() for item in omitted_required],
+            "omitted_required": [item.as_dict() for item in omitted_required] + intent_omitted,
             "gaps": selected.get("gaps", []),
-            "omitted": [item.as_dict() for item in truncations],
+            "omitted": [item.as_dict() for item in truncations] + intent_omitted,
             "effective_limits": {"per_source_bytes": per_source, "total_bytes": total}}
 
 
@@ -1395,9 +1416,20 @@ def _section_instructions(*, advisory: bool = False) -> str:
             '      "rule_source": "repo|repo-candidate|system|packet|sdd",',
             '      "sdd_reference": "specs/003-x/spec.md#FR-014"',
             "    }",
-            "  ]",
+            "  ],",
+            '  "coverage": {',
+            '    "candidate_id": "<candidate_id>",',
+            '    "packet_sha256": "<packet_sha256>",',
+            '    "inventory_sha256": "<inventory_sha256>",',
+            '    "reads": [{"path": "specs/003-x/spec.md", "version": "<head_commit>", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]',
+            "  }",
             "}",
             "```",
+            "",
+            "For PR closure, inspect context-inventory.json beside this packet and report every required range read.",
+            "Selected text or a retrieval command earns no credit. Hash the exact source UTF-8 bytes, preserving line ends;",
+            "give a scope-linked assessment. Receipts are reviewer-reported and source-validated, not proof of understanding.",
+            "Use each inventoried source version and its frozen retrieval action, including the PR-intent snapshot.",
             "",
             "### 7.5 Anchoring",
             "",

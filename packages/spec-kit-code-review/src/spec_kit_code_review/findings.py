@@ -198,7 +198,7 @@ def _usage(message: str, code: str, detail: str) -> AppError:
     return AppError(message, code=EXIT_USAGE, diagnostics=[Diagnostic(code, detail)])
 
 
-def load_document(path: Path) -> tuple[list[Any], str]:
+def load_document(path: Path) -> tuple[list[Any], str, dict[str, Any]]:
     """Read the findings file, refusing anything that is not the agreed shape."""
 
     try:
@@ -260,7 +260,7 @@ def load_document(path: Path) -> tuple[list[Any], str]:
             "findings_too_many",
             "a review with more findings than this is not a review a human can act on; split the candidate instead",
         )
-    return entries, digest
+    return entries, digest, document
 
 
 def _require_string(

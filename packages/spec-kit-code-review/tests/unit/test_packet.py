@@ -335,19 +335,19 @@ class DeterminismTests(unittest.TestCase):
         self.assertNotIn("/tmp/evidence/session", packet.hashed_region)
         self.assertIn("generated_at: 2026-08-01T00:00:00Z", packet.text)
 
-    def test_editing_the_pull_request_body_moves_only_the_metadata_digest(self) -> None:
+    def test_editing_the_pull_request_body_moves_packet_and_metadata_digests(self) -> None:
         original = _assemble()
 
         edited = _assemble(pull_request=FakePullRequest(body="A completely different body."))
 
-        self.assertEqual(original.packet_sha256, edited.packet_sha256)
+        self.assertNotEqual(original.packet_sha256, edited.packet_sha256)
         self.assertNotEqual(original.pr_metadata_sha256, edited.pr_metadata_sha256)
 
-    def test_editing_the_title_or_state_also_moves_only_the_metadata_digest(self) -> None:
+    def test_editing_the_title_or_state_also_moves_packet_and_metadata_digests(self) -> None:
         for field, value in (("title", "Renamed"), ("state", "MERGED")):
             with self.subTest(field=field):
                 edited = _assemble(pull_request=FakePullRequest(**{field: value}))
-                self.assertEqual(edited.packet_sha256, _assemble().packet_sha256)
+                self.assertNotEqual(edited.packet_sha256, _assemble().packet_sha256)
                 self.assertNotEqual(edited.pr_metadata_sha256, _assemble().pr_metadata_sha256)
 
     def test_a_different_candidate_does_change_the_digest(self) -> None:
@@ -559,6 +559,14 @@ class VerbatimTests(unittest.TestCase):
 
 
 class DegradedContextTests(unittest.TestCase):
+    def test_excluding_pr_body_keeps_intent_as_a_required_inventory_source(self) -> None:
+        packet = _assemble(include_pr_body=False)
+        intent = [source for source in packet.inventory["sources"] if source["path"] == "<pull-request-intent>"]
+        self.assertEqual(len(intent), 1)
+        self.assertTrue(any(item["path"] == "<pull-request-intent>" for item in packet.inventory["required"]))
+        self.assertTrue(any(item["path"] == "<pull-request-intent>" for item in packet.inventory["omitted_required"]))
+        self.assertNotIn("An ordinary body.", packet.text)
+
     def test_discontiguous_selection_preserves_required_and_maps_omissions(self) -> None:
         context = _sdd()
         text = "".join(f"line {index}\n" for index in range(1, 1006))
@@ -569,9 +577,12 @@ class DegradedContextTests(unittest.TestCase):
         )
         packet = _assemble(sdd=context, context_selection=selection, max_bytes_per_artifact=10)
         inventory = packet.inventory
-        self.assertEqual([(item["start"], item["end"]) for item in inventory["required"]], [(2, 3), (1000, 1002)])
-        self.assertEqual([(item["start"], item["end"]) for item in inventory["selected"]], [(2, 2)])
-        self.assertEqual([(item["omitted_start"], item["omitted_end"]) for item in inventory["omitted_required"]], [(3, 3), (1000, 1002)])
+        required = [item for item in inventory["required"] if item["path"] == context.plan.path]
+        selected = [item for item in inventory["selected"] if item["path"] == context.plan.path]
+        omitted = [item for item in inventory["omitted_required"] if item["path"] == context.plan.path]
+        self.assertEqual([(item["start"], item["end"]) for item in required], [(2, 3), (1000, 1002)])
+        self.assertEqual([(item["start"], item["end"]) for item in selected], [(2, 2)])
+        self.assertEqual([(item["omitted_start"], item["omitted_end"]) for item in omitted], [(3, 3), (1000, 1002)])
 
     def test_large_inventory_stays_external_to_the_bounded_packet(self) -> None:
         context = _sdd()
@@ -580,13 +591,16 @@ class DegradedContextTests(unittest.TestCase):
         ranges = tuple(SourceRange(context.plan.path, index, index, "required") for index in range(1, 1101))
         packet = _assemble(sdd=context, context_selection=ContextSelection(required=ranges, selected=ranges),
                            max_bytes_per_artifact=100, max_total_bytes=12000)
-        self.assertEqual(len(packet.inventory["required"]), 1100)
-        self.assertEqual(len(packet.inventory["selected"]), 50)
-        self.assertEqual(packet.inventory["selected"][0]["start"], 1)
-        self.assertEqual(packet.inventory["selected"][-1]["end"], 50)
-        self.assertEqual(len(packet.inventory["omitted_required"]), 1050)
-        self.assertEqual(packet.inventory["omitted_required"][0]["omitted_start"], 51)
-        self.assertEqual(packet.inventory["omitted_required"][-1]["omitted_end"], 1100)
+        required = [item for item in packet.inventory["required"] if item["path"] == context.plan.path]
+        selected = [item for item in packet.inventory["selected"] if item["path"] == context.plan.path]
+        omitted = [item for item in packet.inventory["omitted_required"] if item["path"] == context.plan.path]
+        self.assertEqual(len(required), 1100)
+        self.assertEqual(len(selected), 50)
+        self.assertEqual(selected[0]["start"], 1)
+        self.assertEqual(selected[-1]["end"], 50)
+        self.assertEqual(len(omitted), 1050)
+        self.assertEqual(omitted[0]["omitted_start"], 51)
+        self.assertEqual(omitted[-1]["omitted_end"], 1100)
         self.assertLessEqual(len(packet.text.encode("utf-8")), 12000)
         self.assertNotIn("lines 1000", packet.text)
 
