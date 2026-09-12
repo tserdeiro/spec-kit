@@ -183,6 +183,37 @@ class CorrectionTests(unittest.TestCase):
             evidence = root / "finding-corrections" / "attempt-1" / f"{submitted}.json"
             self.assertEqual(json.loads(evidence.read_text(encoding="utf-8"))["changed_categories"][0]["old"], 7)
 
+    def test_nested_sensitive_keys_and_values_are_redacted_in_derived_history(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            key_token = "ghp_" + "A" * 36
+            value_token = "sk-" + "B" * 40
+            original = self._documents()
+            original["findings"][0]["category"] = {
+                key_token: {"nested": {value_token: value_token}},
+            }
+            original_raw = json.dumps(original, indent=2).encode()
+            prepare(session, original_raw, parse_bytes(original_raw))
+
+            corrected = json.loads(original_raw)
+            corrected["findings"][0]["category"] = "security"
+            corrected_raw = json.dumps(corrected, indent=2).encode()
+            _, submitted = prepare(session, corrected_raw, parse_bytes(corrected_raw))
+            attempt = root / "finding-corrections" / "attempt-1"
+            record_path = attempt / f"{submitted}.json"
+            record_text = record_path.read_text(encoding="utf-8")
+
+            self.assertIn(key_token, original_raw.decode())
+            self.assertIn(value_token, original_raw.decode())
+            self.assertNotIn(key_token, record_text)
+            self.assertNotIn(value_token, record_text)
+            self.assertEqual((attempt / "original.json").read_bytes(), original_raw)
+            record = json.loads(record_text)
+            self.assertEqual(record["original_sha256"], digest(original_raw))
+            self.assertEqual(record["submitted_sha256"], digest(corrected_raw))
+            verify_history(session)
+
     def test_history_rejects_tampered_original_record_and_unindexed_digest(self) -> None:
         for mutation in ("original", "record", "unindexed", "binding"):
             with self.subTest(mutation=mutation), TemporaryDirectory() as temporary:

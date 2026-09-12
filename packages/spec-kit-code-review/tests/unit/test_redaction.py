@@ -40,6 +40,15 @@ class RedactionCatalogTests(unittest.TestCase):
         self.assertEqual(redacted["diagnostics"][0]["message"], REDACTED)
         self.assertEqual(redacted["diagnostics"][0]["line"], 3)
 
+    def test_payload_object_keys_are_redacted_recursively(self) -> None:
+        key_token = "ghp_" + "a" * 36
+        value_token = "sk-" + "b" * 40
+        payload = {key_token: {"nested": {value_token: value_token}}}
+
+        redacted = redact_payload(payload)
+
+        self.assertEqual(redacted, {REDACTED: {"nested": {REDACTED: REDACTED}}})
+
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs
     unittest.main()
