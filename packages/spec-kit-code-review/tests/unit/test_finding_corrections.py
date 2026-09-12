@@ -98,6 +98,91 @@ class CorrectionTests(unittest.TestCase):
                 records = list((root / "finding-corrections" / "attempt-1").glob("*.json"))
                 self.assertTrue(any(json.loads(path.read_text()).get("changed_categories") for path in records))
 
+    def test_prepare_rejects_distinct_high_precision_numbers(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            document = self._documents()
+            document["coverage"]["confidence"] = "NUMBER"
+            original = json.dumps(document).encode().replace(
+                b'"NUMBER"', b"0.123456789012345678901"
+            )
+            prepare(session, original, parse_bytes(original))
+            corrected = original.replace(b'"vibes"', b'"security"').replace(
+                b"0.123456789012345678901", b"0.123456789012345678902"
+            )
+            with self.assertRaises(AppError) as caught:
+                prepare(session, corrected, parse_bytes(corrected))
+            self.assertEqual(caught.exception.diagnostics[0].code, "correction_non_category_change")
+
+    def test_prepare_accepts_unchanged_high_precision_number_after_reformatting(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            document = self._documents()
+            document["coverage"]["confidence"] = "NUMBER"
+            original = json.dumps(document, indent=2).encode().replace(
+                b'"NUMBER"', b"0.123456789012345678901"
+            )
+            prepare(session, original, parse_bytes(original))
+            corrected = original.replace(b'"vibes"', b'"security"')
+            reformatted = corrected.replace(b"\n", b" ").replace(b"  ", b" ")
+            record, _ = prepare(session, reformatted, parse_bytes(reformatted))
+            self.assertEqual(record["status"], "pending")
+
+    def test_prepare_keeps_json_number_string_and_boolean_distinct(self) -> None:
+        for replacement in (b"1.0", b'"1"', b"true"):
+            with self.subTest(replacement=replacement), TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                session = self._session(root)
+                document = self._documents()
+                document["coverage"]["confidence"] = "NUMBER"
+                original = json.dumps(document).encode().replace(b'"NUMBER"', b"1")
+                prepare(session, original, parse_bytes(original))
+                corrected = original.replace(b'"vibes"', b'"security"').replace(
+                    b'"confidence": 1', b'"confidence":' + replacement
+                )
+                with self.assertRaises(AppError) as caught:
+                    prepare(session, corrected, parse_bytes(corrected))
+                self.assertEqual(caught.exception.diagnostics[0].code, "correction_non_category_change")
+
+    def test_prepare_accepts_equivalent_decimal_forms(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            document = self._documents()
+            document["coverage"]["confidence"] = "NUMBER"
+            original = json.dumps(document).encode().replace(b'"NUMBER"', b"0.1")
+            prepare(session, original, parse_bytes(original))
+            corrected = original.replace(b'"vibes"', b'"security"').replace(b"0.1", b"0.10")
+            record, _ = prepare(session, corrected, parse_bytes(corrected))
+            self.assertEqual(record["status"], "pending")
+
+    def test_extreme_decimal_has_a_controlled_diagnostic(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            document = self._documents()
+            document["coverage"]["confidence"] = "NUMBER"
+            original = json.dumps(document).encode().replace(
+                b'"NUMBER"', b"1e999999999999999999999999999999999999999999"
+            )
+            with self.assertRaises(AppError) as caught:
+                prepare(session, original, parse_bytes(original))
+            self.assertEqual(caught.exception.diagnostics[0].code, "correction_invalid_document")
+
+    def test_numeric_invalid_category_is_recorded_and_can_be_corrected(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            original = json.dumps(self._documents()).encode().replace(b'"vibes"', b"7", 1)
+            prepare(session, original, parse_bytes(original))
+            corrected = original.replace(b"7", b'"security"', 1)
+            record, submitted = prepare(session, corrected, parse_bytes(corrected))
+            self.assertEqual(record["changed_categories"][0]["old"], 7)
+            evidence = root / "finding-corrections" / "attempt-1" / f"{submitted}.json"
+            self.assertEqual(json.loads(evidence.read_text(encoding="utf-8"))["changed_categories"][0]["old"], 7)
+
     def test_history_rejects_tampered_original_record_and_unindexed_digest(self) -> None:
         for mutation in ("original", "record", "unindexed", "binding"):
             with self.subTest(mutation=mutation), TemporaryDirectory() as temporary:

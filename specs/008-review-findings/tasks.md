@@ -88,13 +88,13 @@ corrections to supervised Luna agents, followed by independent review.
   - **Delivery**: single PR (~100 authored lines)
   - **Completion evidence**: PR #140; 69 focused tests and 51 subtests passed, plus 2 reopen/attempt checks. Budget 60/200; diff check clean. Independent review of 29fd78e found no actionable defects: https://github.com/tserdeiro/spec-kit/pull/140#issuecomment-5647238793. All four implementation-candidate CI checks passed; this final commit records completion only.
 
-- [ ] T006 [US2] Preserve exact JSON numeric values during category-only comparison per FR-005 and plan D3 (partial)
+- [x] T006 [US2] Preserve exact JSON numeric values during category-only comparison per FR-005 and plan D3 (partial)
   - **Traces**: FR-005, SC-002, SC-004; outcome: distinct high-precision numeric values outside invalid categories cannot validate as a lossless correction.
   - **Depends on**: T005
   - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/finding_corrections.py` and focused correction/phase-two tests. Use the standard library to retain numeric precision and structural type distinctions; preserve object-key/whitespace equivalence, category evidence serialization, and existing strict validation.
   - **Evidence**: Regress a change from `0.123456789012345678901` to `0.123456789012345678902` in coverage metadata alongside a category correction; closure/publication are rejected. Unchanged high-precision values and allowed reformatting succeed. Focused correction/phase-two suites and `git diff --check` pass.
   - **Delivery**: single PR (~180 authored lines)
-  - **Completion evidence**: pending
+  - **Completion evidence**: PR #141; 76 focused tests and 54 subtests passed. CI exposed a directory-order assumption in one new test; b130cad selects the exact digest and all 16 helper tests plus 22 subtests passed. Budget 178/360; diff check clean. Independent review of d91fa81 found no confirmed defects: https://github.com/tserdeiro/spec-kit/pull/141#issuecomment-5647380668; its additional test run was blocked by an offline build cache. This final commit records completion evidence; remote checks gate readiness.
 
 - [ ] T007 [US2] Redact sensitive object keys in derived correction evidence per C-003 and plan D4 (partial)
   - **Traces**: FR-004, C-003, SC-003; outcome: arbitrary invalid-category objects produce redacted derived records while the private original remains byte-exact.

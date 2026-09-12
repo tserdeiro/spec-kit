@@ -817,6 +817,37 @@ class NormalizationThroughTheCommandTests(PhaseTwoCase):
         self.assertEqual(snapshot.read_bytes(), original)
         publish.assert_not_called()
 
+    def test_publish_rejects_high_precision_non_category_changes(self) -> None:
+        from unittest import mock
+
+        document = {"findings": [entry(category="vibes")],
+                    "coverage": coverage_for_session(self.repository, self.session)}
+        document["coverage"]["reads"][0]["confidence"] = "NUMBER"
+        original = json.dumps(document, indent=2).encode().replace(
+            b'"NUMBER"', b"0.123456789012345678901"
+        )
+        self.findings_path.write_bytes(original)
+        code, payload = self.close("--publish")
+        self.assertEqual(code, EXIT_USAGE, payload)
+        self.assertEqual(payload["diagnostics"][0]["code"], "findings_category_invalid")
+
+        corrected = original.replace(b'"vibes"', b'"security"').replace(
+            b"0.123456789012345678901", b"0.123456789012345678902"
+        )
+        self.findings_path.write_bytes(corrected)
+        with mock.patch("spec_kit_code_review.cli.execute_publication") as publish:
+            code, payload = self.close("--publish")
+        self.assertEqual(code, EXIT_USAGE, payload)
+        self.assertEqual(payload["diagnostics"][0]["code"], "correction_non_category_change")
+        self.assertEqual(self.session_payload()["phase"], "open")
+        publish.assert_not_called()
+
+        self.findings_path.write_bytes(original.replace(b'"vibes"', b'"security"'))
+        code, payload = self.close("--publish")
+        self.assertEqual(code, EXIT_USAGE, payload)
+        self.assertIn("publish_no_pull_request", {item["code"] for item in payload["diagnostics"]})
+        self.assertEqual(self.session_payload()["phase"], "closed")
+
     def test_a_hallucinated_path_is_discarded_and_recorded(self) -> None:
         self.write_findings(entry(), entry(path="src/never_existed.py", title="Invented"))
 

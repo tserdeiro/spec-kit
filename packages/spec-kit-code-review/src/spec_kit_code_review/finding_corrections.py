@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import re
+from copy import deepcopy
+from decimal import Decimal, DecimalException
 from pathlib import Path
 from typing import Any, Mapping
 from .errors import EXIT_ENVIRONMENT, EXIT_USAGE, AppError, Diagnostic
@@ -13,6 +15,8 @@ _ID = re.compile(r"[A-Za-z0-9_-]{1,80}\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _MISSING = object()
 _MASK = "__category_recovery_mask__"
+
+
 class _DuplicateKey(ValueError):
     pass
 
@@ -28,6 +32,24 @@ def parse_bytes(raw: bytes) -> dict[str, Any]:
     try:
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=_object)
     except (_DuplicateKey, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AppError("the findings file cannot be used for correction", code=EXIT_USAGE,
+                       diagnostics=[Diagnostic("correction_invalid_document", str(error))]) from error
+    if not isinstance(value, dict):
+        raise AppError("the findings file cannot be used for correction", code=EXIT_USAGE,
+                       diagnostics=[Diagnostic("correction_invalid_document", "expected a JSON object")])
+    return value
+
+
+def _parse_comparison_bytes(raw: bytes) -> dict[str, Any]:
+    """Parse a document for comparison without rounding JSON numbers."""
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_object,
+            parse_float=Decimal,
+            parse_constant=Decimal,
+        )
+    except (_DuplicateKey, UnicodeDecodeError, json.JSONDecodeError, DecimalException) as error:
         raise AppError("the findings file cannot be used for correction", code=EXIT_USAGE,
                        diagnostics=[Diagnostic("correction_invalid_document", str(error))]) from error
     if not isinstance(value, dict):
@@ -52,17 +74,46 @@ def _invalid_indices(document: Mapping[str, Any]) -> set[int]:
     return {i for i, item in enumerate(entries) if not isinstance(item, dict)
             or not isinstance(item.get("category"), str) or item["category"] not in CATEGORIES}
 
-def _canonical(document: Mapping[str, Any], invalid: set[int]) -> str:
-    # JSON serialization preserves the relevant distinctions (missing/null,
-    # bool/number, arrays and object values) while allowing whitespace/key order.
-    cloned = json.loads(json.dumps(document))
+def _canonical(document: Mapping[str, Any], invalid: set[int]) -> Any:
+    # Compare a typed tree instead of round-tripping through float. Decimal
+    # retains arbitrary precision while considering equivalent decimal forms
+    # such as 0.1 and 0.10 equal; tags preserve JSON value categories.
+    cloned = deepcopy(document)
     entries = cloned.get("findings")
     if isinstance(entries, list):
         for i in invalid:
             if 0 <= i < len(entries):
                 if isinstance(entries[i], dict):
                     entries[i]["category"] = _MASK
-    return json.dumps(cloned, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return _canonical_value(cloned)
+
+
+def _canonical_value(value: Any) -> Any:
+    if value is None:
+        return ("null",)
+    if isinstance(value, bool):
+        return ("boolean", value)
+    if isinstance(value, Decimal):
+        if value.is_finite():
+            return ("number-decimal", value)
+        return ("number-constant", value.as_tuple())
+    if isinstance(value, str):
+        return ("string", value)
+    if isinstance(value, int):
+        return ("number-integer", value)
+    if isinstance(value, float):
+        return ("number-float", repr(value))
+    if isinstance(value, list):
+        return ("array", tuple(_canonical_value(item) for item in value))
+    if isinstance(value, dict):
+        return (
+            "object",
+            tuple(
+                (key, _canonical_value(item))
+                for key, item in sorted(value.items(), key=lambda pair: pair[0])
+            ),
+        )
+    raise TypeError(f"unsupported JSON value: {type(value).__name__}")
 
 def _bindings(session: ReviewSession, attempt: str, original: str, submitted: str) -> dict[str, Any]:
     packet = session.payload.get("packet") or {}
@@ -148,7 +199,10 @@ def prepare(session: ReviewSession, raw: bytes, document: Mapping[str, Any]) -> 
     root, original_digest, submitted = begin(session, raw)
     if session.payload.pop("correction_accepted_digest", None):
         session.write()
-    original = parse_bytes((root / "original.json").read_bytes())
+    original_raw = (root / "original.json").read_bytes()
+    original = parse_bytes(original_raw)
+    original_comparison = _parse_comparison_bytes(original_raw)
+    submitted_comparison = _parse_comparison_bytes(raw)
     invalid = _invalid_indices(original)
     if not invalid:
         raise _error("correction_original_valid", "correction requires an originally invalid category")
@@ -171,7 +225,8 @@ def prepare(session: ReviewSession, raw: bytes, document: Mapping[str, Any]) -> 
             "status": "pending", "changed_categories": changes}
     _record(session, root, submitted, base)
     try:
-        if _canonical(original, invalid) != _canonical(document, invalid):
+        if (_canonical(original_comparison, invalid)
+                != _canonical(submitted_comparison, invalid)):
             raise _error("correction_non_category_change", "the correction changes fields other than originally invalid categories")
     except AppError as error:
         finish(session, submitted, status="rejected", reason=error.diagnostics[0].code)
