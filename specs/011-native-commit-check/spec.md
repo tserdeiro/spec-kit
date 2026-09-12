@@ -146,9 +146,10 @@ and failure hooks, Husky, and Lefthook; repeat installation and count executions
 - **A-002**: Existing rule means lowercase type, required lowercase/digit/hyphen
   scope, colon and space, and a nonempty subject. Editor input unobservable by
   the pre-tool guard is covered by Git; parity concerns an identical subject.
-- **A-003**: Safe automatic arrangements are selected in the technical plan;
-  unsupported arrangements receive the concrete manual action permitted by the
-  input. Git's native bypasses remain consumer decisions.
+- **A-003**: Planning assumes Git 2.54+ for automatic installation through native
+  composition; older versions receive an upgrade action. This recommendation
+  was presented to the user and remains part of the pending technical approval.
+  Git's native bypasses remain consumer decisions.
 
 ## Source references
 
