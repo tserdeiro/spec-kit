@@ -562,6 +562,27 @@ if __name__ == "__main__":  # pragma: no cover - convenience for local runs
 
 
 class FrozenIntentTests(PublicationCase):
+    def test_home_redacted_inventory_closes_and_its_retrieval_command_works(self):
+        import os, shlex, subprocess
+        home = self.workspace / "home"
+        home.mkdir()
+        self.evidence = home / "evidence with spaces"
+        self.environment.update(HOME=str(home), SPECKIT_CODE_REVIEW_EVIDENCE_DIR=str(self.evidence))
+        code, opened = self.invoke_json("review", "128")
+        self.assertEqual(code, 0, opened)
+        directory = next(self.evidence.glob("*/*"))
+        self.session, self.findings_path = str(directory), directory / "findings.json"
+        self.write_findings(entry())
+        inventory = json.loads((directory / "context-inventory.json").read_text())
+        command = next(item["command"] for item in inventory["required"] if item["path"] == "<pull-request-intent>")
+        self.assertIn("~/evidence with spaces", command)
+        read = subprocess.run(shlex.split(command), env={**os.environ, "HOME": str(home)}, capture_output=True, check=True)
+        intent = json.loads((directory / "session.json").read_text())["pr_intent"]
+        self.assertEqual(read.stdout.decode(), intent["title"] + "\n" + intent["body"])
+        code, result = self.invoke_json("review", "--findings", str(self.findings_path), "--session", self.session)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["verdict"]["value"], "changes-requested")
+
     def test_redacted_intent_receipts_match_the_persisted_snapshot(self):
         self.gh_state["pull_requests"]["128"]["body"] = "Example: ghp_" + "x" * 24
         self._install_gh()

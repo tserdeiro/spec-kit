@@ -35,7 +35,7 @@ from typing import Any, Sequence
 
 from . import __version__
 from .errors import EXIT_ENGINE, AppError, Diagnostic
-from .redaction import redact_text
+from .redaction import redact_payload, redact_text
 
 
 SUFFIX_BYTES = 4  # 8 hexadecimal characters, per the contract's minimum
@@ -516,7 +516,8 @@ def assemble(
                                        per_source=source_limit, total=max_total_bytes, advisory=advisory,
                                        intent_body=redact_text(metadata["title"] + "\n" + metadata["body"]) if pull_request else "",
                                        intent_version=metadata_digest, intent_selected=include_pr_body,
-                                       intent_command="python3 -c " + shlex.quote('import json,sys; d=json.load(open(sys.argv[1]))["pr_intent"]; sys.stdout.write(d["title"]+"\\n"+d["body"])') + " " + shlex.quote(str(evidence_path).rstrip("/") + "/session.json"))
+                                       intent_command="python3 -c " + shlex.quote('import json,os,sys; d=json.load(open(os.path.expanduser(sys.argv[1]))) ["pr_intent"]; sys.stdout.write(d["title"]+"\\n"+d["body"])') + " " + shlex.quote(str(evidence_path).rstrip("/") + "/session.json"))
+        inventory = redact_payload(inventory)
         summary = _inventory_summary(inventory)
         body_sections.insert(4, summary)
         region = "\n\n".join(section.strip("\n") for section in body_sections if section.strip()) + "\n"

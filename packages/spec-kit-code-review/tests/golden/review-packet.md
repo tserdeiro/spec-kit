@@ -173,7 +173,7 @@ _The body follows none of the template's canonical sections._
 
 ## 4.9 Frozen context inventory
 
-- inventory_sha256: 9f75a87bfe3fe1afa438092bd357f9a81c9f54dca96bd25b38f5cbe3ce1928e1
+- inventory_sha256: 415acf7c23d7eab835fd4a5d2e57ad13d2db127b5d14ef40a430a9a1f37f0098
 - required ranges: 1; selected: 1; excluded: 0; gaps: 0
 - The complete inventory is beside this packet; retrieve omitted ranges from its exact source commands.
 

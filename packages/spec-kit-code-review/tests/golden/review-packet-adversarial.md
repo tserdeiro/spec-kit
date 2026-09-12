@@ -157,7 +157,7 @@ it fills in.
 
 ## 4.9 Frozen context inventory
 
-- inventory_sha256: 8b7e350a5a44be843d1cbdf3dd9b107f69872f5d8438a598baf25bd137172324
+- inventory_sha256: 22a945d79273ecc3edd13cd99c57a2800b3539592fb8c4a7a1c055f0fe5d21ad
 - required ranges: 1; selected: 1; excluded: 0; gaps: 0
 - The complete inventory is beside this packet; retrieve omitted ranges from its exact source commands.
 
