@@ -33,6 +33,7 @@ from .redaction import redact_payload, redact_text
 SESSION_FILENAME = "session.json"
 RAW_DIRECTORY = "raw"
 PACKET_FILENAME = "review-packet.md"
+INVENTORY_FILENAME = "context-inventory.json"
 FINDINGS_FILENAME = "findings.json"
 FINDINGS_NORMALIZED_FILENAME = "findings-normalized.json"
 FINDINGS_MARKDOWN_FILENAME = "findings.md"

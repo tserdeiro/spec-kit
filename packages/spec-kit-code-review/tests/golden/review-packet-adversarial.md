@@ -155,6 +155,12 @@ it fills in.
 | Risk and delivery | no | — |
 | Review focus | no | — |
 
+## 4.9 Frozen context inventory
+
+- inventory_sha256: 5815608c0f00e8f3e08dec1b5626d9d148014fba0b439b6a9c0e3efe2f07b9c3
+- required ranges: 0; selected: 0; excluded: 0; gaps: 0
+- The complete inventory is beside this packet; retrieve omitted ranges from its exact source commands.
+
 ## 5. Review budget
 
 - counted (authored executable lines added): 658

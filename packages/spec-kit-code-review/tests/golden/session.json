@@ -256,6 +256,7 @@
   "packet": {
     "bytes": "<variable>",
     "containment_suffix": "<variable>",
+    "inventory_sha256": "<variable>",
     "packet_sha256": "<variable>",
     "pr_metadata_sha256": "<variable>",
     "seeded_findings": [],

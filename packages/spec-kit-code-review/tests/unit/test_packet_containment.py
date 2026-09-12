@@ -220,6 +220,15 @@ class ContainmentTests(unittest.TestCase):
 
 
 class TruncationTests(unittest.TestCase):
+    def test_utf8_and_crlf_boundaries_preserve_source_bytes(self) -> None:
+        text = "á\r\nβ\r\n"
+        kept, truncation = truncate(text, limit=len("á\r\nβ\r\n".encode("utf-8")), path="a.md", command="cmd")
+        self.assertIsNone(truncation)
+        self.assertEqual(kept, text)
+        kept, truncation = truncate(text, limit=len("á\r\n".encode("utf-8")), path="a.md", command="cmd")
+        self.assertEqual(kept, "á\r\n[… truncated: 4 byte(s) and 1 line(s) omitted. Read the whole file with: cmd …]")
+        self.assertEqual((truncation.omitted_start, truncation.omitted_end), (2, 2))
+
     def test_short_content_is_untouched(self) -> None:
         text, truncation = truncate("one\ntwo\n", limit=1000, path="a.md", command="git show HEAD:a.md")
 

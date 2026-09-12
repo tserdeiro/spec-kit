@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import inspect
 import io
 import json
@@ -529,6 +530,14 @@ class AnchoredReviewTests(RunCommandCase):
         self.assertEqual(len(session["packet_sha256"]), 64)
         self.assertIn("packet_written", {item["code"] for item in payload["diagnostics"]})
         self.assertTrue((self._session_path() / "review-packet.md").is_file())
+        inventory_path = self._session_path() / "context-inventory.json"
+        self.assertTrue(inventory_path.is_file())
+        inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+        self.assertEqual(inventory["effective_limits"]["total_bytes"], 400000)
+        self.assertTrue(all(self.head in item["command"] for item in inventory["selected"]))
+        self.assertEqual(session["packet"]["inventory_sha256"], hashlib.sha256(
+            json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest())
 
     def test_the_operators_checkout_is_never_touched(self) -> None:
         self.repository.write("README.md", "operator edit\n")

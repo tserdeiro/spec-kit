@@ -57,6 +57,7 @@ from .session import (
     FINDINGS_FILENAME,
     FINDINGS_MARKDOWN_FILENAME,
     FINDINGS_NORMALIZED_FILENAME,
+    INVENTORY_FILENAME,
     PUBLICATION_PLAN_FILENAME,
     PUBLICATION_RESULT_FILENAME,
     write_json,
@@ -625,6 +626,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                 diagnostics=diagnostics,
             )
             write_text(directory / PACKET_FILENAME, assembled["packet"].text)
+            write_json(directory / INVENTORY_FILENAME, assembled["packet"].inventory)
             session = open_session(
                 directory=directory,
                 candidate=candidate.as_dict(),
@@ -1124,6 +1126,7 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         )
     packet_path = directory / PACKET_FILENAME
     write_text(packet_path, packet.text)
+    write_json(directory / INVENTORY_FILENAME, packet.inventory)
     _point_at_latest(directory)
     diagnostics.append(
         Diagnostic(
