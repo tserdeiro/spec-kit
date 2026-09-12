@@ -8,8 +8,9 @@
 Centralize native Issue reads and branch resolution in Linear. The preset calls
 an installed internal JSON bridge to start or adopt work. Review consumes the
 canonical PR linkage and exact feature/task conventions without requiring Linear.
-One behavioral matrix enforces the contract across independent packages. Research,
-data contracts, and validation remain here, following the resolved template.
+One behavioral matrix enforces the contract across independent packages. T002
+delivers explicit Issue lookup; T009 adds observation batches before T003.
+Research, data contracts, and validation remain here, following the resolved template.
 
 ## Technical context
 
@@ -194,8 +195,9 @@ credential type and boolean/prefix shape observations, not operator names/secret
 
 Live read-only evidence on 2026-09-12: configured `api_key`; one existing Issue's
 branch had one prefix segment, passed Git validation, and native lookup returned
-the same Issue. Its assignee differed from the authenticated viewer. This proves
-prefix presence for these credentials, not all templates/OAuth behavior. T008
+the same Issue. The organization's template uses a literal prefix, with only
+Issue identifier/title placeholders. This verifies the configured prefix; it does
+not establish credential-derived prefixes or OAuth behavior. T008
 repeats the probe through the implementation. Fixtures cover key-only, user/nested
 prefixes, title-only names, metadata changes, absence, failures, and conflicts.
 
@@ -227,7 +229,7 @@ packages/spec-kit-code-review/scripts/conformance/review.sh
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
-| Clean Spec Kit analysis | 2026-09-12: 15/15 FR+SC and 4/4 constraints covered, 8/8 tasks traced, zero outstanding findings; prerequisites and diff check pass. | complete |
+| Clean Spec Kit analysis | 2026-09-12: 15/15 FR+SC and 4/4 constraints covered, 9/9 tasks traced, zero outstanding findings; prerequisites and diff check pass. | complete |
 | Technical approval of plan/tasks | Human explicitly requested implementation once artifacts are correct, 2026-09-12; clean analysis satisfies that condition. | authorized |
-| Reviewed Linear dry-run and sync | One Project and eight Issues created; task refinements synchronized; status verified TDS-101–TDS-108. | complete |
-| Every executable task individually assignable and assigned | Eight separate Issues; execution assigned to fresh Luna Extra High agents sequentially. Linear human assignees are unset and remain unchanged. | execution assigned |
+| Reviewed Linear dry-run and sync | Project and nine Issues verified: TDS-101–TDS-108 plus T009/TDS-109; bounded split synchronized without changing human assignees. | complete |
+| Every executable task individually assignable and assigned | Nine separate delivery units; execution assigned to fresh Luna Extra High agents sequentially. Existing Linear human assignees remain unchanged. | execution assigned |
