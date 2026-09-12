@@ -168,7 +168,9 @@ only after renewed approval and publication.
   missing operations only; unchanged closure has no Git/PR/Linear writes.
 - **Rollout**: Deliver D1/D2 and required template wording together as one usable
   local-refinement/approved-close unit; add the consumer guard, entrypoint coverage,
-  then installed/adversarial evidence and policy alignment. Release separately.
+  then broader installed/adversarial evidence and policy alignment. Each task updates
+  any existing conformance fixture affected by its own change and keeps that check
+  passing; the later conformance task adds coverage. Release separately.
 - **Rollback**: Stop handoff and restore the last reviewed preset through the
   normal release process; retain consumer artifacts and PR history.
 
