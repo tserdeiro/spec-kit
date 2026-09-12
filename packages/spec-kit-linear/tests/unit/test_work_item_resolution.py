@@ -127,8 +127,11 @@ class WorkItemResolutionTests(unittest.TestCase):
         self.assertEqual(raised.exception.category, "conflict")
 
     def test_invalid_key_and_loader_failures_remain_actionable(self) -> None:
-        with self.assertRaisesRegex(AppError, "must match TEAM-number"):
-            self.resolve({"issue_key": "WOR-invalid"})
+        cases = (("WOR-invalid", "must match TEAM-number"), (None, "non-empty Issue key"))
+        for issue_key, message in cases:
+            with self.subTest(issue_key=issue_key):
+                with self.assertRaisesRegex(AppError, message):
+                    self.resolve({"issue_key": issue_key})
         failure = AppError(
             "Linear credentials are missing",
             code=4,

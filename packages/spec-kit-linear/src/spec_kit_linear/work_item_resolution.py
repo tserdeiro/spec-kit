@@ -123,7 +123,7 @@ def _entry(
 
 def _observations(payload: Mapping[str, object], team_key: str) -> tuple[str | None, list[dict[str, object]]]:
     issue_key = payload.get("issue_key")
-    if issue_key is not None:
+    if "issue_key" in payload:
         if set(payload) != {"issue_key"}:
             raise _input("issue_key cannot be combined with branch_names or pull_requests")
         if isinstance(issue_key, str) and FEATURE_RE.fullmatch(issue_key.strip()):
