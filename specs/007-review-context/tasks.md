@@ -99,7 +99,7 @@ regression fixtures so the existing review workflow remains executable.
   - **Boundaries**: Change `cli.py`, `coverage.py`, packet instructions in `packet.py`, and `test_phase_two.py`/`test_golden_review.py` with their golden evidence. Follow D6; preserve all engine and non-SDD causes, blocking findings, publication authority, and close/reopen lifecycle. Update affected shared fixtures as part of this task.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_phase_two.py packages/spec-kit-code-review/tests/unit/test_golden_review.py -q` -> valid late-task coverage is conclusive, additional reads resolve only matching gaps, and unrelated exclusions do not suppress engine failures or blocking findings.
   - **Delivery**: single PR (~280 authored lines)
-  - **Completion evidence**: PR #132; all four CI checks passed. Independent review https://github.com/tserdeiro/spec-kit/pull/132#issuecomment-5645549405 closed with no findings. Focused tests: 77 tests and 28 subtests passed; 4 frozen-intent regressions passed independently. Budget 224/400; diff check clean.
+  - **Completion evidence**: PR #132; all four CI checks passed. Independent review https://github.com/tserdeiro/spec-kit/pull/132#issuecomment-5645549405 closed with no findings. Focused tests: 77 tests and 28 subtests passed; 4 frozen-intent regressions passed independently. Budget 224/400; diff check clean. Final-review regression exercises the real closure path with absent spec or plan and valid receipts for every available source; both must remain inconclusive.
 
 ## Phase 5: User Story 2 - Preserve advisory and short-path workflows (P1)
 
