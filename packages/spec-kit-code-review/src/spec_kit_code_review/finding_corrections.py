@@ -224,7 +224,6 @@ def verify_history(session: ReviewSession) -> None:
     indexed = session.payload.get("correction_record_digests")
     if not isinstance(indexed, dict):
         raise _error("correction_evidence_tampered", "correction records are not indexed", environment=True)
-    packet = session.payload.get("packet") or {}
     actual = {item.stem for item in root.glob("*.json") if item.name != "original.json"}
     if actual != set(indexed):
         raise _error("correction_evidence_tampered", "correction records and index differ", environment=True)
