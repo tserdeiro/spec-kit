@@ -25,7 +25,40 @@ bash "$CR" review
 
 It prints the path of an advisory **review packet**. Read that packet in full,
 review the code it describes, and report the findings to the user. Nothing is
-written inside the repository and no session is opened.
+written inside the repository and no session is opened. The command also reports
+the expected `coverage.json` path beside the packet.
+
+After reading, create that file with the host's file tools. It records evidence
+from this working-tree snapshot and remains explicitly advisory:
+
+```json
+{
+  "mode": "advisory",
+  "packet_sha256": "<packet_sha256>",
+  "inventory_sha256": "<inventory_sha256>",
+  "sources": [
+    {"path": "specs/003-example/spec.md", "version": "working-tree", "sha256": "<source-sha256>"}
+  ],
+  "reads": [
+    {
+      "path": "specs/003-example/spec.md",
+      "version": "working-tree",
+      "start_line": 1,
+      "end_line": 20,
+      "sha256": "<exact-range-sha256>",
+      "assessment": "How this range affects the reviewed scope",
+      "scope": "FR-014"
+    }
+  ]
+}
+```
+
+Copy source entries and required ranges from `context-inventory.json`. Read each
+exact inclusive UTF-8 range with a host file tool, preserving line endings, and
+hash those bytes. Before reporting, compare current source hashes with the
+inventory. If any source changed or cannot be read, discard the record and make
+a fresh advisory packet. This record is host-reported, is not CLI-validated or
+publishable, and cannot be reused as coverage for a pull-request review.
 
 ## Reviewing a pull request
 
@@ -116,6 +149,9 @@ and include a short assessment tied to the reviewed scope:
   }
 }
 ```
+
+This `coverage` envelope belongs to pull-request sessions only. Advisory
+reviews use the separate host-reported `coverage.json` record above.
 
 The session validates every receipt against the immutable candidate and frozen
 inventory. Duplicate receipts are deduplicated and overlapping receipts are

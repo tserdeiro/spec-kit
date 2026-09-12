@@ -8,6 +8,8 @@ the repository, and the packet it produces says out loud that it is advisory.
 from __future__ import annotations
 
 import json
+import hashlib
+import re
 import shutil
 import unittest
 from pathlib import Path
@@ -62,6 +64,51 @@ class AdvisoryReviewTests(WorkingTreeCase):
         codes = {item["code"] for item in payload["diagnostics"]}
         self.assertIn("advisory", codes)
         self.assertIn("working_tree_review", codes)
+        evidence = payload["advisory_evidence"]
+        self.assertEqual(evidence["mode"], "advisory")
+        self.assertFalse(evidence["reusable_for_pull_request"])
+        self.assertEqual(Path(evidence["coverage_path"]), Path(payload["packet"]["path"]).parent / "coverage.json")
+        self.assertEqual(evidence["packet_sha256"], payload["packet"]["packet_sha256"])
+        self.assertEqual(evidence["inventory_sha256"], payload["packet"]["inventory_sha256"])
+        self.assertEqual(evidence["sources"], inventory["sources"])
+
+    def test_advisory_packet_exposes_host_reported_coverage_and_drift_rules(self) -> None:
+        self._dirty("src/uncommitted.py")
+        self._engine_reports("src/uncommitted.py")
+
+        _code, payload = self.invoke_json("review")
+
+        packet = self._packet(payload)
+        self.assertIn('"mode": "advisory"', packet)
+        self.assertIn("create `coverage.json` beside this packet with the host's file tools", packet)
+        self.assertIn("compare every current source hash with the packet inventory", packet)
+        self.assertIn("do not report findings as covered from stale reads", packet)
+        self.assertIn("Do not reuse it as coverage for a pull-request review", packet)
+        self.assertNotIn("For PR closure, inspect context-inventory.json", packet)
+        for example in re.findall(r"```json\n(.*?)\n```", packet, flags=re.DOTALL):
+            json.loads(example)
+        self.assertIn("working tree", packet)
+
+    def test_advisory_inventory_source_hash_changes_after_working_tree_drift(self) -> None:
+        self._dirty("src/uncommitted.py")
+        self._engine_reports("src/uncommitted.py")
+        _code, first = self.invoke_json("review")
+        first_inventory = json.loads(
+            (Path(first["packet"]["path"]).parent / "context-inventory.json").read_text(encoding="utf-8")
+        )
+        source = next(item for item in first_inventory["sources"] if item["path"].endswith("/spec.md"))
+        source_path = self.root / source["path"]
+        source_path.write_text(source_path.read_text(encoding="utf-8") + "\nDrifted source.\n", encoding="utf-8")
+        self._engine_reports("src/uncommitted.py", source["path"])
+
+        _code, second = self.invoke_json("review")
+        second_inventory = json.loads(
+            (Path(second["packet"]["path"]).parent / "context-inventory.json").read_text(encoding="utf-8")
+        )
+        updated = next(item for item in second_inventory["sources"] if item["path"] == source["path"])
+        self.assertEqual(updated["sha256"], hashlib.sha256(source_path.read_bytes()).hexdigest())
+        self.assertNotEqual(source["sha256"], updated["sha256"])
+        self.assertNotEqual(first["packet"]["inventory_sha256"], second["packet"]["inventory_sha256"])
 
     def test_untracked_content_is_reviewed_and_counted(self) -> None:
         # `git diff` cannot see an untracked file, and the usual remedy writes to

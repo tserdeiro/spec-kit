@@ -26,6 +26,14 @@ is advisory: no immutable candidate, no session, no publishable verdict. With a
 pull request it reviews the anchored candidate `(merge_base, head_commit)`,
 identified by `candidate_id = sha256("<merge_base>\n<head_commit>\n")`.
 
+An advisory response reports `advisory_evidence.coverage_path` beside the
+packet. After reading the packet, the host may write `coverage.json` there with
+the packet and inventory digests, working-tree source hashes, exact inclusive
+line-range receipts, and scope-linked assessments. Compare those source hashes
+before reporting; a changed source requires a fresh packet. This evidence is
+host-reported and advisory only. It is never reusable for pull-request
+coverage, which uses the session findings envelope below.
+
 An anchored review runs in two internal invocations — a CLI cannot wait for the
 agent to read a packet, because the agent is what invokes it. The agent-facing
 command file (`commands/code-review.md`) drives both, so a person runs one
@@ -48,7 +56,13 @@ findings path outside that session is a usage error.
       "title": "…",
       "content": "…"
     }
-  ]
+  ],
+  "coverage": {
+    "candidate_id": "<candidate_id>",
+    "packet_sha256": "<packet_sha256>",
+    "inventory_sha256": "<inventory_sha256>",
+    "reads": [{"path": "specs/003-example/spec.md", "version": "<head_commit>", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]
+  }
 }
 ```
 

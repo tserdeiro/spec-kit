@@ -1156,6 +1156,14 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         sdd=sdd.as_dict(),
         context_selection=context_selection.as_dict(),
         budget=budget_report.as_dict(),
+        advisory_evidence={
+            "mode": "advisory",
+            "coverage_path": str(directory / "coverage.json"),
+            "packet_sha256": packet.packet_sha256,
+            "inventory_sha256": packet.inventory_sha256,
+            "sources": [dict(item) for item in packet.inventory.get("sources", ())],
+            "reusable_for_pull_request": False,
+        },
         packet={**packet.as_dict(), "path": str(packet_path)},
     )
 
