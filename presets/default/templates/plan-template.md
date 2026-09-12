@@ -87,12 +87,16 @@ before use, never guessed.
 
 ## Product handoff
 
-`ready-for-development` requires all rows to be complete. Analysis consistency is not technical approval.
+These artifacts remain local drafts through analysis. After clean analysis,
+the exact spec, plan, tasks, and analysis result require explicit human product
+approval before `/speckit.pr` publishes them. `ready-for-development` requires
+all remaining rows to be complete; analysis consistency is not technical
+approval.
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
 | Clean Spec Kit analysis | [counts, coverage, and no blockers] | [pending/complete] |
+| Product approval of the exact analyzed artifacts | [human decision on the presented spec, plan, tasks, and analysis] | [pending/complete] |
 | Technical approval of plan and tasks | [human approval record] | [pending/complete] |
 | Reviewed Linear dry-run and synchronization | [remote plan and result] | [pending/complete] |
 | Every executable task individually assignable and assigned | [mapping and assignees] | [pending/complete] |
-

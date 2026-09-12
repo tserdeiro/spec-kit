@@ -42,8 +42,16 @@ resolves its **delivery base** at creation time (step 5).
   create the correctly named branch **at the current commit**
   (`git switch -c NNN-T###-short-slug`) and continue there. Never rename
   a branch that already has an open PR.
-- Uncommitted work → commit it on the correctly named branch first, with
-  a `type(scope): subject` message in English.
+- **Feature publication requires the product approval boundary.** On the
+  feature branch, before any commit or push, confirm clean analysis, present
+  the exact spec, plan, tasks, analysis result, and handoff prerequisites, and
+  receive explicit human approval of that exact set. If any artifact changes,
+  stop for fresh analysis and approval. Stage only
+  `specs/<feature-directory>/`, inspect `git diff --cached --name-only`, and
+  stop if any unrelated staged path is present. Then commit with a
+  `git commit --only -m "docs(specs): <feature>" --
+  specs/<feature-directory>/` command using a `type(scope): subject` message
+  in English. Task and work-item branches keep their existing commit flow.
 
 Then push with upstream: `git push -u origin <branch>`.
 
@@ -82,10 +90,13 @@ sections carry the feature, not a task: Work item — the Linear Project
 (from `/speckit.linear.status`) and its Issue range (`T001–T###`); Spec
 Kit evidence — `specs/<feature>/`; Requirements — the spec's FR, C, and
 SC ranges; Tasks — all of them. Outcome — state that this is the **spec-review
-gate**: draft while tasks deliver into the feature branch, ready when
-every task is checked, closed by a human **merge commit**; reviewing it
-now approves the spec and plan. Changes — the committed artifacts.
-Verification evidence — the Linear projection result. Risk — implementation
+gate**: its exact artifacts were presented and explicitly approved before
+this draft PR was opened; it stays draft while tasks deliver into the feature
+branch, becomes ready when every task is checked, and closes by a human
+**merge commit**. Review of the PR is technical approval of the plan and
+tasks, not product approval inferred from the draft state. Changes — the
+scoped committed artifacts. Verification evidence — the clean analysis and
+Linear projection result. Risk — implementation
 lands task by task into this branch, each PR reviewed before merge; Stack —
 `feature PR; task PRs stack into this branch`. Review focus — do the tasks
 cover the spec with nothing missing and nothing extra?
