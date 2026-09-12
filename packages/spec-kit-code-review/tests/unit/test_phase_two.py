@@ -626,6 +626,43 @@ class RestoreFailureTests(PhaseTwoCase):
 
 
 class NormalizationThroughTheCommandTests(PhaseTwoCase):
+    def test_numeric_category_retries_keep_exact_history_and_blocking_finding(self) -> None:
+        original = json.dumps(
+            {"findings": [entry(category="NUMBER")], "coverage": coverage_for_session(self.repository, self.session)}
+        ).replace("\"NUMBER\"", "0.123456789012345678901").encode()
+        self.findings_path.write_bytes(original)
+
+        code, first = self.close()
+
+        self.assertEqual(code, EXIT_USAGE)
+        exact_old = "0.123456789012345678901"
+        self.assertIn(exact_old, first["diagnostics"][0]["message"])
+        attempted = original.replace(exact_old.encode(), b"0.123456789012345678902", 1)
+        self.findings_path.write_bytes(attempted)
+        code, partial = self.close()
+
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn("0.123456789012345678902", partial["diagnostics"][0]["message"])
+        attempt = self.session_payload()["findings_attempt_id"]
+        record_path = Path(self.session) / "finding-corrections" / attempt / (
+            hashlib.sha256(attempted).hexdigest() + ".json"
+        )
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        change = record["changed_categories"][0]
+        self.assertEqual(change["index"], 1)
+        self.assertEqual(change["old"], {"type": "decimal", "text": exact_old})
+        self.assertEqual(change["new"], {"type": "decimal", "text": "0.123456789012345678902"})
+
+        corrected = attempted.replace(b"0.123456789012345678902", b'"security"', 1)
+        self.findings_path.write_bytes(corrected)
+        code, result = self.close()
+
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["findings"][0]["severity"], "blocking")
+        self.assertEqual(result["verdict"]["value"], "changes-requested")
+        snapshot = Path(self.session) / "finding-corrections" / attempt / "original.json"
+        self.assertEqual(snapshot.read_bytes(), original)
+
     def test_invalid_correction_drift_fails_closed_without_publication(self) -> None:
         from unittest import mock
 

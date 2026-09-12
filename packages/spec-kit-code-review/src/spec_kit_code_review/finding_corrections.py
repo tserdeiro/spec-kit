@@ -30,19 +30,6 @@ def _object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def parse_bytes(raw: bytes) -> dict[str, Any]:
     try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_object)
-    except (_DuplicateKey, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise AppError("the findings file cannot be used for correction", code=EXIT_USAGE,
-                       diagnostics=[Diagnostic("correction_invalid_document", str(error))]) from error
-    if not isinstance(value, dict):
-        raise AppError("the findings file cannot be used for correction", code=EXIT_USAGE,
-                       diagnostics=[Diagnostic("correction_invalid_document", "expected a JSON object")])
-    return value
-
-
-def _parse_comparison_bytes(raw: bytes) -> dict[str, Any]:
-    """Parse a document for comparison without rounding JSON numbers."""
-    try:
         value = json.loads(
             raw.decode("utf-8"),
             object_pairs_hook=_object,
@@ -56,6 +43,7 @@ def _parse_comparison_bytes(raw: bytes) -> dict[str, Any]:
         raise AppError("the findings file cannot be used for correction", code=EXIT_USAGE,
                        diagnostics=[Diagnostic("correction_invalid_document", "expected a JSON object")])
     return value
+
 
 def digest(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
@@ -89,6 +77,8 @@ def _canonical(document: Mapping[str, Any], invalid: set[int]) -> Any:
 
 
 def _canonical_value(value: Any) -> Any:
+    if value is _MISSING:
+        return ("missing",)
     if value is None:
         return ("null",)
     if isinstance(value, bool):
@@ -113,6 +103,33 @@ def _canonical_value(value: Any) -> Any:
                 for key, item in sorted(value.items(), key=lambda pair: pair[0])
             ),
         )
+    raise TypeError(f"unsupported JSON value: {type(value).__name__}")
+
+
+def _record_value(value: Any) -> dict[str, Any]:
+    """Convert an exact parsed value to a redaction-safe, lossless record."""
+    if value is _MISSING:
+        return {"type": "missing"}
+    if value is None:
+        return {"type": "null"}
+    if isinstance(value, bool):
+        return {"type": "boolean", "value": value}
+    if isinstance(value, Decimal):
+        return {"type": "decimal", "text": str(value)}
+    if isinstance(value, int):
+        return {"type": "integer", "text": str(value)}
+    if isinstance(value, str):
+        return {"type": "string", "value": value}
+    if isinstance(value, list):
+        return {"type": "array", "items": [_record_value(item) for item in value]}
+    if isinstance(value, dict):
+        return {
+            "type": "object",
+            "entries": [
+                {"key": key, "value": _record_value(item)}
+                for key, item in value.items()
+            ],
+        }
     raise TypeError(f"unsupported JSON value: {type(value).__name__}")
 
 def _bindings(session: ReviewSession, attempt: str, original: str, submitted: str) -> dict[str, Any]:
@@ -201,8 +218,6 @@ def prepare(session: ReviewSession, raw: bytes, document: Mapping[str, Any]) -> 
         session.write()
     original_raw = (root / "original.json").read_bytes()
     original = parse_bytes(original_raw)
-    original_comparison = _parse_comparison_bytes(original_raw)
-    submitted_comparison = _parse_comparison_bytes(raw)
     invalid = _invalid_indices(original)
     if not invalid:
         raise _error("correction_original_valid", "correction requires an originally invalid category")
@@ -214,19 +229,16 @@ def prepare(session: ReviewSession, raw: bytes, document: Mapping[str, Any]) -> 
             continue
         old_value = old.get("category", _MISSING) if isinstance(old, dict) else _MISSING
         new_value = new.get("category", _MISSING) if isinstance(new, dict) else _MISSING
-        old_key = "<missing>" if old_value is _MISSING else json.dumps(old_value, sort_keys=True, separators=(",", ":"))
-        new_key = "<missing>" if new_value is _MISSING else json.dumps(new_value, sort_keys=True, separators=(",", ":"))
-        if old_key != new_key:
+        if _canonical_value(old_value) != _canonical_value(new_value):
             changes.append({"index": i, "old_present": old_value is not _MISSING,
                             "new_present": new_value is not _MISSING,
-                            "old": None if old_value is _MISSING else old_value,
-                            "new": None if new_value is _MISSING else new_value})
+                            "old": _record_value(old_value),
+                            "new": _record_value(new_value)})
     base = {**_bindings(session, str(session.payload["findings_attempt_id"]), original_digest, submitted),
             "status": "pending", "changed_categories": changes}
     _record(session, root, submitted, base)
     try:
-        if (_canonical(original_comparison, invalid)
-                != _canonical(submitted_comparison, invalid)):
+        if _canonical(original, invalid) != _canonical(document, invalid):
             raise _error("correction_non_category_change", "the correction changes fields other than originally invalid categories")
     except AppError as error:
         finish(session, submitted, status="rejected", reason=error.diagnostics[0].code)

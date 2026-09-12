@@ -72,11 +72,7 @@ def redact_payload(payload: Any, *, extra: Iterable[str] = ()) -> Any:
     if isinstance(payload, str):
         return redact_text(payload, extra=literals)
     if isinstance(payload, dict):
-        return {
-            redact_text(key, extra=literals) if isinstance(key, str) else key:
-            redact_payload(value, extra=literals)
-            for key, value in payload.items()
-        }
+        return {key: redact_payload(value, extra=literals) for key, value in payload.items()}
     if isinstance(payload, (list, tuple)):
         return [redact_payload(item, extra=literals) for item in payload]
     return payload
