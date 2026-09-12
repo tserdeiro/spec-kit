@@ -7,7 +7,9 @@ import json
 import re
 import shutil
 import sys
+from contextlib import redirect_stderr
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from urllib.parse import quote
 
@@ -149,21 +151,11 @@ def _read_branch_rules(repo_root: Path, branch: str) -> RuleRead:
     return RuleRead(True, rules=rules)
 
 
-def _partial_branch_finding(name: str, read: _RemoteRead) -> Result:
-    cause = read.cause or "partial-inventory"
-    evidence = read.evidence or "remote branch inventory was not completely observed"
-    return Result(
-        UNVERIFIED,
-        cause,
-        f"{name}: {evidence}",
-        "Retry the GitHub branch inventory after confirming access to repository metadata",
-    )
-
-
 def _branch_findings(repo_root: Path) -> tuple[tuple[str, Result], ...]:
     """Observe the complete remote inventory, then effective rules per shared branch."""
     try:
-        trunk = delivery_base(repo_root).strip()
+        with redirect_stderr(StringIO()):
+            trunk = delivery_base(repo_root).strip()
     except (SystemExit, OSError):
         trunk = ""
     if not trunk:
@@ -172,7 +164,11 @@ def _branch_findings(repo_root: Path) -> tuple[tuple[str, Result], ...]:
 
     inventory = _read_inventory(repo_root)
     if not inventory.complete:
-        finding = _partial_branch_finding(trunk, inventory)
+        finding = _unknown(
+            inventory.cause or "partial-inventory",
+            f"{trunk}: {inventory.evidence or 'remote branch inventory was not completely observed'}",
+            "Retry the GitHub branch inventory after confirming access to repository metadata",
+        )
         return ((f"force-push protection [{trunk} (trunk)]", finding),
                 (f"merge commits [{trunk} (trunk)]", unknown_branch_result(inventory.cause or "partial-inventory")),
                 (f"cleanup [{trunk} (trunk)]", unknown_branch_result(inventory.cause or "partial-inventory")))

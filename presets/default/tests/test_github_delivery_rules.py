@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import github_delivery
 import github_delivery_rules as rules
+import _common
 
 
 def _active(kind: str = "non_fast_forward", ident: int = 7) -> dict[str, object]:
@@ -16,16 +17,6 @@ def _active(kind: str = "non_fast_forward", ident: int = 7) -> dict[str, object]
         "ruleset_source": "acme",
         "ruleset_id": ident,
     }
-
-
-def test_shared_branches_keeps_trunk_and_canonical_names_only() -> None:
-    names = ("001-T002-task", "unrelated", "001-feature", "001-T001-task", "001-feature")
-    assert rules.shared_branches(names, "main") == (
-        ("main", "trunk"),
-        ("001-feature", "feature"),
-        ("001-T001-task", "task"),
-        ("001-T002-task", "task"),
-    )
 
 
 def test_active_rules_parse_pages_and_dedupe_rule_identity() -> None:
@@ -57,7 +48,7 @@ def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, 
         if args[:3] == ("repo", "view", "--json"):
             return SimpleNamespace(returncode=0, stdout=json.dumps({"deleteBranchOnMerge": True, "mergeCommitAllowed": True}), stderr="")
         if args[-1] == "repos/{owner}/{repo}/branches?per_page=100":
-            return SimpleNamespace(returncode=0, stdout=json.dumps([[{"name": "main"}], [{"name": "001-feature"}, {"name": "001-T001-task"}]]), stderr="")
+            return SimpleNamespace(returncode=0, stdout=json.dumps([[{"name": "main"}, {"name": "001-feature"}, {"name": "001-feature"}], [{"name": "001-T001-task"}, {"name": "unrelated"}]]), stderr="")
         if "%24%28touch%20pwned%29" in args[-1]:
             assert "/rules/branches/" in args[-1]
             return SimpleNamespace(returncode=0, stdout=active, stderr="")
@@ -68,8 +59,7 @@ def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, 
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
     _settings, findings = github_delivery.diagnose(tmp_path)
     github_delivery._read_branch_rules(tmp_path, "001-$(touch pwned)")
-    force = [result for name, result in findings if name.startswith("force-push")]
-    assert [result.state for result in force] == [rules.UNVERIFIED, rules.UNVERIFIED, rules.UNVERIFIED]
+    assert [(name, result.state) for name, result in findings if name.startswith("force-push")] == [("force-push protection [main (trunk)]", rules.UNVERIFIED), ("force-push protection [001-feature (feature)]", rules.UNVERIFIED), ("force-push protection [001-T001-task (task)]", rules.UNVERIFIED)]
     assert github_delivery._read_branch_rules(tmp_path, "001-feature").complete
     assert rules.evaluate_force_push("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature")).cause == "classic-protection-unobserved"
     assert "cause=bypass-coverage-unobserved" in github_delivery.render(_settings, findings)
@@ -89,3 +79,15 @@ def test_transport_failures_keep_distinct_causes_and_malformed_pages_unknown(tmp
     assert github_delivery._read_branch_rules(tmp_path, "main").cause == "read-failure"
     assert github_delivery._read_branch_rules(tmp_path, "main").cause == "branch-disappeared"
     assert github_delivery._read_inventory(tmp_path).cause == "malformed-response"
+
+
+def test_trunk_resolution_failure_does_not_leak_raw_stderr(tmp_path, monkeypatch, capsys) -> None:
+    def fail(*_args, **_kwargs):
+        return SimpleNamespace(returncode=1, stdout="", stderr="Authorization: bearer github_pat_synthetic")
+
+    monkeypatch.setattr(_common, "run_gh", fail)
+    findings = github_delivery._branch_findings(tmp_path)
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "github_pat_synthetic" not in captured.out
+    assert findings[0][1].cause == "trunk-unresolved"
