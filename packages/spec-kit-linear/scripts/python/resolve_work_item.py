@@ -32,6 +32,10 @@ def _error_payload(error: AppError) -> dict[str, object]:
     }
 
 
+def _failure(message: str, code: int, category: str, diagnostic: Diagnostic) -> AppError:
+    return AppError(message, code=code, category=category, diagnostics=[diagnostic])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="internal configured Linear work-item resolver")
     parser.add_argument("--root", default=".")
@@ -41,48 +45,32 @@ def main(argv: list[str] | None = None) -> int:
         root = Path(args.root).expanduser().resolve(strict=True)
         raw = json.loads(sys.stdin.read())
         if not isinstance(raw, dict):
-            raise AppError(
-                "request must be a JSON object",
-                code=2,
-                category="usage",
-                diagnostics=[
-                    Diagnostic("work_item_input", "request must be a JSON object")
-                ],
+            raise _failure(
+                "request must be a JSON object", 2, "usage",
+                Diagnostic("work_item_input", "request must be a JSON object"),
             )
         result = resolve_work_item(raw, root=root, config_path=args.config)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0
     except json.JSONDecodeError:
-        failure = AppError(
-            "request is not valid JSON",
-            code=2,
-            category="usage",
-            diagnostics=[
-                Diagnostic("work_item_json", "stdin must contain one JSON object")
-            ],
+        failure = _failure(
+            "request is not valid JSON", 2, "usage",
+            Diagnostic("work_item_json", "stdin must contain one JSON object"),
         )
     except FileNotFoundError:
-        failure = AppError(
-            "repository root does not exist",
-            code=2,
-            category="usage",
-            diagnostics=[
-                Diagnostic("root_missing", "--root must name an existing directory")
-            ],
+        failure = _failure(
+            "repository root does not exist", 2, "usage",
+            Diagnostic("root_missing", "--root must name an existing directory"),
         )
     except AppError as error:
         failure = error
     except Exception:
-        failure = AppError(
-            "configured work-item resolution failed unexpectedly",
-            code=9,
-            category="graphql",
-            diagnostics=[
-                Diagnostic(
-                    "work_item_unexpected",
-                    "the resolver failed without exposing internal details",
-                )
-            ],
+        failure = _failure(
+            "configured work-item resolution failed unexpectedly", 9, "graphql",
+            Diagnostic(
+                "work_item_unexpected",
+                "the resolver failed without exposing internal details",
+            ),
         )
     print(json.dumps(_error_payload(failure), ensure_ascii=False, sort_keys=True))
     return failure.code

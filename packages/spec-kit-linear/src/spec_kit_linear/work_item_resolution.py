@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict
@@ -103,8 +104,11 @@ def resolve_work_item(
 
     load_dotenv_files(root)
     config_file = resolve_config_path(root, config_path)
-    if not config_file.exists():
-        return _absent(config_file)
+    if not config_path and not os.environ.get("SPECKIT_LINEAR_CONFIG"):
+        try:
+            config_file.lstat()
+        except FileNotFoundError:
+            return _absent(config_file)
 
     config, _ = load_config(root, config_path)
     team_id, team_key = team_binding(config)

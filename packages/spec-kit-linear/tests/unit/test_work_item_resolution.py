@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -144,6 +145,27 @@ class WorkItemResolutionTests(unittest.TestCase):
         self.client.failure = AppError("Linear request was denied", code=7, category="graphql")
         with self.assertRaisesRegex(AppError, "request was denied"):
             self.resolve({"issue_key": "WOR-12"})
+
+    def test_missing_explicit_or_env_config_is_a_configuration_failure(self) -> None:
+        failure = AppError("configuration is missing", code=3, category="configuration")
+        cases = [
+            (str(self.root / "explicit.yml"), {}),
+            (None, {"SPECKIT_LINEAR_CONFIG": str(self.root / "env.yml")}),
+        ]
+        for config_path, environment in cases:
+            with self.subTest(config_path=config_path):
+                with patch.dict(os.environ, environment, clear=True):
+                    with patch(
+                        "spec_kit_linear.work_item_resolution.load_config",
+                        side_effect=failure,
+                    ):
+                        with self.assertRaisesRegex(AppError, "configuration is missing"):
+                            resolve_work_item(
+                                {"issue_key": "WOR-12"},
+                                root=self.root,
+                                config_path=config_path,
+                                client_factory=lambda *_: self.client,
+                            )
 
 
 if __name__ == "__main__":
