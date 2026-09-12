@@ -227,10 +227,12 @@ presets/default/README.md
 ## Product handoff
 
 `ready-for-development` requires all rows complete; analysis is not technical approval.
+This is the pre-analysis snapshot; the final read-only analysis is recorded in
+the feature PR without rewriting these artifacts.
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
 | Clean Spec Kit analysis | Run after tasks; retain final report in draft PR | Pending |
 | Technical approval of plan and tasks | Publication authorization does not approve the generated design | Pending |
-| Reviewed Linear dry-run and synchronization | Execute native current-feature projection under user authorization | Pending |
-| Every executable task individually assignable and assigned | Ordered task Issues; human assignment remains required | Pending |
+| Reviewed Linear dry-run and synchronization | 2026-09-12: Project 012 and TDS-116–TDS-121 created; post-apply read verified; repeat preview 0 operations and status 0 drift | Complete |
+| Every executable task individually assignable and assigned | T001–T006 map to TDS-116–TDS-121, all Todo with no assignee | Pending |
