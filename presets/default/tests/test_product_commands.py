@@ -57,7 +57,7 @@ def test_phase_close_suppresses_git_commit_but_keeps_linear_hooks() -> None:
     assert "explicit human approval" in phase
     assert "feature variant of `/speckit.pr`" in phase
     assert "specs/<feature-directory>/" in phase
-    assert "no unrelated staged path" in phase
+    assert "unrelated staged\n  content remains outside the commit" in phase
     assert "The phase ends committed" not in phase
 
 
@@ -88,7 +88,7 @@ def test_templates_describe_the_same_approval_boundary() -> None:
     assert "Stage only" in pr
     assert "git diff --cached --name-only" in pr
     assert "git commit --only" in pr
-    assert "unrelated staged path" in pr
+    assert "stop if any unrelated staged path is present" not in pr
     assert "technical approval of the" in pr
 
 

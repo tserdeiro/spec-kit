@@ -48,7 +48,7 @@ resolves its **delivery base** at creation time (step 5).
   receive explicit human approval of that exact set. If any artifact changes,
   stop for fresh analysis and approval. Stage only
   `specs/<feature-directory>/`, inspect `git diff --cached --name-only`, and
-  stop if any unrelated staged path is present. Then commit with a
+  commit with a
   `git commit --only -m "docs(specs): <feature>" --
   specs/<feature-directory>/` command using a `type(scope): subject` message
   in English. Task and work-item branches keep their existing commit flow.

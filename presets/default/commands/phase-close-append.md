@@ -10,9 +10,7 @@ win**:
   nothing. A product-phase `git.commit` hook is suppressed silently in every
   configuration, including mandatory and default-enabled configurations.
   Mandatory hooks for other extensions, including Linear, behave exactly as
-  the core text says. An optional non-`git.commit` hook whose own extension
-  enables its event is executed silently; every other optional hook is skipped
-  silently.
+  the core text says. Optional non-`git.commit` hooks are skipped silently.
 - **The resolved template rules the phase's own sections and files** —
   only what the resolved template defines, at the density of the
   precedent, never a heavier structure the core text's own generic
@@ -25,6 +23,7 @@ win**:
   spec, plan, tasks, analysis result, and unresolved handoff prerequisites.
   Wait for explicit human approval of those concrete artifacts. Only after
   that decision, invoke the feature variant of `/speckit.pr`; it stages only
-  `specs/<feature-directory>/`, verifies that no unrelated staged path is
-  included, and performs the authorized commit, push, and canonical draft PR
-  publication. An edit after approval requires fresh analysis and approval.
+  `specs/<feature-directory>/`, uses `git commit --only` so unrelated staged
+  content remains outside the commit, and performs the authorized commit,
+  push, and canonical draft PR publication. An edit after approval requires
+  fresh analysis and approval.
