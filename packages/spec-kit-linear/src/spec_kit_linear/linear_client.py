@@ -287,6 +287,28 @@ query IssueContext($id: String!) {
 """.strip()
 
 
+ISSUE_CONTEXTS_QUERY = """
+query IssueContexts($first: Int!, $after: String, $teamId: ID!, $numbers: [Float!]!) {
+  issues(
+    first: $first
+    after: $after
+    filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }
+  ) {
+    nodes {
+      id
+      identifier
+      title
+      description
+      url
+      branchName
+      team { id key name }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+""".strip()
+
+
 _ISSUE_BRANCH_FIELDS = """
 id
 identifier
@@ -851,32 +873,35 @@ class LinearClient:
 
     def resolve_issue_contexts(
         self,
+        team_id: str,
         identifiers: Sequence[str],
     ) -> dict[str, RemoteIssueContext | None]:
-        """Read distinct Issue contexts in bounded aliased GraphQL reads."""
+        """Read distinct Team Issue contexts in bounded connection reads."""
 
         distinct = list(dict.fromkeys(identifiers))
         if any(not isinstance(identifier, str) or not identifier for identifier in distinct):
             raise ValueError("Issue identifiers must be non-empty strings")
-        resolved: dict[str, RemoteIssueContext | None] = {}
+        numbers: list[int] = []
+        for identifier in distinct:
+            prefix, separator, suffix = identifier.rpartition("-")
+            if not separator or not prefix or not suffix.isascii() or not suffix.isdecimal():
+                raise ValueError("Issue identifiers must match TEAM-number")
+            numbers.append(int(suffix))
+        resolved: dict[str, RemoteIssueContext] = {}
         for offset in range(0, len(distinct), MAX_PAGE_SIZE):
             batch = distinct[offset : offset + MAX_PAGE_SIZE]
-            data = self.query(
-                _issue_context_query(len(batch)),
-                {f"issue{index}": identifier for index, identifier in enumerate(batch)},
+            batch_numbers = numbers[offset : offset + MAX_PAGE_SIZE]
+            nodes = self.connection(
+                ISSUE_CONTEXTS_QUERY,
+                root_key="issues",
+                variables={"teamId": team_id, "numbers": [float(number) for number in batch_numbers]},
             )
-            for index, identifier in enumerate(batch):
-                alias = f"issue{index}"
-                if alias not in data:
-                    raise _schema_error("linear_issue_context", f"Linear response is missing '{alias}'")
-                value = data[alias]
-                if value is not None and not isinstance(value, dict):
-                    raise _schema_error(
-                        "linear_issue_context",
-                        f"Linear response '{alias}' must be an object or null",
-                    )
-                resolved[identifier] = None if value is None else _remote_issue_context(value)
-        return resolved
+            for node in nodes:
+                context = _remote_issue_context(node)
+                for identity in (context.id, context.identifier):
+                    if identity in batch:
+                        resolved[identity] = context
+        return {identifier: resolved.get(identifier) for identifier in distinct}
 
     def discover_projects(self, project_label_id: str) -> tuple[RemoteProject, ...]:
         """Discover every project under a repository label and its local graph."""
@@ -1316,15 +1341,6 @@ def _issue_branch_search_query(count: int) -> str:
         for index in range(count)
     )
     return f"query IssueVcsBranchSearch({variables}) {{\n{fields}\n}}"
-
-
-def _issue_context_query(count: int) -> str:
-    variables = ", ".join(f"$issue{index}: String!" for index in range(count))
-    fields = "\n".join(
-        f"  issue{index}: issue(id: $issue{index}) {{\n{_ISSUE_BRANCH_FIELDS}\n  }}"
-        for index in range(count)
-    )
-    return f"query IssueContexts({variables}) {{\n{fields}\n}}"
 
 
 def _remote_issue_context(node: Mapping[str, object]) -> RemoteIssueContext:
