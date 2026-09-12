@@ -39,7 +39,7 @@ contracts, and validation stay here, following the resolved default template.
 | Python standard library | 3.11+ | [File operations](https://docs.python.org/3.11/library/os.html), [subprocess argv](https://docs.python.org/3.11/library/subprocess.html) |
 | pytest | locked 9.1.1 | [Invocation](https://docs.pytest.org/en/stable/how-to/usage.html) |
 
-Git and manager documentation was checked during planning. Verify additional
+Official dependency and manager documentation was checked during planning. Verify additional
 APIs against their official source before implementation.
 
 ## Constitution check
@@ -130,7 +130,8 @@ APIs against their official source before implementation.
   its bytes/mode and effective scope snapshot with the diagnosis, and use Git's
   config editor on an adjacent temporary copy. Set the exact command and one
   event there, preserve unrelated config, then atomically replace under the
-  lock. Re-read the effective configuration and hook list before reporting
+  lock. An absent selected config starts from empty content only after validating
+  its Git-owned parent directory. Re-read the effective configuration and hook list before reporting
   success. A collision, stale snapshot, permissions failure, or occupied lock
   yields no hook/config change. Mid-write failure leaves the original intact.
   Use Git's parser, not a new configuration parser or persistence protocol.
@@ -160,8 +161,9 @@ manager configuration, global configuration, or worktree mode is rewritten.
 
 ## Security and privacy
 
-All repair targets are consumer Git metadata and must be regular writable files
-under the resolved Git directories, with symlink/ownership ambiguity refused.
+All repair targets are consumer Git metadata. Existing targets must be regular
+writable files under resolved Git directories; new files require a safe parent.
+Refuse symlink/ownership ambiguity.
 Git commands use argv; only the fixed owned hook command uses Git's documented
 shell execution. Keep secrets and arbitrary config values out of diagnostics.
 Doctor does not execute existing hooks to test them. Real commits and manager
@@ -214,9 +216,12 @@ README.md
 
 ## Product handoff
 
+Gate snapshot before final read-only analysis; the feature PR carries its current
+analysis and check results. Publication authorization is not technical approval.
+
 | Gate | Evidence | Status |
 | --- | --- | --- |
-| Clean Spec Kit analysis | Run after the task ledger is complete. | Pending |
+| Clean Spec Kit analysis | Final read-only report follows the task commit and travels in the feature PR. | Pending final report |
 | Technical approval of plan and tasks | Human review of this PR, including Git 2.54+ prerequisite. | Pending |
-| Reviewed Linear dry-run and synchronization | Project at plan; task Issues after tasks. | Pending |
-| Every executable task individually assignable and assigned | One Issue per task; assignment is a human decision. | Pending |
+| Reviewed Linear dry-run and synchronization | Project created; T001–T005 map to TDS-122–TDS-126. Post-apply read passed; repeated dry-run: 0 operations, no drift. | Complete |
+| Every executable task individually assignable and assigned | Five Todo Issues exist; all assignees are empty. | Pending assignment |
