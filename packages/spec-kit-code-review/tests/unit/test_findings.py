@@ -22,6 +22,7 @@ from spec_kit_code_review.findings import (
     MAX_FINDINGS,
     MAX_TITLE_CHARS,
     Finding,
+    CATEGORIES,
     load_document,
     normalize,
     render_markdown,
@@ -71,7 +72,8 @@ class SchemaTests(unittest.TestCase):
     def test_every_required_field_is_required(self) -> None:
         for name in ("path", "start_line", "end_line", "severity", "category", "title", "content"):
             with self.subTest(field=name):
-                self._rejects(entry(**{name: _ABSENT}), "findings_field_missing")
+                expected = "findings_category_invalid" if name == "category" else "findings_field_missing"
+                self._rejects(entry(**{name: _ABSENT}), expected)
 
     def test_an_unknown_field_is_refused_rather_than_ignored(self) -> None:
         # Ignoring it would mean either a different schema whose other fields
@@ -85,7 +87,21 @@ class SchemaTests(unittest.TestCase):
         self._rejects(entry(severity="catastrophic"), "findings_field_enum")
 
     def test_an_invented_category_is_refused(self) -> None:
-        self._rejects(entry(category="vibes"), "findings_field_enum")
+        error = self._rejects(entry(category="vibes"), "findings_category_invalid")
+        self.assertIn("finding #1", error.diagnostics[0].message)
+        self.assertIn("vibes", error.diagnostics[0].message)
+        self.assertIn(", ".join(CATEGORIES), error.diagnostics[0].message)
+
+    def test_a_missing_category_has_an_actionable_diagnostic(self) -> None:
+        error = self._rejects(entry(category=_ABSENT), "findings_category_invalid")
+        self.assertIn("finding #1", error.diagnostics[0].message)
+        self.assertIn("missing", error.diagnostics[0].message)
+
+    def test_a_non_string_category_has_an_actionable_diagnostic(self) -> None:
+        error = self._rejects(entry(category=7), "findings_category_invalid")
+        self.assertIn("finding #1", error.diagnostics[0].message)
+        self.assertIn("7", error.diagnostics[0].message)
+        self.assertIn(", ".join(CATEGORIES), error.diagnostics[0].message)
 
     def test_an_invented_side_is_refused(self) -> None:
         self._rejects(entry(side="MIDDLE"), "findings_field_enum")

@@ -570,6 +570,22 @@ class RestoreFailureTests(PhaseTwoCase):
 
 
 class NormalizationThroughTheCommandTests(PhaseTwoCase):
+    def test_invalid_category_reports_index_catalog_and_current_session_retry(self) -> None:
+        self.write_findings(entry(category="vibes"))
+
+        code, payload = self.close()
+
+        self.assertEqual(code, EXIT_USAGE)
+        diagnostic = payload["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "findings_category_invalid")
+        self.assertIn("finding #1", diagnostic["message"])
+        self.assertIn("vibes", diagnostic["message"])
+        self.assertIn("correctness", diagnostic["message"])
+        self.assertIn("retry the current session", diagnostic["message"])
+        self.assertIn('bash "$CR" review --findings', diagnostic["message"])
+        self.assertIn(str(self.findings_path), diagnostic["message"])
+        self.assertEqual(self.session_payload()["phase"], "open")
+
     def test_a_hallucinated_path_is_discarded_and_recorded(self) -> None:
         self.write_findings(entry(), entry(path="src/never_existed.py", title="Invented"))
 

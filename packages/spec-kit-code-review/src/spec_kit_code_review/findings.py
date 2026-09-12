@@ -291,9 +291,28 @@ def _require_string(
     return value
 
 
+_MISSING = object()
+
+
 def _require_enum(entry: Mapping[str, Any], name: str, allowed: Sequence[str], *, index: int) -> str:
     value = entry.get(name)
     if value not in allowed:
+        if name == "category":
+            if value is _MISSING:
+                detail = "missing value"
+                summary = "is missing"
+            elif isinstance(value, str):
+                detail = f"invalid value {value!r}"
+                summary = f"has invalid value {value!r}"
+            else:
+                detail = f"invalid value {type(value).__name__} {value!r}"
+                summary = f"must be a string; found {type(value).__name__} {value!r}"
+            choices = ", ".join(allowed)
+            raise _usage(
+                f"finding #{index}: `category` {summary}; accepted values: {choices}",
+                "findings_category_invalid",
+                f"finding #{index}: {detail}; accepted values: {choices}",
+            )
         raise _usage(
             f"finding #{index}: `{name}` is not one of {', '.join(allowed)}",
             "findings_field_enum",
@@ -344,6 +363,8 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
             "case the rest of it cannot be trusted either, or something is trying to reach a field this version does "
             "not validate",
         )
+    if "category" not in entry:
+        _require_enum({"category": _MISSING}, "category", CATEGORIES, index=index)
     missing = [name for name in REQUIRED_FIELDS if name not in entry]
     if missing:
         raise _usage(
