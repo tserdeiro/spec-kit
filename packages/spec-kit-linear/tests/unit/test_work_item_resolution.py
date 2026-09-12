@@ -50,7 +50,7 @@ class FakeClient:
         self.calls.append(("branches", tuple(branches)))
         return {branch: self.issue for branch in branches}
 
-    def resolve_issue_contexts(self, identifiers: list[str]) -> dict[str, RemoteIssueContext | None]:
+    def resolve_issue_contexts(self, team_id: str, identifiers: list[str]) -> dict[str, RemoteIssueContext | None]:
         self.calls.append(("issues", tuple(identifiers)))
         return {identifier: context(identifier) for identifier in identifiers}
 
@@ -200,8 +200,12 @@ class WorkItemResolutionTests(unittest.TestCase):
             ("Mention WOR-12 here.\n\n## Work item\n\n- Tracker: Fixes WOR-12\n\n## Outcome\n\nWOR-99", "resolved"),
             ("## Work item\n\n- Tracker: Fixes WOR-12\n\n## Outcome\n\n## Work item\n\n- Tracker: Fixes WOR-13", "conflict"),
             ("## Work item\n\n```markdown\n- Tracker: Fixes WOR-12\n```\n", "unresolved"),
-            ("## Work item\n\n    - Tracker: Fixes WOR-12", "unresolved"),
-            ("## Work item\n\n\t- Tracker: Fixes WOR-12", "unresolved"),
+            ("## Work item\n\n    - Tracker: Fixes WOR-12\n\n\t- Tracker: Fixes WOR-13", "unresolved"),
+            ("## Work item\n\n- Tracker: Fixes OTHER-foo", "conflict"),
+            ("## Work item\n\n- Tracker:", "conflict"),
+            ("## Work item\n\n- Tracker: WOR-12", "conflict"),
+            ("## Work item\n\n- Tracker: Fixes N/A", "conflict"),
+            ("## Work item\n\n- Tracker: Fixes placeholder", "conflict"),
             ("## Work item\n\n- Tracker: Fixes WOR-12\n\n# Outcome\n\n- Tracker: Fixes WOR-13", "resolved"),
         ]
         for body, expected in cases:

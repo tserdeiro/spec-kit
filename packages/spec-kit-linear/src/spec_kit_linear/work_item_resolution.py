@@ -22,8 +22,11 @@ TRACKER_SECTION_RE = re.compile(
     r"(?ms)^##[ \t]+Work item[ \t]*\r?\n(?P<section>.*?)(?=^#{1,6}[ \t]+|\Z)"
 )
 TRACKER_LINE_RE = re.compile(
-    r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]+Fixes[ \t]+"
-    r"(?P<key>[A-Za-z][A-Za-z0-9]*-[0-9]+)[ \t]*$"
+    r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]*"
+    r"(?P<value>.*?)[ \t]*$"
+)
+TRACKER_VALUE_RE = re.compile(
+    r"^Fixes[ \t]+(?P<key>[A-Za-z][A-Za-z0-9]*-[0-9]+)[ \t]*$"
 )
 OBSERVATION_CONFLICT = Diagnostic(
     "work_item_identity_conflict",
@@ -70,8 +73,7 @@ def _key(value: object, team_key: str, source: str) -> str:
 
 
 def _strict_key(branch: str, team_key: str) -> str | None:
-    pattern = re.compile(rf"^(?:[^/]+/)?{re.escape(team_key)}-(\d+)(?:-.*)?$", re.IGNORECASE)
-    match = pattern.fullmatch(branch)
+    match = re.fullmatch(rf"^(?:[^/]+/)?{re.escape(team_key)}-(\d+)(?:-.*)?$", branch, re.IGNORECASE)
     return f"{team_key.upper()}-{int(match.group(1))}" if match else None
 
 
@@ -84,11 +86,22 @@ def _tracker_keys(body: object, team_key: str, source: str) -> list[str]:
     matchable = _matchable_lines(lines)
     visible = "\n".join(line if is_matchable else "" for line, is_matchable in zip(lines, matchable))
     values = [
-        match.group("key")
+        match.group("value")
         for section in TRACKER_SECTION_RE.finditer(visible)
         for match in TRACKER_LINE_RE.finditer(section.group("section"))
     ]
-    return list(dict.fromkeys(_key(value, team_key, f"{source}.body Work item Tracker") for value in values))
+    keys = [
+        match.group("key")
+        for value in values
+        if (match := TRACKER_VALUE_RE.fullmatch(value))
+    ]
+    if len(keys) != len(values):
+        raise _error(
+            "work_item_identity_conflict",
+            "Tracker evidence contains an invalid Issue key",
+            category="conflict",
+        )
+    return list(dict.fromkeys(_key(value, team_key, f"{source}.body Work item Tracker") for value in keys))
 
 
 def _entry(
@@ -289,11 +302,8 @@ def resolve_work_item(
     native = client.resolve_branch_issues(list(dict.fromkeys(str(item["branch"]) for item in active)))
     branch_keys: dict[str, set[str]] = {}
     for item in active:
-        keys = item["keys"]
-        if keys:
-            branch_keys.setdefault(str(item["branch"]), set()).update(
-                value for value in keys if isinstance(value, str)
-            )
+        if item["keys"]:
+            branch_keys.setdefault(str(item["branch"]), set()).update(item["keys"])
     conflicting_branches = {str(item["branch"]) for item in active if item["status"] == "conflict"}
     conflicting_branches.update(branch for branch, keys in branch_keys.items() if len(keys) > 1)
     for branch, keys in branch_keys.items():
@@ -315,7 +325,7 @@ def resolve_work_item(
             and native.get(str(item["branch"])) is None
         )
     )
-    contexts = client.resolve_issue_contexts(missing) if missing else {}
+    contexts = client.resolve_issue_contexts(team_id, missing) if missing else {}
     results: list[dict[str, object]] = []
     resolved_count = 0
     for item in observations:
