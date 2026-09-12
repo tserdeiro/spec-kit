@@ -30,6 +30,171 @@
   "candidate_id": "<variable>",
   "config_sha256": "<variable>",
   "containment_suffix": "<variable>",
+  "context_selection": {
+    "excluded": [],
+    "gaps": [
+      {
+        "affected": [
+          "T001"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: traces"
+      },
+      {
+        "affected": [
+          "T001"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: dependencies"
+      },
+      {
+        "affected": [
+          "T001"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: boundaries"
+      },
+      {
+        "affected": [
+          "T001"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: evidence"
+      },
+      {
+        "affected": [
+          "T001"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: delivery"
+      },
+      {
+        "affected": [
+          "T001"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: completion evidence"
+      },
+      {
+        "affected": [
+          "T002"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: traces"
+      },
+      {
+        "affected": [
+          "T002"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: dependencies"
+      },
+      {
+        "affected": [
+          "T002"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: boundaries"
+      },
+      {
+        "affected": [
+          "T002"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: evidence"
+      },
+      {
+        "affected": [
+          "T002"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: delivery"
+      },
+      {
+        "affected": [
+          "T002"
+        ],
+        "code": "task_gap",
+        "detail": "missing field: completion evidence"
+      }
+    ],
+    "required": [
+      {
+        "end": 3,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 10,
+        "path": "<variable>",
+        "reason": "complete feature contract",
+        "start": 1
+      },
+      {
+        "end": 6,
+        "path": "<variable>",
+        "reason": "complete feature contract",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "task ledger shared prose; complete task block T001; complete task block T002",
+        "start": 1
+      }
+    ],
+    "selected": [
+      {
+        "end": 3,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "complete rendered artifact",
+        "start": 1
+      },
+      {
+        "end": 10,
+        "path": "<variable>",
+        "reason": "complete feature contract",
+        "start": 1
+      },
+      {
+        "end": 6,
+        "path": "<variable>",
+        "reason": "complete feature contract",
+        "start": 1
+      },
+      {
+        "end": 4,
+        "path": "<variable>",
+        "reason": "task ledger shared prose; complete task block T001; complete task block T002",
+        "start": 1
+      }
+    ]
+  },
   "engine": {
     "adapter_version": "2",
     "config_path": "<variable>",
