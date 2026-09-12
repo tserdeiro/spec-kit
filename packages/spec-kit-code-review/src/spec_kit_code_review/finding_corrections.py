@@ -91,6 +91,7 @@ def begin(session: ReviewSession, raw: bytes) -> tuple[Path, str, str]:
     attempt = str(session.payload.get("findings_attempt_id") or "")
     if not _ID.fullmatch(attempt):
         raise _error("correction_session_format", "missing or invalid findings attempt identity")
+    validate_attempt(session)
     root = session.path / "finding-corrections" / attempt
     original_path = root / "original.json"
     submitted = digest(raw)
@@ -131,6 +132,17 @@ def validate_attempt(session: ReviewSession) -> None:
     attempt = str(session.payload.get("findings_attempt_id") or "")
     if not _ID.fullmatch(attempt):
         raise _error("correction_session_format", "missing or invalid findings attempt identity")
+    if session.payload.get("correction_original_sha256"):
+        return
+    root = session.path / "finding-corrections" / attempt
+    try:
+        if root.parent.is_symlink() or root.is_symlink() or root.exists():
+            raise OSError(
+                "correction evidence for the current attempt is present without a persisted binding; "
+                "reopen the review before retrying"
+            )
+    except OSError as error:
+        raise _error("correction_evidence_tampered", str(error), environment=True) from error
 
 def prepare(session: ReviewSession, raw: bytes, document: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
     root, original_digest, submitted = begin(session, raw)

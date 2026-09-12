@@ -5,8 +5,9 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from spec_kit_code_review.errors import AppError
+from spec_kit_code_review.errors import EXIT_ENVIRONMENT, AppError
 from spec_kit_code_review.finding_corrections import digest, finish, parse_bytes, prepare, verify_history
+from spec_kit_code_review.finding_corrections import validate_attempt
 from spec_kit_code_review.session import ReviewSession, load_session
 
 
@@ -197,3 +198,19 @@ class CorrectionTests(unittest.TestCase):
             with self.assertRaises(AppError) as caught:
                 prepare(session, json.dumps(second).encode(), second)
             self.assertEqual(caught.exception.diagnostics[0].code, "correction_evidence_tampered")
+
+    def test_unbound_current_attempt_evidence_blocks_every_submission(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            session = self._session(root)
+            attempt = root / "finding-corrections" / "attempt-1"
+            attempt.mkdir(parents=True)
+            original = attempt / "original.json"
+            original.write_bytes(b'{"findings":[]}')
+
+            with self.assertRaises(AppError) as caught:
+                validate_attempt(session)
+
+            self.assertEqual(caught.exception.code, EXIT_ENVIRONMENT)
+            self.assertEqual(caught.exception.diagnostics[0].code, "correction_evidence_tampered")
+            self.assertEqual(original.read_bytes(), b'{"findings":[]}')

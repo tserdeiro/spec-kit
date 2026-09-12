@@ -787,6 +787,36 @@ class NormalizationThroughTheCommandTests(PhaseTwoCase):
         self.assertEqual(payload["diagnostics"][0]["code"], "evidence_unwritable")
         self.assertEqual(self.session_payload()["phase"], "open")
 
+    def test_unbound_correction_evidence_blocks_empty_and_valid_publish_retries(self) -> None:
+        from unittest import mock
+
+        self.write_findings(entry(category="vibes"))
+        original = self.findings_path.read_bytes()
+        with mock.patch("spec_kit_code_review.session.os.replace", side_effect=OSError("session write failed")):
+            code, payload = self.close()
+        self.assertEqual(code, EXIT_ENVIRONMENT)
+        self.assertEqual(payload["diagnostics"][0]["code"], "evidence_unwritable")
+        attempt = self.session_payload()["findings_attempt_id"]
+        snapshot = Path(self.session) / "finding-corrections" / attempt / "original.json"
+        self.assertEqual(snapshot.read_bytes(), original)
+
+        with mock.patch("spec_kit_code_review.cli.execute_publication") as publish:
+            self.write_findings()
+            code, payload = self.close("--publish")
+        self.assertEqual(code, EXIT_ENVIRONMENT)
+        self.assertEqual(payload["diagnostics"][0]["code"], "correction_evidence_tampered")
+        self.assertEqual(self.session_payload()["phase"], "open")
+        publish.assert_not_called()
+
+        with mock.patch("spec_kit_code_review.cli.execute_publication") as publish:
+            self.write_findings(entry(category="security"))
+            code, payload = self.close("--publish")
+        self.assertEqual(code, EXIT_ENVIRONMENT)
+        self.assertEqual(payload["diagnostics"][0]["code"], "correction_evidence_tampered")
+        self.assertEqual(self.session_payload()["phase"], "open")
+        self.assertEqual(snapshot.read_bytes(), original)
+        publish.assert_not_called()
+
     def test_a_hallucinated_path_is_discarded_and_recorded(self) -> None:
         self.write_findings(entry(), entry(path="src/never_existed.py", title="Invented"))
 
