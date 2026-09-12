@@ -222,7 +222,7 @@ Evidence from this run is reported in the feature PR after analysis/synchronizat
 
 | Gate | Evidence | Status |
 | --- | --- | --- |
-| Clean Spec Kit analysis | Final read-only report and coverage in the feature PR | Pending final analyze |
+| Clean Spec Kit analysis | Final read-only report and coverage in the feature PR | See final PR evidence |
 | Technical approval of plan and tasks | Human review of this concrete candidate | Pending |
-| Reviewed Linear dry-run and synchronization | Authorized preview/apply and post-apply readback, reported in PR | Pending execution |
+| Reviewed Linear dry-run and synchronization | Authorized preview/apply and post-apply readback, reported in PR | See final PR evidence |
 | Every executable task individually assignable and assigned | One Issue per permanent task ID; verify native assignees | Pending assignment |
