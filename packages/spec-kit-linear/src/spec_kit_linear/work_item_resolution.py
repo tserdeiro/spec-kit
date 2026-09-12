@@ -323,7 +323,7 @@ def resolve_work_item(
             results.append(_result(item, item["status"], diagnostics=item["diagnostics"]))
             continue
         if str(item["branch"]) in conflicting_branches:
-            results.append(_result(item, "conflict", diagnostics=[OBSERVATION_CONFLICT]))
+            results.append(_result(item, "conflict", diagnostics=item["diagnostics"] or [OBSERVATION_CONFLICT]))
             continue
         context = native.get(str(item["branch"]))
         if context is None and len(item["keys"]) == 1:

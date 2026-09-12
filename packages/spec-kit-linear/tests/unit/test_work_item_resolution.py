@@ -262,6 +262,7 @@ class WorkItemResolutionTests(unittest.TestCase):
             }
         )
         self.assertEqual([item["status"] for item in result["observations"]], ["conflict", "conflict"])
+        self.assertEqual(result["observations"][1]["diagnostics"][0]["message"], "branch and Tracker evidence disagree within one pull request")
 
     def test_same_head_wrong_team_tracker_conflicts_for_every_observation(self) -> None:
         self.client.issue = context("WOR-12", branch="old-title")
@@ -272,6 +273,7 @@ class WorkItemResolutionTests(unittest.TestCase):
             }
         )
         self.assertEqual([item["status"] for item in result["observations"]], ["conflict", "conflict"])
+        self.assertEqual(result["observations"][1]["diagnostics"][0]["code"], "work_item_wrong_team")
 
     def test_batch_fields_are_arrays(self) -> None:
         for payload in ({"branch_names": "WOR-1"}, {"pull_requests": {"head_branch": "WOR-1"}}):
