@@ -591,6 +591,7 @@ class ProtectedPathThroughTheCommandTests(RunCommandCase):
         self.repository.write(".specify/feature.json", json.dumps({"feature": "004-x"}))
         self.repository.git("add", ".specify/feature.json")
         self.repository.git("commit", "-m", "select the protected feature")
+        self.repository.commit("specs/004-x/plan.md", "# Plan\nReview the protected contract.\n", "seed feature plan")
         feature_base = self.repository.commit("specs/004-x/spec.md", "Initial spec.\n", "seed the protected path")
         head = self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\n", "touch the spec")
 
