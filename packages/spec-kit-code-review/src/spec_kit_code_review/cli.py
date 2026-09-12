@@ -35,6 +35,7 @@ from .config import (
     RULE_RELATIVE_PATH,
     load_config,
 )
+from .commit_policy import is_valid_commit_subject
 from .doctor import DoctorOptions, external_tool_pin as _external_tool_pin, run_doctor
 from .engine import DEFAULT_OCR_TAG, ocr_install_hint, resolve_engine
 from .env_files import ENV_PREFIX, REPO_ENV_FILENAME, EnvSnapshot, assert_repo_env_not_tracked, load_env_files
@@ -2124,7 +2125,6 @@ def _authenticated_user(context: CommandContext, diagnostics: list[Diagnostic]) 
 # -- pre_tool_use guard (plan D5): the four hard rules, nothing else --------
 
 # The same pattern `.github/workflows/conventions.yml` enforces server-side.
-_COMMIT_SUBJECT_RE = re.compile(r"^[a-z]+\([a-z0-9-]+\): .+$")
 # `--force`/`--force-with-lease[=...]`/`--force-if-includes`, or `--mirror` --
 # which pushes and so forces every ref under `refs/` (git-push(1)).
 _FORCE_LONG_RE = re.compile(r"^--(?:force(?:-with-lease|-if-includes)?(?:=.*)?|mirror)$")
@@ -2476,7 +2476,7 @@ def _bash_violation(command: str, root: Path) -> str | None:
                 subject = _commit_subject(step, command, root)
                 if subject is None:
                     continue
-                if not _COMMIT_SUBJECT_RE.match(subject):
+                if not is_valid_commit_subject(subject):
                     return f"blocked commit: subject `{subject}` does not match type(scope): subject; use type(scope): subject"
             elif index < len(step) and step[index] == "push" and _push_is_force(step, index):
                 return "blocked push: a force push is never allowed; push without --force"
