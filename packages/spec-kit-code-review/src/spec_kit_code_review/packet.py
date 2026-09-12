@@ -31,7 +31,7 @@ import secrets
 import shlex
 import json
 from dataclasses import dataclass, field, replace
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from . import __version__
 from .errors import EXIT_ENGINE, AppError, Diagnostic
@@ -438,6 +438,7 @@ def assemble(
     suffix: str | None = None,
     generated_at: str = "",
     advisory: bool = False,
+    working_sources: Sequence[Mapping[str, Any]] = (),
 ) -> Packet:
     """Assemble the packet in the documented section order.
 
@@ -513,6 +514,7 @@ def assemble(
             _section_instructions(advisory=advisory),
         ]
         inventory = _context_inventory(review_scope, context_selection, sdd, block_truncations, candidate=candidate,
+                                       working_sources=working_sources,
                                        per_source=source_limit, total=max_total_bytes, advisory=advisory,
                                        intent_body=redact_text(metadata["title"] + "\n" + metadata["body"]) if pull_request else "",
                                        intent_version=metadata_digest, intent_selected=include_pr_body,
@@ -667,6 +669,7 @@ def _normalize(text: str, *, suffix: str) -> str:
 
 def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any | None,
                        truncations: Sequence[Truncation] = (), candidate: Any | None = None,
+                       working_sources: Sequence[Mapping[str, Any]] = (),
                        per_source: int = DEFAULT_MAX_BYTES_PER_ARTIFACT, total: int = DEFAULT_MAX_TOTAL_BYTES,
                        advisory: bool = False, intent_body: str = "", intent_version: str = "",
                        intent_selected: bool = True, intent_command: str = "") -> dict[str, Any]:
@@ -678,6 +681,9 @@ def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any
             if artifact.present:
                 sources.append({"path": artifact.path, "sha256": artifact.sha256,
                                 "version": "working-tree" if advisory else getattr(candidate, "head_commit", None)})
+    if advisory:
+        known = {item["path"] for item in sources}
+        sources.extend(dict(item) for item in working_sources if item.get("path") not in known)
     if intent_body and not advisory:
         sources.append({"path": "<pull-request-intent>", "sha256": hashlib.sha256(intent_body.encode("utf-8")).hexdigest(),
                         "version": intent_version})
@@ -1426,27 +1432,52 @@ def _section_instructions(*, advisory: bool = False) -> str:
             '      "rule_source": "repo|repo-candidate|system|packet|sdd",',
             '      "sdd_reference": "specs/003-x/spec.md#FR-014"',
             "    }",
-            "  ],",
-            '  "coverage": {',
-            '    "candidate_id": "<candidate_id>",',
-            '    "packet_sha256": "<packet_sha256>",',
-            '    "inventory_sha256": "<inventory_sha256>",',
-            '    "reads": [{"path": "specs/003-x/spec.md", "version": "<head_commit>", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]',
-            "  }",
+            "  ]," if not advisory else "  ]",
+            *( [
+                '  "coverage": {',
+                '    "candidate_id": "<candidate_id>",',
+                '    "packet_sha256": "<packet_sha256>",',
+                '    "inventory_sha256": "<inventory_sha256>",',
+                '    "reads": [{"path": "specs/003-x/spec.md", "version": "<head_commit>", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]',
+                "  }",
+            ] if not advisory else []),
             "}",
             "```",
             "",
-            "For PR closure, inspect context-inventory.json beside this packet and report every required range read.",
-            "Selected text or a retrieval command earns no credit. Hash the exact source UTF-8 bytes, preserving line ends;",
-            "give a scope-linked assessment. Receipts are reviewer-reported and source-validated, not proof of understanding.",
-            "Use each inventoried source version and its frozen retrieval action, including the PR-intent snapshot.",
-            "Additional reads may close only the matching uncovered ranges; unrelated receipts do not close other gaps.",
-            "If an inconclusive review has already closed, reopen the candidate before submitting new reading receipts.",
+            *([
+                "For this advisory review, create `coverage.json` beside this packet with the host's file tools. It is a host-reported record, not a CLI-validated or publishable verdict:",
+                "",
+                "```json",
+                "{",
+                '  "mode": "advisory",',
+                '  "packet_sha256": "<packet_sha256>",',
+                '  "inventory_sha256": "<inventory_sha256>",',
+                '  "sources": [{"path": "src/module.py", "version": "working-tree", "kind": "code", "status": "present", "available": true, "sha256": "<source-sha256>"}, {"path": "src/deleted.py", "version": "working-tree", "kind": "code", "status": "deleted", "available": true, "sha256": null}],',
+                '  "reads": [{"path": "specs/003-example/spec.md", "version": "working-tree", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]',
+                "}",
+                "```",
+                "",
+                "Copy source entries and required ranges from context-inventory.json. Read each exact inclusive UTF-8 line range with a host file tool, preserving line endings; hash those bytes and add a scope-linked assessment. A path, selected excerpt, or retrieval command alone earns no credit.",
+                "Before reporting the advisory result, compare every current source hash with the packet inventory and compare the complete set of reviewed paths as well. A tracked deletion remains valid while the path stays absent; an unavailable or symlinked path is an explicit coverage gap. If any source differs or is added or removed, discard this record and create a fresh advisory packet; do not report findings as covered from stale reads.",
+                "Recompute the path set as the union of `git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only --end-of-options HEAD` and `git ls-files --others --exclude-standard -z`; the first covers staged and unstaged tracked changes and the second adds untracked paths.",
+                "This `coverage.json` is advisory evidence only. Do not reuse it as coverage for a pull-request review, which requires a fresh packet and its session `findings.json` envelope.",
+            ] if advisory else [
+                "For PR closure, inspect context-inventory.json beside this packet and report every required range read.",
+                "Selected text or a retrieval command earns no credit. Hash the exact source UTF-8 bytes, preserving line ends;",
+                "give a scope-linked assessment. Receipts are reviewer-reported and source-validated, not proof of understanding.",
+                "Use each inventoried source version and its frozen retrieval action, including the PR-intent snapshot.",
+                "Additional reads may close only the matching uncovered ranges; unrelated receipts do not close other gaps.",
+                "If an inconclusive review has already closed, reopen the candidate before submitting new reading receipts.",
+            ]),
             "",
             "### 7.5 Anchoring",
             "",
-            "Every finding cites a path and a line range **of the head commit**. A finding about a deleted line uses",
-            '`"side": "LEFT"` and will be reported in the summary rather than anchored inline.',
+            (
+                "Every finding cites a path and a line range **of the working tree**."
+                if advisory
+                else "Every finding cites a path and a line range **of the head commit**. A finding about a deleted line uses"
+            ),
+            *([] if advisory else ['`"side": "LEFT"` and will be reported in the summary rather than anchored inline.']),
             "",
             "### 7.6 Untrusted content",
             "",

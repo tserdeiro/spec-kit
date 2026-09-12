@@ -106,13 +106,13 @@ regression fixtures so the existing review workflow remains executable.
 **Goal**: Use the same scope selection in advisory review with honest host-reported evidence.
 **Independent evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_working_tree.py -q` plus command-guidance review -> working-source hashes and inventory are available without a session or publishable verdict.
 
-- [ ] T007 [US2] Document and expose advisory reading evidence in packages/spec-kit-code-review/commands/code-review.md
+- [x] T007 [US2] Document and expose advisory reading evidence in packages/spec-kit-code-review/commands/code-review.md
   - **Traces**: FR-001, FR-004, FR-006, SC-002, SC-004; outcome: PR and advisory workflows tell reviewers how to inspect missing content and record exact reads; advisory results remain explicitly host-reported.
   - **Depends on**: T006
   - **Boundaries**: Change `commands/code-review.md`, package `README.md`, advisory wiring in `cli.py`/`packet.py`, and `test_working_tree.py` plus advisory golden fixtures. Follow D7: `coverage.json` beside the packet, created through host file tools, source comparison before reporting, fresh packet after source changes, no reuse for PR coverage. Protect native command names, sessionless advisory behavior, and repository files during review.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_working_tree.py packages/spec-kit-code-review/tests/unit/test_golden_packet.py -q` -> captured source hashes, selected ranges, short-path context, and advisory output remain consistent. Review the documented record schema and drift instructions against D7; record this as guidance validation, not live host execution.
   - **Delivery**: single PR (~280 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #133; all four CI checks passed. Independent review https://github.com/tserdeiro/spec-kit/pull/133#issuecomment-5645605186 closed with no findings. Working-tree, packet, findings, and review-golden tests: 135 tests and 30 subtests passed; two source-drift/schema regressions independently passed. Budget 118/400; diff check clean. Final-review corrections compare the HEAD task ledger and capture reviewed code hashes, deletion state, and path membership once before advisory rendering. The four original findings were independently reproduced as resolved; the combined candidate passed 938 tests and 578 subtests plus installed fake-engine conformance. Evidence validates guidance and generated assets, not live host execution.
 
 ## Final phase: Cross-cutting verification
 

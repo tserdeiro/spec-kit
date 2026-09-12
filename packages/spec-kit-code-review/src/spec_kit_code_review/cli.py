@@ -52,7 +52,7 @@ from .errors import (
     Diagnostic,
 )
 from .evidence import ensure_root, harden_directories, repository_id, resolve_evidence_root
-from .git import MINIMUM_GIT_VERSION, Git, open_git
+from .git import MINIMUM_GIT_VERSION, Git, open_git, validate_repository_relative_path
 from .github import open_github, require_github, validate_number, validate_repository
 from .session import (
     FINDINGS_FILENAME,
@@ -1074,7 +1074,8 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
     # is the operator's own, so the candidate/base distinction does not apply.
     reader = WorkingTreeReader(context.root)
     reviewed_paths = [entry.path for entry in preview.entries]
-    feature = resolve_feature(reader, changed_paths=reviewed_paths)
+    advisory_sources = _capture_advisory_sources(context.root, context.git, reviewed_paths)
+    feature = resolve_feature(reader, changed_paths=reviewed_paths, head_ref_name=origin.branch)
     sdd = load_context(
         reader,
         resolution=feature,
@@ -1083,11 +1084,17 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
     )
     diagnostics.extend(sdd.diagnostics)
     diagnostics.extend(_sdd_diagnostics(feature, sdd))
+    base_entries = ()
+    if feature.feature:
+        base_reader = CommitReader(context.git, head)
+        base_text = base_reader.read(f"specs/{feature.feature}/tasks.md")
+        base_entries = parse_tasks(base_text or "")
     advisory_scope = resolve_scope(
         SimpleNamespace(candidate_id="working-tree", merge_base=head, head_commit=head),
         pull_request=SimpleNamespace(head_ref_name=origin.branch),
         sdd=sdd,
         changed_paths=reviewed_paths,
+        base_task_entries=base_entries,
     )
     context_selection = select_context(sdd, advisory_scope)
 
@@ -1116,6 +1123,7 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         include_checklists=bool(config.get("packet", "include_checklists", True)),
         generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         advisory=True,
+        working_sources=advisory_sources,
     )
     diagnostics.extend(packet.warnings)
     for truncation in packet.truncations:
@@ -1139,6 +1147,7 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
             severity="info",
         )
     )
+
     diagnostics.append(
         Diagnostic(
             "advisory",
@@ -1156,8 +1165,52 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         sdd=sdd.as_dict(),
         context_selection=context_selection.as_dict(),
         budget=budget_report.as_dict(),
+        advisory_evidence={
+            "mode": "advisory",
+            "coverage_path": str(directory / "coverage.json"),
+            "packet_sha256": packet.packet_sha256,
+            "inventory_sha256": packet.inventory_sha256,
+            "sources": [dict(item) for item in packet.inventory.get("sources", ())],
+            "reusable_for_pull_request": False,
+        },
         packet={**packet.as_dict(), "path": str(packet_path)},
     )
+
+
+def _capture_advisory_sources(root: Path, git: Git, paths: list[str]) -> tuple[dict[str, Any], ...]:
+    """Capture the reviewed working-tree paths once, before packet rendering."""
+
+    records: list[dict[str, Any]] = []
+    for path in paths:
+        record: dict[str, Any] = {"path": path, "version": "working-tree", "kind": "code"}
+        try:
+            validate_repository_relative_path(path)
+            target = root / path
+            path_object = Path(path)
+            resolved = target.resolve()
+            root_resolved = root.resolve()
+            if (
+                path_object.is_absolute()
+                or ".." in path_object.parts
+                or not resolved.is_relative_to(root_resolved)
+                or target.is_symlink()
+            ):
+                raise OSError("working-tree source is unavailable")
+            if not target.exists() and not target.is_symlink():
+                existed_at_head = git.run("cat-file", "-e", f"HEAD:{path}").ok
+                if existed_at_head:
+                    record.update(sha256=None, available=True, status="deleted")
+                else:
+                    record.update(sha256=None, available=False, status="unavailable")
+                records.append(record)
+                continue
+            if not target.is_file():
+                raise OSError("working-tree source is unavailable")
+            record.update(sha256=hashlib.sha256(target.read_bytes()).hexdigest(), available=True, status="present")
+        except (AppError, OSError, ValueError):
+            record.update(sha256=None, available=False, status="unavailable")
+        records.append(record)
+    return tuple(records)
 
 
 def _point_at_latest(directory: Path) -> None:
