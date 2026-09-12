@@ -335,16 +335,17 @@ def resolve_feature(
     declared = None if short_path else _feature_from_feature_json(reader)
     declared_feature = _normalize_feature(reader, declared) if declared else None
     touched = _features_touched(changed_paths)
-    identities = tuple(dict.fromkeys(item for item in (branch_feature, declared_feature, *touched) if item))
+    referenced = _feature_from_pr_body(pr_body)
+    pr_feature = _normalize_feature(reader, referenced) if referenced else None
+    identities = tuple(dict.fromkeys(item for item in (branch_feature, declared_feature, *touched, pr_feature) if item))
+    if len(identities) > 1:
+        source = SOURCE_BRANCH if branch_feature is not None else SOURCE_DIFF
+        return _ambiguous_feature(source, identities, diagnostics)
     if branch_feature is not None:
-        if len(identities) > 1:
-            return _ambiguous_feature(SOURCE_BRANCH, identities, diagnostics)
         return FeatureResolution(feature=branch_feature, source=SOURCE_BRANCH, diagnostics=tuple(diagnostics))
     if declared is not None:
         if declared_feature is not None and (not touched or set(touched) == {declared_feature}):
             return FeatureResolution(feature=declared_feature, source=SOURCE_FEATURE_JSON, diagnostics=tuple(diagnostics))
-        if declared_feature is not None and touched:
-            return _ambiguous_feature(SOURCE_DIFF, tuple(dict.fromkeys((*touched, declared_feature))), diagnostics)
         diagnostics.append(
             Diagnostic(
                 "sdd_feature_json_stale",
@@ -368,11 +369,8 @@ def resolve_feature(
             source=SOURCE_DIFF, candidates=touched, ambiguous=True, diagnostics=tuple(diagnostics)
         )
 
-    referenced = _feature_from_pr_body(pr_body)
-    if referenced is not None:
-        feature = _normalize_feature(reader, referenced)
-        if feature is not None:
-            return FeatureResolution(feature=feature, source=SOURCE_PR_BODY, diagnostics=tuple(diagnostics))
+    if pr_feature is not None and not short_path:
+        return FeatureResolution(feature=pr_feature, source=SOURCE_PR_BODY, diagnostics=tuple(diagnostics))
 
     bugs = _bugs_touched(changed_paths)
     if len(bugs) == 1:
@@ -443,7 +441,7 @@ def _feature_from_head_ref(reader: Reader, branch: str | None) -> str | None:
 
 
 def _ambiguous_feature(source: str, candidates: tuple[str, ...], diagnostics: list[Diagnostic]) -> FeatureResolution:
-    diagnostics.append(Diagnostic("sdd_context_ambiguous", f"candidate feature evidence conflicts ({', '.join(candidates)})", severity="warning"))
+    diagnostics.append(Diagnostic("sdd_context_ambiguous", f"candidate feature evidence conflicts ({', '.join(candidates)}); name one with --feature", severity="warning"))
     return FeatureResolution(source=source, candidates=candidates, ambiguous=True, diagnostics=tuple(diagnostics))
 
 

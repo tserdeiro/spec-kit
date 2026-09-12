@@ -51,13 +51,13 @@ regression fixtures so the existing review workflow remains executable.
 **Goal**: Identify all affected work before selecting excerpts.
 **Independent evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_review_context.py packages/spec-kit-code-review/tests/unit/test_candidate.py -q` -> single/multiple task, full-feature, explicit-ref, and ledger-free scope follow plan D2; conflicts remain explicit.
 
-- [ ] T002 [US2] Resolve candidate scope in packages/spec-kit-code-review/src/spec_kit_code_review/review_context.py
+- [x] T002 [US2] Resolve candidate scope in packages/spec-kit-code-review/src/spec_kit_code_review/review_context.py
   - **Traces**: FR-001, FR-003, FR-004, FR-007, SC-002; outcome: the packet identifies task, multi-task, feature, or short-path scope with supporting evidence and unresolved associations.
   - **Depends on**: T001
   - **Boundaries**: Add `review_context.py` and `tests/unit/test_review_context.py`; update `github.py`, `cli.py`, context output in `packet.py`, and affected `test_candidate.py`/`test_phase_two.py`/`tests/support/fake_gh.py` fixtures. Preserve candidate identity and feature selection state. Add the existing `headRefName` read and follow D2's decision table; carry unresolved scope into inconclusive causes immediately.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_review_context.py packages/spec-kit-code-review/tests/unit/test_candidate.py packages/spec-kit-code-review/tests/unit/test_phase_two.py -q` -> task identity cannot hide other changes; full-feature and explicit-ref reviews widen appropriately; unrelated active features do not impose a ledger on bugs/chores.
   - **Delivery**: single PR (~340 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #128; T002 suite: 93 tests and 37 subtests passed; final resolver/SDD: 35 tests and 5 subtests passed; affected golden checks passed; diff check clean. Independent review https://github.com/tserdeiro/spec-kit/pull/128#issuecomment-5642706671 found omitted contradictory PR intent; corrected with regression coverage and orchestrator review. CI is recorded in the PR.
 
 ## Phase 3: User Story 1 - Select sufficient bounded context (P1)
 

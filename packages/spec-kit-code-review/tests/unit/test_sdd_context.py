@@ -66,19 +66,18 @@ class SddCase(unittest.TestCase):
 
 
 class DiscoveryOrderTests(SddCase):
-    def test_branch_identity_cannot_hide_a_different_touched_feature(self) -> None:
+    def test_conflicting_candidate_evidence_is_ambiguous(self) -> None:
         self.repository.write("specs/002-other/spec.md", "# Other\n")
         self.repository.git("add", "--all")
         self.repository.git("commit", "-m", "touch another feature")
-        head = self.repository.head()
-        resolution = resolve_feature(
-            CommitReader(self.git, head),
-            changed_paths=["specs/002-other/spec.md"],
-            head_ref_name="001-review-skeleton",
-        )
-
-        self.assertTrue(resolution.ambiguous)
-        self.assertEqual(set(resolution.candidates), {"001-review-skeleton", "002-other"})
+        for changed_paths, pr_body in ((["specs/002-other/spec.md"], None), ([], "Spec Kit evidence: specs/002-other/tasks.md")):
+            with self.subTest(pr_body=pr_body):
+                resolution = resolve_feature(
+                    CommitReader(self.git, self.repository.head()), changed_paths=changed_paths,
+                    head_ref_name="001-review-skeleton", pr_body=pr_body,
+                )
+                self.assertTrue(resolution.ambiguous)
+                self.assertEqual(set(resolution.candidates), {"001-review-skeleton", "002-other"})
 
     def test_issue_key_branch_does_not_inherit_active_feature(self) -> None:
         resolution = resolve_feature(
