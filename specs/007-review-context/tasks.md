@@ -116,13 +116,13 @@ regression fixtures so the existing review workflow remains executable.
 
 ## Final phase: Cross-cutting verification
 
-- [ ] T008 Prove installed context coverage in packages/spec-kit-code-review/scripts/conformance/review.sh
+- [x] T008 Prove installed context coverage in packages/spec-kit-code-review/scripts/conformance/review.sh
   - **Traces**: FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007, FR-008, SC-001, SC-002, SC-003, SC-004; outcome: an isolated consumer exercises sufficient late-task, shared multi-task, full-feature, and ledger-free context with verifiable closure behavior.
   - **Depends on**: T007
   - **Boundaries**: Change `scripts/conformance/review.sh`, affected consumer fixtures, shared fixture builders in `tests/conftest.py`/`tests/support/fake_gh.py`, and package README validation notes. Use temporary repositories and fake tools; installed payload must run independently of this checkout. Preserve release pins and all human remote actions.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit -q` and `bash packages/spec-kit-code-review/scripts/conformance/review.sh` and `git diff --check` -> unit regressions and installed-consumer scenarios pass. Assert valid additional reads, failed/reference-only reads, bounded UTF-8 packet size, unchanged operator checkout, and correct final causes. Label fake-tool evidence separately from entry 23 live acceptance.
   - **Delivery**: single PR (~300 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #134; all four CI checks passed. Independent review https://github.com/tserdeiro/spec-kit/pull/134#issuecomment-5645727507 closed with no findings and independently ran installed conformance. Full package suite: 908 tests and 428 subtests passed. Installed fake-tool conformance passed for late-task, multi-task, full-feature, short-path, partial/reference-only/invalid/full receipts, UTF-8 limits, and per-review checkout invariants. Budget 309/400; diff check clean. This is installed fake-tool evidence, not entry 23 live-host acceptance.
 
 ## Dependencies and stack order
 
