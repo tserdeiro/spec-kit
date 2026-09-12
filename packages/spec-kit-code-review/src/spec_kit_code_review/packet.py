@@ -395,6 +395,7 @@ def assemble(
     rules: Any,
     rule_assignments: Sequence[Any] = (),
     sdd: Any | None = None,
+    review_scope: Any | None = None,
     budget: Any | None = None,
     max_bytes_per_artifact: int = DEFAULT_MAX_BYTES_PER_ARTIFACT,
     max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
@@ -456,6 +457,7 @@ def assemble(
             ),
             _section_sdd(
                 sdd,
+                review_scope=review_scope,
                 candidate=candidate,
                 advisory=advisory,
                 suffix=session_suffix,
@@ -844,6 +846,7 @@ def _section_rules(
 def _section_sdd(
     sdd: Any | None,
     *,
+    review_scope: Any | None = None,
     candidate: Any,
     advisory: bool = False,
     suffix: str,
@@ -864,6 +867,18 @@ def _section_sdd(
         f"Read from {source}.",
         "",
     ]
+    if review_scope is not None:
+        scope = review_scope.as_dict() if hasattr(review_scope, "as_dict") else dict(review_scope)
+        lines.extend(
+            [
+                f"- review scope: {scope.get('kind', 'unknown')}",
+                f"- scope tasks: {', '.join(scope.get('task_ids') or ()) or '(none)'}",
+                f"- scope evidence: {len(scope.get('evidence') or {})} recorded signal(s)",
+            ]
+        )
+        for gap in scope.get("gaps") or ():
+            detail = gap.get("detail", gap) if isinstance(gap, dict) else str(gap)
+            lines.append(f"- unresolved scope: {_one_line(visible(detail))}")
     if sdd is None:
         return "\n".join(lines + ["_No SDD context was loaded._"])
 

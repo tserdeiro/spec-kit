@@ -550,6 +550,7 @@ class ProtectedPathThroughTheCommandTests(RunCommandCase):
                         base_branch=base_branch,
                         base_commit=base_commit,
                         head_commit=head_commit,
+                        head_ref_name="004-feature",
                     )
                 },
             },
@@ -562,6 +563,9 @@ class ProtectedPathThroughTheCommandTests(RunCommandCase):
         return self.invoke_json("review", "--findings", str(findings_path), "--session", session)
 
     def test_a_protected_path_on_a_task_base_reaches_changes_requested(self) -> None:
+        self.repository.write(".specify/feature.json", json.dumps({"feature": "004-x"}))
+        self.repository.git("add", ".specify/feature.json")
+        self.repository.git("commit", "-m", "select the protected feature")
         feature_base = self.repository.commit("specs/004-x/spec.md", "Initial spec.\n", "seed the protected path")
         head = self.repository.commit("specs/004-x/spec.md", "Initial spec.\nMore.\n", "touch the spec")
 
