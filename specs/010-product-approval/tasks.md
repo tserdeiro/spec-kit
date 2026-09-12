@@ -38,13 +38,13 @@ scenario proves the new command precedence; live evidence follows in T006.
 **Independent evidence**: Existing/open/closed PR and interrupted publication cases
 record the exact Git/GitHub/Linear operations and remaining prerequisites.
 
-- [ ] T002 [US2] Complete repeatable feature publication and handoff in presets/default/commands/pr.md
+- [x] T002 [US2] Complete repeatable feature publication and handoff in presets/default/commands/pr.md
   - **Traces**: FR-002, FR-003, FR-004, FR-005, FR-007, FR-008, FR-009, C-002, C-003, SC-002, SC-003, SC-004; outcome: unchanged or interrupted closure reuses the feature PR and preserves honest readiness.
   - **Depends on**: T001
   - **Boundaries**: Refine `presets/default/commands/{pr,phase-close-append,tasks}.md` and `presets/default/tests/test_product_commands.py` for plan D2/D5. Observe existing head and PR before mutation, distinguish lookup failure from absence, skip unchanged commit/push/body updates, reuse only OPEN gates, and read back ambiguous writes before retry. Use the canonical body and body-file input. Require renewed approval for material changes, preserve normal task progress and stable IDs, and read the existing Linear preview/apply/status for synchronization and assignment. Keep Linear's assignment allowlist unchanged and technical approval distinct from publication permission.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest presets/default/tests/test_product_commands.py -q` -> command contract covers fresh approval, edits after approval, two unchanged retries, lost push/PR responses, closed gate, failed lookup, incomplete Linear and unassigned tasks; unchanged close requests zero duplicate writes. T006 demonstrates execution through an actual agent.
   - **Delivery**: single PR (~240 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: Implementation 8b616f8. Product command tests: 8 passed; full preset suite: 79 passed; installed bundle conformance passed with synthetic providers. Budget: 71/400 authored executable lines; diff check clean. Actual-agent acceptance follows in T006; PR candidate review and CI gate readiness.
 
 ## Phase 3: User Story 3 - Start from a coherent published gate (P1)
 
