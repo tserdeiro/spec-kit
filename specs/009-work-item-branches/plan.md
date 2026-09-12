@@ -9,7 +9,9 @@ Centralize native Issue reads and branch resolution in Linear. The preset calls
 an installed internal JSON bridge to start or adopt work. Review consumes the
 canonical PR linkage and exact feature/task conventions without requiring Linear.
 One behavioral matrix enforces the contract across independent packages. T002
-delivers explicit Issue lookup; T009 adds observation batches before T003.
+delivers explicit Issue lookup; T009 adds observation batches before T003. T001
+owns all native client reads and their transport tests; T009 owns observation
+resolution. This keeps the existing task identities, order, and review limits.
 Research, data contracts, and validation remain here, following the resolved template.
 
 ## Technical context
