@@ -93,13 +93,13 @@ regression fixtures so the existing review workflow remains executable.
   - **Delivery**: single PR (~390 authored lines)
   - **Completion evidence**: PR #131; all four CI checks passed. Independent review https://github.com/tserdeiro/spec-kit/pull/131#issuecomment-5645387535 found inventory hashing before path redaction; corrected and orchestrator-reviewed. Regression: real temporary HOME with spaces opens, retrieves frozen intent, and closes; 4 snapshot tests passed. Final goldens: 19 tests and 7 subtests passed; packet/containment: 62 tests and 30 subtests passed; diff check clean. Human authorized the T005 budget exception on 2026-09-12 (496/400 before the required review fix).
 
-- [ ] T006 [US3] Report only unresolved coverage causes in packages/spec-kit-code-review/src/spec_kit_code_review/cli.py
+- [x] T006 [US3] Report only unresolved coverage causes in packages/spec-kit-code-review/src/spec_kit_code_review/cli.py
   - **Traces**: FR-007, FR-008, SC-003, SC-004; outcome: reviewed selected/additional context can close, while missing necessary context remains inconclusive with actionable causes in JSON and human/publication summaries.
   - **Depends on**: T005
   - **Boundaries**: Change `cli.py`, `coverage.py`, packet instructions in `packet.py`, and `test_phase_two.py`/`test_golden_review.py` with their golden evidence. Follow D6; preserve all engine and non-SDD causes, blocking findings, publication authority, and close/reopen lifecycle. Update affected shared fixtures as part of this task.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_phase_two.py packages/spec-kit-code-review/tests/unit/test_golden_review.py -q` -> valid late-task coverage is conclusive, additional reads resolve only matching gaps, and unrelated exclusions do not suppress engine failures or blocking findings.
   - **Delivery**: single PR (~280 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #132; all four CI checks passed. Independent review https://github.com/tserdeiro/spec-kit/pull/132#issuecomment-5645549405 closed with no findings. Focused tests: 77 tests and 28 subtests passed; 4 frozen-intent regressions passed independently. Budget 224/400; diff check clean.
 
 ## Phase 5: User Story 2 - Preserve advisory and short-path workflows (P1)
 
