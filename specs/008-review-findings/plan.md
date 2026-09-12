@@ -272,5 +272,5 @@ packages/spec-kit-code-review/
 | --- | --- | --- |
 | Clean Spec Kit analysis | Artifact review: 7 FR + 4 SC covered by 4 tasks; zero unresolved inconsistencies. Final read-only pass verifies these counts. | complete |
 | Technical approval of plan and tasks | Human authorized commits and implementation on 2026-09-12 | complete |
-| Reviewed Linear dry-run and synchronization | Plan preview: one Project; task preview: one Project + four Issues. Review and authorized synchronization remain pending. | pending |
+| Reviewed Linear dry-run and synchronization | Authorized apply created Project 3462316f-eb71-42b1-b89c-77fc397699ab and TDS-94–TDS-97; read-only status confirmed no drift on 2026-09-12. | complete |
 | Every executable task individually assignable and assigned | Human assigned all four tasks to fresh Luna agents, supervised by the orchestrator, on 2026-09-12 | complete |
