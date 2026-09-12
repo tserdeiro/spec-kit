@@ -97,11 +97,66 @@ def test_pr_feature_variant_resolves_before_approval_commit() -> None:
     resolution = pr.split("## 2. Guarantee the branch invariant", 1)[0]
 
     assert re.search(
-        r"whether\s+its artifacts are still local drafts or already published",
+        r"whether\s+its artifacts are local\s+drafts or already published",
         resolution,
     )
     assert "with its artifacts committed" not in resolution
-    assert "Local drafts remain subject to the explicit" in resolution
+    assert "feature PR" in resolution
+
+
+def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None:
+    pr = (COMMANDS / "pr.md").read_text(encoding="utf-8")
+    observation = pr.index("## 3. Observe before every feature mutation")
+    first_commit = pr.index("git commit --only")
+
+    assert observation < first_commit
+    for command in (
+        "git rev-parse HEAD",
+        "git ls-remote --heads origin <branch>",
+        "gh pr view <branch> --json",
+        "gh pr create --draft",
+        "gh pr edit <number>",
+    ):
+        assert command in pr
+    assert "publication lookup failed" in pr
+    assert "confirmed absence" in pr
+    assert "Only `state: OPEN` is reusable" in pr
+    assert "CLOSED` or `MERGED`" in pr
+    assert "--body-file \"$body_file\"" in pr
+    assert "--body \"<the body>\"" not in pr
+    assert pr.index("git commit --only") < pr.index("gh pr create")
+
+
+def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() -> None:
+    pr = (COMMANDS / "pr.md").read_text(encoding="utf-8")
+    phase = (COMMANDS / "phase-close-append.md").read_text(encoding="utf-8")
+
+    for text in (pr, phase):
+        assert re.search(r"explicit\s+human\s+approval", text)
+        assert "material" in text
+        assert "ambiguous" in text
+    assert "Only `state: OPEN` is reusable" in pr
+    assert "reuses only an OPEN" in phase
+    assert "unassigned" in phase
+    for phrase in (
+        "lost push",
+        "lost or ambiguous response",
+        "ambiguous response",
+        "Two unchanged retries",
+        "zero duplicate",
+        "push --current --apply",
+        "status --current",
+        "assignment allowlist remains unchanged",
+        "technical approval",
+    ):
+        assert phrase in pr
+    assert re.search(r"completion\s+checkboxes and completion\s+evidence alone", pr, re.I)
+
+    task_flow = pr.split("## 6. Open task or work-item delivery PRs", 1)[1]
+    assert task_flow.index("1. Observe") < task_flow.index("2. Push") < task_flow.index("3. Observe")
+    assert "Fixes WOR-123" in task_flow
+    assert "N/A" in task_flow
+    assert "(chore)" in task_flow
 
 
 def test_approved_close_commit_only_preserves_pre_staged_unrelated_files(
