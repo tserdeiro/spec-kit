@@ -80,13 +80,13 @@ The independent whole-feature audit on 2026-09-12 identified three remaining
 contract gaps. The human's authorization to complete the flow assigns these
 corrections to supervised Luna agents, followed by independent review.
 
-- [ ] T005 [US2] Reject orphaned correction evidence before every close per FR-004–FR-007 and plan D2/D4 (partial)
+- [x] T005 [US2] Reject orphaned correction evidence before every close per FR-004–FR-007 and plan D2/D4 (partial)
   - **Traces**: FR-004, FR-005, FR-006, FR-007, SC-003, SC-004; outcome: failure to persist the original binding leaves every subsequent submission blocked until reopening.
   - **Depends on**: T004
   - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/finding_corrections.py` and focused `tests/unit/test_phase_two.py` or `test_finding_corrections.py`. Detect incomplete evidence for the current attempt before all close paths, including otherwise valid and empty submissions. Preserve fresh valid submissions, old-attempt isolation, original bytes, and publication guards.
   - **Evidence**: Inject the first session-write failure after original capture, then retry empty and category-valid submissions with `--publish`; both remain open with an evidence diagnostic and zero GitHub writes. Focused correction/session suites and `git diff --check` pass.
   - **Delivery**: single PR (~100 authored lines)
-  - **Completion evidence**: pending
+  - **Completion evidence**: PR #140; 69 focused tests and 51 subtests passed, plus 2 reopen/attempt checks. Budget 60/200; diff check clean. Independent review of 29fd78e found no actionable defects: https://github.com/tserdeiro/spec-kit/pull/140#issuecomment-5647238793. All four implementation-candidate CI checks passed; this final commit records completion only.
 
 - [ ] T006 [US2] Preserve exact JSON numeric values during category-only comparison per FR-005 and plan D3 (partial)
   - **Traces**: FR-005, SC-002, SC-004; outcome: distinct high-precision numeric values outside invalid categories cannot validate as a lossless correction.
