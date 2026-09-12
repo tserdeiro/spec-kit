@@ -72,13 +72,13 @@ regression fixtures so the existing review workflow remains executable.
   - **Delivery**: single PR (~360 authored lines)
   - **Completion evidence**: PR #129; focused/golden suites: 97 tests and 10 subtests passed; persisted-session golden updated and CI passed. Independent review https://github.com/tserdeiro/spec-kit/pull/129#issuecomment-5642878196 found no findings. Human explicitly authorized the 533/400-line exception on 2026-09-12: 368 implementation/test lines plus 165 golden fixture lines.
 
-- [ ] T004 [US1] Bound packet content and freeze its inventory in packages/spec-kit-code-review/src/spec_kit_code_review/packet.py
+- [x] T004 [US1] Bound packet content and freeze its inventory in packages/spec-kit-code-review/src/spec_kit_code_review/packet.py
   - **Traces**: FR-005, FR-006, FR-007, SC-001, SC-003; outcome: effective limits constrain rendered content and every omitted required range remains visible and retrievable.
   - **Depends on**: T003
   - **Boundaries**: Change `packet.py`, `review_context.py`, preflight/evidence wiring in `cli.py`, limit comments in `config/speckit-code-review.template.yml`, and packet/containment/golden tests and fixtures. Reuse session atomic writers. Follow D4: per-source aggregate UTF-8 allowance, total rendered limit, complete external inventory bound by digest, and whole trusted envelope. Preserve default values and upstream assets.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_packet.py packages/spec-kit-code-review/tests/unit/test_packet_containment.py packages/spec-kit-code-review/tests/unit/test_golden_packet.py -q` -> per-source and total limits, non-ASCII text, escaping, exact boundaries, inventory digest, and preflight rejection of an impossible envelope all pass.
   - **Delivery**: single PR (~380 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #130; focused packet/advisory tests: 75 tests and 30 subtests passed; packet goldens: 8 tests and 3 subtests; full golden review: 11 tests and 4 subtests passed. Independent review https://github.com/tserdeiro/spec-kit/pull/130#issuecomment-5643229897 found no findings. CI exposed a nested golden-field assertion, corrected and orchestrator-reviewed; diff check passed.
 
 ## Phase 4: User Story 3 - Distinguish selection from missing evidence (P1)
 

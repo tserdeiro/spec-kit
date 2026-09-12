@@ -268,9 +268,10 @@ class GoldenSessionTests(unittest.TestCase):
         self.assertEqual(recorded["phase"], "open")
         self.assertIn("worktree_path", recorded["environment"])
         self.assertIn("permitted_git_writes", recorded["environment"])
-        for key in ("packet_sha256", "inventory_sha256", "pr_metadata_sha256", "containment_suffix", "config_sha256"):
+        for key in ("packet_sha256", "pr_metadata_sha256", "containment_suffix", "config_sha256"):
             with self.subTest(key=key):
                 self.assertIn(key, recorded)
+        self.assertIn("inventory_sha256", recorded["packet"])
 
 
 _VARIABLE_KEYS = {
