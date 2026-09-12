@@ -169,6 +169,17 @@ class HappyPathTests(PhaseTwoCase):
         self.assertIn("VERDICT: changes-requested", payload["human"])
         self.assertIn(self.session, payload["human"])
 
+    def test_validated_coverage_is_preserved_in_the_session_and_result(self) -> None:
+        _code, payload = self.close()
+
+        self.assertIn("coverage", payload)
+        self.assertIn("coverage", self.session_payload())
+        self.assertEqual(payload["coverage"]["uncovered"], [])
+        self.assertTrue(payload["coverage"]["covered"])
+        self.assertIn("coverage: ", payload["human"])
+        publication = json.loads((Path(self.session) / "publication-plan.json").read_text(encoding="utf-8"))
+        self.assertIn("coverage: ", publication["summary_body"])
+
 
 class CorrespondenceTests(PhaseTwoCase):
     """Everything that means "this is not the review phase 1 opened"."""
@@ -438,6 +449,65 @@ class InconclusiveThroughTheCommandTests(PhaseTwoCase):
         self.assertIn("VERDICT: inconclusive", out)
         self.assertIn("The review did NOT cover its intended scope", out)
         self.assertIn("budget_exceeded", out)
+
+
+class BoundedContextClosureTests(RunCommandCase):
+    """Closure uses real packet omissions and candidate source receipts."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.repository.checkout("feature")
+        plan = "# Plan\n\n" + "\n".join(f"constraint {index}" for index in range(12000)) + "\n"
+        self.repository.write("specs/001-review-skeleton/plan.md", plan)
+        self.repository.git("add", "specs/001-review-skeleton/plan.md")
+        self.repository.git("commit", "-m", "bound the review context")
+        self.head = self.repository.head()
+        self.repository.checkout("main")
+        self._engine_reports("src/feature.py", "specs/001-review-skeleton/plan.md")
+
+    def _open_bounded(self) -> tuple[Path, dict]:
+        code, payload = self._phase_one()
+        self.assertEqual(code, EXIT_SUCCESS, payload)
+        session = Path(payload["session"]["path"])
+        inventory = json.loads((session / "context-inventory.json").read_text(encoding="utf-8"))
+        self.assertTrue(inventory["omitted_required"], inventory)
+        return session, inventory
+
+    def test_full_receipts_clear_real_packet_omissions(self) -> None:
+        session, inventory = self._open_bounded()
+        findings = session / "findings.json"
+        findings.write_text(json.dumps({"findings": [], "coverage": coverage_for_session(self.repository, session)}), encoding="utf-8")
+
+        code, payload = self.invoke_json("review", "--findings", str(findings), "--session", str(session))
+
+        self.assertEqual(code, EXIT_SUCCESS, payload)
+        self.assertEqual(payload["verdict"]["value"], "no-blocking-findings")
+        self.assertEqual(payload["coverage"]["uncovered"], [])
+
+    def test_partial_receipt_keeps_exact_gap_and_other_causes(self) -> None:
+        session, inventory = self._open_bounded()
+        complete = coverage_for_session(self.repository, session)
+        partial = {**complete, "reads": complete["reads"][:1]}
+        session_file = session / "session.json"
+        recorded = json.loads(session_file.read_text(encoding="utf-8"))
+        recorded["engine"]["status"] = "failed"
+        recorded["context_selection"] = {"gaps": [{"code": "reference_missing", "detail": "required reference is absent", "affected": ["T001"]}]}
+        session_file.write_text(json.dumps(recorded), encoding="utf-8")
+        findings = session / "findings.json"
+        findings.write_text(json.dumps({"findings": [], "coverage": partial}), encoding="utf-8")
+
+        code, payload = self.invoke_json("review", "--findings", str(findings), "--session", str(session))
+
+        self.assertEqual(code, 9, payload)
+        self.assertEqual(payload["verdict"]["value"], "inconclusive")
+        causes = json.dumps(payload["verdict"]["causes"])
+        self.assertIn("engine", causes)
+        self.assertIn("reference_missing", causes)
+        expected = {(item["path"], item["start"], item["end"]) for item in inventory["required"]}
+        first = partial["reads"][0]
+        expected.discard((first["path"], first["start_line"], first["end_line"]))
+        actual = {(item["path"], item["start_line"], item["end_line"]) for item in payload["coverage"]["uncovered"]}
+        self.assertEqual(actual, expected)
 
 
 class HumanRenderTests(PhaseTwoCase):

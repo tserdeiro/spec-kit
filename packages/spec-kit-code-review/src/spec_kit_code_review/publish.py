@@ -313,6 +313,7 @@ def summary_body(
     packet_sha256: str,
     suffix: str,
     evidence_path: str | None = None,
+    coverage: Mapping[str, Any] | None = None,
 ) -> str:
     """The summary comment: the verdict, the degraded findings, and the caveats."""
 
@@ -344,6 +345,16 @@ def summary_body(
         )
     for cause in verdict.causes:
         lines.append(f"- not covered ({cause.kind}): {visible(cause.detail)}")
+    if coverage is not None:
+        covered = coverage.get("covered", ())
+        uncovered = coverage.get("uncovered", ())
+        lines.append(f"- coverage: {len(covered)} covered range(s); {len(uncovered)} uncovered range(s)")
+        for item in uncovered:
+            lines.append(
+                f"- uncovered: {visible(str(item.get('path')))}:{item.get('start_line')}-{item.get('end_line')} "
+                f"(version {visible(str(item.get('version')))}; retrieve with "
+                f"{visible(str(item.get('command', 'the recorded source command')))})"
+            )
     for note in verdict.notes:
         lines.extend(["", note])
 
@@ -403,6 +414,7 @@ def build_plan(
     batch_size: int = DEFAULT_BATCH_SIZE,
     max_inline_comments: int = DEFAULT_MAX_INLINE_COMMENTS,
     evidence_path: str | None = None,
+    coverage: Mapping[str, Any] | None = None,
 ) -> PublicationPlan:
     """Render the plan. Nothing here contacts GitHub, by construction."""
 
@@ -456,6 +468,7 @@ def build_plan(
         packet_sha256=packet_sha256,
         suffix=suffix,
         evidence_path=evidence_path,
+        coverage=coverage,
     )
     return PublicationPlan(
         candidate_id=candidate.candidate_id,

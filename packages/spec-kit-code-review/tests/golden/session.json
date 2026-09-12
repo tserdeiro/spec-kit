@@ -32,92 +32,7 @@
   "containment_suffix": "<variable>",
   "context_selection": {
     "excluded": [],
-    "gaps": [
-      {
-        "affected": [
-          "T001"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: traces"
-      },
-      {
-        "affected": [
-          "T001"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: dependencies"
-      },
-      {
-        "affected": [
-          "T001"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: boundaries"
-      },
-      {
-        "affected": [
-          "T001"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: evidence"
-      },
-      {
-        "affected": [
-          "T001"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: delivery"
-      },
-      {
-        "affected": [
-          "T001"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: completion evidence"
-      },
-      {
-        "affected": [
-          "T002"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: traces"
-      },
-      {
-        "affected": [
-          "T002"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: dependencies"
-      },
-      {
-        "affected": [
-          "T002"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: boundaries"
-      },
-      {
-        "affected": [
-          "T002"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: evidence"
-      },
-      {
-        "affected": [
-          "T002"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: delivery"
-      },
-      {
-        "affected": [
-          "T002"
-        ],
-        "code": "task_gap",
-        "detail": "missing field: completion evidence"
-      }
-    ],
+    "gaps": [],
     "required": [
       {
         "end": 3,
@@ -150,9 +65,9 @@
         "start": 1
       },
       {
-        "end": 4,
+        "end": 16,
         "path": "<variable>",
-        "reason": "task ledger shared prose; complete task block T001; complete task block T002",
+        "reason": "task ledger shared prose; direct dependency evidence T001; complete task block T002",
         "start": 1
       }
     ],
@@ -188,9 +103,9 @@
         "start": 1
       },
       {
-        "end": 4,
+        "end": 16,
         "path": "<variable>",
-        "reason": "task ledger shared prose; complete task block T001; complete task block T002",
+        "reason": "task ledger shared prose; direct dependency evidence T001; complete task block T002",
         "start": 1
       }
     ]
@@ -365,58 +280,50 @@
     },
     "task_entries": [
       {
-        "block_text": "- [x] T001 Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)\n",
+        "block_text": "- [x] T001 Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)\n  - **Traces**: FR-001\n  - **Depends on**: none\n  - **Boundaries**: Change the candidate resolver.\n  - **Evidence**: focused tests pass\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n",
         "changed_path_hints": [],
-        "completion_evidence": null,
-        "delivery": null,
+        "completion_evidence": "focused tests pass",
+        "delivery": "single PR",
         "dependencies": [],
         "done": true,
         "forecast": 120,
-        "gaps": [
-          "missing field: traces",
-          "missing field: dependencies",
-          "missing field: boundaries",
-          "missing field: evidence",
-          "missing field: delivery",
-          "missing field: completion evidence"
-        ],
+        "gaps": [],
         "id": "T001",
         "pr_strategy": "single",
         "reached": false,
         "referenced_paths": [],
         "source_range": [
           3,
-          3
+          9
         ],
         "title": "Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)",
-        "traces": []
+        "traces": [
+          "FR-001"
+        ]
       },
       {
-        "block_text": "- [ ] T002 Report prerequisites without any write (forecast: 90 lines, PR strategy: single)\n",
+        "block_text": "- [ ] T002 Report prerequisites without any write (forecast: 90 lines, PR strategy: single)\n  - **Traces**: FR-002\n  - **Depends on**: T001\n  - **Boundaries**: Change prerequisite reporting.\n  - **Evidence**: focused tests pass\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n",
         "changed_path_hints": [],
-        "completion_evidence": null,
-        "delivery": null,
-        "dependencies": [],
+        "completion_evidence": "focused tests pass",
+        "delivery": "single PR",
+        "dependencies": [
+          "T001"
+        ],
         "done": false,
         "forecast": 90,
-        "gaps": [
-          "missing field: traces",
-          "missing field: dependencies",
-          "missing field: boundaries",
-          "missing field: evidence",
-          "missing field: delivery",
-          "missing field: completion evidence"
-        ],
+        "gaps": [],
         "id": "T002",
         "pr_strategy": "single",
         "reached": false,
         "referenced_paths": [],
         "source_range": [
-          4,
-          4
+          10,
+          16
         ],
         "title": "Report prerequisites without any write (forecast: 90 lines, PR strategy: single)",
-        "traces": []
+        "traces": [
+          "FR-002"
+        ]
       }
     ],
     "tasks": {

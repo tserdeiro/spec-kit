@@ -1476,7 +1476,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     )
     coverage_record = {"candidate_id": candidate.candidate_id, "packet_sha256": session.payload["packet_sha256"],
                        "inventory_sha256": recorded_inventory, "findings_sha256": source_digest, **coverage.as_dict()}
-    coverage_causes = [InconclusiveCause(CAUSE_CONTEXT, f"{gap.get('path', 'coverage')}: {gap.get('detail', gap.get('code'))}") for gap in coverage.gaps]
+    coverage_causes = [InconclusiveCause(CAUSE_CONTEXT, _coverage_gap_detail(gap)) for gap in coverage.gaps]
     hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
     diagnostics.extend(hunks.diagnostics)
     # FR-010 / plan D1: a task PR's protected-path change is an automatic blocking finding.
@@ -1498,7 +1498,8 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     )
     diagnostics.extend(normalized.diagnostics)
 
-    causes = [*_inconclusive_causes(session), *coverage_causes]
+    session.payload["coverage"] = coverage_record
+    causes = [*_inconclusive_causes(session, inventory), *coverage_causes]
     review_verdict = derive_verdict(normalized.findings, causes=causes)
 
     prepared = _prepared_from_session(context, session)
@@ -1544,6 +1545,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         batch_size=int(config.get("publish", "batch_size", 25) or 25),
         max_inline_comments=int(config.get("publish", "max_inline_comments", 100) or 100),
         evidence_path=str(session.path),
+        coverage=coverage_record,
     )
     diagnostics.extend(plan.diagnostics)
 
@@ -1590,6 +1592,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         diagnostics=diagnostics,
         session=session.summary(),
         publication_plan=plan.as_dict(),
+        coverage=coverage_record,
     )
     payload["human"] = render_human(
         findings=normalized,
@@ -1597,6 +1600,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         budget=budget,
         evidence_path=str(session.path),
         packet_sha256=str(session.payload.get("packet_sha256") or ""),
+        coverage=coverage_record,
     )
     if args.publish:
         # Publication is always explicit, and always after the review is closed
@@ -1635,21 +1639,34 @@ class _BudgetView:
 ENGINE_STATUS_COMPLETE: tuple[str, ...] = ("success", "completed_with_warnings")
 
 
-def _inconclusive_causes(session: ReviewSession) -> list[InconclusiveCause]:
+def _inconclusive_causes(session: ReviewSession, inventory: Mapping[str, Any]) -> list[InconclusiveCause]:
     """Everything the first phase recorded that means "the scope was not covered".
 
-    An engine that failed, or a truncation that kept part of the candidate out of
-    the packet. They are read from the session rather than recomputed, because
-    the first phase is where they happened.
+    Engine failures, non-inventoried truncations, and unresolved scope or
+    context-selection gaps are recorded in phase one. Inventoried SDD and
+    pull-request-intent omissions are validated by coverage receipts instead.
     """
 
     causes: list[InconclusiveCause] = []
     packet = session.payload.get("packet") or {}
+    inventory_paths = {
+        str(source.get("path"))
+        for source in inventory.get("sources", ())
+        if isinstance(source, Mapping)
+    }
     for truncation in packet.get("truncations") or ():
+        path = str(truncation.get("path") or "")
+        # SDD and frozen PR intent truncations are represented as required
+        # ranges in the inventory. A validated receipt can therefore clear the
+        # omission; other packet truncations still block closure immediately.
+        if path in inventory_paths or (
+            path == "(pull-request body)" and "<pull-request-intent>" in inventory_paths
+        ):
+            continue
         causes.append(
             InconclusiveCause(
                 CAUSE_SCOPE,
-                f"{truncation.get('path')}: {truncation.get('omitted_bytes')} byte(s) did not fit in the packet, so "
+                f"{path}: {truncation.get('omitted_bytes')} byte(s) did not fit in the packet, so "
                 f"that content was not reviewed ({truncation.get('command')})",
             )
         )
@@ -1658,7 +1675,15 @@ def _inconclusive_causes(session: ReviewSession) -> list[InconclusiveCause]:
             InconclusiveCause(
                 CAUSE_SCOPE,
                 f"scope is unresolved for {', '.join(gap.get('affected') or ()) or 'the candidate'}: "
-                f"{gap.get('detail', 'necessary candidate association is unknown')}",
+                f"{gap.get('code', 'scope_gap')}: {gap.get('detail', 'necessary candidate association is unknown')}",
+            )
+        )
+    for gap in (session.payload.get("context_selection") or {}).get("gaps", ()):
+        causes.append(
+            InconclusiveCause(
+                CAUSE_SCOPE,
+                f"context selection is unresolved for {', '.join(gap.get('affected') or ()) or 'the candidate'}: "
+                f"{gap.get('code', 'context_selection_gap')}: {gap.get('detail', 'necessary context selection is unknown')}",
             )
         )
     # An allowlist, deliberately: a status this version does not know is a status
@@ -1676,6 +1701,21 @@ def _inconclusive_causes(session: ReviewSession) -> list[InconclusiveCause]:
     # Discarded findings are deliberately *not* a cause: a hallucinated finding
     # says something about the reviewer, not about the coverage of the candidate.
     return causes
+
+
+def _coverage_gap_detail(gap: Mapping[str, Any]) -> str:
+    """Render one coverage gap with its exact range and safe retrieval hint."""
+
+    location = str(gap.get("path", "coverage"))
+    if gap.get("start_line") is not None and gap.get("end_line") is not None:
+        location += f":{gap['start_line']}-{gap['end_line']}"
+    detail = f"{gap.get('code', 'coverage_gap')}: {location}: {gap.get('detail', 'coverage is unresolved')}"
+    if gap.get("version"):
+        detail += f" (version {gap['version']}"
+        if gap.get("command"):
+            detail += f"; retrieve with {gap['command']}"
+        detail += ")"
+    return detail
 
 
 # -- publication -------------------------------------------------------------

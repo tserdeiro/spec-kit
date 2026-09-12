@@ -16,6 +16,7 @@ class CoverageResult:
 
     reads: tuple[dict[str, Any], ...] = ()
     covered: tuple[dict[str, Any], ...] = ()
+    uncovered: tuple[dict[str, Any], ...] = ()
     gaps: tuple[dict[str, Any], ...] = ()
 
     @property
@@ -26,6 +27,7 @@ class CoverageResult:
         return {
             "reads": [dict(item) for item in self.reads],
             "covered": [dict(item) for item in self.covered],
+            "uncovered": [dict(item) for item in self.uncovered],
             "gaps": [dict(item) for item in self.gaps],
             "complete": self.complete,
         }
@@ -69,6 +71,28 @@ def _uncovered(start: int, end: int, intervals: Sequence[tuple[int, int]]) -> li
     return result
 
 
+def _required_uncovered(inventory: Mapping[str, Any], sources: Mapping[str, Mapping[str, Any]]) -> tuple[dict[str, Any], ...]:
+    """Return every required range when no validated receipt can be trusted."""
+
+    result: list[dict[str, Any]] = []
+    for required in inventory.get("required", ()):
+        path = str(required.get("path"))
+        start = int(required.get("start", 1))
+        end = int(required.get("end", start))
+        item = {
+            "code": "coverage_required_unread",
+            "path": path,
+            "version": str(sources.get(path, {}).get("version") or ""),
+            "start_line": start,
+            "end_line": end,
+            "detail": "required source content has no validated reading receipt",
+        }
+        if required.get("command"):
+            item["command"] = required["command"]
+        result.append(item)
+    return tuple(result)
+
+
 def validate(
     envelope: Any,
     *,
@@ -84,23 +108,24 @@ def validate(
     them. Missing or invalid coverage never discards findings.
     """
 
+    sources = {str(item.get("path")): item for item in inventory.get("sources", ()) if isinstance(item, Mapping)}
+    missing_ranges = _required_uncovered(inventory, sources)
     if not isinstance(envelope, Mapping):
-        return CoverageResult(gaps=({"code": "coverage_missing", "detail": "the findings submission has no coverage envelope"},))
+        return CoverageResult(uncovered=missing_ranges, gaps=({"code": "coverage_missing", "detail": "the findings submission has no coverage envelope"},))
     required_keys = ("candidate_id", "packet_sha256", "inventory_sha256", "reads")
     missing = [key for key in required_keys if key not in envelope]
     if missing:
-        return CoverageResult(gaps=({"code": "coverage_field_missing", "detail": ", ".join(missing)},))
+        return CoverageResult(uncovered=missing_ranges, gaps=({"code": "coverage_field_missing", "detail": ", ".join(missing)},))
     if envelope.get("candidate_id") != candidate_id:
-        return CoverageResult(gaps=({"code": "coverage_candidate_mismatch", "detail": str(envelope.get("candidate_id"))},))
+        return CoverageResult(uncovered=missing_ranges, gaps=({"code": "coverage_candidate_mismatch", "detail": str(envelope.get("candidate_id"))},))
     if envelope.get("packet_sha256") != packet_sha256:
-        return CoverageResult(gaps=({"code": "coverage_packet_mismatch", "detail": str(envelope.get("packet_sha256"))},))
+        return CoverageResult(uncovered=missing_ranges, gaps=({"code": "coverage_packet_mismatch", "detail": str(envelope.get("packet_sha256"))},))
     if envelope.get("inventory_sha256") != inventory_sha256:
-        return CoverageResult(gaps=({"code": "coverage_inventory_mismatch", "detail": str(envelope.get("inventory_sha256"))},))
+        return CoverageResult(uncovered=missing_ranges, gaps=({"code": "coverage_inventory_mismatch", "detail": str(envelope.get("inventory_sha256"))},))
     raw_reads = envelope.get("reads")
     if not isinstance(raw_reads, list):
-        return CoverageResult(gaps=({"code": "coverage_reads_shape", "detail": type(raw_reads).__name__},))
+        return CoverageResult(uncovered=missing_ranges, gaps=({"code": "coverage_reads_shape", "detail": type(raw_reads).__name__},))
 
-    sources = {str(item.get("path")): item for item in inventory.get("sources", ()) if isinstance(item, Mapping)}
     valid: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
@@ -150,14 +175,21 @@ def validate(
             valid.append(normalized)
 
     covered: list[dict[str, Any]] = []
+    uncovered: list[dict[str, Any]] = []
     for required in inventory.get("required", ()):
-        path = str(required.get("path")); start = int(required.get("start", 1)); end = int(required.get("end", start))
+        path = str(required.get("path"))
+        start = int(required.get("start", 1))
+        end = int(required.get("end", start))
         required_version = str(sources.get(path, {}).get("version") or "")
         intervals = _intervals(valid, path, required_version)
         missing_ranges = _uncovered(start, end, intervals)
         if missing_ranges:
             for left, right in missing_ranges:
-                gaps.append({"code": "coverage_required_unread", "path": path, "start_line": left, "end_line": right, "detail": "required source content has no validated reading receipt"})
-        else:
-            covered.append({"path": path, "version": required_version, "start_line": start, "end_line": end})
-    return CoverageResult(tuple(valid), tuple(covered), tuple(gaps))
+                gap = {"code": "coverage_required_unread", "path": path, "version": required_version, "start_line": left, "end_line": right, "detail": "required source content has no validated reading receipt"}
+                if required.get("command"):
+                    gap["command"] = required["command"]
+                uncovered.append(dict(gap))
+                gaps.append(gap)
+        for left, right in _uncovered(start, end, missing_ranges):
+            covered.append({"path": path, "version": required_version, "start_line": left, "end_line": right})
+    return CoverageResult(tuple(valid), tuple(covered), tuple(uncovered), tuple(gaps))
