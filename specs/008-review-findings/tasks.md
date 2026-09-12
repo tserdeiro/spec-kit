@@ -28,13 +28,13 @@ were given on 2026-09-12.
 **Independent evidence**: Packet/validator catalog equality and an invalid
 submission that identifies its exact input position, value, and accepted choices.
 
-- [ ] T001 [US1] Share the category catalog and precise diagnostics in packages/spec-kit-code-review/src/spec_kit_code_review/findings.py
+- [x] T001 [US1] Share the category catalog and precise diagnostics in packages/spec-kit-code-review/src/spec_kit_code_review/findings.py
   - **Traces**: FR-001, FR-002, SC-001; outcome: generated review guidance and validation agree, and category errors are actionable in human and JSON output.
   - **Depends on**: none
   - **Boundaries**: Update `findings.py`, packet rendering in `packet.py`, diagnostic context in `cli.py`, and `test_findings.py`, `test_packet.py`, `test_phase_two.py`, `test_golden_packet.py` with affected packet fixtures. Follow plan D1: reuse `CATEGORIES`, avoid the import cycle through a renderer-local import, report one-based indices and missing/non-string values, and retain strict schema errors. Protect the shared error schema and native review invocation. T002 supplies the preserved-original path once that evidence exists.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_findings.py packages/spec-kit-code-review/tests/unit/test_packet.py packages/spec-kit-code-review/tests/unit/test_golden_packet.py packages/spec-kit-code-review/tests/unit/test_phase_two.py -q` -> exact catalog equality, supported values, and indexed unknown/missing/non-string diagnostics pass; invalid findings leave the session open.
   - **Delivery**: single PR (~170 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #136; 160 focused tests and 47 subtests passed. Budget 96/340; diff check clean. Independent review of 9c37476 found no actionable defects: https://github.com/tserdeiro/spec-kit/pull/136#issuecomment-5646576167. All four CI checks passed on that implementation candidate; this final commit records completion only.
 
 ## Phase 2: User Story 2 - Correct a category without losing review work (P1)
 

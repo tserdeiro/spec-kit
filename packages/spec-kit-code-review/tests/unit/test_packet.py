@@ -659,6 +659,13 @@ class DegradedContextTests(unittest.TestCase):
         self.assertIn("_No SDD context was loaded._", packet.text)
         self.assertIn("## 7. Review instructions", packet.text)
 
+    def test_review_guidance_uses_the_validator_category_catalog(self) -> None:
+        from spec_kit_code_review.findings import CATEGORIES
+
+        packet = _assemble(sdd=None)
+        guidance = packet.text.split("### 7.3 Severity and category", 1)[1].split("### 7.4", 1)[0]
+        self.assertIn("- category: " + ", ".join(f"`{item}`" for item in CATEGORIES), guidance)
+
     def test_truncation_is_reported_in_the_packet_and_the_result(self) -> None:
         context = _sdd(plan_text="".join(f"plan line {index}\n" for index in range(500)))
 

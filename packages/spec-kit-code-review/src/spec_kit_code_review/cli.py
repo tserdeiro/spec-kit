@@ -19,6 +19,7 @@ import secrets
 import shlex
 import sys
 import tempfile
+from dataclasses import replace
 from types import SimpleNamespace
 from datetime import datetime, timezone
 from contextlib import ExitStack
@@ -1541,14 +1542,32 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         merge_base=candidate.merge_base,
         head_commit=candidate.head_commit,
     )
-    normalized = normalize_findings(
-        [*entries, *generated],
-        git=context.git,
-        head_commit=candidate.head_commit,
-        merge_base=candidate.merge_base,
-        hunks=hunks,
-        source_sha256=source_digest,
-    )
+    try:
+        normalized = normalize_findings(
+            [*entries, *generated],
+            git=context.git,
+            head_commit=candidate.head_commit,
+            merge_base=candidate.merge_base,
+            hunks=hunks,
+            source_sha256=source_digest,
+        )
+    except AppError as error:
+        category_diagnostics = [
+            replace(
+                diagnostic,
+                message=(
+                    f"{diagnostic.message}; edit only this category and retry the current session with: "
+                    f"bash \"$CR\" review --findings {shlex.quote(str(findings_path))} "
+                    f"--session {shlex.quote(str(session.path))}"
+                ),
+            )
+            if diagnostic.code == "findings_category_invalid" else diagnostic
+            for diagnostic in error.diagnostics
+        ]
+        if category_diagnostics != error.diagnostics:
+            raise AppError(str(error), code=error.code, category=error.category,
+                           diagnostics=category_diagnostics, retryable=error.retryable) from error
+        raise
     diagnostics.extend(normalized.diagnostics)
 
     session.payload["coverage"] = coverage_record
