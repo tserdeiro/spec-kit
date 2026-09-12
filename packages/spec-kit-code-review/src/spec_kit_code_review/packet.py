@@ -985,8 +985,17 @@ def _section_rules(
             lines.append(f"  - {_one_line(visible(rule))}")
 
     if rules.candidate is not None and rules.candidate_path is not None:
-        audited = contain(
+        candidate_text, candidate_truncation = _source_text(
             rules.candidate.text or "",
+            path=str(rules.candidate_path),
+            command=f"cat {shell_quote(str(rules.candidate_path))}",
+            budget=source_budget,
+            limit=max_bytes,
+        )
+        if candidate_truncation:
+            truncations.append(candidate_truncation)
+        audited = contain(
+            candidate_text,
             suffix=suffix,
             origin=f"the rules proposed at {visible(rules.candidate.ref)} ({visible(rules.candidate_kind)})",
             escape_on_collision=escape,
