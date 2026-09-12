@@ -26,13 +26,13 @@
 **Independent evidence**: Key-only configured start and explicit failure behavior;
 missing configuration alone enables supplied key/title fallback.
 
-- [ ] T001 [US1] Read Issue context and native branch resolution in packages/spec-kit-linear/src/spec_kit_linear/linear_client.py
+- [x] T001 [US1] Read Issue context and native branch resolution in packages/spec-kit-linear/src/spec_kit_linear/linear_client.py
   - **Traces**: FR-001, FR-002, FR-004, FR-006, SC-001, SC-003; outcome: validated read-only native results include exact suggested branch and context.
   - **Depends on**: none
   - **Boundaries**: Extend client value types/queries and focused `packages/spec-kit-linear/tests` fixtures. Read canonical Issue context and batch distinct native branch lookups within existing query limits; handle null/malformed results and retain transport/credential redaction. Validate team/result identity at the resolver boundary supplied by T002. Preserve mutation allowlist and runtime dependencies.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> native context, exact branch bytes, lookup null/malformed responses, batching, and existing transport regressions pass.
   - **Delivery**: single PR (~340 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #144; package suite 509 passed / 286 subtests; `git diff --check` passed; budget 181/400. Fresh extension review of `028fd1812c90c6d78d8171c208e7487b5288fa84`: `no-blocking-findings`, 0 findings, 6 covered ranges / 0 gaps, session closed. Independent read-only live probe: api_key credentials, context present, exact Git-valid native branch, duplicate inputs resolved once to the same Issue; observed prefix is literal in the configured template, without viewer-prefix inference.
 
 - [ ] T002 [US1] Expose stateless configured resolution through packages/spec-kit-linear/scripts/python/resolve_work_item.py
   - **Traces**: FR-001, FR-004, FR-006, FR-007, C-001, C-002, SC-003; outcome: installed consumers resolve an Issue or branches with explicit absent/error/conflict outcomes.
