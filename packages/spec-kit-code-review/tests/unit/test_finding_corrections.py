@@ -178,9 +178,9 @@ class CorrectionTests(unittest.TestCase):
             original = json.dumps(self._documents()).encode().replace(b'"vibes"', b"7", 1)
             prepare(session, original, parse_bytes(original))
             corrected = original.replace(b"7", b'"security"', 1)
-            record, _ = prepare(session, corrected, parse_bytes(corrected))
+            record, submitted = prepare(session, corrected, parse_bytes(corrected))
             self.assertEqual(record["changed_categories"][0]["old"], 7)
-            evidence = next((root / "finding-corrections" / "attempt-1").glob("[0-9a-f]*.json"))
+            evidence = root / "finding-corrections" / "attempt-1" / f"{submitted}.json"
             self.assertEqual(json.loads(evidence.read_text(encoding="utf-8"))["changed_categories"][0]["old"], 7)
 
     def test_history_rejects_tampered_original_record_and_unindexed_digest(self) -> None:
