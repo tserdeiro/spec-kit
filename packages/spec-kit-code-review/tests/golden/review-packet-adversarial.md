@@ -250,6 +250,8 @@ For PR closure, inspect context-inventory.json beside this packet and report eve
 Selected text or a retrieval command earns no credit. Hash the exact source UTF-8 bytes, preserving line ends;
 give a scope-linked assessment. Receipts are reviewer-reported and source-validated, not proof of understanding.
 Use each inventoried source version and its frozen retrieval action, including the PR-intent snapshot.
+Additional reads may close only the matching uncovered ranges; unrelated receipts do not close other gaps.
+If an inconclusive review has already closed, reopen the candidate before submitting new reading receipts.
 
 ### 7.5 Anchoring
 

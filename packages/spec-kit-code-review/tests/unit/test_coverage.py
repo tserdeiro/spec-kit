@@ -40,6 +40,15 @@ class CoverageTests(unittest.TestCase):
         result = self._validate(self.base)
         self.assertFalse(result.complete)
         self.assertEqual(result.gaps[0]["code"], "coverage_required_unread")
+        self.assertEqual([(item["start_line"], item["end_line"]) for item in result.uncovered], [(1, 3)])
+
+    def test_missing_envelope_keeps_the_exact_required_range_uncovered(self):
+        result = self._validate(None)
+        self.assertFalse(result.complete)
+        self.assertEqual(result.gaps[0]["code"], "coverage_missing")
+        self.assertEqual(result.uncovered[0]["version"], "head")
+        self.assertEqual(result.uncovered[0]["start_line"], 1)
+        self.assertEqual(result.uncovered[0]["end_line"], 3)
 
     def test_wrong_hash_does_not_discard_the_gap(self):
         result = self._validate({**self.base, "reads": [self._receipt(sha256="0" * 64)]})
@@ -90,6 +99,7 @@ class CoverageTests(unittest.TestCase):
         result = self._validate({**self.base, "reads": [self._receipt(1, 1)]})
         missing = [gap for gap in result.gaps if gap["code"] == "coverage_required_unread"]
         self.assertEqual([(gap["start_line"], gap["end_line"]) for gap in missing], [(2, 3)])
+        self.assertEqual([(item["start_line"], item["end_line"]) for item in result.covered], [(1, 1)])
 
     def test_git_reader_preserves_crlf_bytes_for_receipt_hashes(self):
         repository = TemporaryRepository()
