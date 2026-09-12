@@ -34,13 +34,13 @@ missing configuration alone enables supplied key/title fallback.
   - **Delivery**: single PR (~340 authored lines)
   - **Completion evidence**: PR #144; package suite 509 passed / 286 subtests; `git diff --check` passed; budget 181/400. Fresh extension review of `028fd1812c90c6d78d8171c208e7487b5288fa84`: `no-blocking-findings`, 0 findings, 6 covered ranges / 0 gaps, session closed. Independent read-only live probe: api_key credentials, context present, exact Git-valid native branch, duplicate inputs resolved once to the same Issue; observed prefix is literal in the configured template, without viewer-prefix inference.
 
-- [ ] T002 [US1] Expose configured Issue lookup through packages/spec-kit-linear/scripts/python/resolve_work_item.py
+- [x] T002 [US1] Expose configured Issue lookup through packages/spec-kit-linear/scripts/python/resolve_work_item.py
   - **Traces**: FR-001, FR-004, FR-006, C-001, C-002, SC-001, SC-003; outcome: installed consumers resolve one explicit Issue key with exact native context and distinct absent/error outcomes.
   - **Depends on**: T001
   - **Boundaries**: Add the single-Issue path in `work_item_resolution.py`, the internal JSON launcher, and focused tests. Reuse existing config/credential/client loaders; verify canonical key and returned team/identity. Expose the exact suggested branch without validating a future creation before existing work can be adopted. Keep feature/task input excluded, preserve secrets, and add no public command or persistent mapping. T009 adds independent observation batches.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> explicit Issue lookup, absent/invalid config, missing credentials, network/permission failure, wrong-team/mismatched identity, feature/task exclusion, and internal-bridge JSON failure smoke pass.
   - **Delivery**: single PR (~320 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #145; package suite 517 passed / 288 subtests; bridge default absence exit 0, missing selected config exit 3, malformed JSON exit 2; `git diff --check` passed; budget 400/400. Initial review found missing selected config incorrectly allowed fallback; fixed and fresh review of `d256f1c6ae5b32c44dd16fb7c467d7eb87a0b462` closed with `no-blocking-findings`, 0 findings, 6 covered ranges / 0 gaps. Independent read-only live bridge probe resolved the canonical Issue with title/context, exact Git-valid native branch, and no stderr; one literal configured prefix segment observed.
 
 - [ ] T009 [US1] Resolve independent branch and PR observations in packages/spec-kit-linear/src/spec_kit_linear/work_item_resolution.py
   - **Traces**: FR-005, FR-006, FR-007, FR-009, FR-010, C-001, SC-002, SC-003, SC-004; outcome: one bounded batch resolves each observation independently without losing explicit identity after a native null.
