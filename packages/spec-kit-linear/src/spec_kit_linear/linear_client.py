@@ -272,6 +272,32 @@ query WorkItemIssues($first: Int!, $after: String, $teamId: ID!, $numbers: [Floa
 """.strip()
 
 
+ISSUE_CONTEXT_QUERY = """
+query IssueContext($id: String!) {
+  issue(id: $id) {
+    id
+    identifier
+    title
+    description
+    url
+    branchName
+    team { id key name }
+  }
+}
+""".strip()
+
+
+_ISSUE_BRANCH_FIELDS = """
+id
+identifier
+title
+description
+url
+branchName
+team { id key name }
+""".strip()
+
+
 @dataclass(frozen=True)
 class RemoteWorkItem:
     """A bug or chore Issue this extension only ever reads and re-states."""
@@ -283,6 +309,19 @@ class RemoteWorkItem:
     state_id: str | None = None
     state_name: str | None = None
     url: str = ""
+
+
+@dataclass(frozen=True)
+class RemoteIssueContext:
+    """Canonical Issue context returned by native work-item reads."""
+
+    id: str
+    identifier: str
+    title: str
+    description: str
+    url: str
+    branch_name: str
+    team: "RemoteTeamSummary"
 
 
 @dataclass(frozen=True)
@@ -769,6 +808,47 @@ class LinearClient:
             for node in nodes
         )
 
+    def resolve_issue_context(self, identifier: str) -> RemoteIssueContext:
+        """Read one Issue's canonical context and exact native branch name."""
+
+        data = self.query(ISSUE_CONTEXT_QUERY, {"id": identifier})
+        return _remote_issue_context(_required_mapping(data, "issue", request_id=None))
+
+    def resolve_branch_issues(self, branch_names: Sequence[str]) -> dict[str, RemoteIssueContext | None]:
+        """Resolve distinct VCS branch names in bounded aliased GraphQL reads.
+
+        ``issueVcsBranchSearch`` accepts one branch per field, so aliases keep
+        the native lookup batched without rebuilding Linear's branch template.
+        ``None`` is a successful no-match and remains visible to the resolver.
+        """
+
+        distinct: list[str] = []
+        seen: set[str] = set()
+        for branch_name in branch_names:
+            if not isinstance(branch_name, str) or not branch_name:
+                raise ValueError("branch names must be non-empty strings")
+            if branch_name not in seen:
+                seen.add(branch_name)
+                distinct.append(branch_name)
+        resolved: dict[str, RemoteIssueContext | None] = {}
+        for offset in range(0, len(distinct), MAX_PAGE_SIZE):
+            batch = distinct[offset : offset + MAX_PAGE_SIZE]
+            query = _issue_branch_search_query(len(batch))
+            variables = {f"branch{index}": branch_name for index, branch_name in enumerate(batch)}
+            data = self.query(query, variables)
+            for index, branch_name in enumerate(batch):
+                alias = f"issue{index}"
+                if alias not in data:
+                    raise _schema_error("linear_native_branch", f"Linear response is missing '{alias}'")
+                value = data[alias]
+                if value is None:
+                    resolved[branch_name] = None
+                elif isinstance(value, dict):
+                    resolved[branch_name] = _remote_issue_context(value)
+                else:
+                    raise _schema_error("linear_native_branch", f"Linear response '{alias}' must be an object or null")
+        return resolved
+
     def discover_projects(self, project_label_id: str) -> tuple[RemoteProject, ...]:
         """Discover every project under a repository label and its local graph."""
 
@@ -1198,6 +1278,32 @@ def _optional_nested_string(parent: Mapping[str, object], key: str, nested_key: 
     if not isinstance(value, dict):
         raise _schema_error("linear_nullability", f"Linear response '{key}' must be an object or null")
     return _required_string(value, nested_key, request_id=None)
+
+
+def _issue_branch_search_query(count: int) -> str:
+    variables = ", ".join(f"$branch{index}: String!" for index in range(count))
+    fields = "\n".join(
+        f"  issue{index}: issueVcsBranchSearch(branchName: $branch{index}) {{\n{_ISSUE_BRANCH_FIELDS}\n  }}"
+        for index in range(count)
+    )
+    return f"query IssueVcsBranchSearch({variables}) {{\n{fields}\n}}"
+
+
+def _remote_issue_context(node: Mapping[str, object]) -> RemoteIssueContext:
+    team = _required_mapping(node, "team", request_id=None)
+    return RemoteIssueContext(
+        id=_required_string(node, "id", request_id=None),
+        identifier=_required_string(node, "identifier", request_id=None),
+        title=_required_string(node, "title", request_id=None),
+        description=_optional_string(node, "description"),
+        url=_required_string(node, "url", request_id=None),
+        branch_name=_required_string(node, "branchName", request_id=None),
+        team=RemoteTeamSummary(
+            id=_required_string(team, "id", request_id=None),
+            key=_required_string(team, "key", request_id=None),
+            name=_required_string(team, "name", request_id=None),
+        ),
+    )
 
 
 def _connection_ids(parent: Mapping[str, object], key: str) -> tuple[str, ...]:
