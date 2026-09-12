@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Sequence
@@ -53,11 +54,8 @@ _PR_EVIDENCE_RE = re.compile(
     r"spec\s*kit\s*evidence.{0,200}?(?P<feature>\d{3}[A-Za-z0-9._-]*)",
     re.IGNORECASE | re.DOTALL,
 )
-_TASK_RE = re.compile(
-    r"^\s*[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>T\d{3,})\s*(?P<title>.*?)\s*$",
-    re.MULTILINE,
-)
 _FORECAST_RE = re.compile(r"forecast[^0-9]{0,20}(?P<lines>\d+)", re.IGNORECASE)
+_DELIVERY_FORECAST_RE = re.compile(r"(?:forecast|authored|PR)[^0-9]{0,20}(?P<lines>\d+)", re.IGNORECASE)
 _STRATEGY_RE = re.compile(r"\b(?P<strategy>single|feature-chain)\b", re.IGNORECASE)
 # A repository-relative path as a task would write it: at least one slash, and a
 # file extension, so ordinary prose ("feature-chain", "PR strategy") is not read
@@ -65,6 +63,19 @@ _STRATEGY_RE = re.compile(r"\b(?P<strategy>single|feature-chain)\b", re.IGNORECA
 _PATH_RE = re.compile(r"[A-Za-z0-9_.@+-]+(?:/[A-Za-z0-9_.@+-]+)+\.[A-Za-z0-9]+")
 _REQUIREMENT_RE = re.compile(r"^\s*[-*]?\s*\**\s*(?P<id>(?:FR|NFR|SC)-\d+)\b", re.MULTILINE)
 _CHECKLIST_ITEM_RE = re.compile(r"^\s*[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>CHK\d+)?", re.MULTILINE)
+_TASK_LINE_RE = re.compile(r"^[-*]\s*\[(?P<done>[ xX])\]\s*(?P<id>T\d{3,})\s*(?P<title>.*?)\s*$")
+_FIELD_RE = re.compile(r"^\s{2,}[-*]\s+\*\*(?P<name>[^*]+)\*\*:\s*(?P<value>.*)\s*$")
+_FIELD_NAMES = {
+    "traces": "traces",
+    "depends on": "dependencies",
+    "dependencies": "dependencies",
+    "boundaries": "boundaries",
+    "evidence": "evidence",
+    "delivery": "delivery",
+    "delivery forecast": "delivery",
+    "completion evidence": "completion_evidence",
+}
+_REQUIRED_FIELDS = ("traces", "dependencies", "boundaries", "evidence", "delivery", "completion_evidence")
 
 
 class Reader:
@@ -159,6 +170,21 @@ class TaskEntry:
     strategy: str | None
     referenced_paths: tuple[str, ...] = ()
     reached: bool = False
+    source_start: int | None = None
+    source_end: int | None = None
+    block_text: str = ""
+    traces: tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
+    changed_path_hints: tuple[str, ...] = ()
+    delivery: str | None = None
+    completion_evidence: str | None = None
+    gaps: tuple[str, ...] = ()
+
+    @property
+    def source_range(self) -> tuple[int, int] | None:
+        if self.source_start is None or self.source_end is None:
+            return None
+        return self.source_start, self.source_end
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -169,6 +195,14 @@ class TaskEntry:
             "pr_strategy": self.strategy,
             "referenced_paths": list(self.referenced_paths),
             "reached": self.reached,
+            "source_range": list(self.source_range) if self.source_range else None,
+            "block_text": self.block_text,
+            "traces": list(self.traces),
+            "dependencies": list(self.dependencies),
+            "changed_path_hints": list(self.changed_path_hints),
+            "delivery": self.delivery,
+            "completion_evidence": self.completion_evidence,
+            "gaps": list(self.gaps),
         }
 
 
@@ -507,25 +541,148 @@ def mark_reached(entries: Sequence[TaskEntry], changed_paths: Sequence[str]) -> 
 
 
 def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
-    """Read ``tasks.md`` entries with whatever they declared about their size.
+    """Parse real task blocks, retaining their exact source and line ranges.
 
-    Loose by design: the format is a human document, so an entry without a
-    forecast or a strategy is reported as it is rather than rejected.
+    Task-like lines in fenced examples are data, not entries. A real block ends
+    at the next real task or an unindented heading; all other lines, including
+    fenced evidence, remain part of its source text.
     """
 
+    lines = text.splitlines(keepends=True)
+    fence_mask = _fence_mask(lines)
+    starts: list[tuple[int, re.Match[str]]] = []
+    for number, line in enumerate(lines, 1):
+        if not fence_mask[number - 1]:
+            match = _TASK_LINE_RE.match(line.rstrip("\r\n"))
+            if match:
+                starts.append((number, match))
+
     entries: list[TaskEntry] = []
-    for match in _TASK_RE.finditer(text):
+    for index, (start, match) in enumerate(starts):
+        end = (starts[index + 1][0] - 1) if index + 1 < len(starts) else len(lines)
+        for boundary in range(start, end + 1):
+            if boundary == start:
+                continue
+            if not fence_mask[boundary - 1] and lines[boundary - 1].startswith("#"):
+                end = boundary - 1
+                break
+        block = "".join(lines[start - 1 : end])
         title = match.group("title").strip()
-        forecast = _FORECAST_RE.search(title)
-        strategy = _STRATEGY_RE.search(title)
+        fields = _task_fields(lines[start - 1 : end], fence_mask[start - 1 : end])
+        forecast_match = _FORECAST_RE.search(title)
+        delivery = fields.get("delivery")
+        if forecast_match is None:
+            forecast_match = _DELIVERY_FORECAST_RE.search(delivery or "")
+        forecast = int(forecast_match.group("lines")) if forecast_match else None
+        strategy = _STRATEGY_RE.search(title) or _STRATEGY_RE.search(delivery or "")
+        paths, path_gaps = _task_path_info(title, fields.get("boundaries", ""))
+        identifier = match.group("id")
+        gaps = []
+        unknown_fields = {
+            match.group(1).strip()
+            for offset, line in enumerate(lines[start - 1 : end])
+            if not fence_mask[start - 1 + offset]
+            for match in [re.match(r"^\s{2,}[-*]\s+\*\*([^*]+)\*\*:", line.rstrip("\r\n"))]
+            if match and match.group(1).strip().lower() not in _FIELD_NAMES
+        }
+        gaps.extend(f"unrecognized field: {name}" for name in sorted(unknown_fields))
+        gaps.extend(path_gaps)
+        for field_name in _REQUIRED_FIELDS:
+            label = field_name.replace("_", " ")
+            if field_name not in fields:
+                gaps.append(f"missing field: {label}")
+            elif not fields[field_name].strip():
+                gaps.append(f"empty field: {label}")
         entries.append(
             TaskEntry(
-                identifier=match.group("id"),
+                identifier=identifier,
                 title=title,
                 done=match.group("done").lower() == "x",
-                forecast=int(forecast.group("lines")) if forecast else None,
+                forecast=forecast,
                 strategy=strategy.group("strategy").lower() if strategy else None,
-                referenced_paths=tuple(dict.fromkeys(_PATH_RE.findall(title))),
+                referenced_paths=paths,
+                source_start=start,
+                source_end=end,
+                block_text=block,
+                traces=tuple(dict.fromkeys(re.findall(r"\b(?:FR|NFR|SC)-\d+\b", fields.get("traces", "")))),
+                dependencies=tuple(dict.fromkeys(re.findall(r"\bT\d{3,}\b", fields.get("dependencies", "")))),
+                changed_path_hints=paths,
+                delivery=delivery,
+                completion_evidence=fields.get("completion_evidence"),
+                gaps=tuple(gaps),
             )
         )
-    return tuple(entries)
+    identifiers = {entry.identifier for entry in entries}
+    counts = Counter(entry.identifier for entry in entries)
+    normalized: list[TaskEntry] = []
+    for entry in entries:
+        gaps = list(entry.gaps)
+        if counts[entry.identifier] > 1 and "duplicate task identifier" not in gaps:
+            gaps.append("duplicate task identifier")
+        gaps.extend(
+            f"unresolved dependency: {dependency}"
+            for dependency in entry.dependencies
+            if dependency not in identifiers
+        )
+        normalized.append(replace(entry, gaps=tuple(dict.fromkeys(gaps))))
+    return tuple(normalized)
+
+
+def _fence_mask(lines: Sequence[str]) -> tuple[bool, ...]:
+    mask: list[bool] = []
+    fenced = False
+    marker_char = ""
+    marker_length = 0
+    for line in lines:
+        marker = re.match(r"^\s*(`{3,}|~{3,})(?P<rest>[^\r\n]*)", line)
+        mask.append(fenced)
+        if not marker:
+            continue
+        value, rest = marker.group(1), marker.group("rest")
+        if not fenced:
+            fenced, marker_char, marker_length = True, value[0], len(value)
+        elif value[0] == marker_char and len(value) >= marker_length and not rest.strip():
+            fenced = False
+    return tuple(mask)
+
+
+def _task_fields(lines: Sequence[str], fence_mask: Sequence[bool]) -> dict[str, str]:
+    fields: dict[str, list[str]] = {}
+    current: str | None = None
+    for offset, line in enumerate(lines[1:], 1):
+        if fence_mask[offset]:
+            if current and line.startswith(("  ", "\t")) and line.strip():
+                fields[current].append(line.strip())
+            continue
+        match = _FIELD_RE.match(line.rstrip("\r\n"))
+        if match:
+            current = _FIELD_NAMES.get(match.group("name").strip().lower())
+            if current:
+                fields[current] = [match.group("value").strip()]
+            continue
+        if current and line.startswith(("  ", "\t")) and line.strip():
+            fields[current].append(line.strip())
+    return {name: "\n".join(values) for name, values in fields.items()}
+
+
+def _task_path_info(title: str, boundaries: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    values = list(_PATH_RE.findall(title))
+    gaps: list[str] = []
+    shorthand = re.compile(r"(?:[A-Za-z0-9_.@+-]+/)+\{[^}]+\}\.[A-Za-z0-9]+")
+    gaps.extend(f"unsupported path shorthand: {item}" for item in shorthand.findall(title))
+    gaps.extend(f"unsupported path shorthand: {item}" for item in shorthand.findall(boundaries))
+    boundaries_clean = shorthand.sub("", boundaries)
+    action = re.compile(r"\b(do not change|preserve|keep|protect|leave|change|changed|touch|modify|edit|update)\b(?=\s|[:;,]|$)", re.IGNORECASE)
+    actions = list(action.finditer(boundaries_clean))
+    if actions and _PATH_RE.search(boundaries_clean[: actions[0].start()]):
+        gaps.append(f"ambiguous changed-path wording: {boundaries_clean[: actions[0].start()].strip()}")
+    if not actions and _PATH_RE.search(boundaries_clean):
+        gaps.append(f"ambiguous changed-path wording: {boundaries_clean.strip()}")
+    for index, match in enumerate(actions):
+        segment = boundaries_clean[match.end() : actions[index + 1].start() if index + 1 < len(actions) else None]
+        clause_paths = _PATH_RE.findall(segment)
+        verb = match.group(1).lower()
+        if verb in {"preserve", "keep", "protect", "leave", "do not change"}:
+            continue
+        values.extend(clause_paths)
+    return tuple(dict.fromkeys(values)), tuple(dict.fromkeys(gaps))
