@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Report the repository settings used by the delivery workflow.
-
-This first delivery slice deliberately leaves branch guarantees unverified;
-the later rules evaluator owns that observation.
-"""
+"""Report repository settings and effective active rules for delivery branches."""
 
 from __future__ import annotations
 
@@ -11,33 +7,32 @@ import json
 import re
 import shutil
 import sys
+from contextlib import redirect_stderr
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
+from urllib.parse import quote
 
-from _common import run_gh
-
-COMPATIBLE = "compatible"
-INCOMPATIBLE = "incompatible"
-CAPABILITY_UNAVAILABLE = "capability-unavailable"
-UNVERIFIED = "unverified"
+from _common import delivery_base, run_gh
+from github_delivery_rules import (
+    CAPABILITY_UNAVAILABLE,
+    COMPATIBLE,
+    INCOMPATIBLE,
+    UNVERIFIED,
+    Result,
+    RuleRead,
+    evaluate_force_push,
+    parse_active_rules,
+    parse_branch_page_items,
+    parse_page_collection,
+    shared_branches,
+    unknown_branch_result,
+)
 
 _SETTINGS = (
     ("deleteBranchOnMerge", "Automatically delete head branches"),
     ("mergeCommitAllowed", "Allow merge commits"),
 )
-_BRANCH_GUARANTEES = (
-    ("force-push protection", "inspect GitHub Settings → Rules → Rulesets and branch protection for shared-branch update restrictions"),
-    ("merge commits", "inspect GitHub Settings → Rules → Rulesets and branch protection for merge restrictions"),
-    ("cleanup", "inspect GitHub Settings → Rules → Rulesets and branch protection for deletion restrictions"),
-)
-
-
-@dataclass(frozen=True)
-class Result:
-    state: str
-    cause: str
-    evidence: str
-    next_action: str
 
 
 def _safe_detail(value: str) -> str:
@@ -107,27 +102,107 @@ def _read_settings(repo_root: Path) -> dict[str, Result]:
     return findings
 
 
+@dataclass(frozen=True)
+class _RemoteRead:
+    complete: bool
+    payload: object = None
+    cause: str = ""
+    evidence: str = ""
+
+
+def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
+    """Read a paginated REST collection through an explicit GET only."""
+    try:
+        result = run_gh("api", "--method", "GET", "--paginate", "--slurp", endpoint, cwd=repo_root)
+    except OSError as error:
+        return _RemoteRead(False, cause="read-failure", evidence=_safe_detail(str(error)))
+    if result.returncode != 0:
+        detail = _safe_detail(result.stderr or result.stdout)
+        cause = "branch-disappeared" if re.search(r"branch\s+(?:was\s+)?not found|branch disappeared", detail, re.I) else "read-failure"
+        return _RemoteRead(False, cause=cause, evidence=detail or "GitHub returned an unsuccessful response")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return _RemoteRead(False, cause="malformed-response", evidence="GitHub returned invalid JSON")
+    if parse_page_collection(payload) is None:
+        return _RemoteRead(False, cause="malformed-response", evidence="GitHub returned an invalid page collection")
+    return _RemoteRead(True, payload=payload)
+
+
+def _read_inventory(repo_root: Path) -> _RemoteRead:
+    if shutil.which("gh") is None:
+        return _RemoteRead(False, cause="github-cli-unavailable", evidence="gh was not found on PATH")
+    read = _api_read(repo_root, "repos/{owner}/{repo}/branches?per_page=100")
+    if not read.complete and read.cause in {"read-failure", "branch-disappeared"}:
+        return _RemoteRead(False, cause="partial-inventory", evidence=read.evidence)
+    return read
+
+
+def _read_branch_rules(repo_root: Path, branch: str) -> RuleRead:
+    endpoint = "repos/{owner}/{repo}/rules/branches/" + quote(branch, safe="") + "?per_page=100"
+    read = _api_read(repo_root, endpoint)
+    if not read.complete:
+        if read.cause == "read-failure" and "page" in read.evidence.lower():
+            return RuleRead(False, cause="partial-rules", evidence=read.evidence)
+        return RuleRead(False, cause=read.cause, evidence=read.evidence)
+    rules = parse_active_rules(read.payload)
+    if rules is None:
+        return RuleRead(False, cause="malformed-response", evidence="effective branch rules had invalid fields")
+    return RuleRead(True, rules=rules)
+
+
+def _branch_findings(repo_root: Path) -> tuple[tuple[str, Result], ...]:
+    """Observe the complete remote inventory, then effective rules per shared branch."""
+    try:
+        with redirect_stderr(StringIO()):
+            trunk = delivery_base(repo_root).strip()
+    except (SystemExit, OSError):
+        trunk = ""
+    if not trunk:
+        finding = unknown_branch_result("trunk-unresolved")
+        return (("force-push protection", finding), ("merge commits", finding), ("cleanup", finding))
+
+    inventory = _read_inventory(repo_root)
+    if not inventory.complete:
+        finding = _unknown(
+            inventory.cause or "partial-inventory",
+            f"{trunk}: {inventory.evidence or 'remote branch inventory was not completely observed'}",
+            "Retry the GitHub branch inventory after confirming access to repository metadata",
+        )
+        return ((f"force-push protection [{trunk} (trunk)]", finding),
+                (f"merge commits [{trunk} (trunk)]", unknown_branch_result(inventory.cause or "partial-inventory")),
+                (f"cleanup [{trunk} (trunk)]", unknown_branch_result(inventory.cause or "partial-inventory")))
+
+    pages = parse_page_collection(inventory.payload)
+    names = parse_branch_page_items(pages or ())
+    if names is None:
+        finding = unknown_branch_result("malformed-response")
+        return ((f"force-push protection [{trunk} (trunk)]", finding),
+                (f"merge commits [{trunk} (trunk)]", finding), (f"cleanup [{trunk} (trunk)]", finding))
+
+    branches = shared_branches(names, trunk)
+    results: list[tuple[str, Result]] = []
+    for name, role in branches:
+        if name not in names:
+            rules = RuleRead(False, cause="branch-missing", evidence="the delivery base was absent from the remote inventory")
+        else:
+            rules = _read_branch_rules(repo_root, name)
+        force = evaluate_force_push(name, rules)
+        label = f"force-push protection [{name} ({role})]"
+        results.append((label, force))
+        results.append((f"merge commits [{name} ({role})]", unknown_branch_result("merge-evaluation-pending")))
+        results.append((f"cleanup [{name} ({role})]", unknown_branch_result("cleanup-evaluation-pending")))
+    return tuple(results)
+
+
 def diagnose(repo_root: Path) -> tuple[dict[str, Result], tuple[tuple[str, Result], ...]]:
     settings = _read_settings(repo_root)
-    branch = tuple(
-        (
-            name,
-            _unknown(
-                "partial-scope",
-                "branch inventory and effective branch rules are not observed by this report",
-                f"{action[0].upper() + action[1:]}",
-            ),
-        )
-        for name, action in _BRANCH_GUARANTEES
-    )
-    return settings, branch
+    return settings, _branch_findings(repo_root)
 
 
 def render(settings: dict[str, Result], branch: tuple[tuple[str, Result], ...]) -> str:
-    lines = [
-        "GitHub delivery diagnosis",
-        "Scope: repository settings observed; branch inventory and effective rules remain unverified.",
-    ]
+    scope = "repository settings and observed shared-branch inventory; each result states its evidence and coverage."
+    lines = ["GitHub delivery diagnosis", f"Scope: {scope}"]
     for name, setting in _SETTINGS:
         finding = settings[name]
         suffix = f"; cause={finding.cause}" if finding.cause else ""
@@ -136,8 +211,9 @@ def render(settings: dict[str, Result], branch: tuple[tuple[str, Result], ...]) 
             line += f" — next: {finding.next_action}"
         lines.append(line)
     for name, finding in branch:
-        lines.append(f"{name}: {finding.state} ({finding.evidence}) — next: {finding.next_action}")
-    lines.append("Overall: unverified (branch inventory and effective rules are not observed yet).")
+        suffix = f"; cause={finding.cause}" if finding.cause else ""
+        lines.append(f"{name}: {finding.state} ({finding.evidence}{suffix}) — next: {finding.next_action}")
+    lines.append("Overall: unverified (classic protection, merge, cleanup, or complete rule coverage remains unverified).")
     return "\n".join(lines)
 
 
