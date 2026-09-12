@@ -398,6 +398,22 @@ class TaskParsingTests(unittest.TestCase):
 
         self.assertEqual(entries[0].changed_path_hints, ())
 
+    def test_prose_changed_path_and_change_py_do_not_create_false_gaps(self) -> None:
+        cases = (
+            ("distinguish changed-path hints from protected paths; change src/change.py.", False),
+            ("ordinary prose without a path; change src/change.py.", False),
+            ("src/before.py; change src/change.py.", True),
+        )
+        for boundaries, ambiguous in cases:
+            with self.subTest(boundaries=boundaries):
+                entry = parse_tasks(
+                    "- [ ] T001 Canonical changed-path hints\n"
+                    f"  - **Boundaries**: {boundaries}\n"
+                )[0]
+                self.assertEqual(entry.changed_path_hints, ("src/change.py",))
+                has_gap = any(gap.startswith("ambiguous changed-path wording:") for gap in entry.gaps)
+                self.assertEqual(has_gap, ambiguous)
+
     def test_unsupported_path_shorthand_is_a_gap(self) -> None:
         entries = parse_tasks(
             "- [ ] T001 Shorthand\n"

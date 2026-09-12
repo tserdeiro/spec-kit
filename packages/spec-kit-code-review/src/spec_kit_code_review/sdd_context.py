@@ -672,11 +672,10 @@ def _task_path_info(title: str, boundaries: str) -> tuple[tuple[str, ...], tuple
     gaps.extend(f"unsupported path shorthand: {item}" for item in shorthand.findall(title))
     gaps.extend(f"unsupported path shorthand: {item}" for item in shorthand.findall(boundaries))
     boundaries_clean = shorthand.sub("", boundaries)
-    action = re.compile(
-        r"\b(do not change|preserve|keep|protect|leave|change|changed|touch|modify|edit|update)\w*\b",
-        re.IGNORECASE,
-    )
+    action = re.compile(r"\b(do not change|preserve|keep|protect|leave|change|changed|touch|modify|edit|update)\b(?=\s|[:;,]|$)", re.IGNORECASE)
     actions = list(action.finditer(boundaries_clean))
+    if actions and _PATH_RE.search(boundaries_clean[: actions[0].start()]):
+        gaps.append(f"ambiguous changed-path wording: {boundaries_clean[: actions[0].start()].strip()}")
     if not actions and _PATH_RE.search(boundaries_clean):
         gaps.append(f"ambiguous changed-path wording: {boundaries_clean.strip()}")
     for index, match in enumerate(actions):
@@ -686,6 +685,4 @@ def _task_path_info(title: str, boundaries: str) -> tuple[tuple[str, ...], tuple
         if verb in {"preserve", "keep", "protect", "leave", "do not change"}:
             continue
         values.extend(clause_paths)
-        if not clause_paths and segment.strip():
-            gaps.append(f"ambiguous changed-path wording: {segment.strip()}")
     return tuple(dict.fromkeys(values)), tuple(dict.fromkeys(gaps))
