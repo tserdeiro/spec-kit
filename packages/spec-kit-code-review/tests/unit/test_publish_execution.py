@@ -562,6 +562,15 @@ if __name__ == "__main__":  # pragma: no cover - convenience for local runs
 
 
 class FrozenIntentTests(PublicationCase):
+    def test_redacted_intent_receipts_match_the_persisted_snapshot(self):
+        self.gh_state["pull_requests"]["128"]["body"] = "Example: ghp_" + "x" * 24
+        self._install_gh()
+        self.open_review()
+        self.assertNotIn("ghp_", (Path(self.session) / "session.json").read_text())
+        code, result = self.invoke_json("review", "--findings", str(self.findings_path), "--session", self.session)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["verdict"]["value"], "changes-requested")
+
     def test_live_pr_edits_do_not_replace_frozen_intent(self):
         self.open_review()
         self.gh_state["pull_requests"]["128"]["body"] = "Changed after review"

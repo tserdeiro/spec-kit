@@ -35,6 +35,7 @@ from typing import Any, Sequence
 
 from . import __version__
 from .errors import EXIT_ENGINE, AppError, Diagnostic
+from .redaction import redact_text
 
 
 SUFFIX_BYTES = 4  # 8 hexadecimal characters, per the contract's minimum
@@ -395,9 +396,8 @@ class Packet:
 def pr_metadata_digest(pull_request: Any | None) -> tuple[str, dict[str, Any]]:
     """Hash the mutable pull-request metadata separately from the packet.
 
-    A body can be edited at any moment without the candidate changing. Including
-    it in the packet's identity would make ``packet_sha256`` move without any of
-    the reviewed content moving -- which would make the determinism claim false.
+    PR edits never change candidate identity. The frozen intent inventory binds
+    this separate metadata version into the packet for reading receipts.
     """
 
     labels = getattr(pull_request, "labels", ()) or ()
@@ -514,7 +514,7 @@ def assemble(
         ]
         inventory = _context_inventory(review_scope, context_selection, sdd, block_truncations, candidate=candidate,
                                        per_source=source_limit, total=max_total_bytes, advisory=advisory,
-                                       intent_body=(metadata["title"] + "\n" + metadata["body"]) if pull_request else "",
+                                       intent_body=redact_text(metadata["title"] + "\n" + metadata["body"]) if pull_request else "",
                                        intent_version=metadata_digest, intent_selected=include_pr_body,
                                        intent_command="python3 -c " + shlex.quote('import json,sys; d=json.load(open(sys.argv[1]))["pr_intent"]; sys.stdout.write(d["title"]+"\\n"+d["body"])') + " " + shlex.quote(str(evidence_path).rstrip("/") + "/session.json"))
         summary = _inventory_summary(inventory)
