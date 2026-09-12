@@ -287,6 +287,28 @@ query IssueContext($id: String!) {
 """.strip()
 
 
+ISSUE_CONTEXTS_QUERY = """
+query IssueContexts($first: Int!, $after: String, $teamId: ID!, $numbers: [Float!]!) {
+  issues(
+    first: $first
+    after: $after
+    filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }
+  ) {
+    nodes {
+      id
+      identifier
+      title
+      description
+      url
+      branchName
+      team { id key name }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+""".strip()
+
+
 _ISSUE_BRANCH_FIELDS = """
 id
 identifier
@@ -848,6 +870,38 @@ class LinearClient:
                 else:
                     raise _schema_error("linear_native_branch", f"Linear response '{alias}' must be an object or null")
         return resolved
+
+    def resolve_issue_contexts(
+        self,
+        team_id: str,
+        identifiers: Sequence[str],
+    ) -> dict[str, RemoteIssueContext | None]:
+        """Read distinct Team Issue contexts in bounded connection reads."""
+
+        distinct = list(dict.fromkeys(identifiers))
+        if any(not isinstance(identifier, str) or not identifier for identifier in distinct):
+            raise ValueError("Issue identifiers must be non-empty strings")
+        numbers: list[int] = []
+        for identifier in distinct:
+            prefix, separator, suffix = identifier.rpartition("-")
+            if not separator or not prefix or not suffix.isascii() or not suffix.isdecimal():
+                raise ValueError("Issue identifiers must match TEAM-number")
+            numbers.append(int(suffix))
+        resolved: dict[str, RemoteIssueContext] = {}
+        for offset in range(0, len(distinct), MAX_PAGE_SIZE):
+            batch = distinct[offset : offset + MAX_PAGE_SIZE]
+            batch_numbers = numbers[offset : offset + MAX_PAGE_SIZE]
+            nodes = self.connection(
+                ISSUE_CONTEXTS_QUERY,
+                root_key="issues",
+                variables={"teamId": team_id, "numbers": [float(number) for number in batch_numbers]},
+            )
+            for node in nodes:
+                context = _remote_issue_context(node)
+                for identity in (context.id, context.identifier):
+                    if identity in batch:
+                        resolved[identity] = context
+        return {identifier: resolved.get(identifier) for identifier in distinct}
 
     def discover_projects(self, project_label_id: str) -> tuple[RemoteProject, ...]:
         """Discover every project under a repository label and its local graph."""
