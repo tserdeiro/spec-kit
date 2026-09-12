@@ -91,6 +91,20 @@ def select_context(sdd: SddContext, scope: ReviewScope) -> ContextSelection:
     """
     required: list[SourceRange] = []
     gaps: list[ScopeGap] = []
+    # A resolved feature scope has a spec and plan contract. Task scopes also
+    # require their ledger. Check that contract before iterating over available
+    # sources. ``SddContext.artifacts()`` intentionally omits absent files and would
+    # otherwise make a missing contract look like a deliberate exclusion.
+    for label, artifact in _obligatory_artifacts(sdd, scope):
+        if artifact is None or not artifact.text or not artifact.text.strip():
+            path = artifact.path if artifact is not None else f"specs/{scope.feature}/{label}.md"
+            gaps.append(
+                ScopeGap(
+                    "required_artifact_missing",
+                    f"required {label} artifact is missing or empty at {path}",
+                    (label, path),
+                )
+            )
     selected_ids = set(scope.task_ids)
     entries = {entry.identifier: entry for entry in sdd.task_entries}
     if scope.kind == "feature":
@@ -175,8 +189,15 @@ def select_context(sdd: SddContext, scope: ReviewScope) -> ContextSelection:
             matching: list[SourceRange] = []
             sections = _markdown_sections(artifact.text or "")
             for start, end, level, body in sections:
-                references = set(re.findall(r"\b(?:FR|NFR|SC)-\d+\b", body))
-                if not references or identifiers.intersection(references):
+                # References in prose do not establish ownership. A section
+                # without requirement identifiers in its heading is shared or
+                # structurally ambiguous, so retain it conservatively. Only a
+                # heading that explicitly names a requirement can prove that a
+                # section belongs to an unrelated requirement.
+                lines = body.splitlines()
+                heading = lines[0] if lines else ""
+                heading_references = _structural_heading_requirements(heading, level)
+                if not heading_references or identifiers.intersection(heading_references):
                     matching.append(SourceRange(artifact.path, start, end, "related requirement or shared contract section"))
             if matching:
                 required.extend(matching)
@@ -202,6 +223,25 @@ def select_context(sdd: SddContext, scope: ReviewScope) -> ContextSelection:
     return ContextSelection(tuple(required), selected, tuple(excluded), tuple(_unique_gaps(gaps)))
 
 
+def _obligatory_artifacts(sdd: SddContext, scope: ReviewScope) -> tuple[tuple[str, Any], ...]:
+    """Return the feature contract sources required by this resolved scope.
+
+    Short-path work is intentionally ledger-free and has no feature contract
+    obligation. A feature review may precede task generation, while task and
+    multi-task reviews require the ledger that identifies their task blocks.
+    """
+
+    if scope.kind == "short-path" or not scope.feature:
+        return ()
+    required = [
+        ("spec", sdd.spec),
+        ("plan", sdd.plan),
+    ]
+    if scope.kind in {"task", "multi-task"}:
+        required.append(("tasks", sdd.tasks))
+    return tuple(required)
+
+
 def _markdown_sections(text: str) -> tuple[tuple[int, int, int, str], ...]:
     lines = text.splitlines(keepends=True)
     fenced = _fence_mask(lines)
@@ -214,6 +254,19 @@ def _markdown_sections(text: str) -> tuple[tuple[int, int, int, str], ...]:
         end = headings[index + 1][0] - 1 if index + 1 < len(headings) else len(lines)
         sections.append((start, end, level, "".join(lines[start - 1:end])))
     return tuple(sections)
+
+
+def _structural_heading_requirements(heading: str, level: int) -> set[str]:
+    """Return requirement IDs only when a Markdown heading starts with one."""
+
+    if level <= 0:
+        return set()
+    title = re.sub(r"^\s*#{1,6}\s+", "", heading)
+    title = re.sub(r"^[*_`~\s]+", "", title)
+    first = re.match(r"(?:FR|NFR|SC)-\d+\b", title)
+    if first is None:
+        return set()
+    return set(re.findall(r"\b(?:FR|NFR|SC)-\d+\b", title))
 
 
 def _complement_ranges(path: str, total: int, selected: Sequence[SourceRange], reason: str) -> list[SourceRange]:
