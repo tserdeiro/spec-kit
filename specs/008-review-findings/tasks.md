@@ -60,13 +60,13 @@ closure; unchanged original bytes and blocking severity; no repeated engine anal
 
 ## Final phase: Cross-cutting verification
 
-- [ ] T004 Verify installed recovery and document the retry procedure in packages/spec-kit-code-review/scripts/conformance/review.sh
+- [x] T004 Verify installed recovery and document the retry procedure in packages/spec-kit-code-review/scripts/conformance/review.sh
   - **Traces**: FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007, SC-001, SC-002, SC-003, SC-004; outcome: an installed consumer completes a lossless correction with discoverable evidence and an exact retry procedure.
   - **Depends on**: T003
   - **Boundaries**: Extend the installed-consumer fixture in `scripts/conformance/review.sh`; update `commands/code-review.md`, package `README.md`, and affected packet guidance/goldens. Point static guidance to the generated catalog, show editing only invalid categories followed by the existing close command, and describe original/attempt evidence, explicit ambiguity diagnosis, and fresh-review recovery for substantive edits. Conformance exercises the installed launcher and generated guidance with valid reading receipts, original/corrected digests, a preserved blocker, a still-invalid attempt, unchanged engine-call count, and no GitHub writes. Preserve source-checkout Git state, upstream assets, package versions, and release authority.
   - **Evidence**: `bash packages/spec-kit-code-review/scripts/conformance/review.sh` -> installed rejection/correction/closure passes; `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests -q` -> package regressions pass; `git diff --check` -> clean. Record installed synthetic evidence separately from live agent execution.
   - **Delivery**: single PR (~240 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #139; installed-consumer conformance passed with synthetic engine/GitHub fixtures, separately from live independent task reviews. The complete package suite passed 964 tests and 612 subtests. Budget 112/400; diff check clean. Independent review of 560ae53 found no actionable defects: https://github.com/tserdeiro/spec-kit/pull/139#issuecomment-5647078899. All four CI checks passed on that implementation candidate; this final commit records completion only.
 
 ## Dependencies and stack order
 
