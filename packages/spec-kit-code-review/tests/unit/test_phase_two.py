@@ -55,8 +55,8 @@ class PhaseTwoCase(RunCommandCase):
             payload["coverage"] = coverage_for_session(self.repository, self.session)
         self.findings_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    def close(self, *extra: str) -> tuple[int, dict]:
-        return self.invoke_json("review", "--findings", str(self.findings_path), "--session", self.session, *extra)
+    def close(self, *extra: str, verbose: bool = True) -> tuple[int, dict]:
+        return self.invoke_json("review", "--findings", str(self.findings_path), "--session", self.session, *extra, verbose=verbose)
 
     def session_payload(self) -> dict:
         return json.loads((Path(self.session) / "session.json").read_text(encoding="utf-8"))
@@ -1038,3 +1038,97 @@ class RedactedSessionPathTests(PhaseTwoCase):
 
         self.assertEqual(code, 1, payload)
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
+
+
+COMPACT_OPEN_KEYS = {"schema_version", "code", "category", "message", "candidate", "session", "packet", "budget",
+                     "scope", "runtime", "warnings", "next"}
+COMPACT_CLOSE_KEYS = {"schema_version", "code", "category", "message", "candidate", "session", "verdict", "delivery",
+                      "coverage", "findings", "warnings", "next"}
+
+
+class CompactOutputTests(PhaseTwoCase):
+    """`--json` prints the compact document; the full one is on disk and behind `--verbose`."""
+
+    def test_the_open_document_is_compact_and_the_full_one_is_written(self) -> None:
+        # setUp opened this candidate verbosely; reopening reclaims it.
+        code, payload = self._phase_one(verbose=False)
+
+        self.assertEqual(code, EXIT_SUCCESS, payload)
+        self.assertEqual(set(payload), COMPACT_OPEN_KEYS)
+        self.assertEqual(set(payload["candidate"]), {"candidate_id", "head_commit", "merge_base", "base_branch", "pr_number", "repository"})
+        self.assertEqual(set(payload["session"]), {"path", "phase", "opened_at"})
+        self.assertEqual(set(payload["packet"]), {"path", "inventory_path", "bytes", "packet_sha256", "inventory_sha256", "truncations"})
+        self.assertIsInstance(payload["packet"]["truncations"], int)
+        self.assertEqual(payload["packet"]["path"], f"{payload['session']['path']}/review-packet.md")
+        self.assertEqual(payload["packet"]["inventory_path"], f"{payload['session']['path']}/context-inventory.json")
+        self.assertEqual(set(payload["budget"]), {"counted", "limit", "over_budget"})
+        self.assertIsInstance(payload["scope"]["included_count"], int)
+        self.assertTrue(payload["runtime"]["extension_version"])
+        self.assertTrue(all(item["severity"] != "info" for item in payload["warnings"]))
+        self.assertEqual(payload["next"]["findings_path"], f"{payload['session']['path']}/findings.json")
+        self.assertIn("--session", payload["next"]["close"])
+        self.assertLess(len(json.dumps(payload)), 4096)
+        full = json.loads((Path(payload["session"]["path"]) / "result-open.json").read_text(encoding="utf-8"))
+        self.assertLessEqual({"environment", "engine", "scope", "review_scope", "rules", "sdd", "budget", "packet", "diagnostics"}, set(full))
+
+    def test_the_close_document_is_compact_and_the_full_one_is_written(self) -> None:
+        self.write_findings(entry(severity="major"))
+
+        code, payload = self.close(verbose=False)
+
+        self.assertEqual(code, EXIT_SUCCESS, payload)
+        self.assertEqual(set(payload), COMPACT_CLOSE_KEYS)
+        self.assertEqual(set(payload["session"]), {"path", "phase"})
+        self.assertEqual(payload["verdict"], {"value": "no-blocking-findings", "blocking": 0, "inconclusive_causes": 0})
+        self.assertEqual(payload["delivery"]["decision"], "hold")
+        self.assertEqual(payload["delivery"]["reason"], "major")
+        self.assertEqual(payload["delivery"]["pending"], ["F001"])
+        self.assertEqual(payload["coverage"], {"complete": True, "uncovered": 0})
+        self.assertEqual(payload["findings"], {"count": 1, "discarded": 0, "path": f"{self.session}/findings.md"})
+        self.assertIn("F001", payload["next"])
+        self.assertLess(len(json.dumps(payload)), 4096)
+        full = json.loads((Path(self.session) / "result-close.json").read_text(encoding="utf-8"))
+        self.assertIn("publication_plan", full)
+        self.assertEqual(full["delivery"], payload["delivery"])
+
+    def test_verbose_keeps_the_full_shape(self) -> None:
+        _code, payload = self.close(verbose=True)
+
+        for key in ("engine", "packet_sha256", "rules_sha256", "discarded_findings", "diagnostics", "operations",
+                    "publication_plan", "coverage", "delivery", "human", "retryable"):
+            with self.subTest(key=key):
+                self.assertIn(key, payload)
+        self.assertIsInstance(payload["findings"], list)
+
+    def test_the_human_render_carries_the_delivery_line(self) -> None:
+        code, out, _ = self.invoke("review", "--findings", str(self.findings_path), "--session", self.session)
+
+        self.assertEqual(code, 1)
+        self.assertIn("VERDICT: changes-requested", out)
+        self.assertIn("DELIVERY: hold — fix F001 (blocking)", out)
+
+    def test_empty_findings_without_coverage_hold_as_inconclusive(self) -> None:
+        # The observed failure: an installed runtime presented `{"findings": []}`
+        # with no coverage envelope as a clean review.
+        self.write_findings(document={"findings": []})
+
+        code, payload = self.close(verbose=False)
+
+        self.assertEqual(code, 6, payload)
+        self.assertEqual(payload["verdict"]["value"], "inconclusive")
+        self.assertEqual(payload["delivery"]["decision"], "hold")
+        self.assertEqual(payload["delivery"]["reason"], "inconclusive")
+        self.assertEqual(payload["delivery"]["pending"], [])
+        self.assertFalse(payload["coverage"]["complete"])
+        self.assertIn("coverage_missing", payload["next"])
+
+    def test_a_clean_complete_review_proceeds(self) -> None:
+        self.write_findings(entry(severity="minor"))
+
+        code, payload = self.close(verbose=False)
+
+        self.assertEqual(code, EXIT_SUCCESS, payload)
+        self.assertEqual(payload["delivery"]["decision"], "proceed")
+        self.assertIsNone(payload["delivery"]["reason"])
+        self.assertFalse(payload["delivery"]["is_approval"])
+        self.assertIn("Mark the pull request ready", payload["next"])

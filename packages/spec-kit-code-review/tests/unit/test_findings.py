@@ -12,11 +12,14 @@ import hashlib
 import json
 import re
 import unittest
+
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from spec_kit_code_review.anchors import HunkMap, Hunk
 from spec_kit_code_review.errors import EXIT_USAGE, AppError
+from spec_kit_code_review.reporting import compact_open
+from spec_kit_code_review.verdict import delivery, derive
 from spec_kit_code_review.findings import (
     MAX_CONTENT_CHARS,
     MAX_FINDINGS,
@@ -252,6 +255,14 @@ class DocumentTests(unittest.TestCase):
                                 set(receipt),
                                 {"path", "version", "start_line", "end_line", "sha256", "assessment", "scope"},
                             )
+                    elif isinstance(document, dict) and "runtime" in document:
+                        # The compact open document, derived from a full one.
+                        expected = compact_open({"code": 0, "category": "ok", "message": ""}, extension_version="x")
+                        self.assertEqual(set(document), set(expected))
+                        for key in ("candidate", "session", "packet", "budget", "next"):
+                            self.assertEqual(set(document[key]), set(expected[key]), key)
+                    elif isinstance(document, dict) and "decision" in document:
+                        self.assertEqual(set(document), set(delivery([], derive([]))))
                     else:
                         self.fail(f"undocumented JSON fence shape in {relative}: {document!r}")
 

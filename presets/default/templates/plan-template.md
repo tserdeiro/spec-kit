@@ -44,6 +44,16 @@ before use, never guessed.
 | --- | --- | --- | --- |
 | [surface] | [owner] | [planned behavior] | [out-of-scope behavior] |
 
+**Contract verification**: before tasks are generated, verify the few
+uncertainties that change the architecture — identity selection,
+endpoints, transport, field shapes, error forms. Fixtures stay sanitized
+and name their provenance. An `assumed` row stays listed and is named in
+the first vertical task's evidence.
+
+| Integration or guarantee | Uncertainty that changes the design | Verified how | Status |
+| --- | --- | --- | --- |
+| [integration] | [what would change the design] | [official documentation, small reproduction against the native client, or sanitized fixture path] | [verified/assumed] |
+
 ## Technical decisions
 
 ### [Decision title]
@@ -62,6 +72,11 @@ before use, never guessed.
 - **Retry/idempotency**: [repeat behavior]
 - **Rollout**: [adoption sequence]
 - **Rollback**: [how to restore or stop without data loss]
+- **Guarantee boundaries**: for each hard guarantee (e.g. "preserve a
+  concurrently modified configuration"), the supported scenarios, the
+  rejected behaviors, the unavoidable limits, and the acceptance
+  evidence. A transactional mechanism plans write, recovery, and cleanup
+  from the start.
 
 ## Security and privacy
 
@@ -74,6 +89,14 @@ before use, never guessed.
 | [changed surface] | `[reproducible command]` | [FR/SC IDs] | [change / candidate close / CI] |
 
 Each task's Evidence line points at rows of this table.
+
+**Behavior families**: a cross-cutting requirement gets one row per path;
+a defect in one row means the whole family is reviewed before the next
+candidate.
+
+| Requirement | Path | Implemented in | Evidence |
+| --- | --- | --- | --- |
+| [cross-cutting FR] | [normal/error/recovery/cleanup] | [file] | [test] |
 
 ## Source layout
 
