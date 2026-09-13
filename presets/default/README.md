@@ -31,6 +31,27 @@ specify preset resolve tasks-template
 The three role bundles (`product`, `developer`, `reviewer`) install this preset
 for you; add it directly only when you want the templates without a role.
 
+## GitHub delivery diagnosis
+
+`speckit.doctor` observes the configured delivery base and the current remote
+snapshot of `NNN-slug` and `NNN-T###-slug` branches. It reports repository
+merge/deletion settings and effective force-push, merge, and cleanup guarantees
+as `compatible`, `incompatible`, `capability-unavailable`, or `unverified`.
+The snapshot does not certify future branches.
+
+Every gap includes the observed scope, evidence, cause, and a native action:
+enable `Allow merge commits` or `Automatically delete head branches`, protect
+shared branches from force pushes, or adjust an inherited/classic rule's scope
+while preserving checks, reviews, and bypass policy. Access and read failures
+name the required owner/access or retry action; an unavailable GitHub capability
+names the plan or administrator action. GitHub diagnosis is report-only even
+with `--fix`, and never changes remote settings.
+
+The installed preset test uses temporary consumers and a write-rejecting fake
+GitHub CLI, so its matrix is synthetic generated-asset and installed-runtime
+evidence. Live force-push rejection and ordered stack-merge acceptance remain
+reliability entry 23.
+
 ## Delivery base
 
 Set `trunk: <branch>` in `.specify/extensions/git/git-config.yml` when a
