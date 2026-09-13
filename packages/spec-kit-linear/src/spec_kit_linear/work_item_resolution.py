@@ -196,7 +196,7 @@ def _observations(payload: Mapping[str, object], team_key: str) -> tuple[str | N
             entry["_tracker"] = tracker
             observations.append(entry)
     if not observations:
-        raise _input("request must contain at least one observation")
+        return None, []
     return None, observations
 
 
@@ -259,7 +259,7 @@ def resolve_work_item(
     config_path: str | None = None,
     client_factory: Callable[[Credentials, str], LinearClient] | None = None,
 ) -> dict[str, object]:
-    """Resolve one Issue or ordered ``branch_names``/``pull_requests`` arrays."""
+    """Resolve one Issue or an ordered observation batch."""
     if not isinstance(payload, Mapping):
         raise _input("request must be a JSON object")
 
