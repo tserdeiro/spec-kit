@@ -13,6 +13,15 @@ import _common
 IDENTITY = github_delivery.RepositoryIdentity("github.com", "acme", "demo")
 
 
+def _graphql_queue(args: tuple[str, ...], method: str | None = None) -> SimpleNamespace:
+    assert args[:7] == ("api", "graphql", "--hostname", "github.com", "--method", "POST", "-f")
+    assert args[7] == "query=" + github_delivery._MERGE_QUEUE_QUERY
+    assert args[8:12] == ("-F", "owner=acme", "-F", "name=demo")
+    assert args[12:] == ("-F", "branch=" + args[-1].split("=", 1)[1])
+    queue = {"configuration": {"mergeMethod": method}} if method else None
+    return SimpleNamespace(returncode=0, stdout=json.dumps({"data": {"repository": {"mergeQueue": queue}}}), stderr="")
+
+
 def _repository_payload(**settings: object) -> str:
     return json.dumps({"nameWithOwner": "acme/demo", "url": "https://github.com/acme/demo", "defaultBranchRef": {"name": "main"}, **settings})
 
@@ -182,7 +191,7 @@ def test_detail_errors_keep_identity_and_plan_priority() -> None:
 
 @pytest.mark.parametrize(("malformed", "evidence"), [(False, "HTTP 429"), (True, "malformed page")])
 def test_partial_rule_pages_keep_prior_merge_and_cleanup_conflicts(tmp_path, monkeypatch, malformed: bool, evidence: str) -> None:
-    responses = iter((SimpleNamespace(returncode=0 if malformed else 1, stdout=json.dumps([[_active("required_linear_history")], [{"bad": True}] if malformed else {"message": "HTTP 429: Too Many Requests"}]), stderr="" if malformed else "HTTP 429"), SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""), SimpleNamespace(returncode=0 if malformed else 1, stdout=json.dumps([[_active("deletion")], [{"bad": True}] if malformed else {"message": "HTTP 429: Too Many Requests"}]), stderr="" if malformed else "HTTP 429"), SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr="")))
+    responses = iter((SimpleNamespace(returncode=0 if malformed else 1, stdout=json.dumps([[_active("required_linear_history")], [{"bad": True}] if malformed else {"message": "HTTP 429: Too Many Requests"}]), stderr="" if malformed else "HTTP 429"), SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""), _graphql_queue(("api", "graphql", "--hostname", "github.com", "--method", "POST", "-f", "query=" + github_delivery._MERGE_QUEUE_QUERY, "-F", "owner=acme", "-F", "name=demo", "-F", "branch=main")), SimpleNamespace(returncode=0 if malformed else 1, stdout=json.dumps([[_active("deletion")], [{"bad": True}] if malformed else {"message": "HTTP 429: Too Many Requests"}]), stderr="" if malformed else "HTTP 429"), SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""), _graphql_queue(("api", "graphql", "--hostname", "github.com", "--method", "POST", "-f", "query=" + github_delivery._MERGE_QUEUE_QUERY, "-F", "owner=acme", "-F", "name=demo", "-F", "branch=001-feature"))))
     monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))
     merge = rules.evaluate_merge("main", github_delivery._read_branch_rules(tmp_path, "main", identity=IDENTITY), _setting("mergeCommitAllowed"))
     assert merge.state == rules.INCOMPATIBLE and "required_linear_history" in merge.evidence and evidence in merge.evidence
@@ -236,6 +245,8 @@ def test_diagnose_preserves_merge_uncertainty_when_ruleset_detail_is_denied(tmp_
 
     def fake_gh(*args: str, cwd=None):
         endpoint = args[-1]
+        if args[:2] == ("api", "graphql"):
+            return _graphql_queue(args)
         if args[:3] == ("repo", "view", "--json"):
             return SimpleNamespace(returncode=0, stdout=_repository_payload(deleteBranchOnMerge=True, mergeCommitAllowed=True), stderr="")
         if endpoint == "repos/acme/demo/branches?per_page=100":
@@ -293,6 +304,8 @@ def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, 
 
     def fake_gh(*args: str, cwd=None):
         calls.append(args)
+        if args[:2] == ("api", "graphql"):
+            return _graphql_queue(args)
         if args[:3] == ("repo", "view", "--json"):
             return SimpleNamespace(returncode=0, stdout=_repository_payload(deleteBranchOnMerge=True, mergeCommitAllowed=True), stderr="")
         if args[-1] == "repos/acme/demo/branches?per_page=100":
@@ -319,7 +332,11 @@ def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, 
     assert github_delivery._read_branch_rules(tmp_path, "001-feature", identity=IDENTITY).complete
     assert rules.evaluate_force_push("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature", identity=IDENTITY)).cause == "missing-configuration"
     assert "Organization acme ruleset 7" in github_delivery.render(_settings, findings)
-    assert all(call[1:3] == ("--hostname", "github.com") and call[3:5] == ("--method", "GET") for call in calls[1:])
+    assert all(
+        (call[:2] == ("api", "graphql") and call[4:6] == ("--method", "POST"))
+        or (call[1:3] == ("--hostname", "github.com") and call[3:5] == ("--method", "GET"))
+        for call in calls[1:]
+    )
 
 
 def test_transport_failures_keep_distinct_causes_and_malformed_pages_unknown(tmp_path, monkeypatch) -> None:
@@ -327,8 +344,10 @@ def test_transport_failures_keep_distinct_causes_and_malformed_pages_unknown(tmp
         SimpleNamespace(returncode=1, stdout="", stderr="transport failed on page 2"),
         SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found"),
         SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""),
+        _graphql_queue(("api", "graphql", "--hostname", "github.com", "--method", "POST", "-f", "query=" + github_delivery._MERGE_QUEUE_QUERY, "-F", "owner=acme", "-F", "name=demo", "-F", "branch=main")),
         SimpleNamespace(returncode=1, stdout="", stderr="branch not found"),
         SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""),
+        _graphql_queue(("api", "graphql", "--hostname", "github.com", "--method", "POST", "-f", "query=" + github_delivery._MERGE_QUEUE_QUERY, "-F", "owner=acme", "-F", "name=demo", "-F", "branch=main")),
         SimpleNamespace(returncode=0, stdout='[[{"name":"main"}], {}]', stderr=""),
     ))
     monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))
@@ -349,3 +368,96 @@ def test_trunk_resolution_failure_does_not_leak_raw_stderr(tmp_path, monkeypatch
     assert captured.err == ""
     assert "github_pat_synthetic" not in captured.out
     assert findings[0][1].cause == "trunk-unresolved"
+
+
+@pytest.mark.parametrize("method", ["SQUASH", "REBASE"])
+def test_classic_merge_queue_methods_conflict_with_merge_commits(method: str) -> None:
+    queue = rules.parse_classic_merge_queue({"mergeQueue": {"configuration": {"mergeMethod": method}}})
+    assert queue == rules.ClassicMergeQueue(True, True, method)
+    read = rules.RuleRead(True, classic=_complete_classic(required_linear_history=False, lock_branch=False), merge_queue=queue)
+    result = rules.evaluate_merge("main", read, _setting("mergeCommitAllowed"))
+    assert result.state == rules.INCOMPATIBLE
+    assert f"merge method={method}" in result.evidence
+    assert "classic merge queue" in result.next_action
+
+
+def test_classic_merge_queue_merge_stays_unverified_and_null_is_verified_absence() -> None:
+    classic = _complete_classic(required_linear_history=False, lock_branch=False)
+    merge = rules.parse_classic_merge_queue({"mergeQueue": {"configuration": {"mergeMethod": "MERGE"}}})
+    assert merge is not None
+    merge_result = rules.evaluate_merge("main", rules.RuleRead(True, classic=classic, merge_queue=merge), _setting("mergeCommitAllowed"))
+    assert merge_result.state == rules.UNVERIFIED
+    assert "queue interaction" in merge_result.evidence
+    absent = rules.parse_classic_merge_queue({"mergeQueue": None})
+    assert absent == rules.ClassicMergeQueue(True, False)
+    absent_result = rules.evaluate_merge("main", rules.RuleRead(True, classic=classic, merge_queue=absent), _setting("mergeCommitAllowed"))
+    assert absent_result.state == rules.COMPATIBLE
+
+
+@pytest.mark.parametrize(
+    ("payload", "cause"),
+    [
+        ({}, "hidden-fields"),
+        ({"mergeQueue": {"configuration": {}}}, "hidden-fields"),
+        ({"mergeQueue": []}, "malformed-response"),
+    ],
+)
+def test_classic_merge_queue_omitted_or_malformed_stays_unverified(tmp_path, monkeypatch, payload: dict[str, object], cause: str) -> None:
+    response = SimpleNamespace(returncode=0, stdout=json.dumps({"data": {"repository": payload}}), stderr="")
+    monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: response)
+    queue = github_delivery._read_classic_merge_queue(tmp_path, "main", IDENTITY)
+    assert not queue.complete and queue.cause == cause
+    result = rules.evaluate_merge(
+        "main",
+        rules.RuleRead(True, classic=_complete_classic(required_linear_history=False, lock_branch=False), merge_queue=queue),
+        _setting("mergeCommitAllowed"),
+    )
+    assert result.state == rules.UNVERIFIED and result.cause == cause
+
+
+def test_classic_merge_queue_malformed_errors_cannot_certify_null_queue(tmp_path, monkeypatch) -> None:
+    response = SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps({"data": {"repository": {"mergeQueue": None}}, "errors": {}}),
+        stderr="",
+    )
+    monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: response)
+    queue = github_delivery._read_classic_merge_queue(tmp_path, "main", IDENTITY)
+    assert not queue.complete and queue.enabled is False and queue.cause == "malformed-response"
+    result = rules.evaluate_merge(
+        "main",
+        rules.RuleRead(True, classic=_complete_classic(required_linear_history=False, lock_branch=False), merge_queue=queue),
+        _setting("mergeCommitAllowed"),
+    )
+    assert result.state == rules.UNVERIFIED and result.cause == "malformed-response"
+
+
+def test_classic_merge_queue_partial_data_keeps_confirmed_conflict_and_graphql_errors(tmp_path, monkeypatch) -> None:
+    response = SimpleNamespace(
+        returncode=1,
+        stdout=json.dumps({
+            "data": {"repository": {"mergeQueue": {"configuration": {"mergeMethod": "SQUASH"}}}},
+            "errors": [{"message": "queue field unavailable"}],
+        }),
+        stderr="",
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def fake_gh(*args: str, cwd=None):
+        calls.append(args)
+        return response
+
+    monkeypatch.setattr(github_delivery, "run_gh", fake_gh)
+    queue = github_delivery._read_classic_merge_queue(tmp_path, "main", IDENTITY)
+    assert not queue.complete and queue.enabled and queue.merge_method == "SQUASH"
+    assert queue.cause == "partial-read" and "queue field unavailable" in queue.evidence
+    result = rules.evaluate_merge(
+        "main",
+        rules.RuleRead(True, classic=_complete_classic(required_linear_history=False, lock_branch=False), merge_queue=queue),
+        _setting("mergeCommitAllowed"),
+    )
+    assert result.state == rules.INCOMPATIBLE
+    assert "SQUASH" in result.evidence and "queue field unavailable" in result.evidence
+    assert calls[0][:7] == ("api", "graphql", "--hostname", "github.com", "--method", "POST", "-f")
+    assert calls[0][7] == "query=" + github_delivery._MERGE_QUEUE_QUERY
+    assert calls[0][8:] == ("-F", "owner=acme", "-F", "name=demo", "-F", "branch=main")

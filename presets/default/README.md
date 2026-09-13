@@ -47,6 +47,11 @@ name the required owner/access or retry action; an unavailable GitHub capability
 names the plan or administrator action. GitHub diagnosis is report-only even
 with `--fix`, and never changes remote settings.
 
+Classic protection merge queues are observed with one fixed read-only GraphQL
+query. A verified null queue means no queue is configured; SQUASH and REBASE
+conflict with merge-commit delivery, while MERGE remains unverified until queue
+interaction is proven.
+
 The installed preset test uses temporary consumers and a write-rejecting fake
 GitHub CLI, so its matrix is synthetic generated-asset and installed-runtime
 evidence. Live force-push rejection and ordered stack-merge acceptance remain

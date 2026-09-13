@@ -15,6 +15,15 @@ SCRIPT = Path(github_delivery.__file__)
 IDENTITY = github_delivery.RepositoryIdentity("github.com", "acme", "demo")
 
 
+def _graphql_queue(args: tuple[str, ...], method: str | None = None) -> SimpleNamespace:
+    assert args[:2] == ("api", "graphql") and args[2] == "--hostname" and args[4:7] == ("--method", "POST", "-f")
+    assert args[7] == "query=" + github_delivery._MERGE_QUEUE_QUERY
+    assert args[8] == "-F" and args[9].startswith("owner=") and args[10] == "-F" and args[11].startswith("name=")
+    assert args[12:] == ("-F", "branch=" + args[-1].split("=", 1)[1])
+    queue = {"configuration": {"mergeMethod": method}} if method else None
+    return SimpleNamespace(returncode=0, stdout=json.dumps({"data": {"repository": {"mergeQueue": queue}}}), stderr="")
+
+
 def _repository_payload(**settings: object) -> str:
     return json.dumps({"nameWithOwner": "acme/demo", "url": "https://github.com/acme/demo", "defaultBranchRef": {"name": "main"}, **settings})
 
@@ -156,6 +165,8 @@ def test_enterprise_identity_controls_every_rest_read_and_freezes_default_branch
 
     def fake_gh(*args: str, cwd=None):
         calls.append(args)
+        if args[:2] == ("api", "graphql"):
+            return _graphql_queue(args)
         if args[:3] == ("repo", "view", "--json"):
             assert "--repo" not in args
             return SimpleNamespace(returncode=0, stdout=json.dumps({
@@ -180,7 +191,10 @@ def test_enterprise_identity_controls_every_rest_read_and_freezes_default_branch
     assert github_delivery.overall_result(settings, findings).state == github_delivery.COMPATIBLE
     assert "repository identity: compatible (observed ghe.example/acme/demo)" in github_delivery.render(settings, findings)
     assert len([call for call in calls if call[0] == "repo"]) == 1
-    assert all(call[1:3] == ("--hostname", "ghe.example") for call in calls if call[0] == "api")
+    assert all(
+        (call[1:3] == ("--hostname", "ghe.example") if call[1] != "graphql" else call[2:4] == ("--hostname", "ghe.example"))
+        for call in calls if call[0] == "api"
+    )
     assert all("{owner}" not in call[-1] and "{repo}" not in call[-1] for call in calls if call[0] == "api")
 
 
@@ -217,6 +231,8 @@ def test_configured_delivery_base_overrides_frozen_github_default(tmp_path: Path
 
     def fake_gh(*args: str, cwd=None):
         calls.append(args)
+        if args[:2] == ("api", "graphql"):
+            return _graphql_queue(args)
         if args[0] == "repo":
             return SimpleNamespace(returncode=0, stdout=_repository_payload(defaultBranchRef={"name": "main"}, deleteBranchOnMerge=True, mergeCommitAllowed=True), stderr="")
         endpoint = args[-1]
@@ -287,6 +303,8 @@ def test_diagnose_and_render_preserve_endpoint_causes(tmp_path: Path, monkeypatc
     def fake_gh(*args: str, cwd=None):
         calls.append(args)
         path = args[-1]
+        if args[:2] == ("api", "graphql"):
+            return _graphql_queue(args)
         if args[0] == "repo" and args[:3] != ("repo", "view", "--json"):
             raise AssertionError(args)
         if args[0] == "api" and args[1:3] != ("--hostname", "github.com"):
@@ -314,7 +332,12 @@ def test_diagnose_and_render_preserve_endpoint_causes(tmp_path: Path, monkeypatc
     assert github_delivery.render(*github_delivery.diagnose(tmp_path)) == report
     assert f"cause={cause}" in report
     assert any(result.state == state and result.cause == cause for result in (*settings.values(), *(result for _, result in findings)))
-    assert all(call[0] == "repo" or (call[1:3] == ("--hostname", "github.com") and call[3:5] == ("--method", "GET")) for call in calls)
+    assert all(
+        call[0] == "repo"
+        or (call[:2] == ("api", "graphql") and call[4:6] == ("--method", "POST"))
+        or (call[1:3] == ("--hostname", "github.com") and call[3:5] == ("--method", "GET"))
+        for call in calls
+    )
 
 
 def test_diagnose_sanitizes_error_text_in_rendered_report(tmp_path: Path, monkeypatch, capsys) -> None:
