@@ -42,11 +42,8 @@ overwrite consumer product decisions.
 
 Specifications MUST use stable requirement and success-criterion identifiers.
 Every executable task MUST record its outcome and traces, dependencies, changed
-or protected boundaries, reproducible evidence, `single` or `feature-chain`
-delivery strategy, and forecast agent-reviewed executable-code lines. A checked
-task means its completion evidence is present. Work above the 400-line internal
-agent-review budget MUST be split into dependency-ordered units whose individual
-forecasts fit that budget.
+or protected boundaries, reproducible evidence, and `single` or `feature-chain`
+delivery strategy. A checked task means its completion evidence is present.
 
 ## Delivery and safety constraints
 
@@ -85,4 +82,8 @@ human review. Version changes follow semantic versioning: MAJOR for principle
 removal or incompatible governance, MINOR for a new principle or material
 expansion, and PATCH for clarifications.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-22 | **Last Amended**: 2026-07-22
+**Version**: 1.1.1 | **Ratified**: 2026-07-22 | **Last Amended**: 2026-09-13
+
+Amendment 1.1.1 (2026-09-13): retired the 400-line review-budget requirement
+from Principle VI; the review engine's own scoped, per-hunk reading receipts
+replace it.

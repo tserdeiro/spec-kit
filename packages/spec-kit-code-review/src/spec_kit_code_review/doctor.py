@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -11,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import __version__
+from . import EXTENSION_ROOT, __version__
 from .config import (
     LOCAL_CONFIG_FILENAME,
     LOCAL_CONFIG_TEMPLATE,
@@ -78,7 +79,7 @@ def _speckit_requirement() -> tuple[tuple[str, ...], tuple[int, int] | None]:
     instead of ever failing hard.
     """
 
-    manifest = Path(__file__).resolve().parents[2] / "extension.yml"
+    manifest = EXTENSION_ROOT / "extension.yml"
     try:
         match = re.search(r'speckit_version:\s*"([^"]+)"', manifest.read_text(encoding="utf-8"))
     except OSError:
@@ -101,7 +102,23 @@ SPECKIT_VERSION_RANGE, SPECKIT_SUPPORTED_MAJOR_MINOR = _speckit_requirement()
 # The default rule set written by `--fix` when the repository has none.
 RULE_TEMPLATE = """\
 {
+  "include": [
+    "presets/**/*.md",
+    "packages/*/commands/**/*.md",
+    "packages/*/skills/**/*.md",
+    ".claude/skills/**/*.md",
+    ".agents/skills/**/*.md",
+    ".specify/templates/**/*.md",
+    ".specify/extensions/*/commands/**/*.md",
+    "**/tests/fixtures/**",
+    "**/testdata/**"
+  ],
   "rules": [
+    {
+      "path": "**/*.md",
+      "rule": "Review the Markdown as the executable procedure it is (agent commands, skills and templates): steps must be unambiguous, no instruction may contradict another, every command it tells the agent to run must exist with those exact flags, and no instruction may grant approval or merge authority.",
+      "merge_system_rule": false
+    },
     {
       "path": "**/*",
       "rule": "Review against the repository's engineering principles: the simplest implementation that fully meets the current requirement; no compatibility layers, fallbacks or migrations; no speculative abstraction or configuration; reuse what is already installed. Before asking for an edge case, ask whether the mechanism is needed at all. Report over-engineering and speculative abstraction as major findings and any new runtime dependency as a blocking finding. Cite the exact lines that support each finding.",
@@ -236,8 +253,55 @@ def _check_runtime(options: DoctorOptions) -> GroupResult:
         result.error(EXIT_PREREQUISITE, Diagnostic("uv_missing", "install uv before using this extension"))
     else:
         result.info("uv", "uv found on PATH")
-    result.info("extension_version", f"spec-kit-code-review {__version__}")
+    result.info("extension_version", f"spec-kit-code-review {__version__}", str(EXTENSION_ROOT))
+    drift = source_drift(options.root, runtime_root=EXTENSION_ROOT, runtime_version=__version__)
+    if drift is not None:
+        result.warn(drift)
     return result
+
+
+# This repository dogfoods its own distribution: the installed copy lags the
+# source between publications, and a review must never pass for a gate the
+# running copy does not have yet. A consumer without the source tree has
+# nothing to compare.
+SOURCE_PACKAGE_PATH = Path("packages/spec-kit-code-review")
+SOURCE_MODULE_PATH = Path("src/spec_kit_code_review")
+_MANIFEST_VERSION = re.compile(r"^\s+version:\s*\"?([^\"\s]+)\"?\s*$", re.MULTILINE)
+
+
+def source_drift(root: Path, *, runtime_root: Path, runtime_version: str) -> Diagnostic | None:
+    """Warn when the running extension differs from the source tree beside it."""
+
+    source_root = root / SOURCE_PACKAGE_PATH
+    manifest = source_root / "extension.yml"
+    if not manifest.is_file() or source_root.resolve() == runtime_root.resolve():
+        return None
+    try:
+        manifest_text = manifest.read_text(encoding="utf-8")
+    except OSError:
+        manifest_text = None
+    match = _MANIFEST_VERSION.search(manifest_text) if manifest_text is not None else None
+    source_version = match.group(1) if match else "unknown"
+    if source_version == runtime_version and _tree_digest(source_root) == _tree_digest(runtime_root):
+        return None
+    return Diagnostic(
+        "runtime_source_drift",
+        f"the running extension ({runtime_version} at {runtime_root}) differs from the source "
+        f"({source_version} at {source_root}); publish and run `specify bundle update --all`, "
+        f"or reinstall the source with `specify extension add {SOURCE_PACKAGE_PATH} --dev`",
+        str(runtime_root),
+        severity="warning",
+    )
+
+
+def _tree_digest(root: Path) -> str:
+    """One digest over the sorted ``*.py`` modules of an extension tree."""
+
+    digest = hashlib.sha256()
+    for path in sorted((root / SOURCE_MODULE_PATH).glob("*.py")):
+        digest.update(path.name.encode("utf-8"))
+        digest.update((sha256_file(path) or "").encode("utf-8"))
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)

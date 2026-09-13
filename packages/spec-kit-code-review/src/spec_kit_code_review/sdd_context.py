@@ -58,8 +58,6 @@ _PR_EVIDENCE_RE = re.compile(
     r"spec\s*kit\s*evidence.{0,200}?(?P<feature>\d{3}[A-Za-z0-9._-]*)",
     re.IGNORECASE | re.DOTALL,
 )
-_FORECAST_RE = re.compile(r"forecast[^0-9]{0,20}(?P<lines>\d+)", re.IGNORECASE)
-_DELIVERY_FORECAST_RE = re.compile(r"(?:forecast|authored|PR)[^0-9]{0,20}(?P<lines>\d+)", re.IGNORECASE)
 _STRATEGY_RE = re.compile(r"\b(?P<strategy>single|feature-chain)\b", re.IGNORECASE)
 # A repository-relative path as a task would write it: at least one slash, and a
 # file extension, so ordinary prose ("feature-chain", "PR strategy") is not read
@@ -76,7 +74,6 @@ _FIELD_NAMES = {
     "boundaries": "boundaries",
     "evidence": "evidence",
     "delivery": "delivery",
-    "delivery forecast": "delivery",
     "completion evidence": "completion_evidence",
 }
 _REQUIRED_FIELDS = ("traces", "dependencies", "boundaries", "evidence", "delivery", "completion_evidence")
@@ -170,7 +167,6 @@ class TaskEntry:
     identifier: str
     title: str
     done: bool
-    forecast: int | None
     strategy: str | None
     referenced_paths: tuple[str, ...] = ()
     reached: bool = False
@@ -195,7 +191,6 @@ class TaskEntry:
             "id": self.identifier,
             "title": self.title,
             "done": self.done,
-            "forecast": self.forecast,
             "pr_strategy": self.strategy,
             "referenced_paths": list(self.referenced_paths),
             "reached": self.reached,
@@ -261,13 +256,6 @@ class SddContext:
         candidates = (self.spec, self.plan, self.tasks, *self.bug_artifacts)
         return any(artifact is not None and artifact.present for artifact in candidates)
 
-    @property
-    def forecast_total(self) -> int | None:
-        """The declared line forecast of the candidate's tasks, when any said so."""
-
-        declared = [entry.forecast for entry in self.task_entries if entry.forecast is not None]
-        return sum(declared) if declared else None
-
     def artifacts(self) -> tuple[Artifact, ...]:
         found = [self.constitution, self.feature_json]
         found.extend(item for item in (self.spec, self.plan, self.tasks) if item is not None)
@@ -289,7 +277,6 @@ class SddContext:
             "task_entries": [entry.as_dict() for entry in self.task_entries],
             "requirement_ids": list(self.requirement_ids),
             "checklist_summary": dict(self.checklist_summary),
-            "forecast_total": self.forecast_total,
         }
 
 
@@ -609,11 +596,7 @@ def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
         block = "".join(lines[start - 1 : end])
         title = match.group("title").strip()
         fields = _task_fields(lines[start - 1 : end], fence_mask[start - 1 : end])
-        forecast_match = _FORECAST_RE.search(title)
         delivery = fields.get("delivery")
-        if forecast_match is None:
-            forecast_match = _DELIVERY_FORECAST_RE.search(delivery or "")
-        forecast = int(forecast_match.group("lines")) if forecast_match else None
         strategy = _STRATEGY_RE.search(title) or _STRATEGY_RE.search(delivery or "")
         paths, path_gaps = _task_path_info(title, fields.get("boundaries", ""))
         identifier = match.group("id")
@@ -638,7 +621,6 @@ def parse_tasks(text: str) -> tuple[TaskEntry, ...]:
                 identifier=identifier,
                 title=title,
                 done=match.group("done").lower() == "x",
-                forecast=forecast,
                 strategy=strategy.group("strategy").lower() if strategy else None,
                 referenced_paths=paths,
                 source_start=start,
