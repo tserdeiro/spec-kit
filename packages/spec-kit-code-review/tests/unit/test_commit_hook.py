@@ -342,13 +342,13 @@ class NativeHookTests(unittest.TestCase):
         hook.write_text(f"#!/bin/sh\n{HOOK_COMMAND.replace('sh ', 'bash ', 1)}\n", encoding="utf-8")
         self.assertIn("git_hooks_duplicate", {item.code for item in hook_diagnostics(self.root, self.git)})
 
-    def test_husky_user_hook_manual_validator_is_detected_without_editing_manager_files(self) -> None:
-        self._native("config", "set", "core.hooksPath", ".husky/_")
-        dispatcher = self.root / ".husky/_/commit-msg"
+    def test_husky_custom_root_manual_validator_is_detected_without_editing_manager_files(self) -> None:
+        self._native("config", "set", "core.hooksPath", ".githooks/_")
+        dispatcher = self.root / ".githooks/_/commit-msg"
         dispatcher.parent.mkdir(parents=True, exist_ok=True)
         dispatcher.write_text('#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n', encoding="utf-8")
         dispatcher.chmod(0o751)
-        user_hook = self.root / ".husky/commit-msg"
+        user_hook = self.root / ".githooks/commit-msg"
         user_hook.write_text(f"#!/bin/sh\n{HOOK_COMMAND} \"$1\"\n", encoding="utf-8")
         user_hook.chmod(0o751)
         config = self.root / ".git/config"
@@ -365,7 +365,7 @@ class NativeHookTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(dispatcher.stat().st_mode), 0o751)
         self.assertEqual(stat.S_IMODE(user_hook.stat().st_mode), 0o751)
 
-    def test_lefthook_config_manual_validator_is_detected_without_editing_dispatcher(self) -> None:
+    def test_hidden_lefthook_config_manual_validator_is_detected_without_editing_dispatcher(self) -> None:
         dispatcher = self.root / ".git/hooks/commit-msg"
         dispatcher.parent.mkdir(parents=True, exist_ok=True)
         dispatcher.write_text(
@@ -373,7 +373,7 @@ class NativeHookTests(unittest.TestCase):
             encoding="utf-8",
         )
         dispatcher.chmod(0o751)
-        config = self.root / "lefthook.yml"
+        config = self.root / ".lefthook.yml"
         config.write_text(
             "commit-msg:\n  jobs:\n    - name: Spec Kit\n      run: sh .specify/extensions/code-review/scripts/bash/commit-msg.sh {1}\n",
             encoding="utf-8",
@@ -385,6 +385,67 @@ class NativeHookTests(unittest.TestCase):
         self.assertIn("git_hooks_duplicate", {item.code for item in repair.diagnostics})
         self.assertEqual(config.read_bytes(), before)
         self.assertEqual(dispatcher.read_bytes(), dispatcher_before)
+
+    def test_lefthook_pre_push_validator_is_not_a_commit_duplicate(self) -> None:
+        dispatcher = self.root / ".git/hooks/commit-msg"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text(
+            '#!/bin/sh\ncall_lefthook() { lefthook "$@"; }\ncall_lefthook run "commit-msg" "$@"\n',
+            encoding="utf-8",
+        )
+        dispatcher.chmod(0o751)
+        config = self.root / ".lefthook.yml"
+        config.write_text(
+            "commit-msg:\n  jobs:\n    - name: ordinary\n      run: echo hook\n"
+            "pre-push:\n  jobs:\n    - name: validator\n      run: "
+            f"{HOOK_COMMAND} .git/COMMIT_EDITMSG\n",
+            encoding="utf-8",
+        )
+        observation = observe_native_hook(self.root, self.git)
+        self.assertEqual(observation.state, "missing")
+        self.assertNotIn("git_hooks_duplicate", {item.code for item in hook_diagnostics(self.root, self.git)})
+        repair = install_native_hook(self.root, self.git)
+        self.assertEqual(repair.diagnostics, ())
+        self.assertEqual(observe_native_hook(self.root, self.git).state, "installed")
+
+    def test_unknown_lefthook_config_refuses_unverified_repair(self) -> None:
+        dispatcher = self.root / ".git/hooks/commit-msg"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text(
+            '#!/bin/sh\ncall_lefthook() { lefthook "$@"; }\ncall_lefthook run "commit-msg" "$@"\n',
+            encoding="utf-8",
+        )
+        dispatcher.chmod(0o751)
+        custom = self.root / "lefthook.custom.yml"
+        custom.write_text(
+            "commit-msg:\n  jobs:\n    - name: validator\n      run: "
+            f"{HOOK_COMMAND} {{1}}\n",
+            encoding="utf-8",
+        )
+        config = self.root / ".git/config"
+        before = config.read_bytes()
+        diagnostics = hook_diagnostics(self.root, self.git)
+        self.assertIn("git_hooks_manager_unverifiable", {item.code for item in diagnostics})
+        repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_manager_unverifiable", {item.code for item in repair.diagnostics})
+        self.assertEqual(config.read_bytes(), before)
+
+    def test_missing_lefthook_config_override_refuses_unverified_repair(self) -> None:
+        dispatcher = self.root / ".git/hooks/commit-msg"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text(
+            '#!/bin/sh\ncall_lefthook() { lefthook "$@"; }\ncall_lefthook run "commit-msg" "$@"\n',
+            encoding="utf-8",
+        )
+        dispatcher.chmod(0o751)
+        config = self.root / ".git/config"
+        before = config.read_bytes()
+        with mock.patch.dict(os.environ, {"LEFTHOOK_CONFIG": "missing-lefthook.yml"}):
+            diagnostics = hook_diagnostics(self.root, self.git)
+            self.assertIn("git_hooks_manager_unverifiable", {item.code for item in diagnostics})
+            repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_manager_unverifiable", {item.code for item in repair.diagnostics})
+        self.assertEqual(config.read_bytes(), before)
 
     def test_unreadable_husky_user_hook_is_reported_before_repair(self) -> None:
         self._native("config", "set", "core.hooksPath", ".husky/_")
