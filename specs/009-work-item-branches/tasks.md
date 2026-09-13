@@ -80,13 +80,13 @@ one branch/PR and preserves commits; conflicting evidence prevents mutation.
 **Independent evidence**: Equivalent native-format cases agree across surfaces;
 feature/task-stack behavior and reviewer-only portability remain intact.
 
-- [ ] T005 [US3] Resolve native branch and PR observations before Linear projection in packages/spec-kit-linear/src/spec_kit_linear/work_items.py
+- [x] T005 [US3] Resolve native branch and PR observations before Linear projection in packages/spec-kit-linear/src/spec_kit_linear/work_items.py
   - **Traces**: FR-006, FR-007, FR-009, FR-010, SC-003, SC-004; outcome: canonical transient Issue identity drives existing lifecycle precedence.
   - **Depends on**: T004
   - **Boundaries**: Update `work_items.py`, `github.py`, `_observe` in `cli.py`, and focused tests to retain canonical PR linkage and native branch associations. Reuse T009 observation resolution and T004 affected identity evidence; retire obsolete recognition. Keep exact feature/task refs outside work items even with task Issue links. Preserve complete/failed/incomplete scan semantics and affected Issue state on unresolved/conflicting identity. Preserve all existing mutation restrictions.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> key-only, nested/user/title-based native names and changed suggestions derive correctly; uncertain scans, conflicts, and feature/task fixtures preserve expected state.
   - **Delivery**: single PR (~360 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #167; Linear suite 541 passed / 315 subtests, with 3 preexisting sandbox loopback skips; focused projection suites 154 passed / 103 subtests; `git diff --check` passed; budget 323/400. Fresh independent review of `b9d88425232c14bd2c7e988593adbf7944c411e9` closed with `no-blocking-findings`, 0 findings after coverage of native resolution, resolver failure preservation, conflict identities, independent resolution, exclusions, PR body linkage, and projection.
 
 - [ ] T006 [US3] Reuse native identity for session and hook context in packages/spec-kit-linear/src/spec_kit_linear/cli.py
   - **Traces**: FR-004, FR-006, FR-007, FR-008, FR-010, SC-003, SC-004; outcome: hooks identify native work items without selecting an unrelated active feature.

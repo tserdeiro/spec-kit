@@ -156,6 +156,50 @@ def _write_template_config(root: Path) -> None:
     (root / ROOT_CONFIG_FILENAME).write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
 
 
+_FIXTURE_NATIVE_IDENTITIES = {
+    "wor-123-fix-crash": "WOR-123",
+    "wor-1-fix": "WOR-1",
+    "WOR-2": "WOR-2",
+    "wor-3-chore": "WOR-3",
+    "wor-3": "WOR-3",
+    "wor-1-a": "WOR-1",
+    "wor-2-b": "WOR-2",
+    "WOR-41-bug": "WOR-41",
+    "WOR-42-chore": "WOR-42",
+    "WOR-7-work": "WOR-7",
+    "WOR-99-absent-from-prefix": "WOR-99",
+    "wor-999-typo": "WOR-999",
+}
+
+
+def _fixture_work_item_resolution(payload: dict[str, object], **_kwargs: object) -> dict[str, object]:
+    """Native resolver seam for CLI fixtures with explicit native results."""
+
+    observations: list[dict[str, object]] = []
+    branches = payload.get("branch_names", [])
+    pull_requests = payload.get("pull_requests", [])
+    assert isinstance(branches, list)
+    assert isinstance(pull_requests, list)
+    for branch in branches:
+        identifier = _FIXTURE_NATIVE_IDENTITIES.get(branch)
+        observations.append({
+            "status": "resolved" if identifier else "unresolved",
+            "resolution": {"identifier": identifier} if identifier else None,
+            "affected_issue_keys": [identifier] if identifier else [],
+        })
+    for value in pull_requests:
+        assert isinstance(value, dict)
+        branch = value["head_branch"]
+        assert isinstance(branch, str)
+        identifier = _FIXTURE_NATIVE_IDENTITIES.get(branch)
+        observations.append({
+            "status": "resolved" if identifier else "unresolved",
+            "resolution": {"identifier": identifier} if identifier else None,
+            "affected_issue_keys": [identifier] if identifier else [],
+        })
+    return {"status": "resolved", "observations": observations}
+
+
 @contextmanager
 def _fake_gh(*, installed: bool = True, returncode: int = 0, stdout: str = "[]"):
     """Answer for `gh` and nothing else.
@@ -209,6 +253,9 @@ class CliTestCase(unittest.TestCase):
     def setUp(self) -> None:
         isolate_operator_global_env(self)
         self.temporary, self.fixture_root = copy_consumer_fixture()
+        self._resolver_patch = patch("spec_kit_linear.cli.resolve_work_item", side_effect=_fixture_work_item_resolution)
+        self._resolver_patch.start()
+        self.addCleanup(self._resolver_patch.stop)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -1024,6 +1071,57 @@ class WorkItemTests(WorkStateTests):
 
     def _work_item_updates(self, payload: dict[str, object]) -> dict[str, str]:
         return {item["target"]: item["input"]["stateId"] for item in payload["operations"] if str(item["target"]).startswith("workitem:")}
+
+    def test_observation_passes_the_complete_branch_and_pr_boundary_to_native_resolver(self) -> None:
+        self._configure_lifecycle()
+        client = self._matching_client()
+        scan = PullRequestScan("complete", (PullRequest("old-title", False, "OPEN", 7, "## Work item\n\n- Tracker: Fixes WOR-1"),))
+        resolver_result = {
+            "status": "partial",
+            "observations": [
+                {"status": "unresolved", "resolution": None, "affected_issue_keys": []},
+                {"status": "unresolved", "resolution": None, "affected_issue_keys": []},
+            ],
+        }
+        with patch("spec_kit_linear.cli.resolve_work_item", return_value=resolver_result) as resolver:
+            code, _payload = self._observe_work_items(
+                ["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"],
+                client=client,
+                branches=("main",),
+                scan=scan,
+            )
+
+        self.assertEqual(code, 0)
+        resolver.assert_called_once_with(
+            {
+                "branch_names": ["main"],
+                "pull_requests": [
+                    {"head_branch": "old-title", "body": "## Work item\n\n- Tracker: Fixes WOR-1"}
+                ],
+            },
+            root=self.fixture_root.resolve(),
+            config_path=str((self.fixture_root / ROOT_CONFIG_FILENAME).resolve()),
+        )
+
+    def test_native_resolver_failure_is_returned_instead_of_becoming_an_empty_observation(self) -> None:
+        self._configure_lifecycle()
+        failure = AppError(
+            "Linear request was denied",
+            code=7,
+            category="graphql",
+            diagnostics=[Diagnostic("linear_denied", "Linear request was denied")],
+        )
+        client = self._matching_client()
+        with patch("spec_kit_linear.cli.resolve_work_item", side_effect=failure):
+            code, payload = self._observe_work_items(
+                ["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"],
+                client=client,
+                branches=("old-title",),
+            )
+
+        self.assertEqual(code, 7)
+        self.assertEqual(payload["category"], "graphql")
+        self.assertEqual(payload["diagnostics"][0]["code"], "linear_denied")
 
     def _matching_client(self, *work_items: RemoteWorkItem) -> _WorkItemClient:
         return _WorkItemClient((_matching_remote_project(self._desired()),), work_items=work_items)

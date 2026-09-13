@@ -7,12 +7,9 @@ never edits its title, description, labels, or assignee -- the only thing it
 projects is the Issue's *workflow state*, derived from exactly the same
 observable reality Stage 3 already derives task states from.
 
-The convention is the Issue key itself: a local or ``origin/`` branch named
-``<team key>-<number>``, optionally followed by ``-<suffix>``, references that
-Issue. ``wor-123-fix-crash``, ``WOR-45`` and ``Wor-45-x`` all reference the
-same team's Issues; the team key comes from the repository binding, never from
-a constant. The comparison is case-insensitive because Git branch names are
-conventionally lowercase while Linear Issue keys are uppercase.
+Identity comes from the native Linear resolver. A branch may use any valid
+native name, a user prefix, or an old title; textual branch conventions are
+only a resolver input and never a projection identity.
 
 The map is Stage 3's, minus the checkbox -- a bug has no `tasks.md` row:
 
@@ -32,7 +29,7 @@ started is never rewritten to "Todo" by a push.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .github import PullRequest, PullRequestScan
@@ -90,47 +87,66 @@ class WorkItemState:
 
 
 def derive_work_items(
-    team_key: str,
     *,
     branches: Sequence[str] = (),
     scan: PullRequestScan,
+    resolution: Mapping[str, object],
 ) -> tuple[WorkItemState, ...]:
-    """Derive every Issue key observed in ``branches`` or ``pull_requests``.
+    """Derive work items from the native resolver's ordered observations.
 
-    Both sources are matched with the same pattern and grouped by the
-    canonical ``<TEAM>-<number>`` identifier, so the branch and the PR that
-    share a name are one work item. The result is sorted by Issue number,
-    which is also the order `status` renders and `push` reconciles in.
+    The resolver owns identity. This function only joins each result back to
+    the corresponding branch or pull request and applies the existing
+    lifecycle precedence. Any unresolved or conflicting result protects every
+    Issue named by ``affected_issue_keys`` from a speculative update.
     """
 
-    pattern = issue_key_pattern(team_key)
-    pull_requests = scan.pull_requests
-    canonical = team_key.upper()
-    branches_by_key: dict[str, str] = {}
-    for name in branches:
-        match = pattern.fullmatch(name)
-        if match is not None:
-            branches_by_key.setdefault(f"{canonical}-{int(match.group(1))}", name)
-    pull_requests_by_key: dict[str, list[PullRequest]] = {}
-    for pull_request in pull_requests:
-        match = pattern.fullmatch(pull_request.head_branch)
-        if match is not None:
-            pull_requests_by_key.setdefault(f"{canonical}-{int(match.group(1))}", []).append(pull_request)
+    observations = resolution.get("observations")
+    if not isinstance(observations, list) or len(observations) != len(branches) + len(scan.pull_requests):
+        return ()
+
+    candidates: dict[str, list[tuple[str, object]]] = {}
+    blocked: dict[str, str] = {}
+    for index, observation in enumerate(observations):
+        if not isinstance(observation, Mapping):
+            continue
+        kind = "branch" if index < len(branches) else "pull_request"
+        observed = branches[index] if kind == "branch" else scan.pull_requests[index - len(branches)]
+        status = observation.get("status")
+        affected = observation.get("affected_issue_keys")
+        keys = tuple(key for key in affected if isinstance(key, str)) if isinstance(affected, list) else ()
+        if status == "excluded":
+            continue
+        if status != "resolved":
+            detail = observed if kind == "branch" else observed.head_branch
+            for key in keys:
+                blocked.setdefault(key, detail)
+            continue
+        resolution_context = observation.get("resolution")
+        identifier = resolution_context.get("identifier") if isinstance(resolution_context, Mapping) else None
+        if not isinstance(identifier, str) or not identifier:
+            detail = observed if kind == "branch" else observed.head_branch
+            for key in keys:
+                blocked.setdefault(key, detail)
+            continue
+        # A resolved observation may carry additional affected keys from an
+        # equivalent head. Those keys are evidence, not identities; only the
+        # canonical resolution is eligible for lifecycle derivation.
+        candidates.setdefault(identifier, []).append((kind, observed))
 
     derived: list[WorkItemState] = []
-    for identifier in set(branches_by_key) | set(pull_requests_by_key):
-        if scan.outcome != "complete":
-            derived.append(WorkItemState(identifier, None, "unknown", branches_by_key.get(identifier, "pull-request scan")))
+    identifiers = set(candidates) | set(blocked)
+    for identifier in identifiers:
+        if identifier in blocked or scan.outcome != "complete":
+            derived.append(WorkItemState(identifier, None, "unknown", blocked.get(identifier, "pull-request observation")))
             continue
-        # A closed-but-unmerged PR is not an observation about the work at all
-        # (`strongest_pull_request` drops it), so the branch decides -- exactly
-        # as it does for a task.
-        pull_request = strongest_pull_request(pull_requests_by_key.get(identifier, ()))
-        if pull_request is not None:
-            derived.append(WorkItemState(identifier, pull_request_state(pull_request), SOURCE_PULL_REQUEST, pull_request.head_branch, pull_request.number))
+        entries = candidates.get(identifier, ())
+        pull_requests = [observed for kind, observed in entries if kind == "pull_request"]
+        strongest = strongest_pull_request(pull_requests)
+        if strongest is not None:
+            derived.append(WorkItemState(identifier, pull_request_state(strongest), SOURCE_PULL_REQUEST, strongest.head_branch, strongest.number))
             continue
-        branch = branches_by_key.get(identifier)
-        if branch is not None:
+        branch = next((observed for kind, observed in entries if kind == "branch"), None)
+        if isinstance(branch, str):
             derived.append(WorkItemState(identifier, STATE_STARTED, SOURCE_BRANCH, branch))
     return tuple(sorted(derived, key=lambda item: int(item.identifier.rsplit("-", 1)[-1])))
 

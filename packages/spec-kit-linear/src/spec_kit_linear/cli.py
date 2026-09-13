@@ -59,6 +59,7 @@ from .reporting import observation_report, render_status_table, render_work_item
 from .view_discovery import conventional_view_name, resolve_shared_views_by_name
 from .work_items import WorkItemState, derive_work_items, issue_key_pattern, issue_numbers
 from .work_state import TaskWorkState, derive_task_states
+from .work_item_resolution import resolve_work_item
 
 
 EXIT_SUCCESS = 0
@@ -929,9 +930,10 @@ def _config_diff(before: Mapping[str, Any], after: Mapping[str, Any], *, prefix:
 
 def _observe(
     root: Path,
-    config: Mapping[str, Any],
     desired_states: tuple[DesiredState, ...],
     diagnostics: list[Diagnostic],
+    *,
+    native_config_path: Path,
 ) -> tuple[dict[str, TaskWorkState], tuple[WorkItemState, ...], PullRequestScan]:
     """Observe the repository once and derive everything that follows from it.
 
@@ -947,12 +949,23 @@ def _observe(
     scan = scan_pull_requests(root)
     diagnostics.extend(scan.diagnostics)
     branches = known_branches(root)
-    _team_id, team_key = team_binding(config)
+    resolution_payload = {
+        "branch_names": list(branches),
+        "pull_requests": [
+            {"head_branch": item.head_branch, "body": item.body}
+            for item in scan.pull_requests
+        ],
+    }
+    native_resolution = resolve_work_item(
+        resolution_payload,
+        root=root,
+        config_path=str(native_config_path),
+    )
     work_states = derive_task_states(
         desired_states, branches=branches, scan=scan
     )
     work_items = derive_work_items(
-        team_key, branches=branches, scan=scan
+        branches=branches, scan=scan, resolution=native_resolution
     )
     if scan.outcome != "complete":
         names = ", ".join(desired.feature.identifier for desired in desired_states) or "none"
@@ -1040,8 +1053,11 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
             diagnostics.append(_tasks_pending(feature_dir))
     desired_states = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
-    work_states, work_items, scan = _observe(root, config, desired_states, diagnostics)
     client = _linear_client()
+    work_states, work_items, scan = _observe(
+        root, desired_states, diagnostics,
+        native_config_path=shared_path,
+    )
     discovery = discover_and_adopt(client, config, desired_states)
     plans = [build_push_plan(desired, discovery, config=config, work_states=work_states) for desired in desired_states]
     # Work items are feature-independent by construction: they are observed
@@ -1213,8 +1229,11 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
             diagnostics.append(_tasks_pending(feature_dir))
     desired = tuple(projected)
     diagnostics.extend(load_dotenv_files(root))
-    work_states, work_items, scan = _observe(root, config, desired, diagnostics)
     client = _linear_client()
+    work_states, work_items, scan = _observe(
+        root, desired, diagnostics,
+        native_config_path=shared_path,
+    )
     discovery = discover_and_adopt(client, config, desired)
     for diagnostic in (item for feature in discovery.features for item in feature.drift):
         diagnostics.append(Diagnostic(diagnostic.code, diagnostic.message, diagnostic.path, severity="warning"))

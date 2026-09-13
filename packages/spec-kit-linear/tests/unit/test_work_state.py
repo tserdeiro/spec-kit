@@ -228,7 +228,7 @@ class PullRequestScanTests(unittest.TestCase):
 
     def test_a_successful_scan_reads_every_pull_request_in_one_call(self) -> None:
         payload = (
-            '[[{"number": 12, "head": {"ref": "001-T001-work"}, "draft": true, "state": "open", "merged_at": null}], '
+            '[[{"number": 12, "head": {"ref": "old-title"}, "draft": true, "state": "open", "merged_at": null, "body": "## Work item\\n\\n- Tracker: Fixes WOR-12"}], '
             '[{"number": 13, "head": {"ref": "001-T002"}, "draft": false, "state": "closed", "merged_at": "2026-01-01T00:00:00Z"}]]'
         )
 
@@ -236,8 +236,9 @@ class PullRequestScanTests(unittest.TestCase):
 
         self.assertEqual(scan.outcome, "complete")
         self.assertEqual(scan.diagnostics, ())
-        self.assertEqual([item.head_branch for item in scan.pull_requests], ["001-T001-work", "001-T002"])
+        self.assertEqual([item.head_branch for item in scan.pull_requests], ["old-title", "001-T002"])
         self.assertEqual([item.number for item in scan.pull_requests], [12, 13])
+        self.assertEqual(scan.pull_requests[0].body, "## Work item\n\n- Tracker: Fixes WOR-12")
         self.assertTrue(scan.pull_requests[0].is_draft)
         self.assertTrue(scan.pull_requests[1].is_merged)
         self.assertEqual(run.call_count, 1)
