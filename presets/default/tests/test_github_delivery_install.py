@@ -28,6 +28,8 @@ def _environment(tmp_path: Path, fake_bin: Path, calls: Path, case: str) -> dict
         "GH_CONFIG_DIR": os.fspath(isolated / "gh"),
         "GH_CALLS_LOG": os.fspath(calls),
         "GH_DELIVERY_CASE": case,
+        "GH_DELIVERY_HOST": "ghe.example" if case == "enterprise" else "github.com",
+        "GH_DELIVERY_REPO": "acme/demo",
         "PATH": os.pathsep.join((os.fspath(fake_bin), env.get("PATH", ""))),
         "PYTHONPATH": os.fspath(tmp_path / "empty-pythonpath"),
         "GIT_CONFIG_GLOBAL": "/dev/null",
@@ -86,6 +88,7 @@ def _consumer_config(consumer: Path) -> tuple[tuple[str, bytes], ...]:
         ("cleanup-blocked", 1, "cleanup [001-feature (feature)]: incompatible", "allow_deletions.enabled=false"),
         ("permission-denied", 1, "cause=insufficient-permissions", "repository or organization owner"),
         ("failed-read", 1, "cause=read-failure", "Retry the repository settings read"),
+        ("enterprise", 0, "Overall: compatible", "future branches are not certified"),
     ],
 )
 def test_installed_diagnosis_is_independent_and_read_only(
@@ -135,4 +138,5 @@ def test_installed_diagnosis_is_independent_and_read_only(
 
     observed_calls = [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()]
     assert observed_calls
-    assert all(call[:1] == ["repo"] or call[1:3] == ["--method", "GET"] for call in observed_calls)
+    expected_host = env["GH_DELIVERY_HOST"]
+    assert all(call[:1] == ["repo"] or (call[1:3] == ["--hostname", expected_host] and call[3:5] == ["--method", "GET"]) for call in observed_calls)
