@@ -759,3 +759,13 @@ class RuntimeSourceDriftTests(unittest.TestCase):
         self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.5.0", body="x = 2\n")
 
         self.assertEqual(self._drift().code, "runtime_source_drift")
+
+    def test_an_unreadable_manifest_degrades_to_unknown_instead_of_raising(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.5.0", body="x = 2\n")
+
+        with mock.patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+            diagnostic = self._drift()
+
+        self.assertIsNotNone(diagnostic)
+        self.assertEqual(diagnostic.code, "runtime_source_drift")
+        self.assertIn("(unknown at", diagnostic.message)

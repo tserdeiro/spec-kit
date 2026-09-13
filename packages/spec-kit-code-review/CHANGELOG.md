@@ -25,6 +25,8 @@
 - The packet's §3.2 rule-catalog pointer says `(not emitted)` instead of a
   digest for an empty string when the scope is empty and
   `raw/ocr-delegate-rule.stdout` was never written.
+- `doctor`'s source-drift check degrades to `unknown` instead of raising when
+  the source `extension.yml` exists but cannot be read.
 
 ## 0.5.0
 
