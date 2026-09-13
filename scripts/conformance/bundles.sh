@@ -649,7 +649,10 @@ elif args and args[0] == "check-ref-format":
     if os.environ.get("FAIL_COMMAND") == "git":
         print("forced git failure", file=sys.stderr)
         raise SystemExit(9)
-    raise SystemExit(subprocess.run([os.environ["REAL_GIT"], *args], check=False).returncode)
+    result = subprocess.run([os.environ["REAL_GIT"], *args], capture_output=True, text=True, check=False)
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    raise SystemExit(result.returncode)
 elif args and os.environ.get("FAIL_COMMAND") == args[0]:
     print(f"forced {args[0]} failure", file=sys.stderr)
     raise SystemExit(9)
@@ -819,11 +822,18 @@ switch_call() {
   json_argv switch -c wor-123-short-slug "origin/$1"
 }
 
+work_item_check_calls() {
+  json_argv check-ref-format --branch wor-123-short-slug
+  json_argv check-ref-format refs/heads/wor-123-short-slug
+}
+
 run_work_item_branch() {
   local github_default="$1"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
-    "$PYTHON" "$task_base_script" work-item wor-123-short-slug)
+    HOME="$consumer_root/.conformance/home" SPECKIT_LINEAR_CONFIG="" \
+    UV_PYTHON="$PYTHON" \
+    "$PYTHON" "$task_base_script" work-item wor-123 "Short slug")
 }
 
 # Configured trunk wins; no GitHub lookup happens.
@@ -831,7 +841,8 @@ set_config 'trunk: unused\n'
 reset_command_logs
 run_work_item_branch main >/dev/null || fail "trunk: work-item branch create failed"
 [ ! -s "$gh_calls" ] || fail "trunk: work-item branch queried GitHub although trunk was configured"
-[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch unused)
+[ "$(cat "$git_calls")" = "$(work_item_check_calls)
+$(json_argv check-ref-format --branch unused)
 $(json_argv fetch origin)
 $(switch_call unused)" ] ||
   fail "trunk: work-item branch used incorrect git argv for the configured base"
@@ -842,7 +853,8 @@ reset_command_logs
 run_work_item_branch 'default$(safe)' >/dev/null || fail "trunk: work-item branch create failed"
 [ "$(cat "$gh_calls")" = "$repo_view" ] ||
   fail "trunk: work-item branch did not resolve the GitHub default at runtime"
-[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')
+[ "$(cat "$git_calls")" = "$(work_item_check_calls)
+$(json_argv check-ref-format --branch 'default$(safe)')
 $(json_argv fetch origin)
 $(switch_call 'default$(safe)')" ] ||
   fail "trunk: work-item branch did not validate its fallback base"
