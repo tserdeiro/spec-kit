@@ -209,7 +209,9 @@ A corrected candidate is a new head, so it gets a new session and a new
 `findings.json`; nothing is copied from the previous session. Receipts are
 validated against the new head's bytes, so a receipt for a range whose bytes
 did not change may reuse its digest with the new head as `version`; every
-range the correction touched is read again. Read the delta with
+range the correction touched is read again. The coverage envelope names the
+new session's `candidate_id`, `packet_sha256` and `inventory_sha256`; a
+reused envelope is a mismatch and leaves the review inconclusive. Read the delta with
 `git diff <previous head>..<head>` in the materialized worktree, and take the
 previous session's `findings.md` as the list to verify: each earlier finding
 is fixed, or still open with the reason. The verdict is derived again from
