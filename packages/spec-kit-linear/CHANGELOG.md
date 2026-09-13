@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `status` names disabled lifecycle sync as `lifecycle sync disabled`, not a
+  misleading "id not configured", and agrees between `--json` and the text
+  table.
 - `status` shows the state each task's projection will write next to the
   derived state, with the reason when they differ (`review_state_id not
   configured`); `doctor` warns `review_state_missing` when lifecycle sync is
