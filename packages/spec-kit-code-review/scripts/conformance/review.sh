@@ -53,7 +53,7 @@ if ! uv sync --frozen --project "$repository_root" >/dev/null 2>&1; then
 fi
 
 mkdir -p "$consumer_root" "$engine_bin"
-git -C "$consumer_root" init --quiet
+git -C "$consumer_root" init --quiet --initial-branch=main
 git -C "$consumer_root" config user.email "conformance@example.invalid"
 git -C "$consumer_root" config user.name "Conformance"
 git -C "$consumer_root" config commit.gpgsign false
@@ -261,7 +261,7 @@ done
 # -- an advisory review of the working tree -----------------------------------
 
 git -C "$consumer_root" add --all
-git -C "$consumer_root" commit --quiet -m "consumer baseline"
+git -C "$consumer_root" commit --quiet -m "chore(review): consumer baseline"
 mkdir -p "$consumer_root/src"
 printf 'value = 1\n' >"$consumer_root/src/module.py"
 engine_state <<STATE
@@ -285,7 +285,7 @@ if find "$evidence_root" -name session.json | grep -q .; then
 fi
 
 git -C "$consumer_root" add --all
-git -C "$consumer_root" commit --quiet -m "baseline module"
+git -C "$consumer_root" commit --quiet -m "feat(review): baseline module"
 
 # -- an anchored review -------------------------------------------------------
 
@@ -294,7 +294,7 @@ printf 'value = 2\n' >"$consumer_root/src/module.py"
 mkdir -p "$consumer_root/docs"
 printf '# Guide\n' >"$consumer_root/docs/guide.md"
 git -C "$consumer_root" add --all
-git -C "$consumer_root" commit --quiet -m "candidate work"
+git -C "$consumer_root" commit --quiet -m "feat(review): candidate work"
 head_commit=$(git -C "$consumer_root" rev-parse HEAD)
 git -C "$consumer_root" switch --quiet main
 # Work in progress the review must never touch.
@@ -547,14 +547,14 @@ mkdir -p "$consumer_root/specs/007-review-context/checklists"
 printf '%s\n' '# Checklist' '' '- [x] CHK001 Context is available.' >"$consumer_root/specs/007-review-context/checklists/requirements.md"
 git -C "$consumer_root" add -f .specify/feature.json
 git -C "$consumer_root" add specs/007-review-context
-git -C "$consumer_root" commit --quiet -m "feature context baseline"
+git -C "$consumer_root" commit --quiet -m "chore(review): feature context baseline"
 context_base=$(git -C "$consumer_root" rev-parse HEAD)
 
 git -C "$consumer_root" switch --quiet --create 007-T008-installed-coverage
 mkdir -p "$consumer_root/src"
 printf '%s\n' 'late = True' >"$consumer_root/src/late.py"
 git -C "$consumer_root" add src/late.py
-git -C "$consumer_root" commit --quiet -m "late task candidate"
+git -C "$consumer_root" commit --quiet -m "feat(review): late task candidate"
 late_head=$(git -C "$consumer_root" rev-parse HEAD)
 
 engine_state <<STATE
@@ -616,7 +616,7 @@ done
 # task remains present after unrelated ledger growth and the packet stays bounded.
 printf '%s\n' 'shared = True' >"$consumer_root/src/shared.py"
 git -C "$consumer_root" add src/shared.py
-git -C "$consumer_root" commit --quiet -m "shared task candidate"
+git -C "$consumer_root" commit --quiet -m "feat(review): shared task candidate"
 multi_head=$(git -C "$consumer_root" rev-parse HEAD)
 engine_state <<STATE
 {
@@ -668,7 +668,7 @@ git -C "$consumer_root" switch --quiet context-base
 git -C "$consumer_root" switch --quiet --create 007-review-context
 printf '%s\n' 'full = True' >"$consumer_root/src/full.py"
 git -C "$consumer_root" add src/full.py
-git -C "$consumer_root" commit --quiet -m "complete feature candidate"
+git -C "$consumer_root" commit --quiet -m "feat(review): complete feature candidate"
 full_head=$(git -C "$consumer_root" rev-parse HEAD)
 engine_state <<STATE
 {"files": [{"path": "src/full.py"}], "rules": {"src/full.py": ["Validate every input."]}, "record_invocations": "$engine_log"}
@@ -689,7 +689,7 @@ printf '%s\n' '# Fix' '' 'Validate the bug input.' >"$consumer_root/.specify/bug
 printf '%s\n' '# Test' '' 'The regression test passes.' >"$consumer_root/.specify/bugs/fix-123/test.md"
 printf '%s\n' 'bug = fixed' >"$consumer_root/src/bug.py"
 git -C "$consumer_root" add .specify/bugs src/bug.py
-git -C "$consumer_root" commit --quiet -m "fix isolated bug"
+git -C "$consumer_root" commit --quiet -m "fix(review): isolated bug"
 bug_head=$(git -C "$consumer_root" rev-parse HEAD)
 engine_state <<STATE
 {"files": [{"path": "src/bug.py"}, {"path": ".specify/bugs/fix-123/assessment.md"}, {"path": ".specify/bugs/fix-123/fix.md"}, {"path": ".specify/bugs/fix-123/test.md"}], "rules": {"src/bug.py": ["Validate every input."]}, "record_invocations": "$engine_log"}

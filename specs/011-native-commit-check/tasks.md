@@ -54,13 +54,13 @@ relative order and rejection effect, with one Spec Kit invocation per commit.
   - **Delivery**: single PR (~290 authored lines)
   - **Completion evidence**: PR #159; native Git 2.54/2.55 matrix: 22 passed; doctor/CLI regression: 15 passed; consumer module origin verified; `git diff --check` clean; independent review of `0b48311` returned `no-blocking-findings`; committed budget 273/400.
 
-- [ ] T004 [US2] Verify consumer installation and manager coexistence in packages/spec-kit-code-review/scripts/conformance/commit-msg.sh
+- [x] T004 [US2] Verify consumer installation and manager coexistence in packages/spec-kit-code-review/scripts/conformance/commit-msg.sh
   - **Traces**: FR-002, FR-003, FR-004, FR-006, FR-007, FR-008, C-003, C-004, SC-001, SC-002, SC-003, SC-004; outcome: independently installed payloads validate real commits while Husky and Lefthook continue running unchanged.
   - **Depends on**: T003
   - **Boundaries**: Add the package conformance script and extend the existing fixture in `scripts/conformance/review.sh` where the new doctor diagnosis changes expectations. Install through the native pinned Specify extension path in a disposable consumer. Use real Git 2.54+ and exact recorded Husky/Lefthook fixture versions, installed only in temporary test locations. Exercise native/plain, Husky, and Lefthook arrangements, editor/file messages, two fixes, prior manager rejection and one validator invocation. Verify installed paths, absent source references, no agent events, and no OCR/network calls during commits. Run the existing review regression with its engine/GitHub fixtures; describe those as synthetic. Keep package versions and release authority unchanged.
   - **Evidence**: `bash packages/spec-kit-code-review/scripts/conformance/commit-msg.sh` -> real installed Git/manager matrix passes with versions and execution counts recorded; `bash packages/spec-kit-code-review/scripts/conformance/review.sh` -> existing installed synthetic review passes; `git diff --check` -> clean. Missing Git/manager acceptance prerequisites return an explicit failure with install instructions, not a silent skip or success.
   - **Delivery**: single PR (~300 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #161; installed native matrix: six combinations passed (Git 2.54/2.55, plain/Husky 9.1.7/Lefthook 2.1.12), eight validator calls for eight attempts per consumer; installed synthetic review passed; prerequisite failure visible with exit 4; `git diff --check` clean; independent review of `fee0b13` returned `no-blocking-findings`; committed budget 312/400.
 
 ## Final phase: Cross-cutting verification
 
