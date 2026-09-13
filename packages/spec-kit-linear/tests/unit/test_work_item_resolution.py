@@ -282,6 +282,12 @@ class WorkItemResolutionTests(unittest.TestCase):
         self.assertEqual(len(result["observations"]), 2)
         self.assertEqual(self.client.calls, [])
 
+    def test_empty_observation_batch_is_excluded_without_remote_reads(self) -> None:
+        result = self.resolve({"branch_names": [], "pull_requests": []})
+        self.assertEqual((result["category"], result["status"]), ("excluded", "excluded"))
+        self.assertEqual(result["observations"], [])
+        self.assertEqual(self.client.calls, [])
+
     def test_same_head_conflicting_pull_requests_keep_two_conflicts(self) -> None:
         payload = {
             "pull_requests": [

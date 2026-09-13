@@ -31,6 +31,8 @@ class PullRequest:
     # Defaulted so a caller that only needs derivation, not next_action's
     # command text, keeps constructing this unchanged.
     number: int | None = None
+    # The body is retained for canonical `Tracker: Fixes TEAM-number` linkage.
+    body: str = ""
 
     @property
     def is_merged(self) -> bool:
@@ -140,13 +142,16 @@ def _parse_pages(payload: str) -> tuple[PullRequest, ...] | None:
                 return None
             if not isinstance(is_draft, bool) or state not in ("open", "closed"):
                 return None
+            body = item.get("body")
+            if body is not None and not isinstance(body, str):
+                return None
             if merged_at is not None and (not isinstance(merged_at, str) or not merged_at):
                 return None
             if merged_at is not None and state != "closed":
                 return None
             if merged_at is not None:
                 state = "MERGED"
-            observed = PullRequest(head_branch=head_branch, is_draft=is_draft, state=state, number=number)
+            observed = PullRequest(head_branch=head_branch, is_draft=is_draft, state=state, number=number, body=body or "")
             previous = by_number.get(number)
             if previous is not None and previous != observed:
                 return None
