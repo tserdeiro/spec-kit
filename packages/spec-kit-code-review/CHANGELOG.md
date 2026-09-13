@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - The review budget is retired: `budget.py`, its config key, its seeded
   over-budget finding, its packet section, and its field in the session,
