@@ -163,6 +163,16 @@ def test_force_push_keeps_classic_evidence_when_rules_read_is_incomplete() -> No
     assert "page 2 failed" in result.evidence
 
 
+def test_detail_errors_keep_identity_and_plan_priority() -> None:
+    parsed = rules.parse_active_rules([[_active()], [_active(ident=8)]])
+    assert parsed is not None
+    errors = ((parsed[0].identity, ("rate-limited", "rate page")), (parsed[1].identity, ("plan-limitation", "plan page")))
+    result = rules.evaluate_force_push("main", rules.RuleRead(True, parsed, detail_errors=errors))
+    assert result.state == rules.CAPABILITY_UNAVAILABLE
+    assert result.cause == "plan-limitation"
+    assert "Organization acme ruleset 7" in result.evidence and "rate page" in result.evidence
+
+
 @pytest.mark.parametrize("evaluate", [rules.evaluate_force_push, rules.evaluate_merge, rules.evaluate_cleanup])
 def test_explicit_plan_limit_is_capability_unavailable_for_each_guarantee(evaluate) -> None:
     classic = rules.ClassicProtection(False, None, cause="plan-limitation", evidence="plan excludes this read")

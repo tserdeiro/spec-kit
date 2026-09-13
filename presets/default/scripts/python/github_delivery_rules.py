@@ -50,9 +50,7 @@ class RuleRead:
     evidence: str = ""
     classic: "ClassicProtection | None" = None
     details: tuple["RulesetDetail", ...] = ()
-    details_complete: bool = True
-    details_cause: str = ""
-    details_evidence: str = ""
+    detail_errors: tuple[tuple[tuple[str, str, int], tuple[str, str]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -269,8 +267,9 @@ def evaluate_force_push(branch: str, read: RuleRead) -> Result:
     for rule in active:
         detail = details.get(rule.identity)
         if detail is None:
-            cause = read.details_cause or "bypass-coverage-unobserved"
-            evidence = f"{rule.label()} bypass detail missing"
+            error = dict(read.detail_errors).get(rule.identity)
+            cause = error[0] if error else "bypass-coverage-unobserved"
+            evidence = f"{rule.label()} bypass detail unavailable: {error[1]}" if error else f"{rule.label()} bypass detail missing"
             if cause == "plan-limitation":
                 unavailable.append((cause, evidence, cause_action(cause, "ruleset detail")))
             else:
@@ -403,7 +402,10 @@ def _bypass_notes(rule: ActiveRule, details: dict[tuple[str, str, int], RulesetD
 def _detail_gap(rule: ActiveRule, read: RuleRead, details: dict[tuple[str, str, int], RulesetDetail], operation: str) -> tuple[str, str]:
     detail = details.get(rule.identity)
     if detail is None:
-        return f"{rule.label()} {operation} detail unavailable: {read.details_evidence or 'ruleset detail was not observed'}", read.details_cause or "bypass-coverage-unobserved"
+        error = dict(read.detail_errors).get(rule.identity)
+        cause = error[0] if error else "bypass-coverage-unobserved"
+        evidence = error[1] if error else "ruleset detail was not observed"
+        return f"{rule.label()} {operation} detail unavailable: {evidence}", cause
     if detail.enforcement != "active":
         return f"{detail.label()} enforcement changed to {detail.enforcement}", "ruleset-detail-mismatch"
     if detail.bypass_actors is None:

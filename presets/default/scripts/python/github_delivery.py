@@ -195,7 +195,6 @@ class _RemoteRead:
     evidence: str = ""
     documented_absence: bool = False
     next_action: str = ""
-    partial: bool = False
 
 
 def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
@@ -211,8 +210,7 @@ def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
             partial_payload = json.loads(result.stdout)
         except (json.JSONDecodeError, TypeError):
             partial_payload = None
-        partial = parse_page_collection(partial_payload) is not None or "page" in detail.lower()
-        return _RemoteRead(False, payload=partial_payload, cause=cause, evidence=detail, next_action=cause_action(cause, "GitHub API"), partial=partial)
+        return _RemoteRead(False, payload=partial_payload, cause=cause, evidence=detail, next_action=cause_action(cause, "GitHub API"))
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -248,7 +246,7 @@ def _read_inventory(repo_root: Path) -> _RemoteRead:
         return _RemoteRead(False, cause="github-cli-unavailable", evidence="gh was not found on PATH")
     read = _api_read(repo_root, "repos/{owner}/{repo}/branches?per_page=100")
     if not read.complete and read.cause == "read-failure":
-        return _RemoteRead(False, payload=read.payload, cause="partial-inventory", evidence=read.evidence, next_action="Retry the GitHub branch inventory after confirming access to repository metadata", partial=True)
+        return _RemoteRead(False, payload=read.payload, cause="partial-inventory", evidence=read.evidence, next_action="Retry the GitHub branch inventory after confirming access to repository metadata")
     return read
 
 
@@ -327,22 +325,19 @@ def _read_branch_rules(
         return RuleRead(False, cause=cause, evidence="effective branch rules had missing or invalid fields", classic=classic)
     cache = detail_cache if detail_cache is not None else {}
     details: list[RulesetDetail] = []
-    detail_errors: list[tuple[str, str]] = []
+    detail_errors: list[tuple[tuple[str, str, int], tuple[str, str]]] = []
     for rule in rules:
         detail, cause, evidence = _read_ruleset_detail(repo_root, rule, cache)
         if detail is not None:
             details.append(detail)
         else:
-            detail_errors.append((cause, evidence))
-    first_error = detail_errors[0] if detail_errors else ("", "")
+            detail_errors.append((rule.identity, (cause, evidence)))
     return RuleRead(
         True,
         rules=rules,
         classic=classic,
         details=tuple(details),
-        details_complete=not detail_errors,
-        details_cause=first_error[0],
-        details_evidence=first_error[1],
+        detail_errors=tuple(detail_errors),
     )
 
 
