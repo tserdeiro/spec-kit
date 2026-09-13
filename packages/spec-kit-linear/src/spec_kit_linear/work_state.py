@@ -72,9 +72,15 @@ def projected_state(lifecycle: Mapping[str, object] | None, state: str | None) -
     Returns ``(projected, reason)``: ``projected`` is the derived state
     itself when its id is configured, the fallback state when only that one
     is, or ``None`` when nothing will be written. ``reason`` names the
-    unconfigured id whenever ``projected`` is not ``state``.
+    unconfigured id whenever ``projected`` is not ``state``, unless the
+    consumer has no ``lifecycle`` section at all -- sync is off, so the
+    reason says that instead of naming a field that was never meant to
+    exist.
     """
 
+    if lifecycle is None:
+        fields = LIFECYCLE_FIELDS_BY_STATE.get(state, ())
+        return (None, None) if not fields else (None, "lifecycle sync disabled")
     configured = lifecycle if isinstance(lifecycle, Mapping) else {}
     fields = LIFECYCLE_FIELDS_BY_STATE.get(state, ())
     projected = next((_STATE_BY_LIFECYCLE_FIELD[field] for field in fields if isinstance(configured.get(field), str) and configured.get(field)), None)

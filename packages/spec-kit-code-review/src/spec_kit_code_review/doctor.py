@@ -258,7 +258,11 @@ def source_drift(root: Path, *, runtime_root: Path, runtime_version: str) -> Dia
     manifest = source_root / "extension.yml"
     if not manifest.is_file() or source_root.resolve() == runtime_root.resolve():
         return None
-    match = _MANIFEST_VERSION.search(manifest.read_text(encoding="utf-8"))
+    try:
+        manifest_text = manifest.read_text(encoding="utf-8")
+    except OSError:
+        manifest_text = None
+    match = _MANIFEST_VERSION.search(manifest_text) if manifest_text is not None else None
     source_version = match.group(1) if match else "unknown"
     if source_version == runtime_version and _tree_digest(source_root) == _tree_digest(runtime_root):
         return None

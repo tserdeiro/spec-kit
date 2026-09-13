@@ -882,8 +882,15 @@ def _raw_pointer(name: str, raw: str) -> str:
     The packet used to carry that output verbatim *and* its normalized form; the
     reviewer read both. The file on disk is what ``session.write_text`` wrote --
     the redacted text -- so the digest is taken over exactly that.
+
+    An absent/empty ``raw`` (e.g. ``ocr.py``'s ``delegate_rule`` on an empty
+    scope, which returns before ever calling ``on_raw``) means the file was
+    never written -- pointing at it with the sha256 of an empty string would
+    claim a digest for bytes that do not exist on disk.
     """
 
+    if not raw:
+        return f"- engine output: `raw/{name}` (not emitted)"
     encoded = redact_text(raw).encode("utf-8")
     return f"- engine output: `raw/{name}` (sha256 {hashlib.sha256(encoded).hexdigest()}, {len(encoded)} bytes)"
 

@@ -192,8 +192,8 @@ class ProjectedStateTests(unittest.TestCase):
         self.assertEqual(projected_state(lifecycle, STATE_REVIEW), (STATE_STARTED, "review_state_id not configured"))
 
     def test_no_lifecycle_section_projects_nothing(self) -> None:
-        self.assertEqual(projected_state(None, STATE_REVIEW), (None, "review_state_id not configured"))
-        self.assertEqual(projected_state(None, STATE_UNSTARTED), (None, "open_state_id not configured"))
+        self.assertEqual(projected_state(None, STATE_REVIEW), (None, "lifecycle sync disabled"))
+        self.assertEqual(projected_state(None, STATE_UNSTARTED), (None, "lifecycle sync disabled"))
 
     def test_an_unknown_state_projects_nothing_without_a_reason(self) -> None:
         self.assertEqual(projected_state(self.LIFECYCLE, None), (None, None))

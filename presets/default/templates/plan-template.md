@@ -48,7 +48,7 @@ before use, never guessed.
 uncertainties that change the architecture — identity selection,
 endpoints, transport, field shapes, error forms. Fixtures stay sanitized
 and name their provenance. An `assumed` row stays listed and is named in
-the first vertical task's evidence.
+the evidence of the first task that exercises that contract.
 
 | Integration or guarantee | Uncertainty that changes the design | Verified how | Status |
 | --- | --- | --- | --- |
