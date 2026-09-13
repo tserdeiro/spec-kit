@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import stat
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .errors import AppError, Diagnostic
@@ -351,19 +351,9 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
             return HookRepair(diagnostics=(Diagnostic("git_hooks_stale_snapshot", f"could not re-read Git config immediately before replacement: {error}; no hook changes were made, retry", str(observation.config_path)),))
         if late_snapshot != diagnosed_snapshot:
             return HookRepair(diagnostics=(Diagnostic("git_hooks_stale_snapshot", "Git configuration changed while preparing the repair; no hook changes were made, retry doctor", str(observation.config_path)),))
-        expected_replacement = _ConfigSnapshot(
-            True,
-            replacement_mode,
-            replacement_bytes,
-            True,
-            False,
-            replacement_status.st_dev,
-            replacement_status.st_ino,
-            diagnosed_snapshot.parent_device,
-            diagnosed_snapshot.parent_inode,
-            diagnosed_snapshot.parent_is_directory,
-            diagnosed_snapshot.parent_mode,
-            diagnosed_snapshot.parent_is_symlink,
+        expected_replacement = replace(
+            diagnosed_snapshot, exists=True, mode=replacement_mode, bytes=replacement_bytes, is_regular=True,
+            is_symlink=False, device=replacement_status.st_dev, inode=replacement_status.st_ino,
         )
         os.replace(temporary, observation.config_path)
         temporary = None
@@ -383,11 +373,7 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
             try:
                 current_parent = temporary.parent.lstat()
                 current_temporary = temporary.lstat()
-                if (
-                    (current_parent.st_dev, current_parent.st_ino)
-                    == (diagnosed_snapshot.parent_device, diagnosed_snapshot.parent_inode)
-                    and temporary_identity == (current_temporary.st_dev, current_temporary.st_ino)
-                ):
+                if (current_parent.st_dev, current_parent.st_ino) == (diagnosed_snapshot.parent_device, diagnosed_snapshot.parent_inode) and temporary_identity == (current_temporary.st_dev, current_temporary.st_ino):
                     temporary.unlink()
             except OSError:
                 pass
@@ -554,12 +540,15 @@ def _restore_config(path: Path, original: _ConfigSnapshot, expected: _ConfigSnap
             return False, f"could not remove the newly created config: {error}"
         return True, ""
     temporary: Path | None = None
+    temporary_identity: tuple[int, int] | None = None
     try:
         with tempfile.NamedTemporaryFile(prefix=f".{path.name}.speckit-restore-", dir=path.parent, delete=False) as handle:
             temporary = Path(handle.name)
             handle.write(original.bytes)
             handle.flush()
             os.fsync(handle.fileno())
+        status = temporary.lstat()
+        temporary_identity = (status.st_dev, status.st_ino)
         temporary.chmod(original.mode or 0o644)
         try:
             current = _config_snapshot(path)
@@ -575,6 +564,9 @@ def _restore_config(path: Path, original: _ConfigSnapshot, expected: _ConfigSnap
     finally:
         if temporary is not None:
             try:
-                temporary.unlink(missing_ok=True)
+                parent = temporary.parent.lstat()
+                status = temporary.lstat()
+                if (parent.st_dev, parent.st_ino) == (expected.parent_device, expected.parent_inode) and temporary_identity == (status.st_dev, status.st_ino):
+                    temporary.unlink()
             except OSError:
                 pass
