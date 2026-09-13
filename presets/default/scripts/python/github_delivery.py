@@ -15,6 +15,7 @@ from urllib.parse import quote, unquote, urlsplit
 from _common import delivery_base, run_gh
 from github_delivery_rules import (
     CAPABILITY_UNAVAILABLE,
+    ClassicMergeQueue,
     COMPATIBLE,
     INCOMPATIBLE,
     UNVERIFIED,
@@ -27,6 +28,7 @@ from github_delivery_rules import (
     evaluate_merge,
     parse_active_rules,
     parse_branch_page_items,
+    parse_classic_merge_queue,
     parse_classic_protection,
     parse_page_collection,
     parse_ruleset_detail,
@@ -39,6 +41,16 @@ _SETTINGS = (
     ("deleteBranchOnMerge", "Automatically delete head branches"),
     ("mergeCommitAllowed", "Allow merge commits"),
 )
+
+_MERGE_QUEUE_QUERY = """query ClassicMergeQueue($owner: String!, $name: String!, $branch: String!) {
+  repository(owner: $owner, name: $name) {
+    mergeQueue(branch: $branch) {
+      configuration {
+        mergeMethod
+      }
+    }
+  }
+}"""
 
 
 @dataclass(frozen=True)
@@ -99,6 +111,10 @@ def _remote_error(result: object) -> str:
         payload = None
     if isinstance(payload, dict) and isinstance(payload.get("message"), str):
         parts.append(_safe_detail(payload["message"]))
+    if isinstance(payload, dict) and isinstance(payload.get("errors"), list):
+        messages = [item.get("message") for item in payload["errors"] if isinstance(item, dict) and isinstance(item.get("message"), str)]
+        if messages:
+            parts.append(_safe_detail("; ".join(messages)))
     return "; ".join(part for part in parts if part and part != "no diagnostic detail") or "GitHub returned an unsuccessful response"
 
 
@@ -111,6 +127,8 @@ def _failure_cause(result: object, endpoint: str = "") -> str:
     except (json.JSONDecodeError, TypeError):
         payload = None
     message = payload.get("message", "") if isinstance(payload, dict) else ""
+    if isinstance(payload, dict) and isinstance(payload.get("errors"), list):
+        message = " ".join(item.get("message", "") for item in payload["errors"] if isinstance(item, dict) and isinstance(item.get("message"), str))
     text = (stderr[:2000] + " " + str(message)[:2000]).strip()
     if any(pattern.search(text) for pattern in _PLAN_PATTERNS):
         return "plan-limitation"
@@ -306,6 +324,62 @@ def _api_object_read(repo_root: Path, identity: RepositoryIdentity, endpoint: st
     return _RemoteRead(True, payload=payload)
 
 
+def _graphql_errors(payload: object) -> str:
+    if not isinstance(payload, dict) or "errors" not in payload:
+        return ""
+    if not isinstance(payload["errors"], list):
+        return "GraphQL errors member was malformed"
+    messages = [
+        item["message"] for item in payload["errors"]
+        if isinstance(item, dict) and isinstance(item.get("message"), str)
+    ]
+    return _safe_detail("; ".join(messages)) if messages else "GraphQL returned errors without messages"
+
+
+def _read_classic_merge_queue(repo_root: Path, branch: str, identity: RepositoryIdentity) -> ClassicMergeQueue:
+    """Read one fixed, read-only GraphQL queue document with bound variables."""
+    try:
+        result = run_gh(
+            "api", "graphql", "--hostname", identity.hostname, "--method", "POST",
+            "-f", f"query={_MERGE_QUEUE_QUERY}",
+            "-F", f"owner={identity.owner}", "-F", f"name={identity.repository}",
+            "-F", f"branch={branch}", cwd=repo_root,
+        )
+    except OSError as error:
+        return ClassicMergeQueue(False, None, cause="read-failure", evidence=_safe_detail(str(error)))
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError):
+        cause = _failure_cause(result) if result.returncode else "malformed-response"
+        return ClassicMergeQueue(False, None, cause=cause, evidence=_remote_error(result))
+    if not isinstance(payload, dict):
+        return ClassicMergeQueue(False, None, cause="malformed-response", evidence="GraphQL returned a non-object response")
+    data = payload.get("data")
+    repository = data.get("repository") if isinstance(data, dict) else None
+    errors = _graphql_errors(payload)
+    malformed_errors = "errors" in payload and not isinstance(payload["errors"], list)
+    if not isinstance(repository, dict):
+        cause = _failure_cause(result) if result.returncode else ("malformed-response" if malformed_errors else "partial-read" if errors else "hidden-fields")
+        return ClassicMergeQueue(False, None, cause=cause, evidence=errors or "GraphQL repository data was not observed")
+    queue = parse_classic_merge_queue(repository)
+    if queue is None:
+        has_queue = "mergeQueue" in repository
+        raw_queue = repository.get("mergeQueue")
+        missing_config = isinstance(raw_queue, dict) and (
+            "configuration" not in raw_queue
+            or not isinstance(raw_queue.get("configuration"), dict)
+            or "mergeMethod" not in raw_queue.get("configuration", {})
+        )
+        cause = "hidden-fields" if not has_queue or missing_config else "malformed-response"
+        return ClassicMergeQueue(False, None, cause=cause, evidence="GraphQL merge queue data had missing or invalid fields")
+    if errors or result.returncode:
+        cause = _failure_cause(result) if result.returncode else ("malformed-response" if malformed_errors else "partial-read")
+        if cause == "read-failure":
+            cause = "partial-read"
+        return ClassicMergeQueue(False, queue.enabled, queue.merge_method, cause, errors or _remote_error(result))
+    return queue
+
+
 def _read_inventory(repo_root: Path, identity: RepositoryIdentity) -> _RemoteRead:
     if shutil.which("gh") is None:
         return _RemoteRead(False, cause="github-cli-unavailable", evidence="gh was not found on PATH")
@@ -377,22 +451,23 @@ def _read_branch_rules(
     endpoint = f"{identity.encoded_path}/rules/branches/{quote(branch, safe='')}?per_page=100"
     read = _api_read(repo_root, identity, endpoint)
     classic = _read_classic_protection(repo_root, branch, identity)
+    merge_queue = _read_classic_merge_queue(repo_root, branch, identity)
     if not read.complete:
         rules = parse_active_rules(read.payload, partial=True) if read.payload is not None else ()
         cause = "partial-rules" if read.cause == "read-failure" else read.cause
-        return RuleRead(False, rules=rules or (), cause=cause, evidence=read.evidence, classic=classic)
+        return RuleRead(False, rules=rules or (), cause=cause, evidence=read.evidence, classic=classic, merge_queue=merge_queue)
     rules = parse_active_rules(read.payload)
     if rules is None:
         prefix = parse_active_rules(list(takewhile(lambda page: isinstance(page, list), read.payload)), partial=True) if isinstance(read.payload, list) else ()
         if prefix:
-            return RuleRead(False, rules=prefix, cause="malformed-response", evidence="effective branch rules had a malformed page", classic=classic)
+            return RuleRead(False, rules=prefix, cause="malformed-response", evidence="effective branch rules had a malformed page", classic=classic, merge_queue=merge_queue)
         pages = parse_page_collection(read.payload)
         missing = any(
             isinstance(item, dict) and any(name not in item for name in ("type", "ruleset_source_type", "ruleset_source", "ruleset_id"))
             for page in pages or () for item in page
         )
         cause = "hidden-fields" if missing else "malformed-response"
-        return RuleRead(False, cause=cause, evidence="effective branch rules had missing or invalid fields", classic=classic)
+        return RuleRead(False, cause=cause, evidence="effective branch rules had missing or invalid fields", classic=classic, merge_queue=merge_queue)
     cache = detail_cache if detail_cache is not None else {}
     details: list[RulesetDetail] = []
     detail_errors: list[tuple[tuple[str, str, int], tuple[str, str]]] = []
@@ -408,6 +483,7 @@ def _read_branch_rules(
         classic=classic,
         details=tuple(details),
         detail_errors=tuple(detail_errors),
+        merge_queue=merge_queue,
     )
 
 

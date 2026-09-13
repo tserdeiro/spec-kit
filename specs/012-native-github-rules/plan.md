@@ -98,6 +98,10 @@ settings (`allow_merge_commit`, `delete_branch_on_merge`), branch inventory,
 ruleset detail once per run, including parent rulesets, to inspect source and
 bypass. No locally reconstructed glob matching or persistent cache is needed.
 
+REST observations use `GET`; the fixed read-only classic merge-queue GraphQL
+document uses `POST` with separately bound variables. No GraphQL mutation is
+allowed.
+
 Repository/branch identity and successful-empty responses are validated.
 Missing settings, omitted `bypass_actors`, missing detail, or malformed required
 fields are unknown, never false or an empty ruleset. An explicit documented
@@ -180,11 +184,13 @@ migration, cache, or new consumer configuration.
 
 ## Security and privacy
 
-`gh` owns authentication and the configured host. The helper issues read-only
-calls, uses no shell evaluation, and redacts diagnostic content. Fixtures record
-argv and reject writes (`POST`, `PUT`, `PATCH`, `DELETE`, `gh repo edit`, push,
-merge, or delete). Bypass configuration is evidence, never consent. Other doctor
-categories retain their existing explicitly bounded local repairs.
+`gh` owns authentication and the configured host. The helper issues REST reads
+with `GET` and one fixed read-only GraphQL queue document with `POST`, uses no
+shell evaluation, and redacts diagnostic content. Fixtures record argv and
+reject REST writes (`POST`, `PUT`, `PATCH`, `DELETE`), GraphQL mutations and
+every document except the fixed query, `gh repo edit`, push, merge, or delete.
+Bypass configuration is evidence, never consent. Other doctor categories retain
+their existing explicitly bounded local repairs.
 
 ## Verification strategy
 

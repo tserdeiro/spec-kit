@@ -89,6 +89,14 @@ def _consumer_config(consumer: Path) -> tuple[tuple[str, bytes], ...]:
         ("permission-denied", 1, "cause=insufficient-permissions", "repository or organization owner"),
         ("failed-read", 1, "cause=read-failure", "Retry the repository settings read"),
         ("enterprise", 0, "Overall: compatible", "future branches are not certified"),
+        ("queue-squash", 1, "merge commits [main (trunk)]: incompatible", "classic branch protection merge queue"),
+        ("queue-rebase", 1, "merge commits [main (trunk)]: incompatible", "classic branch protection merge queue"),
+        ("queue-merge", 1, "merge commits [main (trunk)]: unverified", "queue interaction"),
+        ("queue-hidden", 1, "merge commits [main (trunk)]: unverified", "hidden-fields"),
+        ("queue-malformed", 1, "merge commits [main (trunk)]: unverified", "malformed-response"),
+        ("queue-partial", 1, "merge commits [main (trunk)]: unverified", "queue partial response"),
+        ("queue-denied", 1, "merge commits [main (trunk)]: unverified", "repository or organization owner"),
+        ("queue-failed", 1, "merge commits [main (trunk)]: unverified", "classic merge queue read"),
     ],
 )
 def test_installed_diagnosis_is_independent_and_read_only(
@@ -139,4 +147,9 @@ def test_installed_diagnosis_is_independent_and_read_only(
     observed_calls = [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()]
     assert observed_calls
     expected_host = env["GH_DELIVERY_HOST"]
-    assert all(call[:1] == ["repo"] or (call[1:3] == ["--hostname", expected_host] and call[3:5] == ["--method", "GET"]) for call in observed_calls)
+    assert all(
+        call[:1] == ["repo"]
+        or (call[1:2] == ["graphql"] and call[2:4] == ["--hostname", expected_host] and call[4:6] == ["--method", "POST"])
+        or (call[1:3] == ["--hostname", expected_host] and call[3:5] == ["--method", "GET"])
+        for call in observed_calls
+    )

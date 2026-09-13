@@ -68,6 +68,7 @@ import json, os, sys
 from urllib.parse import unquote
 
 argv = sys.argv[1:]
+case = os.environ.get("GH_DELIVERY_CASE", "compatible")
 with open(os.environ["GH_CALLS_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\\n")
 
@@ -75,9 +76,49 @@ def reject(message):
     sys.stderr.write("fake gh: " + message + "\\n")
     raise SystemExit(13)
 
+EXPECTED_QUERY = """query ClassicMergeQueue($owner: String!, $name: String!, $branch: String!) {
+  repository(owner: $owner, name: $name) {
+    mergeQueue(branch: $branch) {
+      configuration {
+        mergeMethod
+      }
+    }
+  }
+}"""
+
 if argv and argv[0] == "api":
     expected_host = os.environ.get("GH_DELIVERY_HOST", "github.com")
     expected_repo = os.environ.get("GH_DELIVERY_REPO", "acme/demo")
+    if argv[1:2] == ["graphql"]:
+        owner, repository = expected_repo.split("/", 1)
+        expected_prefix = [
+            "api", "graphql", "--hostname", expected_host, "--method", "POST", "-f",
+            "query=" + EXPECTED_QUERY, "-F", "owner=" + owner, "-F", "name=" + repository,
+            "-F",
+        ]
+        if len(argv) != 14 or argv[:13] != expected_prefix or not argv[13].startswith("branch="):
+            reject("GraphQL calls must use the fixed read-only query and bound variables")
+        queue_method = {"queue-squash": "SQUASH", "queue-rebase": "REBASE", "queue-merge": "MERGE", "queue-unsupported": "FAST_FORWARD"}.get(case)
+        queue = {"configuration": {"mergeMethod": queue_method}} if queue_method else None
+        if case == "queue-hidden":
+            default_response = {"data": {"repository": {}}}
+        elif case == "queue-malformed":
+            default_response = {"data": {"repository": {"mergeQueue": []}}}
+        elif case == "queue-partial":
+            default_response = {"data": {"repository": {"mergeQueue": {"configuration": {"mergeMethod": "MERGE"}}}}, "errors": [{"message": "queue partial response"}]}
+        else:
+            default_response = {"data": {"repository": {"mergeQueue": queue}}}
+        response = os.environ.get("GH_DELIVERY_GRAPHQL_RESPONSE")
+        if case == "queue-failed":
+            sys.stderr.write("transport failure reading merge queue\\n")
+            raise SystemExit(1)
+        if case == "queue-denied":
+            sys.stdout.write(json.dumps({"errors": [{"message": "permission denied"}]}))
+            raise SystemExit(1)
+        sys.stdout.write(response or json.dumps(default_response))
+        if case == "queue-partial":
+            raise SystemExit(1)
+        raise SystemExit(0)
     if argv[1:3] != ["--hostname", expected_host] or argv[3:5] != ["--method", "GET"]:
         reject("REST calls must use the resolved host and GET")
     if not argv[-1].startswith("repos/" + expected_repo + "/"):
@@ -85,7 +126,6 @@ if argv and argv[0] == "api":
 if argv[:2] in (["repo", "edit"], ["pr", "merge"]) or argv[:1] in (["push"], ["merge"]):
     reject("write commands are forbidden")
 
-case = os.environ.get("GH_DELIVERY_CASE", "compatible")
 if argv == ["repo", "view", "--json", "nameWithOwner,url,defaultBranchRef,deleteBranchOnMerge,mergeCommitAllowed"]:
     if case == "failed-read":
         sys.stderr.write("transport failure while reading repository settings\\n")

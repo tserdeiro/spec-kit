@@ -96,13 +96,13 @@ T007 → T008 → T009, then repeat the accumulated review before human handoff.
   - **Delivery**: single PR (~260 authored lines)
   - **Completion evidence**: PR #166; 64 focused and 135 preset tests passed; budget 299/400; diff check clean. Independent native review of 21e0080 returned no-blocking-findings. Current-head review and CI gate readiness pending.
 
-- [ ] T008 Observe classic merge queues before certifying merge compatibility in presets/default/scripts/python/github_delivery.py and github_delivery_rules.py per FR-003, FR-005, FR-009 (partial)
+- [x] T008 Observe classic merge queues before certifying merge compatibility in presets/default/scripts/python/github_delivery.py and github_delivery_rules.py per FR-003, FR-005, FR-009 (partial)
   - **Traces**: FR-003, FR-005, FR-006, FR-007, FR-009, C-002, C-004, SC-001, SC-002; outcome: a queue configured through classic protection cannot produce a false compatible merge result.
   - **Depends on**: T007
   - **Boundaries**: Read the native branch merge queue and configuration using a fixed GraphQL query over POST on the resolved host, with separately bound variables. Clarify the plan's transport wording: REST GET and this read-only GraphQL POST; fixtures reject mutations and every other write document. Combine this observation with existing rules/classic merge constraints. Distinguish successful null queue from omitted, malformed, denied, partial, and unsupported responses. SQUASH/REBASE conflicts retain owner/branch remediation; MERGE retains the unproven interaction required by plan D3. Preserve confirmed conflicts and safe cause-specific diagnostics. Extend focused/installed fixtures and necessary README guidance.
   - **Evidence**: Cover classic-only SQUASH, REBASE, MERGE, absent queue, hidden fields, GraphQL errors with partial data, and failed reads; assert no false pass, zero writes, and installed independent execution. Run focused/full preset tests and `git diff --check`.
   - **Delivery**: single PR (~280 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #169; 80 focused and 151 preset tests passed; budget 339/400; diff check clean. An independent native review found malformed GraphQL errors handling; the correction has focused regression coverage. Current-head review and CI gate readiness pending.
 
 - [ ] T009 Retain validated complete pages when a later JSON page is truncated in presets/default/scripts/python/github_delivery.py per FR-006, FR-009 (partial)
   - **Traces**: FR-006, FR-009, C-004, SC-002, SC-003; outcome: a later transport truncation cannot erase an already observed merge or cleanup conflict.
