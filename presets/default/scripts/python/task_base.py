@@ -67,7 +67,7 @@ def work_item(repo_root: Path, issue_key: str, title: str | None = None) -> Work
 
 def main(argv: list[str]) -> int:
     if not argv:
-        die("usage: task_base.py <refresh|task <branch>|work-item <branch>>")
+        die("usage: task_base.py <refresh|task <branch>|work-item <issue-key> [title]>")
     repo_root = Path.cwd()
     mode, rest = argv[0], argv[1:]
     if mode == "refresh":
