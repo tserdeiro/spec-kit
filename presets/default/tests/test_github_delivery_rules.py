@@ -112,6 +112,7 @@ def test_omitted_bypass_actors_remains_unknown() -> None:
     result = rules.evaluate_force_push("main", rules.RuleRead(True, parsed, details=(detail,), classic=rules.ClassicProtection(True, False)))
     assert result.state == rules.UNVERIFIED
     assert result.cause == "bypass-coverage-unobserved"
+    assert "ruleset owner" in result.next_action
 
 
 def test_rule_parameters_are_preserved_for_merge_evaluation() -> None:
@@ -152,6 +153,29 @@ def test_merge_conflict_is_retained_when_effective_rules_read_is_incomplete() ->
     assert result.state == rules.INCOMPATIBLE
     assert "required_linear_history" in result.evidence
     assert "page 2 failed" in result.evidence
+
+
+def test_force_push_keeps_classic_evidence_when_rules_read_is_incomplete() -> None:
+    read = rules.RuleRead(False, cause="partial-rules", evidence="page 2 failed", classic=rules.ClassicProtection(True, True, allow_force_pushes=True))
+    result = rules.evaluate_force_push("main", read)
+    assert result.state == rules.UNVERIFIED
+    assert "allow_force_pushes.enabled=true" in result.evidence
+    assert "page 2 failed" in result.evidence
+
+
+@pytest.mark.parametrize("evaluate", [rules.evaluate_force_push, rules.evaluate_merge, rules.evaluate_cleanup])
+def test_explicit_plan_limit_is_capability_unavailable_for_each_guarantee(evaluate) -> None:
+    classic = rules.ClassicProtection(False, None, cause="plan-limitation", evidence="plan excludes this read")
+    read = rules.RuleRead(True, classic=classic)
+    if evaluate is rules.evaluate_force_push:
+        result = evaluate("main", read)
+    elif evaluate is rules.evaluate_merge:
+        result = evaluate("main", read, _setting("mergeCommitAllowed"))
+    else:
+        result = evaluate("001-feature", read, _setting("deleteBranchOnMerge"))
+    assert result.state == rules.CAPABILITY_UNAVAILABLE
+    assert result.cause == "plan-limitation"
+    assert "plan" in result.next_action
 
 
 def test_cleanup_distinguishes_feature_conflicts_from_retained_trunk() -> None:
@@ -223,6 +247,18 @@ def test_classic_404_only_documents_absence_for_exact_message(tmp_path, monkeypa
     assert result.cause == "read-failure"
 
 
+def test_successful_classic_response_with_omitted_fields_is_hidden() -> None:
+    protection = rules.parse_classic_protection(_classic())
+    assert protection is not None
+    result = rules.evaluate_cleanup(
+        "001-feature",
+        rules.RuleRead(True, classic=rules.ClassicProtection(True, True, protection.allow_force_pushes, protection.enforce_admins, cause="hidden-fields", evidence="optional fields omitted")),
+        _setting("deleteBranchOnMerge"),
+    )
+    assert result.state == rules.UNVERIFIED
+    assert result.cause == "hidden-fields"
+
+
 def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, monkeypatch) -> None:
     (tmp_path / ".git").mkdir()
     calls: list[tuple[str, ...]] = []
@@ -271,7 +307,7 @@ def test_transport_failures_keep_distinct_causes_and_malformed_pages_unknown(tmp
     monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
     assert github_delivery._read_inventory(tmp_path).cause == "partial-inventory"
-    assert github_delivery._read_branch_rules(tmp_path, "main").cause == "read-failure"
+    assert github_delivery._read_branch_rules(tmp_path, "main").cause == "ambiguous-read"
     assert github_delivery._read_branch_rules(tmp_path, "main").cause == "branch-disappeared"
     assert github_delivery._read_inventory(tmp_path).cause == "malformed-response"
 
