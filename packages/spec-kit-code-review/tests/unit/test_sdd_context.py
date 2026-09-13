@@ -4,16 +4,20 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from spec_kit_code_review.git import open_git
 from spec_kit_code_review.sdd_context import (
     CommitReader,
     SOURCE_BUG,
+    SOURCE_BRANCH,
     SOURCE_DIFF,
     SOURCE_FEATURE_JSON,
     SOURCE_FLAG,
     SOURCE_NONE,
     SOURCE_PR_BODY,
+    SOURCE_WORK_ITEM,
+    WorkingTreeReader,
     load_context,
     parse_tasks,
     resolve_feature,
@@ -87,7 +91,91 @@ class DiscoveryOrderTests(SddCase):
         )
 
         self.assertIsNone(resolution.feature)
+        self.assertEqual(resolution.source, SOURCE_WORK_ITEM)
+        self.assertEqual(resolution.work_item_key, "OPS-42")
+
+    def test_native_title_branch_uses_the_canonical_tracker_before_stale_feature(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="users/alice/fix-timeout",
+            pr_body="## Work item\n\n- Tracker: Fixes OPS-42\n",
+        )
+
+        self.assertIsNone(resolution.feature)
+        self.assertEqual(resolution.source, SOURCE_WORK_ITEM)
+        self.assertEqual(resolution.work_item_key, "OPS-42")
+
+    def test_unsupported_native_title_without_tracker_stays_unresolved(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="users/alice/fix-timeout",
+        )
+
+        self.assertIsNone(resolution.feature)
         self.assertEqual(resolution.source, SOURCE_NONE)
+        self.assertTrue(any(item.code == "sdd_context_absent" for item in resolution.diagnostics))
+
+    def test_branch_and_tracker_conflict_is_advisory_and_keeps_both_keys(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-fix-timeout",
+            pr_body="## Work item\n\n- Tracker: Fixes OPS-43\n",
+        )
+
+        self.assertTrue(resolution.ambiguous)
+        self.assertTrue(resolution.identity_conflict)
+        self.assertEqual(set(resolution.work_item_candidates), {"OPS-42", "OPS-43"})
+
+    def test_multiple_branch_keys_remain_conflicting_when_tracker_matches_one(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-OPS-43-fix-timeout",
+            pr_body="## Work item\n\n- Tracker: Fixes OPS-43\n",
+        )
+
+        self.assertTrue(resolution.ambiguous)
+        self.assertTrue(resolution.identity_conflict)
+        self.assertEqual(set(resolution.work_item_candidates), {"OPS-42", "OPS-43"})
+        self.assertIsNone(resolution.work_item_key)
+
+    def test_feature_resolution_serializes_only_the_canonical_work_item_key(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-fix-timeout",
+        )
+
+        serialized = resolution.as_dict()
+        self.assertEqual(serialized["work_item_key"], "OPS-42")
+        self.assertNotIn("work_item", serialized)
+        self.assertFalse(hasattr(resolution, "work_item"))
+
+    def test_complete_feature_ref_keeps_sdd_behavior_even_with_tracker(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="001-review-skeleton",
+            pr_body="## Work item\n\n- Tracker: Fixes OPS-42\n",
+        )
+
+        self.assertEqual(resolution.feature, "001-review-skeleton")
+        self.assertEqual(resolution.source, SOURCE_BRANCH)
+        self.assertIsNone(resolution.work_item_key)
+
+    def test_review_resolution_never_executes_candidate_bridge_code(self) -> None:
+        reader = WorkingTreeReader(self.repository.path)
+        with patch("subprocess.run", side_effect=AssertionError("candidate bridge executed")):
+            resolution = resolve_feature(
+                reader,
+                changed_paths=["src/timeout.py"],
+                head_ref_name="users/alice/fix-timeout",
+                pr_body="## Work item\n\n- Tracker: Fixes OPS-42\n",
+            )
+        self.assertEqual(resolution.work_item_key, "OPS-42")
 
     def test_an_explicit_feature_wins(self) -> None:
         self.repository.write("specs/002-other/spec.md", "# Other\n")

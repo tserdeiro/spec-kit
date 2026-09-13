@@ -98,7 +98,7 @@ from .publish import resolve_event
 from .reporting import render_human, review_document
 from .verdict import CAUSE_CONTEXT, CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
 from .verdict import derive as derive_verdict
-from .sdd_context import CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
+from .sdd_context import SOURCE_WORK_ITEM, CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
 from .review_context import resolve_scope, select_context
 from .rules import RuleResolution, parse_rule_document, resolve_rules
 from .process import resolve_executable, run_command, sha256_file
@@ -748,6 +748,8 @@ def _sdd_diagnostics(resolution, sdd) -> list[Diagnostic]:
     feature is information the packet carries rather than a refusal.
     """
 
+    if resolution.work_item_key or resolution.source == SOURCE_WORK_ITEM:
+        return []
     if resolution.ambiguous:
         return [
             Diagnostic(
@@ -2153,8 +2155,9 @@ _FALSE_SPELLINGS = frozenset({"0", "f", "false"})
 # `<<DELIM ... DELIM` redirection for `-F -`: the subject is the first
 # non-blank line of the body, not the literal text of the outer argument.
 _HEREDOC_RE = re.compile(r"<<(-?)[ \t]*(['\"]?)(\w+)\2\r?\n(.*?)\r?\n[ \t]*\3(?=\r?\n|\Z)", re.DOTALL)
-# The numeric-prefix task-branch shape `stack_propagate.py`/`pr_create.py` already match.
-_TASK_BRANCH_RE = re.compile(r"^[0-9]+-T[0-9]{3}-")
+# Only the complete native SDD task ref gets task-only protection. A nested
+# native branch can end in a task-looking leaf while remaining a work-item ref.
+_TASK_BRANCH_RE = re.compile(r"^[0-9]{3}-T[0-9]{3,}(?:-[A-Za-z0-9._-]+)?$")
 
 # Claude Code's own pre_tool_use protocol -- a contract separate from the
 # exit-code table above: 0 lets the tool call through, 2 blocks it and shows
@@ -2515,7 +2518,7 @@ def _write_violation(root: Path, file_path: str) -> str | None:
     """The fix message for FR-008's protected-path rule, or ``None`` off a task branch."""
 
     branch = _current_branch(root)
-    if not branch or not _TASK_BRANCH_RE.match(branch.rsplit("/", 1)[-1]):
+    if not branch or not _TASK_BRANCH_RE.fullmatch(branch):
         return None
     protected_paths = load_config(root).values.get("protected_paths") or []
     relative = _repository_relative(file_path, root)
