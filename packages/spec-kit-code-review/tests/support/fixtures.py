@@ -18,7 +18,7 @@ FIXTURES_DIRECTORY = SUPPORT_DIRECTORY.parent / "fixtures"
 CONSUMER_FIXTURE = FIXTURES_DIRECTORY / "consumer"
 ADVERSARIAL_FIXTURE = FIXTURES_DIRECTORY / "adversarial"
 
-DEFAULT_OCR_VERSION = "ocr version v1.8.3"
+DEFAULT_OCR_VERSION = "open-code-review v1.12.0 (494bf1c8d)"
 
 
 def isolate_operator_global_env(case) -> None:
@@ -180,7 +180,7 @@ def write_lock(
     version_string: str | None = DEFAULT_OCR_VERSION,
     platform_key: str | None = None,
     binary_digest: str | None = None,
-    release_tag: str = "v1.8.3",
+    release_tag: str = "v1.12.0",
     npm_package: str = "@alibaba-group/open-code-review",
 ) -> Path:
     """Write a ``versions.lock.yml`` carrying this extension's nested OCR pin."""
