@@ -25,7 +25,10 @@ roots of this distribution **resolved** rather than as templates, plus the
 again. That install goes into this distribution's data root, one directory per
 version: never a global install, which would outlive this extension's own
 uninstall, and never a per-project one, which the executable guard refuses with
-exit code 4.
+exit code 4. In a checkout that holds the extension's own source
+(`packages/spec-kit-code-review/`), the `runtime` group also compares the
+running copy with that source and warns `runtime_source_drift` when their
+versions or modules differ; it never repairs the installed copy.
 
 `--fix` repairs: the `.gitignore` entries for this extension's local files, the
 shared and local configuration files when they are absent, a starting

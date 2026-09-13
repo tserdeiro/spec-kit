@@ -1,3 +1,3 @@
 # Guide
 
-Documentation does not count towards the review budget, but it is listed.
+Documentation is excluded from the engine's review scope, but it is listed.

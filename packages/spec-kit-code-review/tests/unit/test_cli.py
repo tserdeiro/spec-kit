@@ -152,8 +152,11 @@ class CliCase(unittest.TestCase):
             os.chdir(previous)
         return code, out.getvalue(), err.getvalue()
 
-    def invoke_json(self, *arguments: str, cwd: Path | None = None) -> tuple[int, dict]:
-        code, out, _ = self.invoke(*arguments, "--json", cwd=cwd)
+    def invoke_json(self, *arguments: str, cwd: Path | None = None, verbose: bool = True) -> tuple[int, dict]:
+        """``--json --verbose`` by default: the full review document every test
+        below asserts on. ``verbose=False`` is the compact document."""
+
+        code, out, _ = self.invoke(*arguments, "--json", *(["--verbose"] if verbose else []), cwd=cwd)
         return code, json.loads(out)
 
 
@@ -408,7 +411,7 @@ class DoctorCommandTests(CliCase):
         command = next(item for item in payload["diagnostics"] if item["code"] == "ocr_install_command")["message"]
         self.assertIn("npm install --prefix", command)
         self.assertIn("--save-exact", command)
-        self.assertIn("@alibaba-group/open-code-review@1.8.3", command)
+        self.assertIn("@alibaba-group/open-code-review@1.12.0", command)
         self.assertNotIn("npm install -g", command)
 
     def test_quiet_suppresses_human_output_but_not_the_exit_code(self) -> None:
@@ -495,8 +498,8 @@ class RunCommandCase(CliCase):
     def _session_payload(self) -> dict:
         return json.loads((self._session_path() / "session.json").read_text(encoding="utf-8"))
 
-    def _phase_one(self, *extra: str) -> tuple[int, dict]:
-        return self.invoke_json("review", "--base", "main", "--head", "feature", *extra)
+    def _phase_one(self, *extra: str, verbose: bool = True) -> tuple[int, dict]:
+        return self.invoke_json("review", "--base", "main", "--head", "feature", *extra, verbose=verbose)
 
 
 class ReviewSurfaceTests(RunCommandCase):
@@ -544,6 +547,13 @@ class AnchoredReviewTests(RunCommandCase):
         self.assertEqual(session["packet"]["inventory_sha256"], hashlib.sha256(
             json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest())
+        # The candidate's own changed code, not only its SDD artifacts, is
+        # required reading: `src/feature.py` is a whole new file, so its one
+        # hunk covers its only line.
+        code_required = [item for item in inventory["required"] if item["path"] == "src/feature.py"]
+        self.assertEqual(code_required, [{"path": "src/feature.py", "start": 1, "end": 1,
+                                          "reason": "changed hunk", "command": f"git show {self.head}:src/feature.py"}])
+        self.assertIn("src/feature.py", {item["path"] for item in inventory["sources"]})
 
     def test_the_operators_checkout_is_never_touched(self) -> None:
         self.repository.write("README.md", "operator edit\n")

@@ -309,10 +309,10 @@ def summary_body(
     findings: Sequence[Finding],
     degraded: Sequence[Finding],
     truncated: Sequence[Finding],
-    budget: Any | None,
     packet_sha256: str,
     suffix: str,
     evidence_path: str | None = None,
+    coverage: Mapping[str, Any] | None = None,
 ) -> str:
     """The summary comment: the verdict, the degraded findings, and the caveats."""
 
@@ -337,13 +337,18 @@ def summary_body(
         f"- findings: {len(findings)}"
         + (f" ({', '.join(f'{count} {name}' for name, count in sorted(counts.items()))})" if counts else ""),
     ]
-    if budget is not None:
-        lines.append(
-            f"- budget: {budget.counted} counted line(s) against {budget.limit}"
-            + (" — **over budget**" if budget.over_budget else "")
-        )
     for cause in verdict.causes:
         lines.append(f"- not covered ({cause.kind}): {visible(cause.detail)}")
+    if coverage is not None:
+        covered = coverage.get("covered", ())
+        uncovered = coverage.get("uncovered", ())
+        lines.append(f"- coverage: {len(covered)} covered range(s); {len(uncovered)} uncovered range(s)")
+        for item in uncovered:
+            lines.append(
+                f"- uncovered: {visible(str(item.get('path')))}:{item.get('start_line')}-{item.get('end_line')} "
+                f"(version {visible(str(item.get('version')))}; retrieve with "
+                f"{visible(str(item.get('command', 'the recorded source command')))})"
+            )
     for note in verdict.notes:
         lines.extend(["", note])
 
@@ -396,13 +401,13 @@ def build_plan(
     findings: Sequence[Finding],
     packet_sha256: str,
     suffix: str,
-    budget: Any | None = None,
     event_ceiling: str = "request-changes",
     request_changes: bool = False,
     authenticated_user: str | None = None,
     batch_size: int = DEFAULT_BATCH_SIZE,
     max_inline_comments: int = DEFAULT_MAX_INLINE_COMMENTS,
     evidence_path: str | None = None,
+    coverage: Mapping[str, Any] | None = None,
 ) -> PublicationPlan:
     """Render the plan. Nothing here contacts GitHub, by construction."""
 
@@ -452,10 +457,10 @@ def build_plan(
         findings=findings,
         degraded=degraded,
         truncated=truncated,
-        budget=budget,
         packet_sha256=packet_sha256,
         suffix=suffix,
         evidence_path=evidence_path,
+        coverage=coverage,
     )
     return PublicationPlan(
         candidate_id=candidate.candidate_id,

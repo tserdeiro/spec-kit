@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
@@ -10,7 +11,7 @@ from unittest import mock
 
 from spec_kit_code_review.config import LOCAL_CONFIG_FILENAME, RULE_RELATIVE_PATH
 from spec_kit_code_review.commit_hook import HOOK_COMMAND
-from spec_kit_code_review.doctor import CHECK_GROUPS, DoctorOptions, RULE_TEMPLATE, run_doctor
+from spec_kit_code_review.doctor import CHECK_GROUPS, DoctorOptions, RULE_TEMPLATE, run_doctor, source_drift
 from spec_kit_code_review.env_files import REPO_ENV_FILENAME, load_env_files
 from spec_kit_code_review.errors import (
     EXIT_AUTHENTICATION,
@@ -83,7 +84,7 @@ class DoctorCase(unittest.TestCase):
     # -- environment ----------------------------------------------------
 
     def _canonical_engine(self) -> Path:
-        return tool_executable(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)})
+        return tool_executable(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)})
 
     def _install_tools(self) -> dict[str, str]:
         overrides: dict[str, str] = {}
@@ -200,7 +201,7 @@ class OcrGroupTests(DoctorCase):
 
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         message = next(d.message for d in report.diagnostics if d.code == "ocr_missing")
-        self.assertIn("v1.8.3", message)
+        self.assertIn("v1.12.0", message)
         # The new policy, both halves: `--fix` installs it, a review never does.
         self.assertIn("doctor --fix", message)
         self.assertIn("A review never installs anything", message)
@@ -214,9 +215,9 @@ class OcrGroupTests(DoctorCase):
         # directory per version -- never a global install, which would outlive
         # the extension's own uninstall on the machine.
         self.assertIn("npm install --prefix", message)
-        self.assertIn("--save-exact @alibaba-group/open-code-review@1.8.3", message)
+        self.assertIn("--save-exact @alibaba-group/open-code-review@1.12.0", message)
         self.assertNotIn("npm install -g", message)
-        self.assertIn("tserdeiro/spec-kit/tools/ocr/1.8.3", message)
+        self.assertIn("tserdeiro/spec-kit/tools/ocr/1.12.0", message)
         self.assertIn("/bin/opencodereview", message)
         self.assertIn("JS shim", message)
         self.assertIn("rm -rf", message)
@@ -229,7 +230,7 @@ class OcrGroupTests(DoctorCase):
         report = self.run_doctor()
 
         message = next(d.message for d in report.diagnostics if d.code == "ocr_missing")
-        self.assertIn("--save-exact @alibaba-group/renamed-wrapper@1.8.3", message)
+        self.assertIn("--save-exact @alibaba-group/renamed-wrapper@1.12.0", message)
         self.assertNotIn("npm install -g", message)
 
     def test_the_report_names_the_three_resolved_roots_and_the_canonical_path(self) -> None:
@@ -302,14 +303,14 @@ class OcrGroupTests(DoctorCase):
         # The engine prints its platform and build time on the same line as its
         # identity. Pinning the whole string in a *shared* lock would fail for
         # every user on another platform, with a message blaming their correct
-        # installation. Verified against the real v1.8.3 output.
-        self.lock_version = "open-code-review v1.8.3 (80a579466)"
+        # installation. Verified against the real v1.12.0 output.
+        self.lock_version = "open-code-review v1.12.0 (494bf1c8d)"
         for platform in ("darwin/arm64", "linux/amd64", "windows/amd64"):
             with self.subTest(platform=platform):
                 self.ocr_state = {
                     "version": (
-                        f"open-code-review v1.8.3 (80a579466) {platform}\n"
-                        "built at: 2026-07-31T09:24:52Z\n"
+                        f"open-code-review v1.12.0 (494bf1c8d) {platform}\n"
+                        "built at: 2026-09-12T14:26:13Z\n"
                         "https://github.com/alibaba/open-code-review"
                     )
                 }
@@ -321,8 +322,8 @@ class OcrGroupTests(DoctorCase):
     def test_a_different_commit_is_still_a_mismatch(self) -> None:
         # The prefix is name, version *and* commit: a rebuild of the same
         # version from a different commit is a different binary.
-        self.lock_version = "open-code-review v1.8.3 (80a579466)"
-        self.ocr_state = {"version": "open-code-review v1.8.3 (deadbeef) darwin/arm64\nbuilt at: x"}
+        self.lock_version = "open-code-review v1.12.0 (494bf1c8d)"
+        self.ocr_state = {"version": "open-code-review v1.12.0 (deadbeef) darwin/arm64\nbuilt at: x"}
 
         report = self.run_doctor()
 
@@ -581,8 +582,21 @@ class FixTests(DoctorCase):
         self.assertEqual(written, RULE_TEMPLATE)
 
         document = parse_rule_document(written, ref=None, origin=str(rule_path))
-        self.assertEqual(len(document.rules), 2)
-        principles, python_rule = document.rules
+        self.assertEqual(json.loads(written)["include"], [
+            "presets/**/*.md",
+            "packages/*/commands/**/*.md",
+            "packages/*/skills/**/*.md",
+            ".claude/skills/**/*.md",
+            ".agents/skills/**/*.md",
+            ".specify/templates/**/*.md",
+            ".specify/extensions/*/commands/**/*.md",
+            "**/tests/fixtures/**",
+            "**/testdata/**",
+        ])
+        self.assertEqual(len(document.rules), 3)
+        markdown_rule, principles, python_rule = document.rules
+        self.assertEqual(markdown_rule["path"], "**/*.md")
+        self.assertIs(markdown_rule["merge_system_rule"], False)
         self.assertEqual(principles["path"], "**/*")
         self.assertIn("blocking", principles["rule"])
         self.assertIn("major", principles["rule"])
@@ -645,16 +659,16 @@ class EngineInstallTests(DoctorCase):
 
         self.assertEqual(report.code, EXIT_SUCCESS, [d.message for d in report.diagnostics if d.severity != "info"])
         self.assertTrue(self._canonical_engine().is_file())
-        self.assertTrue(any("installed ocr v1.8.3" in line for line in report.fixes), report.fixes)
+        self.assertTrue(any("installed ocr v1.12.0" in line for line in report.fixes), report.fixes)
         self.assertIn("ocr_digest", self.codes(report))
 
     def test_the_install_is_the_exact_pinned_argv_never_a_shell_string(self) -> None:
         self.run_doctor(fix=True)
 
-        destination = tool_root(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)})
+        destination = tool_root(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)})
         self.assertEqual(
             self._npm_invocations(),
-            [f"install --prefix {destination} --save-exact @alibaba-group/open-code-review@1.8.3"],
+            [f"install --prefix {destination} --save-exact @alibaba-group/open-code-review@1.12.0"],
         )
         # npm ignores `--save-exact` without a manifest in the prefix.
         self.assertTrue((destination / "package.json").is_file())
@@ -664,7 +678,7 @@ class EngineInstallTests(DoctorCase):
 
         self.run_doctor(fix=True)
 
-        self.assertIn("--save-exact @alibaba-group/renamed-wrapper@1.8.3", self._npm_invocations()[0])
+        self.assertIn("--save-exact @alibaba-group/renamed-wrapper@1.12.0", self._npm_invocations()[0])
 
     def test_a_digest_that_does_not_match_the_lock_removes_the_whole_tree(self) -> None:
         self.lock_digest = "b" * 64
@@ -673,7 +687,7 @@ class EngineInstallTests(DoctorCase):
 
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         self.assertIn("ocr_install_digest_mismatch", self.codes(report))
-        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)}).exists())
+        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)}).exists())
         self.assertEqual(report.fixes, [fix for fix in report.fixes if "installed ocr" not in fix])
 
     def test_an_install_that_produces_no_binary_leaves_nothing_behind(self) -> None:
@@ -683,7 +697,7 @@ class EngineInstallTests(DoctorCase):
 
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         self.assertIn("ocr_install_incomplete", self.codes(report))
-        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)}).exists())
+        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)}).exists())
 
     def test_a_failing_npm_is_reported_and_removes_the_directory(self) -> None:
         self.npm_state = {"exit_code": 1, "stderr": "npm ERR! code E404", "record_invocations": str(self.npm_log)}
@@ -693,7 +707,7 @@ class EngineInstallTests(DoctorCase):
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         message = next(d.message for d in report.diagnostics if d.code == "ocr_install_failed")
         self.assertIn("E404", message)
-        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)}).exists())
+        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)}).exists())
 
     def test_an_override_is_the_operators_decision_and_is_never_replaced(self) -> None:
         self.ocr_state = {"version": DEFAULT_OCR_VERSION}
@@ -726,3 +740,71 @@ class EngineInstallTests(DoctorCase):
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs
     unittest.main()
+
+
+class RuntimeSourceDriftTests(unittest.TestCase):
+    """The dogfooding drift check reads two trees and writes nothing."""
+
+    MODULE = Path("src/spec_kit_code_review")
+
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "consumer"
+        self.runtime = Path(self.tmp.name) / "installed"
+        self._write_tree(self.runtime, version="0.5.0", body="x = 1\n")
+
+    def _write_tree(self, root: Path, *, version: str, body: str) -> None:
+        (root / self.MODULE).mkdir(parents=True, exist_ok=True)
+        (root / "extension.yml").write_text(
+            f'schema_version: "1.0"\n\nextension:\n  id: code-review\n  version: "{version}"\n', encoding="utf-8"
+        )
+        (root / self.MODULE / "doctor.py").write_text(body, encoding="utf-8")
+
+    def _drift(self):
+        return source_drift(self.root, runtime_root=self.runtime, runtime_version="0.5.0")
+
+    def test_a_consumer_without_the_source_tree_is_not_compared(self) -> None:
+        self.root.mkdir()
+
+        self.assertIsNone(self._drift())
+
+    def test_the_source_tree_running_itself_is_not_drift(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.6.0", body="y = 2\n")
+
+        self.assertIsNone(
+            source_drift(self.root, runtime_root=self.root / "packages" / "spec-kit-code-review", runtime_version="0.6.0")
+        )
+
+    def test_an_identical_installed_copy_is_not_drift(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.5.0", body="x = 1\n")
+
+        self.assertIsNone(self._drift())
+
+    def test_a_newer_source_version_is_a_warning_naming_both(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.6.0", body="x = 1\n")
+
+        diagnostic = self._drift()
+
+        self.assertIsNotNone(diagnostic)
+        self.assertEqual(diagnostic.code, "runtime_source_drift")
+        self.assertEqual(diagnostic.severity, "warning")
+        self.assertIn("(0.5.0 at", diagnostic.message)
+        self.assertIn("(0.6.0 at", diagnostic.message)
+        self.assertIn("specify bundle update --all", diagnostic.message)
+        self.assertIn("specify extension add packages/spec-kit-code-review --dev", diagnostic.message)
+
+    def test_the_same_version_with_different_modules_is_a_warning(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.5.0", body="x = 2\n")
+
+        self.assertEqual(self._drift().code, "runtime_source_drift")
+
+    def test_an_unreadable_manifest_degrades_to_unknown_instead_of_raising(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.5.0", body="x = 2\n")
+
+        with mock.patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+            diagnostic = self._drift()
+
+        self.assertIsNotNone(diagnostic)
+        self.assertEqual(diagnostic.code, "runtime_source_drift")
+        self.assertIn("(unknown at", diagnostic.message)
