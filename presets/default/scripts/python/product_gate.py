@@ -85,6 +85,8 @@ def _feature_branch(repo: Path, feature: str, origin: str) -> str:
         _pending("published feature refs could not be observed without truncation")
     names = sorted({p.get("headRefName", "") for p in candidates if isinstance(p, dict)
                     and p.get("headRefName", "").rsplit("/", 1)[-1] == feature})
+    if current in names:
+        return current
     if current.rsplit("/", 1)[-1] == feature:
         if not names:
             return current

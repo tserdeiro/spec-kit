@@ -45,6 +45,7 @@ def test_missing_pr_names_the_product_close_action(monkeypatch: pytest.MonkeyPat
     (["jdoe/web/008-guided-tour"], "jdoe/web/008-guided-tour", "jdoe/web/008-guided-tour"),
     (["jdoe/web/008-guided-tour"], "008-guided-tour", "jdoe/web/008-guided-tour"),
     (["jdoe/web/008-guided-tour", "other/008-guided-tour"], "008-guided-tour", None),
+    (["jdoe/web/008-guided-tour", "other/008-guided-tour"], "jdoe/web/008-guided-tour", "jdoe/web/008-guided-tour"),
 ])
 def test_namespaced_feature_ref_is_unique_or_rejected(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
                                                       refs: list[str], current: str, expected: str | None) -> None:
