@@ -20,7 +20,7 @@ covered half the candidate is worse than one that says it did.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from .errors import EXIT_CANDIDATE, EXIT_ENGINE, EXIT_FINDINGS, EXIT_SUCCESS
 
@@ -128,6 +128,57 @@ def derive(
         "and approving or merging this pull request remains a human decision."
     )
     return verdict
+
+
+# What the delivery loop reads. The verdict stays what it is (three values,
+# exit codes unchanged); `delivery` says whether the pull request may be
+# marked ready. It may not while a `major` finding is pending, even though a
+# major-only review exits 0 and publishes as a comment.
+DELIVERY_PROCEED = "proceed"
+DELIVERY_HOLD = "hold"
+PENDING_SEVERITIES: tuple[str, ...] = ("blocking", "major")
+
+
+def delivery(findings: Sequence[Any], verdict: Verdict) -> dict[str, Any]:
+    """The loop's contract: may delivery proceed, and if not, why and on what.
+
+    ``proceed`` only for a complete review (``no-blocking-findings``) with no
+    ``major`` finding. Never an approval either.
+    """
+
+    counts = {name: 0 for name in ("blocking", "major", "minor", "nit", "info")}
+    pending: list[str] = []
+    for finding in findings:
+        severity = getattr(finding, "severity", None)
+        if severity in counts:
+            counts[severity] += 1
+        if severity in PENDING_SEVERITIES:
+            pending.append(getattr(finding, "identifier", "") or "")
+    if verdict.inconclusive:
+        reason: str | None = INCONCLUSIVE
+    elif counts["blocking"]:
+        reason = "blocking"
+    elif counts["major"]:
+        reason = "major"
+    else:
+        reason = None
+    return {
+        "decision": DELIVERY_HOLD if reason else DELIVERY_PROCEED,
+        "reason": reason,
+        "pending": pending,
+        "counts": counts,
+        "is_approval": False,
+    }
+
+
+def describe_delivery(record: Mapping[str, Any]) -> str:
+    """One line for the human render."""
+
+    if record["decision"] == DELIVERY_PROCEED:
+        return "proceed — the pull request may be marked ready (not an approval)"
+    if record["reason"] == INCONCLUSIVE:
+        return "hold — resolve the inconclusive causes and review the new candidate"
+    return f"hold — fix {', '.join(record['pending'])} ({record['reason']}) and review the new candidate"
 
 
 def describe(verdict: Verdict) -> str:

@@ -40,8 +40,8 @@ and the Issues are created, which nothing native can do) pass it so a hook
 invocation degrades to a clean no-op when there is no configuration yet,
 and honors the `hooks.*` gates. `after_plan` projects the feature's Project
 with zero Issues even before `tasks.md` exists; `after_tasks` adds the
-Issues once the ledger does. Every later state transition is Linear's
-native GitHub integration's job; `push` remains the idempotent reconciler.
+Issues once the ledger does. Native GitHub automation may transition linked
+PRs, and `push` remains the idempotent reconciler of the complete observation.
 
 ## Session start
 
@@ -50,14 +50,14 @@ handler (Claude Code, Codex, Cursor): every session on a feature, task, or
 work-item branch reconciles Linear (`push --hook`, with `--current` added
 only on a feature/task branch) and prints one context line naming the
 branch's state and the next command, before the agent does anything else.
-Silent, exit `0`, on any other branch shape or without configuration.
+Failed or incomplete observations produce sanitized stderr warnings and no progress-based next action. Missing or disabled configuration stays silent. Unrecognized branches omit the context line but may still emit reconciliation warnings; the handler always exits `0`.
 
 ## Post tool use
 
 The same extension also handles `post_tool_use` (matcher `Bash`): after a
 `git push` or a `gh pr create`/`ready`/`merge`, it reconciles Linear the same
 way (`push --hook`); every other command, a non-Bash tool, or a malformed
-payload is a silent no-op, exit `0`.
+payload is a silent no-op, exit `0`. Configured reconciliation and partial application failures produce sanitized stderr warnings while preserving exit `0`.
 
 ## Getting started
 
@@ -111,26 +111,24 @@ regardless of whether the GitHub integration or its target-branch rule ran.
 
 ## Task states
 
-Every `push` and every `status` re-derives each task's state from what can be
-observed right now. Nothing is remembered between runs and no event is
-listened for, so a missed webhook cannot desynchronize anything.
+Every `push` and every `status` re-derives each task's state from a fresh observation. The paginated pull-request scan is `complete`, `failed`, or `incomplete`; only `complete` permits lifecycle derivation, including a verified empty result. Failed or incomplete observations preserve existing remote states and explain the affected repository work.
 
 | Observed | Derived state | Linear state | Next action |
 | --- | --- | --- | --- |
-| A merged PR | `completed` | `completed_state_id` | — |
-| An open, ready-for-review PR | `review` | `review_state_id` | wait for the human merge |
 | An open draft PR | `started` | `started_state_id` | `/speckit.code-review <n>` |
+| An open, ready-for-review PR (and no draft) | `review` | `review_state_id` | wait for the human merge |
+| A merged PR (and no open PR) | `completed` | `completed_state_id` | — |
 | `[x]` in `tasks.md` (no live PR) | `completed` | `completed_state_id` | — |
 | A branch | `started` | `started_state_id` | `/speckit.pr` |
 | Nothing | `unstarted` | `open_state_id` | `/speckit.implement <feature>` |
 | Gone from `tasks.md` (Issue archived, restored if the task returns) | — | — | — |
 
-The first row that applies wins: the box is checked inside the task PR
-before `ready for review`, so an observable PR is always the fresher
-witness and the checkbox decides only once no live PR remains. Branches and pull requests count only when
-they follow the convention `NNN-Txxx`, optionally with a `-suffix`
-(`001-T004`, `001-T004-add-parser`); several PRs on one task — stacked PRs —
-report the furthest that task reached.
+The pull-request precedence is open draft → open ready → merged, yielding
+`started` → `review` → `completed`; the lowest PR number is the stable witness
+within a rank. Closed, unmerged PRs are ignored. Only when no open or merged
+PR exists do checkbox and branch rules apply. Several PRs on one task are all
+considered, so a draft keeps the task in progress even when ready or merged
+PRs also exist.
 
 `status` and the `session_start` context line print **Next action** as
 shown here: a runnable command, or the literal "wait for the human merge"
@@ -138,11 +136,17 @@ shown here: a runnable command, or the literal "wait for the human merge"
 
 Branches are read from the refs Git already has (`refs/heads` and
 `refs/remotes/origin`): no fetch, no network. Pull requests are read with one
-`gh pr list` per invocation. GitHub is optional: with no `gh`, no
-authentication, or unreadable output, `push` and `status` warn once and
-derive from the checkbox and branches alone. A workflow state the Team does
-not have is left unconfigured, and the tasks that derive to it keep the state
-they have — a `review` with no `In Review` falls back to `In Progress`.
+`gh api` paginated repository listing per invocation. GitHub is optional, but
+missing, failed, or malformed reads are uncertainty, not proof of absence;
+checkboxes, branches, and partial PR output cannot replace that evidence. A
+workflow state the Team does not have is left unconfigured. The one fallback
+is `review`: when `review_state_id` is absent, it uses `started_state_id`;
+other missing lifecycle IDs produce no operation for that derived state.
+
+When a task Issue is created during uncertainty, its `stateId` is omitted and
+Linear applies the Team's configured initial state (such as Backlog or Triage).
+That remote default is reported separately from a derived state. Recovery uses
+a fresh complete scan, and an unchanged repeat produces no remote mutations.
 
 ## Bugs and chores
 
@@ -153,9 +157,9 @@ two observations, on the same map minus the checkbox row:
 
 | Observed | Derived state | Next action |
 | --- | --- | --- |
-| A merged PR | `completed` | — |
-| An open, ready-for-review PR | `review` | wait for the human merge |
 | An open draft PR | `started` | `/speckit.code-review <n>` |
+| An open, ready-for-review PR (and no draft) | `review` | wait for the human merge |
+| A merged PR (and no open PR) | `completed` | — |
 | A branch | `started` | `/speckit.pr` |
 | Nothing | *left untouched* | — |
 

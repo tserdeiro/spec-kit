@@ -12,11 +12,14 @@ import hashlib
 import json
 import re
 import unittest
+
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from spec_kit_code_review.anchors import HunkMap, Hunk
 from spec_kit_code_review.errors import EXIT_USAGE, AppError
+from spec_kit_code_review.reporting import compact_open
+from spec_kit_code_review.verdict import delivery, derive
 from spec_kit_code_review.findings import (
     MAX_CONTENT_CHARS,
     MAX_FINDINGS,
@@ -252,6 +255,14 @@ class DocumentTests(unittest.TestCase):
                                 set(receipt),
                                 {"path", "version", "start_line", "end_line", "sha256", "assessment", "scope"},
                             )
+                    elif isinstance(document, dict) and "runtime" in document:
+                        # The compact open document, derived from a full one.
+                        expected = compact_open({"code": 0, "category": "ok", "message": ""}, extension_version="x")
+                        self.assertEqual(set(document), set(expected))
+                        for key in ("candidate", "session", "packet", "next"):
+                            self.assertEqual(set(document[key]), set(expected[key]), key)
+                    elif isinstance(document, dict) and "decision" in document:
+                        self.assertEqual(set(document), set(delivery([], derive([]))))
                     else:
                         self.fail(f"undocumented JSON fence shape in {relative}: {document!r}")
 
@@ -327,6 +338,44 @@ class NormalizationTests(NormalizationCase):
         self.assertFalse(finding.anchorable)
         self.assertIn("not inside a hunk", finding.degraded_reason)
         self.assertIn("findings_degraded", [item.code for item in result.diagnostics])
+
+    def test_a_mislocated_finding_reanchors_by_its_unique_existing_code(self) -> None:
+        # The declared range (2-3) misses every hunk, but `existing_code` quotes
+        # exactly the two lines the candidate added at 11-12, and nowhere else.
+        result = self._normalize(
+            [entry(start_line=2, end_line=3, existing_code="  added_a = 1  \nadded_b = 2\n")]
+        )
+
+        finding = result.findings[0]
+        self.assertTrue(finding.anchorable)
+        self.assertEqual((finding.start_line, finding.end_line), (11, 12))
+        self.assertIn("finding_reanchored", [item.code for item in result.diagnostics])
+
+    def test_existing_code_matching_nowhere_still_degrades_without_discarding(self) -> None:
+        result = self._normalize(
+            [entry(start_line=2, end_line=3, existing_code="this snippet appears nowhere in the diff")]
+        )
+
+        finding = result.findings[0]
+        self.assertEqual(result.discarded, ())
+        self.assertFalse(finding.anchorable)
+        self.assertEqual((finding.start_line, finding.end_line), (2, 3))
+        self.assertIn("not inside a hunk", finding.degraded_reason)
+
+    def test_existing_code_matching_twice_still_degrades_without_discarding(self) -> None:
+        # Two hunks quote the identical line `line_0`, so the snippet locates
+        # ambiguously and must not be guessed at.
+        hunks = HunkMap(hunks=(Hunk("src/module.py", 1, 1), Hunk("src/module.py", 1, 1)))
+        result = self._normalize(
+            [entry(start_line=2, end_line=3, existing_code="line_0")],
+            hunks=hunks,
+        )
+
+        finding = result.findings[0]
+        self.assertEqual(result.discarded, ())
+        self.assertFalse(finding.anchorable)
+        self.assertEqual((finding.start_line, finding.end_line), (2, 3))
+        self.assertIn("not inside a hunk", finding.degraded_reason)
 
     def test_a_left_side_finding_is_never_anchored_but_never_lost(self) -> None:
         # Line 3 exists in the merge base, which is the frame a LEFT finding is

@@ -1,31 +1,26 @@
 #!/usr/bin/env python3
 """A fake ``ocr`` executable covering the surfaces this extension consumes.
 
-**The output shapes below are derived from the contract's description of the
-engine's output, not from a capture of the pinned binary.** The contract makes
-that capture a prerequisite of the engine stage, and only a person can produce
-it: agents never install ``ocr``. Until ``tests/conformance/test_real_ocr.py``
-has been run against the real binary and its captured output has replaced these
-fixtures, **both this fake and the parser it exercises are unverified against
-upstream**, and that test is what settles it.
-
-What *is* verified here is the adapter's behaviour: that it tolerates cosmetic
-variation (bullets, emphasis, tables), that it refuses to guess when the shape is
-unrecognizable, and that every failure mode maps to the documented exit code.
+**The JSON shapes below are captured from the real pinned binary**, open-code-
+review v1.12.0 (494bf1c8d), run against a temporary repository with
+``delegate preview --format json`` and ``delegate rule --format json`` --
+see ``tests/conformance/evidence/real-ocr.md``. What is *not* verified is
+whether every field this fake omits or defaults (e.g. ``background``) is
+always present on the real binary's output; the adapter never depends on a
+field this fake does not exercise.
 
 State file (``SPECKIT_CODE_REVIEW_FAKE_OCR_STATE``)::
 
     {
-      "version": "ocr version v1.8.3",
+      "version": "open-code-review v1.12.0 (494bf1c8d)",
       "missing_subcommands": ["delegate rule"],
       "files": [
         {"path": "src/module.py"},
         {"path": "docs/guide.md", "included": false, "reason": "documentation"}
       ],
       "rules": {"src/module.py": ["Validate every input."]},
-      "preview_failure": "exit-1" | "empty" | "unknown-format" | "no-file-section",
-      "rule_failure": "exit-1" | "empty" | "unrelated",
-      "style": "list" | "table",
+      "preview_failure": "exit-1" | "empty" | "unknown-format" | "bad-schema",
+      "rule_failure": "exit-1" | "empty" | "unrelated" | "bad-schema",
       "record_invocations": "/path/to/log.txt"
     }
 """
@@ -39,7 +34,7 @@ from pathlib import Path
 
 
 STATE_ENV = "SPECKIT_CODE_REVIEW_FAKE_OCR_STATE"
-DEFAULT_VERSION = "ocr version v1.8.3"
+DEFAULT_VERSION = "open-code-review v1.12.0 (494bf1c8d)"
 
 
 def _state() -> dict:
@@ -83,21 +78,17 @@ def _flag(argv: list[str], name: str) -> str | None:
 
 
 def _positional_paths(argv: list[str]) -> list[str]:
-    """Everything after the flags: the paths ``delegate rule`` was asked about."""
+    """Everything after ``--``: the paths ``delegate rule`` was asked about.
 
-    paths: list[str] = []
-    skip = False
-    for index, argument in enumerate(argv):
-        if skip:
-            skip = False
-            continue
-        if argument.startswith("--"):
-            skip = argument in ("--repo", "--rule", "--from", "--to", "--exclude")
-            continue
-        if index < 2:  # "delegate", "preview"/"rule"
-            continue
-        paths.append(argument)
-    return paths
+    The real invocation, and this extension's own, always closes the flag list
+    with ``--`` before the paths -- that is what stops a file named ``--rule``
+    from being read as a second flag -- so a fake that only understands that
+    shape is exercising the actual contract, not a more permissive one.
+    """
+
+    if "--" in argv:
+        return argv[argv.index("--") + 1 :]
+    return []
 
 
 def _preview(state: dict, argv: list[str]) -> int:
@@ -110,62 +101,59 @@ def _preview(state: dict, argv: list[str]) -> int:
     if failure == "unknown-format":
         sys.stdout.write("Delegate preview complete. 3 changed entries were considered.\n")
         return 0
-    if failure == "no-file-section":
-        sys.stdout.write("# Delegate preview\n\n- **Mode**: range\n- **From**: abc\n- **To**: def\n")
+    if failure == "bad-schema":
+        sys.stdout.write(
+            json.dumps({"schema_version": "99", "mode": "range", "reviewable_files": [], "excluded_files": []}) + "\n"
+        )
         return 0
 
     files = state.get("files")
     if files is None:
         files = [{"path": "src/module.py"}]
-    reviewable = sum(1 for entry in files if entry.get("included", True))
-    # The shape v1.8.3 actually prints, captured from the real binary and
-    # transcribed here (see tests/conformance/evidence/real-ocr.md):
-    #
-    #     # Files (1 reviewable / 2 total)
-    #
-    #     - mode: range
-    #     - from: HEAD~1
-    #     ...
-    #
-    #     ~~- `docs/guide.md` [modified] +1/-0 (excluded: unsupported_ext)~~
-    #       - `src/m.py` [modified] +1/-0
-    #
-    # Excluded entries are struck through, wrapper including the dash; included
-    # entries are indented two spaces; the metadata are list items inside the
-    # same section.
-    lines = [
-        f"# Files ({reviewable} reviewable / {len(files)} total)",
-        "",
-        f"- mode: {'range' if _flag(argv, '--from') else 'workspace'}",
-    ]
-    if _flag(argv, "--from"):
-        lines.append(f"- from: {_flag(argv, '--from')}")
-        lines.append(f"- to: {_flag(argv, '--to')}")
-        lines.append(f"- merge_base: {_flag(argv, '--from')}")
-    lines.extend(["- total_insertions: 2", "- total_deletions: 0", ""])
 
-    if state.get("style") == "table":
-        # Not a shape the real binary emits: kept as the adapter's tolerance
-        # test, which is why it is opt-in rather than the default.
-        lines.extend(["| File | State | Reason |", "| --- | --- | --- |"])
-        for entry in files:
-            included = entry.get("included", True)
-            reason = entry.get("reason", "") if not included else ""
-            lines.append(f"| {entry['path']} | {'included' if included else 'excluded'} | {reason} |")
-    else:
-        excludes = [item for item in (_flag(argv, "--exclude") or "").split(",") if item]
-        for entry in files:
-            path = entry["path"]
-            status = entry.get("status", "modified")
-            counts = entry.get("counts", "+1/-0")
-            included = entry.get("included", True) and path not in excludes
-            if included:
-                lines.append(f"  - `{path}` [{status}] {counts}")
-            else:
-                reason = "user_exclude" if path in excludes else entry.get("reason", "unsupported_ext")
-                lines.append(f"~~- `{path}` [{status}] {counts} (excluded: {reason})~~")
-    sys.stdout.write("\n".join(lines) + "\n")
+    reviewable_files: list[dict] = []
+    excluded_files: list[dict] = []
+    total_insertions = 0
+    total_deletions = 0
+    for entry in files:
+        insertions = entry.get("insertions", 1)
+        deletions = entry.get("deletions", 0)
+        total_insertions += insertions
+        total_deletions += deletions
+        item = {
+            "path": entry["path"],
+            "status": entry.get("status", "modified"),
+            "insertions": insertions,
+            "deletions": deletions,
+        }
+        if entry.get("included", True):
+            reviewable_files.append(item)
+        else:
+            item["exclude_reason"] = entry.get("reason", "unsupported_ext")
+            excluded_files.append(item)
+
+    payload = {
+        "schema_version": "1",
+        "mode": "range" if _flag(argv, "--from") else "workspace",
+        "repository": _flag(argv, "--repo") or "",
+        "total_files": len(files),
+        "reviewable_count": len(reviewable_files),
+        "excluded_count": len(excluded_files),
+        "total_insertions": total_insertions,
+        "total_deletions": total_deletions,
+        "reviewable_files": reviewable_files,
+        "excluded_files": excluded_files,
+    }
+    if _flag(argv, "--from"):
+        payload["from"] = _flag(argv, "--from")
+        payload["to"] = _flag(argv, "--to")
+        payload["merge_base"] = _flag(argv, "--from")
+
+    sys.stdout.write(json.dumps(payload) + "\n")
     return 0
+
+
+_DEFAULT_RULE = "Review this file against the repository's default expectations."
 
 
 def _rule(state: dict, argv: list[str]) -> int:
@@ -176,41 +164,54 @@ def _rule(state: dict, argv: list[str]) -> int:
     if failure == "empty":
         return 0
     if failure == "unrelated":
-        sys.stdout.write("# Resolved rules\n\n## some/other/file.py\n\n- A rule for a file nobody asked about.\n")
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "schema_version": "1",
+                    "groups": [
+                        {
+                            "group_id": 1,
+                            "source": "custom",
+                            "pattern": "**/*",
+                            "files": ["some/other/file.py"],
+                            "rule": "A rule for a file nobody asked about.",
+                        }
+                    ],
+                }
+            )
+            + "\n"
+        )
+        return 0
+    if failure == "bad-schema":
+        sys.stdout.write(json.dumps({"schema_version": "99", "groups": []}) + "\n")
         return 0
 
     paths = _positional_paths(argv)
     mapping = state.get("rules") or {}
-    # The shape v1.8.3 actually prints: one numbered group per rule, the paths
-    # it applies to, and the rule text under its own `#### Content` heading --
-    # text that itself contains headings and list items, which is why the group
-    # structure has to be read rather than sliced around.
-    lines: list[str] = []
-    groups: list[tuple[str, list[str]]] = []
+
+    # One group per distinct rule text, covering every requested path whose
+    # mapping includes it -- the same content-based grouping the real engine
+    # does, and the reason a path can end up in more than one group.
+    order: list[str] = []
+    files_by_text: dict[str, list[str]] = {}
     for path in paths:
-        rules = mapping.get(path, ["Review this file against the repository's default expectations."])
-        key = "\n".join(rules)
-        for existing_key, members in groups:
-            if existing_key == key:
-                members.append(path)
-                break
-        else:
-            groups.append((key, [path]))
-    for number, (key, members) in enumerate(groups, start=1):
-        lines.append(f"### Rule Group {number}: custom / {members[0]}")
-        lines.append("")
-        lines.append("Applies to:")
-        for member in members:
-            lines.append(f"- {member}")
-        lines.append("")
-        lines.append("#### Content")
-        lines.append("")
-        lines.append("## User-Specific Rules (Mandatory)")
-        lines.append("")
-        for rule in key.split("\n"):
-            lines.append(rule)
-        lines.append("")
-    sys.stdout.write("\n".join(lines) + "\n")
+        for rule_text in mapping.get(path) or [_DEFAULT_RULE]:
+            if rule_text not in files_by_text:
+                files_by_text[rule_text] = []
+                order.append(rule_text)
+            files_by_text[rule_text].append(path)
+
+    groups = [
+        {
+            "group_id": index,
+            "source": "custom",
+            "pattern": "**/*",
+            "files": files_by_text[rule_text],
+            "rule": rule_text,
+        }
+        for index, rule_text in enumerate(order, start=1)
+    ]
+    sys.stdout.write(json.dumps({"schema_version": "1", "groups": groups}) + "\n")
     return 0
 
 

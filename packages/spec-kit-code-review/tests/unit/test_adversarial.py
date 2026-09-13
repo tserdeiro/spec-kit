@@ -69,7 +69,7 @@ class HostileCandidateTests(unittest.TestCase):
     def test_the_candidate_committed_configuration_has_no_effect(self) -> None:
         config = load_config(self.root)
 
-        self.assertEqual(config.get("budget", "limit"), 400)
+        self.assertEqual(config.get("packet", "max_total_bytes"), 400000)
         self.assertEqual(config.get("publish", "event"), "request-changes")
         self.assertEqual(config.get("review", "severity_floor"), "info")
         self.assertEqual(config.get("repository", "github"), "tserdeiro/consumer")
@@ -80,7 +80,7 @@ class HostileCandidateTests(unittest.TestCase):
         self.assertIsNotNone(hostile)
         assert hostile is not None
         self.assertIn("999999", hostile)
-        self.assertEqual(load_config(self.root).get("budget", "limit"), 400)
+        self.assertEqual(load_config(self.root).get("packet", "max_total_bytes"), 400000)
 
     def test_the_hostile_configuration_would_be_rejected_if_it_were_ever_selected(self) -> None:
         # Belt and braces: even pointed at directly, `publish.event: approve` is
