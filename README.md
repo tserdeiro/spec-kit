@@ -113,7 +113,7 @@ no `python3` en PATH), `gh auth`, la API key de Linear
 (`.speckit-linear.env`, gitignoreada; `--fix` crea el template para
 pegarla), el binding de `/speckit.linear.onboard`, la instalación del
 motor de revisión, la validación nativa de commits, y los settings de entrega
-de GitHub — nombrando el comando exacto que resuelve cada uno. `/speckit.doctor
+de GitHub — nombrando el comando o la acción indicada para cada uno. `/speckit.doctor
 --fix` aplica la parte mecánica; dos huecos quedan siempre solo reportados: el
 intérprete (instalarlo o activarlo es decisión tuya) y los settings de GitHub
 (aplicarlos es alcance de la ronda de releases).
@@ -140,7 +140,12 @@ modos y efecto de rechazo.
 
 Los estados `missing`, `installed`, `disabled` y `unverifiable` (más fallas
 parciales, duplicadas, ajenas o de payload, lock, permisos, concurrencia,
-escritura y lectura posterior) se muestran con la ruta y la remediación exacta.
+escritura y lectura posterior) se muestran con la ruta y el mensaje y la acción
+disponibles. Un diagnóstico genérico `git_hooks_write_failed` (`native
+registration was not completed ...; retry doctor`) puede significar un fallo al
+escribir antes del reemplazo o un reemplazo seguido de un fallo al restaurar.
+Inspecciona manualmente la ruta antes de reintentar; el diagnóstico no siempre
+puede distinguir ambos resultados.
 La reparación usa el lock cooperativo de Git y compara bytes, modo y estado
 efectivo antes de preparar el archivo temporal. Los escritores que respetan el
 lock no pueden editar a la vez; un escritor directo que lo ignore puede correr
@@ -500,7 +505,7 @@ Tras cualquier actualización, re-corre `/speckit.doctor --fix`.
 - **Falta `In Review` en el equipo** → créalo en Linear (Settings → Teams
   → Workflow, tipo *started*) y re-corre `onboard`.
 - Ante la duda: `/speckit.doctor --fix`; sus mensajes traen la
-  remediación exacta.
+  remediación indicada.
 
 ## 🔐 Integridad
 

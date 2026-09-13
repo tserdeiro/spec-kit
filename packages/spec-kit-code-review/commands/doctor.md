@@ -14,7 +14,7 @@ Without `--fix` this command writes nothing. Its external calls, including
 `git --version`, `git rev-parse`, `git status`, `git config`, `git hook list`,
 `git worktree list`, `ocr`, and `gh`, are read-only. It reports every finding
 from every check, including the native-hook path, scope, state, payload, and
-the exact repair or manual action.
+the reported repair or manual action.
 
 It checks the runtime, Spec Kit, `git`, `ocr`, `gh`, configuration, review
 rules, evidence root, and native commit-message validation. It prints the
@@ -73,7 +73,7 @@ payload, lock, permission, stale-snapshot, write, and readback failures. A
 disabled entry is preserved and must be enabled explicitly before retrying;
 the diagnostic names its origin and scope. An unverifiable result is never
 reported as healthy. Every such diagnostic remains visible when another doctor
-group fails, with its path and exact remedy.
+group fails, with its path and emitted remedy.
 
 Repair takes the selected Git config's cooperative exclusive lock, compares the
 diagnosed bytes, mode, and effective snapshot before preparing a temporary
@@ -86,9 +86,12 @@ An unsafe destination or an early snapshot, lock, or temporary-write failure
 returns without replacing the destination. If readback fails after replacement,
 the repair attempts to restore the diagnosed bytes and mode. Restoration is
 best effort: if it fails, inspect the reported config path manually and use the
-owned-section rollback below. Diagnostics name the actual outcome and action;
-they do not promise preservation for every concurrent, write, or readback
-failure.
+owned-section rollback below. A `git_hooks_write_failed` diagnostic (`native
+registration was not completed ...; retry doctor`) is generic: it can mean a
+pre-replacement write failure or a replacement followed by failed restoration.
+Inspect the path before retrying. Diagnostics report the path and available
+action, but cannot always identify whether replacement occurred; they do not
+promise preservation for every concurrent, write, or readback failure.
 
 To remove a registration manually, first confirm the scope reported by the
 doctor, then remove only the owned section:

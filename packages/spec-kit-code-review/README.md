@@ -51,7 +51,8 @@ registration.
 States are `missing`, `installed`, `disabled`, and `unverifiable`, with
 partial, duplicate, foreign-scope, conflict, payload, lock, permission,
 concurrency, write, and readback diagnostics also reported. The doctor keeps
-the affected path and exact next action in every finding. A missing or
+the affected path and the diagnostic's available next action in every finding.
+A missing or
 unreadable payload requires reinstalling this extension and rerunning
 `doctor --fix`; a disabled or foreign entry requires explicit manual repair.
 The repair takes a cooperative exclusive lock and checks the diagnosed bytes,
@@ -62,7 +63,11 @@ made. The temporary file is edited through Git, atomically replaces the
 destination, and is checked by effective-config and hook-list readback. If
 readback fails, restoration of the diagnosed bytes and mode is attempted. A
 restoration failure requires manual inspection of the reported config path and
-the owned-section rollback below.
+the owned-section rollback below. A `git_hooks_write_failed` diagnostic (`native
+registration was not completed ...; retry doctor`) is generic: it can mean a
+pre-replacement write failure or a replacement followed by failed restoration.
+Inspect the path before retrying; the diagnostic cannot always say which
+outcome occurred.
 
 To roll back, confirm the scope reported by `doctor` and remove only the owned
 section with the matching command:

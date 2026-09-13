@@ -47,10 +47,10 @@ Run them read-only first. If the user asked to fix (`--fix` or "arregla"),
 re-run each failing or repairable doctor with `--fix` and report what it
 repaired — a missing native hook is a repairable warning even when the
 extension exits successfully. `--fix` is each doctor's own, bounded repair;
-you never fix anything yourself. Preserve every diagnostic from the code-review doctor's `hooks`
-group: its effective path, selected scope, state, payload requirement, and
-exact repair or manual recovery action. The aggregate command must carry that
-text through even when another group also fails.
+you never fix anything yourself. Preserve every diagnostic from the code-review
+doctor's `hooks` group: its effective path, selected scope, state, payload
+requirement, and original diagnostic text. The aggregate command must carry
+that text through even when another group also fails.
 
 ## 4. Verify the GitHub repository settings
 
@@ -92,12 +92,17 @@ categories.
 - **Anything failed** → one short list, ordered by the seven categories
   above and skipping any with nothing to report; one bullet per blocking
   problem, carrying its doctor's own remediation **verbatim**, including the
-  native-hook path, state, and exact `doctor --fix` or manual action, plus the
+  native-hook path, state, and emitted `doctor --fix` or manual action, plus the
   interpreter fix from step 1 or exact GitHub remediation from step 4 where
   applicable. End with
   the single next action: usually
   re-running this command with `--fix`, or the one manual step a
   report-only category names.
+- If the native diagnostic is `git_hooks_write_failed` (`native registration was
+  not completed ...; retry doctor`), carry that text verbatim and tell the user
+  to inspect the reported config path before retrying: it can mean replacement
+  occurred and restoration failed, so the message does not identify the final
+  state.
 - **Nothing failed but GitHub could not be verified** → say the checks that
   ran passed, but do not call the setup healthy.
 
