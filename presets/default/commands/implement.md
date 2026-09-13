@@ -80,15 +80,23 @@ Before touching any code for `T###`:
 
 ## 2. Finishing a task
 
-Before opening the PR, run the budget stop:
+**Close the candidate.** With the implementation done and the task's Evidence commands run on the branch, check the task's box and fill its **Completion evidence** — the commands run and their result lines — **in the same commit as the last code change** (a task split into stacked PRs checks it in the stack's last PR). The checked box means "implementation finished on this branch, with its evidence"; it never means "reviewed", and the evidence never names a review, a session or a SHA it cannot know yet. Every commit that changes the candidate carries its evidence update; evidence never travels alone. Push, then run the budget stop:
 
 ```bash
 python3 .specify/presets/default/scripts/python/budget_stop.py <T###> <base>
 ```
 
-(`base` is what step 1 printed.) It stops the task — no PR opens — when the authored executable lines pass the smaller of twice the task's `Delivery` forecast and 400, naming what does not fit. **A forecast or a budget is never amended in the PR that exceeds it**: a human changes it in the ledger, on the feature branch, outside that PR — or grants an explicit exception in the conversation, recorded in the PR's evidence, letting the PR open as is.
+(`base` is what step 1 printed.) It stops the task — no PR opens — when the authored executable lines pass the smaller of twice the task's `Delivery` forecast and 400, naming what does not fit. **A forecast or a budget is never amended in the PR that exceeds it**: a human changes it in the ledger, on the feature branch, outside that PR — or grants an explicit exception in the conversation, recorded in the PR's evidence, letting the PR open as is. Then the ledger gate:
 
-Run `/speckit.pr`: it guarantees the branch invariant and opens the draft PR with the canonical body. Self-review it next: the fresh reviewer's brief is fixed text, the packet path (or the diff and PR body, below) prepended:
+```bash
+python3 .specify/presets/default/scripts/python/ledger_check.py <T###>
+```
+
+It exits 2 naming exactly what's missing — the checkbox, the evidence, or both — before the PR can open.
+
+**Open the PR.** Run `/speckit.pr`: it guarantees the branch invariant and opens the draft PR with the canonical body, or reports the one already open. Its Verification evidence table is filled from the same run as the ledger, once.
+
+**Review the candidate.** The reviewer's brief is fixed text, the packet path (or the diff and PR body, below) prepended:
 
 > Verify the implementer's claims in the packet's evidence instead of
 > repeating its experiments. Before asking for an edge case, ask
@@ -100,10 +108,10 @@ Run `/speckit.pr`: it guarantees the branch invariant and opens the draft PR wit
 > when there is one; otherwise, return the findings directly to the
 > orchestrator.
 
-- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to a **fresh sub-agent** with no implementation residue, which reads the packet in full, reviews the candidate, writes `findings.json` **inside the review session directory**, and returns the one line the Orchestration section fixes; close the review with that file and act on its `delivery` decision. Without sub-agents, run the review yourself — findings still written inside the session directory, fresh per review, never copied from an earlier one.
-- **Without `code-review`**, hand a fresh sub-agent (or, without one, a fresh context) the PR's diff and body — `gh pr diff <n>` and `gh pr view <n>` — and the brief, nothing else carried over. It returns its findings; post them as one PR comment (`gh pr comment <n>`) — no session, no verdict, the degraded mode — and name that comment in the Completion evidence.
+- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to a **fresh sub-agent** with no implementation residue, which reads the packet in full, reviews the candidate, writes `findings.json` **inside the review session directory**, and returns the one line the Orchestration section fixes; close the review with that file and act on its `delivery` decision. Without sub-agents, run the review yourself — findings still written inside the session directory, fresh per review, never copied from an earlier one. After the close, record the review in the PR — the row `Independent review | session <path>, head <sha> | <verdict>, delivery <decision>` added to the body with `gh pr edit <n> --body`, or one comment — **never a commit**.
+- **Without `code-review`**, hand a fresh sub-agent (or, without one, a fresh context) the PR's diff and body — `gh pr diff <n>` and `gh pr view <n>` — and the brief, nothing else carried over. It returns its findings; post them as one PR comment (`gh pr comment <n>`) — no session, no verdict, the degraded mode. The ledger never names that comment.
 
-That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it.
+That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it: the fix commit carries its evidence update, push, run the budget stop again — the branch may have grown — and the new candidate is reviewed. Editing the PR body or commenting never creates a candidate: the session compares head and merge base only, so a PR-body correction — a count, a wording — is free and never triggers a review.
 
 **Carrying a fix through the stack.** Whenever a commit lands on a task branch that has open task PRs stacked on it — a review fix on an earlier task, a reviewer's comment fixed later:
 
@@ -111,15 +119,11 @@ That independence is what makes the verdict worth anything: a reused findings fi
 python3 .specify/presets/default/scripts/python/stack_propagate.py <fixed_branch>
 ```
 
-It merges the fix into every branch stacked above, in order, and pushes each; a conflict stops it there, naming the branch, without touching the branches above; an empty chain is reported and changes nothing.
+It merges the fix into every branch stacked above, in order, and pushes each; a conflict stops it there, naming the branch, without touching the branches above; an empty chain is reported and changes nothing. A propagated fix is a new candidate on each stacked PR, reviewed before that PR is declared ready again.
 
-Then, in the PR's **final commit**, check the task's box and fill its **Completion evidence** (a task split into stacked PRs checks it in the stack's last PR), push, and run the budget stop again — the branch may have grown during review. Then the ledger gate:
+**Checks, once.** Before marking ready, read `gh pr checks <n>` once: a failure is fixed on the branch — a new candidate; pending waits for the host's notification or one bounded wait, then one more read, never a polling loop; a repository with no checks is reported as such.
 
-```bash
-python3 .specify/presets/default/scripts/python/ledger_check.py <T###>
-```
-
-It exits 2 naming exactly what's missing — the checkbox, the evidence, or both — before the PR can be marked ready; once it passes, `gh pr ready <n>`. The checked box travels inside the task PR, reaching the feature branch only through the human merge; a reviewer's comment is fixed on this same PR, the box stays checked. Ready for review is what frees you to start the next task (step 1).
+**Ready.** `gh pr ready <n>` when `delivery.decision` is `proceed` and no check failed. The checked box travels inside the task PR, reaching the feature branch only through the human merge; a reviewer's comment is fixed on this same PR, the box stays checked. Ready for review is what frees you to start the next task (step 1).
 
 ## 3. Between tasks
 
