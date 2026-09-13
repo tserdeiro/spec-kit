@@ -14,9 +14,9 @@
   Final review and merge remain human. The user authorized commits, push, PRs,
   and Linear synchronization on 2026-09-12.
 - Forecasts include implementation, tests, fixtures, and conformance. Respect
-  the existing 2× forecast stop. The user explicitly waived the 400-line limit
-  for this delivery and rejected adding T010; record actual size and the exception
-  in each affected PR. Preserve forecasts, review requirements, protected
+  actual size and the 2× forecast comparison as evidence under the explicit
+  size exception. The user waived the 400-line limit and rejected adding T010;
+  complete the existing tasks and record the exception in each affected PR. Preserve forecasts, review requirements, protected
   spec/constitution, and unrelated dirty documentation.
 - MVP: T001, T002, T009, T003, and T004 demonstrate configured/unconfigured start and safe adoption.
   Full delivery includes cross-surface behavior, installed evidence, an Astra
