@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `review --json` prints a compact operational document; the full one is
+  written to the session directory (`result-open.json`,
+  `result-close.json`) and printed by `--json --verbose`. The close carries
+  `delivery` — `proceed` only for a complete review with no `blocking` and no
+  `major` finding, else `hold` with the pending identifiers — and the human
+  render a `DELIVERY:` line. Verdicts, exit codes and publication are
+  unchanged.
 - The review packet emits each source once: the engine's `delegate preview`
   and `delegate rule` outputs are no longer quoted verbatim — §2.1 and §3.2
   point at `raw/*.stdout` with its sha256 and byte count — and §3.2 is a rule

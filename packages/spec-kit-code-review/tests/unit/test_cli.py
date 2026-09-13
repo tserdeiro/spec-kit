@@ -146,8 +146,11 @@ class CliCase(unittest.TestCase):
             os.chdir(previous)
         return code, out.getvalue(), err.getvalue()
 
-    def invoke_json(self, *arguments: str, cwd: Path | None = None) -> tuple[int, dict]:
-        code, out, _ = self.invoke(*arguments, "--json", cwd=cwd)
+    def invoke_json(self, *arguments: str, cwd: Path | None = None, verbose: bool = True) -> tuple[int, dict]:
+        """``--json --verbose`` by default: the full review document every test
+        below asserts on. ``verbose=False`` is the compact document."""
+
+        code, out, _ = self.invoke(*arguments, "--json", *(["--verbose"] if verbose else []), cwd=cwd)
         return code, json.loads(out)
 
 
@@ -489,8 +492,8 @@ class RunCommandCase(CliCase):
     def _session_payload(self) -> dict:
         return json.loads((self._session_path() / "session.json").read_text(encoding="utf-8"))
 
-    def _phase_one(self, *extra: str) -> tuple[int, dict]:
-        return self.invoke_json("review", "--base", "main", "--head", "feature", *extra)
+    def _phase_one(self, *extra: str, verbose: bool = True) -> tuple[int, dict]:
+        return self.invoke_json("review", "--base", "main", "--head", "feature", *extra, verbose=verbose)
 
 
 class ReviewSurfaceTests(RunCommandCase):
