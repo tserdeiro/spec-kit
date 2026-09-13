@@ -51,6 +51,7 @@ class RuleRead:
     classic: "ClassicProtection | None" = None
     details: tuple["RulesetDetail", ...] = ()
     detail_errors: tuple[tuple[tuple[str, str, int], tuple[str, str]], ...] = ()
+    merge_queue: "ClassicMergeQueue | None" = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,17 @@ class ClassicProtection:
     allow_deletions: bool | None = None
     lock_branch: bool | None = None
     required_linear_history: bool | None = None
+    cause: str = ""
+    evidence: str = ""
+
+
+@dataclass(frozen=True)
+class ClassicMergeQueue:
+    """The classic protection merge queue observed through GraphQL."""
+
+    complete: bool
+    enabled: bool | None
+    merge_method: str | None = None
     cause: str = ""
     evidence: str = ""
 
@@ -204,6 +216,24 @@ def parse_classic_protection(payload: Any) -> ClassicProtection | None:
         optional["lock_branch"],
         optional["required_linear_history"],
     )
+
+
+def parse_classic_merge_queue(payload: Any) -> ClassicMergeQueue | None:
+    """Validate the repository ``mergeQueue`` field from GraphQL data."""
+    if not isinstance(payload, dict) or "mergeQueue" not in payload:
+        return None
+    queue = payload["mergeQueue"]
+    if queue is None:
+        return ClassicMergeQueue(True, False)
+    if not isinstance(queue, dict):
+        return None
+    configuration = queue.get("configuration")
+    if not isinstance(configuration, dict):
+        return None
+    method = configuration.get("mergeMethod")
+    if not isinstance(method, str) or not method:
+        return None
+    return ClassicMergeQueue(True, True, method)
 
 
 def parse_ruleset_detail(payload: Any) -> RulesetDetail | None:
@@ -466,6 +496,42 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
         else:
             unknown.append(evidence)
             unknown_cause = read.cause or unknown_cause or "partial-read"
+    queue = read.merge_queue
+    if queue is None:
+        unknown.append("classic merge queue was not observed")
+        unknown_cause = unknown_cause or "classic-merge-queue-unobserved"
+        actions.append(f"Retry the classic merge queue read for {branch} after confirming repository access")
+    else:
+        if not queue.complete:
+            evidence = queue.evidence or "classic merge queue was not completely observed"
+            if queue.cause == "plan-limitation":
+                unavailable.append((queue.cause, evidence, cause_action(queue.cause, "classic merge queue")))
+            else:
+                unknown.append(evidence)
+                unknown_cause = unknown_cause or queue.cause or "partial-read"
+                if queue.cause in {"authentication-failure", "insufficient-permissions", "rate-limited", "ambiguous-read", "hidden-fields"}:
+                    actions.append(cause_action(queue.cause, "classic merge queue"))
+                else:
+                    actions.append(f"Retry the classic merge queue read for {branch} after confirming repository access")
+        if queue.enabled is None:
+            unknown.append(queue.evidence or "classic merge queue state was not observed")
+            unknown_cause = unknown_cause or queue.cause or "hidden-fields"
+        elif queue.enabled:
+            method = queue.merge_method
+            if method not in {"MERGE", "SQUASH", "REBASE"}:
+                unknown.append(
+                    f"classic merge queue has unsupported merge method {method!r}"
+                    if method is not None else "classic merge queue merge method was not observed"
+                )
+                unknown_cause = unknown_cause or (queue.cause or "unsupported-rule-semantics")
+                actions.append(f"Inspect classic branch protection merge queue configuration before relying on merge-commit delivery for {branch}")
+            elif method != "MERGE":
+                conflicts.append(f"classic branch protection merge queue merge method={method} does not create merge commits on {branch}")
+                actions.append(f"Set the classic merge queue merge method to MERGE for {branch}, preserving checks, reviews, and bypass policy")
+            else:
+                unknown.append(f"classic branch protection merge queue uses MERGE; queue interaction for ordinary stack delivery on {branch} is unverified")
+                unknown_cause = unknown_cause or "unsupported-rule-semantics"
+                actions.append(f"Verify classic branch protection merge queue interaction for ordinary stack delivery on {branch}")
     details = {detail.identity: detail for detail in read.details}
     rules = read.rules
     for rule in rules:
