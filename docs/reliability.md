@@ -1,479 +1,160 @@
-# Confiabilidad del workflow: propuesta para la próxima ronda
+# Confiabilidad del workflow: specs en orden de ejecución
 
-Propuesta para revisión, reescrita el 2026-09-11 en lenguaje llano. Fusiona
-la auditoría de Codex sobre la 005, la revisión de Claude y los ajustes de
-`dx-proposals.md`, que este documento reemplaza. Todo lo que afirma sobre el
-código está verificado contra la versión publicada el 2026-09-10 (linear
-0.13.0, code-review 0.5.0, preset 0.10.0, bundles 0.16.0) y contra
-[`dogfooding.md`](dogfooding.md). Deriva de [`vision.md`](vision.md); la spec
-de la ronda se escribe a partir de aquí. Releases ([`releases.md`](releases.md))
-sigue siendo una ronda aparte.
+Diseño acordado el 2026-09-11. Esta ronda deriva de [vision.md](vision.md)
+y está registrada en [plan.md](plan.md). Los documentos describen trabajo
+por implementar; no son evidencia de entrega. Reemplazan las propuestas
+por fases y conservan la trazabilidad a sus puntos originales.
 
-## Cómo leer este documento
+## Cómo ejecutarla con Spec Kit
 
-Cada punto tiene cuatro partes: **Hoy** cuenta qué le pasa a un dev con la
-versión actual; **Propuesta** dice qué cambiaría, sin tecnicismos;
-**Detalle** deja las referencias al código y a las entradas del dogfooding
-para quien implemente; **Decisión** aparece solo cuando hace falta una
-respuesta humana antes de codear. Al final hay un orden recomendado, una
-lista de decisiones y qué no vamos a hacer.
+Cada archivo numerado de [reliability/](reliability/) es la entrada de
+**una única spec**, con un resultado acotado, alcance, aceptación y referencias.
+Usar el archivo completo en `/speckit.specify`, por ejemplo:
 
-Términos que se repiten:
+```text
+/speckit.specify Implementar lo definido en docs/reliability/01-linear-truth.md.
+Leer también las decisiones comunes de docs/reliability.md.
+```
 
-- **Rama de feature** (`003-checkout`): donde se integra una feature entera.
-  **Rama de tarea** (`003-T004-parser`): una por tarea, sale de la anterior.
-- **Stack**: la cadena de PRs de tarea, cada uno apilado sobre el anterior.
-  Se mergean de abajo hacia arriba, "raíz primero".
-- **Gate**: el PR draft de la feature. Ahí un humano aprueba spec y plan
-  antes de implementar; al final, ese mismo PR cierra la feature.
-- **Ledger**: el archivo `tasks.md`, la lista de tareas con sus casillas.
-- **Derivar y reconciliar**: Linear no se actualiza a mano. Cada estado se
-  calcula desde lo observable (casilla, rama, PR) y se escribe; repetirlo
-  sin cambios no hace nada.
-- **Packet**: el paquete de archivos que lee el motor de revisión.
-- **Guard**: un chequeo que bloquea una acción peligrosa antes de que
-  ocurra. Solo funciona en agentes con eventos (Claude, Codex, Cursor).
-- **Doctor**: el chequeo de salud del setup.
-- **Trunk**: la rama donde aterrizan las features (`main` o `dev`).
-- **Ruleset**: reglas que GitHub aplica del lado del servidor, para todos.
-- **CODEOWNERS**: un archivo de GitHub que asigna revisores por carpeta y
-  pide la revisión solo.
+Ejecutar las specs secuencialmente. Estos números ordenan la ronda; Spec Kit
+asigna el número real bajo `specs/` mediante su mecanismo nativo.
+Cada spec recorre clarify, plan, tasks, analyze y entrega por tareas.
+La aprobación y publicación de producto siguen el contrato vigente hasta
+que la entrada 06 entregue el nuevo comportamiento; este índice no lo
+implementa por sí mismo.
 
-## De dónde partimos
+Cada tarea conserva su rama y PR; el merge es humano. Mantener cada spec
+centrada en su resultado: los detalles de las entradas siguientes no se
+incorporan por anticipado. Si el plan revela una feature demasiado grande,
+dividirla en resultados utilizables y reordenar este índice **antes** de
+generar las tareas; evitar dividir un cambio que necesita ser atómico para
+que el producto siga funcionando.
 
-- La 005 dejó la mecánica en scripts y eventos, pero el flujo todavía no es
-  confiable cuando se interrumpe, se retoma o falla a medias. Los ocho
-  hallazgos de Codex siguen vigentes; solo cambió dónde vive la evidencia.
-- Este repositorio, que es su propio consumidor, corría al 2026-09-11 con
-  payloads anteriores a la 005 y sin eventos cableados (linear 0.12.0 y
-  code-review 0.4.0 instalados; sin `.specify/events.py`). La actualización
-  se entregó como chore aparte (PR #116, mergeado el 2026-09-11); lo que
-  dejó ver está en la entrada 102 del dogfooding.
-- De la 005 quedan pendientes la ejecución viva en Codex y una
-  reconciliación observada en un proyecto de prueba de Linear.
-- Los parches a upstream están preparados y verificados en
-  [`upstream/`](upstream/README.md). 0003 y 0004 se reemplazan por el diseño
-  de un resolver de hooks portátil
-  ([`hooks-runtime-design.md`](upstream/hooks-runtime-design.md)), que queda
-  aparcado hasta terminar esta ronda. Los demás esperan las pruebas manuales
-  con agente que exige upstream.
+Los tests apropiados acompañan a cada entrega. La validación real integral
+queda pendiente en 23 y no bloquea la primera spec. La revisión de Markdown
+se resolvió en el PR #179, fuera de esta ronda.
 
-## Los puntos
+## Orden aprobado
 
-### A. Que Linear no mienta
-
-**1. Linear puede decir "hecho" cuando no lo está.** Codex, prioridad máxima.
-
-- Hoy: si GitHub no responde, el sistema mira solo la casilla del ledger y
-  marca la tarea como completada aunque su PR siga abierto. Si una tarea se
-  partió en dos PRs y uno se mergeó, la marca completada aunque el otro siga
-  abierto. Además lee como máximo 200 PRs y este repositorio ya tiene 115:
-  en una o dos rondas más, dejaría de ver trabajo real.
-- Propuesta: un PR abierto siempre gana, incluso sobre uno mergeado de la
-  misma tarea (es lo que hace Linear nativamente cuando una Issue tiene
-  varios PRs). Si no se pudo leer GitHub, no se toca el estado y se avisa.
-  Se leen todos los PRs, y si la lectura queda incompleta se avisa en vez de
-  actuar a medias. Una falla al hablar con Linear nunca frena el trabajo:
-  la próxima reconciliación lo cubre, porque no guarda estado.
-- Detalle:
-  [`cli.py:945`](../packages/spec-kit-linear/src/spec_kit_linear/cli.py:945),
-  [`work_state.py:96`](../packages/spec-kit-linear/src/spec_kit_linear/work_state.py:96),
-  [`work_state.py:131`](../packages/spec-kit-linear/src/spec_kit_linear/work_state.py:131),
-  [`github.py:27`](../packages/spec-kit-linear/src/spec_kit_linear/github.py:27),
-  [`github.py:59`](../packages/spec-kit-linear/src/spec_kit_linear/github.py:59);
-  los scripts del preset ya paginan y frenan al saturar
-  ([`_common.py:137`](../presets/default/scripts/python/_common.py:137)).
-  Validar contra un proyecto de prueba de Linear, no solo con fixtures.
-
-### B. Que "seguí" funcione
-
-**2. Retomar una tarea interrumpida.** Codex, prioridad máxima; Claude.
-
-- Hoy: `implement` siempre intenta crear una rama nueva. Si la rama ya existe
-  o hay un PR draft de la misma tarea, se frena o falla. Cambiar de agente a
-  mitad de tarea obliga a reconstruir a mano lo que ya estaba hecho.
-- Propuesta: al entrar, el comando mira qué existe (rama, cambios sin
-  commitear, PR, sesión de revisión) y ejecuta solo el paso que falta.
-  Reconoce su propio draft y lo continúa; un draft de otra tarea sigue
-  frenando, con explicación. Las dos transiciones que hoy siguen en prosa
-  pasan a scripts: cerrar la tarea (presupuesto, ledger y `ready`) y cerrar
-  la feature (todo marcado y ningún PR de tarea abierto). El mismo camino de
-  recuperación vale para bugs y chores. Opción a evaluar: worktrees de Git
-  para atender otro trabajo sin abandonar el checkout actual.
-- Detalle:
-  [`task_base.py:43`](../presets/default/scripts/python/task_base.py:43),
-  [`task_base.py:51`](../presets/default/scripts/python/task_base.py:51),
-  [`implement.md:66`](../presets/default/commands/implement.md:66),
-  [`implement.md:110`](../presets/default/commands/implement.md:110),
-  [`implement.md:124`](../presets/default/commands/implement.md:124); el
-  template todavía dice `git switch -c` desde la feature
-  ([`tasks-template.md:33`](../presets/default/templates/tasks-template.md:33)).
-
-**3. Producto también necesita saber qué sigue.** Claude.
-
-- Hoy: la línea que orienta al empezar cada sesión solo existe desde que hay
-  `plan.md`; antes desaparece sin explicar nada. Y aunque el template dice
-  que cerrar la fase de producto abre el gate, ningún comando lo hace:
-  producto tiene que acordarse de correr `/speckit.pr`.
-- Propuesta: el "qué sigue" también cubre las fases previas: spec sin plan,
-  plan sin tareas, tareas sin gate. El comando `tasks` abre el PR draft del
-  gate al terminar y devuelve el link para aprobar.
-- Detalle:
-  [`parser.py:279`](../packages/spec-kit-linear/src/spec_kit_linear/parser.py:279),
-  [`cli.py:1318`](../packages/spec-kit-linear/src/spec_kit_linear/cli.py:1318),
-  [entrada 87](dogfooding.md:767),
-  [`tasks-template.md:17`](../presets/default/templates/tasks-template.md:17).
-
-**4. Pedir solo decisiones.** Codex; Claude.
-
-- Hoy: para arrancar un bug hay que pegarle al agente el título de la Issue,
-  aunque Linear ya lo tiene. El recorrido de producto se presenta como una
-  lista de comandos para recordar.
-- Propuesta: cada fase corre sus propias verificaciones y sigue sola cuando
-  tiene lo que necesita; cuando necesita al humano, muestra la decisión
-  concreta y su consecuencia. `bugfix` y `chore` toman título y contexto de
-  la Issue a partir de su clave. Un junior recibe una línea explicando el
-  próximo paso; alguien con experiencia, solo estado, resultado y bloqueo.
-  Mismo workflow, sin perfiles ni flags.
-- Detalle:
-  [`README.md:142`](../README.md:142),
-  [`bugfix.md:33`](../presets/default/commands/bugfix.md:33),
-  [`chore.md:34`](../presets/default/commands/chore.md:34),
-  [`linear_client.py:763`](../packages/spec-kit-linear/src/spec_kit_linear/linear_client.py:763).
-
-**5. Ver si la feature quedó atrasada respecto del trunk.** Claude.
-
-- Hoy: mantener la rama de feature al día con `main` es "deber del
-  developer", o sea algo que hay que acordarse de hacer.
-- Propuesta: la línea de contexto y `status` muestran "la feature está N
-  commits detrás del trunk", después de refrescar. No se mergea solo.
-- Detalle: [`implement.md:59`](../presets/default/commands/implement.md:59).
-- Decisión (2026-09-11): solo mostrar; sin merge automático.
-
-### C. Que la revisión automática sea confiable antes de exigirla
-
-**6. Hoy la revisión no puede cerrarse bien.** Claude; requisito del punto 7.
-
-- Hoy: cuando el ledger pasa de 55 KB no entra en el packet y toda revisión
-  termina "inconclusa", sin distinguir "sin hallazgos" de "no revisado". El
-  motor excluye los archivos Markdown, que en este producto son el
-  comportamiento mismo. Y si el revisor escribe una categoría que no existe,
-  se rechaza el archivo de hallazgos entero.
-- Propuesta: el packet lleva el bloque de la tarea revisada, la estrategia
-  de entrega y los requisitos relacionados, con acceso al resto de los
-  artefactos y registro de qué se leyó. Los `.md` que definen comandos entran
-  a la revisión. Una categoría inválida se corrige sin perder el hallazgo;
-  nunca se descarta un hallazgo para lograr un resultado verde.
-- Detalle: [entrada 79](dogfooding.md:680), [entrada 74](dogfooding.md:640),
-  [entrada 90](dogfooding.md:809),
-  [`speckit-code-review.template.yml:14`](../packages/spec-kit-code-review/config/speckit-code-review.template.yml:14).
-
-**7. "Listo para revisión" tiene que estar respaldado.** Codex, prioridad máxima.
-
-- Hoy: después de corregir lo que encontró la revisión, el loop agrega el
-  commit final y marca el PR listo, sin volver a revisar lo cambiado ni
-  comprobar que los checks pasen.
-- Propuesta: el script de cierre de tarea exige una revisión cerrada sobre
-  el commit actual, sin hallazgos bloqueantes, y los checks de CI en verde
-  cuando el repo los tiene. Un cambio que solo toca el ledger tiene un
-  tratamiento liviano; un cambio de código renueva la evidencia, también en
-  los PRs apilados encima, porque su contenido cambió.
-- Detalle:
-  [`implement.md:94`](../presets/default/commands/implement.md:94),
-  [`implement.md:104`](../presets/default/commands/implement.md:104).
-
-**8. Resuelto: se retira el presupuesto, en vez de unificarlo.** Codex; Claude.
-
-- Decisión revisada: el motor de revisión ya acota el alcance a cada
-  archivo cambiado, exige lectura de los hunks cambiados con constancia
-  de lectura, y despacha por grupos de hasta 10 archivos relacionados. El
-  tamaño queda visible en `insertions`/`deletions` del propio packet, sin
-  frenar ni pronosticar nada. No hace falta unificar dos contadores que ya
-  no existen.
-
-### D. Usar lo nativo de Git, GitHub y Linear
-
-**9. Las reglas duras, en Git y GitHub; el guard como segunda línea.** Claude.
-
-- Hoy: las cuatro reglas (mensaje de commit con formato, nada de
-  force-push, nada de borrar ramas al mergear, nada de tocar el spec desde
-  una rama de tarea) las bloquea un guard que solo corre en agentes con
-  eventos. Zed y una persona en la terminal quedan afuera. El chequeo de
-  formato de commits en CI existe solo en este repositorio, no en los
-  consumidores.
-- Propuesta: el doctor instala un hook `commit-msg` de Git con la misma
-  regla, respetando el gestor de hooks que el repo ya use (husky, lefthook).
-  GitHub bloquea los force-push en las ramas compartidas con un ruleset;
-  exigir PR, checks y revisión humana queda según el modelo del equipo.
-  El guard sigue para lo que no tiene equivalente nativo: los paths
-  protegidos en ramas de tarea.
-- Detalle:
-  [`cli.py:2278`](../packages/spec-kit-code-review/src/spec_kit_code_review/cli.py:2278),
-  [`conventions.yml:4`](../.github/workflows/conventions.yml:4),
-  [`vision.md:45`](vision.md:45).
-- Cuidados: no poner reglas de borrado sobre las ramas de tarea, porque
-  impedirían el auto-borrado de ramas al mergear, del que depende el flujo.
-  Los rulesets en repos privados exigen plan Pro o Team; el doctor lo
-  reporta. GitHub no deja que el autor apruebe su propio PR.
-
-**10. El cuerpo del PR se instala, no se da por sentado.** Claude.
-
-- Hoy: el comando `pr` y el motor de revisión asumen que existe
-  `.github/PULL_REQUEST_TEMPLATE.md` en el consumidor. Nadie lo instala, el
-  doctor no lo verifica y ningún test lo cubre.
-- Propuesta: el doctor lo crea si falta y verifica sus secciones si existe,
-  sin pisar personalizaciones. Los pasos mecánicos de `pr` (commit acotado,
-  push, crear o adoptar el draft, actualizar el cuerpo) pasan a script; el
-  agente solo redacta.
-- Detalle: [`pr.md:60`](../presets/default/commands/pr.md:60),
-  [`packet.py:1173`](../packages/spec-kit-code-review/src/spec_kit_code_review/packet.py:1173),
-  [`pr.md:30`](../presets/default/commands/pr.md:30),
-  [`pr.md:120`](../presets/default/commands/pr.md:120).
-
-**11. Que la aprobación del plan sea observable y los permisos del agente
-estén escritos.** Codex; Claude.
-
-- Hoy: `implement` considera aprobado el plan si existe un PR de feature
-  abierto, y existir no es aprobar. El contrato del repo dice que los
-  commits son humanos mientras el preset commitea solo: dos textos que se
-  contradicen.
-- Propuesta (decidido el 2026-09-11): la aprobación es el propio envío del
-  plan al repositorio. Producto commitea spec y plan cuando los termina; al
-  llegar a Git ya están aprobados y no hace falta otra aprobación. El gate
-  de `implement` sigue exigiendo solo el PR de feature abierto. Lo que sí
-  falta es escribir en `AGENTS.md` y el README la autorización acotada del
-  agente: commits, pushes, drafts y reconciliación son suyos; producto,
-  aprobación y merge son humanos. El agente reconoce esa autorización sin
-  volver a preguntar.
-- Detalle: [`AGENTS.md:84`](../AGENTS.md:84),
-  [`plan-template.md:95`](../presets/default/templates/plan-template.md:95),
-  [`implement.md:42`](../presets/default/commands/implement.md:42),
-  [entrada 10](dogfooding.md:87).
-- Decisión: tomada; queda solo escribir la autorización.
-
-**12. Que el revisor se entere por la plataforma.** Claude.
-
-- Hoy: marcar un PR "listo" no le pide revisión a nadie. La columna "qué
-  sigue" está pensada para quien implementa: al revisor le dice "esperá el
-  merge".
-- Propuesta: CODEOWNERS en el consumidor, o pedir revisor al marcar listo.
-  El "qué sigue" tiene en cuenta asignación y pedidos de revisión: no
-  alcanza con no ser el autor para ser revisor.
-- Detalle:
-  [`reporting.py:194`](../packages/spec-kit-linear/src/spec_kit_linear/reporting.py:194),
-  [`work_state.py:190`](../packages/spec-kit-linear/src/spec_kit_linear/work_state.py:190).
-
-**13. Linear ya sabe lo que hoy pedimos a mano.** Claude; completa el 4.
-
-- Hoy: si al equipo le falta el estado `In Review`, crearlo es un paso
-  manual del rollout. El título de la Issue se le pregunta al dev.
-- Propuesta: `onboard` ofrece crear `In Review`; título y slug salen de la
-  clave de la Issue.
-- Detalle: [`README.md:459`](../README.md:459),
-  [`README.md` de linear:79](../packages/spec-kit-linear/README.md:79).
-- Decisión (2026-09-11): sí. `onboard` crea `In Review` y lo que haga
-  falta para que Linear quede bien configurado, con autorización de quien
-  administra el team.
-
-### E. Instalar y actualizar sin sorpresas
-
-**14. Una sola verificación cierra instalación y actualización.** Codex; Claude.
-
-- Hoy: los pasos están repartidos entre instalación, onboarding, doctors de
-  paquetes y el espejo de skills. Actualizar exige dos comandos extra
-  porque `bundle update` no vuelve a cablear los hooks. El doctor son 182
-  líneas de prosa que el agente ejecuta y resume; el arreglo del cableado
-  "nunca se corre aquí".
-- Propuesta: un `doctor.py` en el preset que corra los sub-doctors y arme
-  las seis categorías siempre igual, ejecutable sin agente. `--fix` corre
-  `integration upgrade` cuando el cableado quedó viejo. Se adoptan el wizard
-  de `onboard` y las reparaciones de GitHub del diseño de releases. Termina
-  siempre en "listo para trabajar" o en una acción humana concreta.
-  Proponer a upstream que `bundle install` y `bundle update` refresquen
-  los eventos, después de confirmarlo en el CLI: un consumidor nuevo hoy
-  queda sin cablear ([entrada 103](dogfooding.md)).
-- Detalle: [`README.md:404`](../README.md:404),
-  [`README.md:429`](../README.md:429),
-  [`doctor.md:73`](../presets/default/commands/doctor.md:73),
-  [`doctor.md:126`](../presets/default/commands/doctor.md:126),
-  [`releases.md:48`](releases.md:48), [entrada 85](dogfooding.md:743).
-
-**15. Que el doctor avise que estás atrasado y que los hooks corrieron.** Claude.
-
-- Hoy: el doctor no compara lo instalado con lo publicado; este mismo
-  repositorio estuvo atrasado sin que nada lo dijera. Los handlers de
-  eventos son silenciosos por contrato, así que una falla de tracking se ve
-  igual que "no había nada que hacer".
-- Propuesta: el doctor distingue instalado, versión fijada, actualización
-  disponible, cableado y verificado. Prueba el cableado de punta a punta con
-  un evento sintético sin efectos remotos, con un canal observable para los
-  handlers. Un token vencido produce una remediación, nunca un falso éxito.
-- Detalle: [entrada 89](dogfooding.md:798),
-  [`cli.py:1517`](../packages/spec-kit-linear/src/spec_kit_linear/cli.py:1517).
-
-**16. Nombres, payload y notas de versión.** Claude.
-
-- Hoy: la portada del README dice `/speckit.code-review` y el comando
-  instalado se llama `/speckit-code-review-code-review`. El ZIP del preset
-  viaja con sus tests. Ni el preset ni los bundles tienen changelog, así que
-  `bundle update` no cuenta qué cambió. Nada verifica que los comandos del
-  preset coincidan con sus renders instalados.
-- Propuesta: elegir el nombre canónico del comando de revisión y que toda
-  la documentación diga el real. Separar el payload de las herramientas de
-  desarrollo. Changelog del preset y de los bundles dentro de la publicación.
-  Una aserción en CI que compare cada comando con sus renders.
-- Detalle: [`README.md:18`](../README.md:18), entradas
-  [64](dogfooding.md:537), [60](dogfooding.md:509), [91](dogfooding.md:822),
-  [96](dogfooding.md:907), [65](dogfooding.md:552).
-- Decisión: pendiente, el nombre del comando, porque cambia la superficie
-  de la extensión.
-
-### F. Varios devs y monorepos
-
-**17. Un ejecutor activo por feature, con relevos explícitos.** Codex.
-
-- Hoy: el README presenta la asignación en Linear como el semáforo contra
-  pisadas, pero `implement` toma la primera tarea sin marcar sin mirar a
-  quién está asignada. Dos personas podrían arrancar la misma tarea.
-- Propuesta: antes de implementar, comparar el assignee de la tarea con el
-  usuario de Linear y con el trabajo abierto de la feature; una diferencia
-  produce un diagnóstico útil, no un bloqueo mudo. Varios devs trabajan en
-  features distintas; el relevo dentro de una feature es explícito:
-  reasignar en Linear y adoptar el draft (punto 2).
-- Detalle: [`README.md:239`](../README.md:239),
-  [`README.md:401`](../README.md:401),
-  [`task_base.py:43`](../presets/default/scripts/python/task_base.py:43).
-
-**18. Monorepos: prefijos en las ramas y un team por repositorio.** Claude.
-
-- Hoy: upstream permite ramas con prefijo (`autor/app/003-slug`) para
-  monorepos. De nuestro lado, algunas rutas lo aceptan y otras no: el
-  patrón de tarea, el listado del stack y la línea de sesión esperan que la
-  rama empiece por `NNN-`. Un consumidor que use el prefijo dejaría de
-  proyectar a Linear sin ningún aviso. Además `speckit-linear.yml` vincula
-  un solo team de Linear por repositorio.
-- Propuesta: un único contrato de nombres, aplicado en inicio, descubrimiento
-  de PRs, propagación, merge, guards, revisión y Linear, con fixtures
-  compartidas. Mientras no se necesite más de un team, declararlo y que el
-  onboarding detecte la incompatibilidad.
-- Detalle:
-  [`git-config.yml:10`](../.specify/extensions/git/git-config.yml:10),
-  [`discovery.py:13`](../packages/spec-kit-linear/src/spec_kit_linear/discovery.py:13),
-  [`work_state.py:63`](../packages/spec-kit-linear/src/spec_kit_linear/work_state.py:63),
-  [`_common.py:149`](../presets/default/scripts/python/_common.py:149).
-- Decisión (2026-09-11): se soporta el prefijo de upstream
-  (`autor/app/003-slug`); un solo team por repositorio hasta que haya una
-  necesidad real.
-
-### G. Decisiones de política
-
-**19. Cuántos PRs pueden esperar revisión.** Claude.
-
-- Hoy: la 005 dejó 28 PRs apilados para una sola persona revisando raíz
-  primero.
-- Opciones: un tope de PRs listos sin mergear por feature, tras el cual el
-  loop espera; o sin tope, manteniendo el trabajo nocturno, pero mostrando
-  carga y antigüedad para que el humano decida cuándo revisar.
-- Decisión (2026-09-11): sin tope; se muestran carga y antigüedad.
-
-**20. Resuelto: se retira la regla del doble del forecast.** Claude.
-
-- Decisión revisada: en vez de medir sus interrupciones antes de tocarla,
-  la regla se elimina junto con todo el presupuesto (punto 8); no hay
-  forecast ni techo de líneas que frenar.
-- Detalle: entradas [70](dogfooding.md:604), [83](dogfooding.md:720),
-  [94](dogfooding.md:869); [`plan.md:348`](plan.md:348).
-
-## Orden recomendado
-
-La lógica: primero lo que corrige estados y evidencia sin cambiar nada
-visible; después lo que hace que "seguí" funcione sobre esos estados;
-luego lo nativo y el recorrido completo; al final instalación, higiene y
-coordinación. Las decisiones que cambian convenciones se toman antes,
-porque la fase 1 depende de ellas.
-
-| Fase | Puntos | Por qué en este lugar |
+| Orden | Entrada para generar la spec | Resultado |
 | --- | --- | --- |
-| 0. Antes de empezar | actualizar y cablear este repositorio (chore en curso); pendientes de aceptación de la 005; PRs a upstream con sus pruebas de agente; decisiones de los puntos 11, 16, 18 y 19; plan de GitHub para el 9 | sin la 18 no se toca la derivación; el repo tiene que correr con lo que va a probar |
-| 1. Linear correcto | 1 | el mayor impacto, sin cambiar la superficie; base de todo lo demás |
-| 2. Revisión | 6 | sin una revisión que pueda cerrarse no hay "listo" verificable |
-| 3. Loop reanudable y listo verificable | 2, 7, 5 | aquí nacen los scripts de cierre de tarea y de feature |
-| 4. Nativo | 9, 10, 11, 12, 13 | independientes del loop; casi todo es doctor y configuración |
-| 5. Recorrido completo | 3, 4 | usa el "qué sigue", el gate por aprobación y los títulos de Linear |
-| 6. Instalación y actualización | 14, 15, 16 | cierra con una sola verificación y un repo que sabe decir que está atrasado |
-| 7. Coordinación | 17 | depende de la identidad de Linear y del draft adoptable |
-| Releases (ronda propia) | detectar promociones pendientes; `doctor --fix` aplicando los settings de GitHub | ya diseñado; espera el plan Business |
+| 01 | [Estados de Linear basados en una observación completa](reliability/01-linear-truth.md) | Estados sin falsos completados. |
+| 02 | [Contexto de revisión suficiente con ledgers grandes](reliability/02-review-context.md) | Contexto suficiente sin cargar todo el ledger. |
+| 04 | [Corregir categorías inválidas sin perder hallazgos](reliability/04-review-findings.md) | Corrección de formato con hallazgos íntegros. |
+| 05 | [Iniciar bugs y chores con el nombre nativo de Linear](reliability/05-work-item-branches.md) | Datos y ramas de bugs/chores desde Linear. |
+| 06 | [Publicar el plan después de la aprobación de producto](reliability/06-product-approval.md) | Publicación posterior a aprobación explícita. |
+| 07 | [Retomar la tarea interrumpida sin duplicar trabajo](reliability/07-resumable-loop.md) | La misma rama y PR después de una interrupción. |
+| 08 | [Cerrar la tarea con revisión y checks vigentes](reliability/08-task-close.md) | Ready respaldado por el candidato actual. |
+| 09 | [Cerrar la feature desde el estado real de sus PRs](reliability/09-feature-close.md) | Gate final basado en entregas integradas. |
+| 10 | [Validar mensajes de commit desde Git](reliability/10-native-commit-check.md) | Convenciones comprobadas por Git. |
+| 11 | [Verificar las garantías de entrega en GitHub](reliability/11-native-github-rules.md) | Protecciones compatibles con el stack. |
+| 12 | [Crear y actualizar PRs con una rutina idempotente](reliability/12-pr-delivery.md) | Template y publicación de PRs idempotentes. |
+| 13 | [Solicitar revisión y mostrar el siguiente paso al revisor](reliability/13-review-routing.md) | Revisor solicitado y siguiente paso pertinente. |
+| 14 | [Completar la configuración necesaria de Linear](reliability/14-linear-onboarding.md) | Team configurado con operaciones autorizadas. |
+| 15 | [Incorporar assess al recorrido de producto](reliability/15-native-discovery.md) | Assess oficial para ideas por madurar. |
+| 16 | [Mostrar y ejecutar el siguiente paso de producto](reliability/16-guided-journey.md) | Contexto y continuidad desde las primeras fases. |
+| 17 | [Ejecutar el diagnóstico de instalación sin agente](reliability/17-executable-doctor.md) | Diagnóstico reproducible sin agente. |
+| 18 | [Diagnosticar y reparar el cableado de eventos](reliability/18-event-wiring.md) | Cableado reparable y observabilidad veraz. |
+| 19 | [Comprobar nombres, frontmatter y renders de comandos](reliability/19-command-conformance.md) | Nombres y renders comprobados automáticamente. |
+| 20 | [Publicar un payload limpio con cambios identificables](reliability/20-distribution-payload.md) | Assets limpios, versiones y changelog coherentes. |
+| 21 | [Coordinar la asignación y el relevo de una feature](reliability/21-developer-handoff.md) | Asignación y relevo explícitos. |
+| 23 | [Validar el workflow estable desde la distribución publicada](reliability/23-live-acceptance.md) | Evidencia real del workflow publicado. |
 
-Cada fase tiene su propio archivo en [`reliability/`](reliability/), con
-la problemática, la solución, sus decisiones y la entrada sugerida para
-`/speckit.specify`; la fase 0 se ejecuta sin spec-kit.
+## Decisiones comunes
 
-Cada punto aterriza por el loop: una tarea, una rama, un PR, merge humano.
-Lo de la fase 0 son chores. Las fases 4 y 5 pueden correr en paralelo con
-la 3, porque no tocan los scripts del loop salvo el cierre de tarea en el 12.
+- **Convención de ramas:** feature `NNN-slug`; tarea `NNN-T###-slug`.
+  Bugs y chores usan el `branchName` nativo de su Issue. Sin Linear
+  configurado, conservan el formato predeterminado por clave de Issue.
+  Un fallo de conexión no equivale a ausencia de configuración. Adoptar
+  siempre el trabajo existente antes de crear otra rama.
+- **Identidad:** números de feature únicos por repositorio y un team de
+  Linear. Se conserva la convención anterior, sin un registro paralelo de
+  identidades ni ampliar en esta ronda los prefijos de features/tareas.
+  Las tareas se enlazan a Linear mediante el cuerpo del PR.
+- **Discovery:** usar `assess` oficial cuando haya una idea por madurar.
+  Sus notas pueden compartirse por Git; su `go` habilita especificar, no
+  aprueba un plan técnico. Un fix definido entra directamente a su recorrido.
+- **Cierre de producto:** refinar spec, plan y tareas localmente; analizar;
+  obtener aprobación humana explícita; entonces commitear, publicar y abrir
+  el gate. `implement` exige ese gate y deja de crearlo automáticamente.
+  Un cambio de alcance vuelve a producto antes de publicar.
+- **Cierre de tarea:** cambios y evidencia de tests → commit final → push →
+  revisión del candidato → checks → ready. La revisión cubre HEAD y
+  merge-base; su resultado vive en la sesión y el PR. Inicialmente todo
+  cambio posterior exige revisión vigente, también en el ledger.
+- **Autonomía:** automatizar la mecánica dentro de la autorización otorgada;
+  aprobación de producto, revisión final y merge son humanos. Los cambios
+  de contrato necesarios son parte de 06, no permisos concedidos por leer
+  una propuesta.
+- **Stacks y coordinación:** sin tope de PRs listos; mostrar carga y
+  antigüedad. Un ejecutor activo por feature, con relevo explícito.
+  Mostrar divergencia respecto del trunk, sin merge automático.
+- **Doctor:** lectura por defecto; reparación con `--fix` dentro de sus
+  permisos. Preservar configuraciones humanas y usar mecanismos nativos.
+  Las escrituras remotas conservan su autorización específica.
+- **Eventos:** diferenciar assets, cableado, prueba sintética del
+  dispatcher/handler y evento observado desde el agente. Solo el último
+  acredita ejecución real del agente; handlers sin secretos en sus logs.
+- **Nombre de revisión:** sigue pendiente elegir la superficie pública,
+  distinguiendo nombre lógico de representación por integración. Resolver
+  en 19; no bloquea las entradas anteriores.
 
-## Cómo sabremos que mejoró
+## Estado de partida y trabajo separado
 
-Por lo que se ve en el día a día, no por tests verdes:
+El consumidor de este repositorio fue actualizado con el PR #116 y los
+commits pendientes ya fueron enviados, según confirmó el usuario.
+No queda una fase 0 que exija repetir esas operaciones.
 
-- Intervenciones por tarea, separando decisiones de producto de
-  recordatorios y reparaciones de Git.
-- Recuperación: cuántas interrupciones se retoman con el mismo comando y
-  cuánto tarda volver a trabajo útil.
-- Exactitud de Linear: estados correctos sobre estados proyectados,
-  incluyendo varios PRs y caídas de red.
-- Revisión útil: cobertura de los archivos relevantes, causas de
-  "inconcluso", hallazgos que solo necesitaban corregir el formato.
-- Instalación: tiempo hasta el primer PR revisable, en instalación limpia y
-  en actualización.
-- Relevo humano: PRs listos, antigüedad y tiempo hasta la revisión.
+La [reconciliación observada](../validation/linear-observed-reconciliation.md)
+ya ejercitó operaciones reales de Linear y handlers invocados por el
+dispatcher. Su propia tabla distingue lo observado de lo pendiente: PRs
+GitHub, In Review, Codex y disparo desde el agente no quedan acreditados
+por esa prueba. Conservar esta evidencia y completar lo pendiente en 23
+contra las versiones que se publiquen.
 
-El dogfooding de la ronda cubre instalación desde lo publicado, cambio de
-agente a mitad de tarea, draft existente, GitHub caído, fix dentro de un
-stack y relevo entre devs, y distingue ejecución real de agentes de
-validación de archivos generados.
+Los [parches upstream](upstream/README.md) y sus
+[pruebas manuales](upstream/manual-tests.md) tienen un circuito independiente;
+abrir sus PRs no es requisito para empezar esta ronda. 0003/0004 permanecen
+aparcados detrás del [resolver portátil](upstream/hooks-runtime-design.md).
+[Releases](releases.md) sigue siendo una ronda propia: esta reorganización
+no incorpora promociones ni su automatización de settings.
 
-## Qué no vamos a hacer
+## Cobertura de la propuesta y del dogfooding
 
-Una extensión nueva; aprobar o mergear desde el harness; refrescar la rama
-de feature sola sin una política acordada; cambiar la convención de ramas
-salvo lo que decida el punto 18; un script de bootstrap; adaptadores de
-canal; reimplementar lo que un
-ruleset, un hook de Git, CODEOWNERS o la integración GitHub y Linear ya
-hacen.
+| Tema original | Entradas de esta ronda |
+| --- | --- |
+| 1: verdad de Linear | 01 |
+| 2: recuperación y cierres | 07–09 |
+| 3 y 4: recorrido de producto y datos de Issues | 05, 06, 16 |
+| 5: divergencia respecto del trunk | 09 |
+| 6: contexto y categorías | 02, 04 (Markdown: PR #179) |
+| 7: evidencia vigente antes de ready | 08 |
+| 9: garantías nativas | 10, 11 |
+| 10: template y mecánica de PRs | 12 |
+| 11: aprobación de producto | 06, 15 |
+| 12: revisión solicitada | 13 |
+| 13: onboarding de Linear | 05, 14 |
+| 14–16: instalación, observabilidad y payload | 17–20 |
+| 17: varios desarrolladores | 21 |
+| 18: nombres y teams | 05, 21; convención anterior conservada |
+| 19: carga de revisión sin tope | 09, 21 |
+| Aceptación pendiente de 005 y de esta ronda | 23 |
 
-## Decisiones que necesitan respuesta
+El frontmatter inválido de la entrada 72 del dogfooding queda asignado a
+19 para validación en la distribución; cualquier corrección del parser
+nativo va a upstream. La higiene de versiones y etiquetas históricas
+queda en 20. Las entradas 31/96 (renders), 40 (slug repetido), 87 (contexto)
+y 89/102/103 (eventos) quedan cubiertas por 19, 05, 16 y 18 respectivamente.
 
-Respondidas el 2026-09-11; el detalle vive en
-[`reliability/00-groundwork.md`](reliability/00-groundwork.md).
+La segunda parte de la entrada 55 (AVAILABLE_DOCS y ejemplo de categorías
+de analyze) sigue en el backlog upstream; no autoriza editar el baseline.
+La política de excepciones de checklist de la entrada 39 sigue vigente:
+esta ronda no la cambia implícitamente.
 
-| Decisión | Punto | Respuesta |
-| --- | --- | --- |
-| Alcance del packet | 6 | el motor scopea cada archivo cambiado; sin métrica de presupuesto que unificar |
-| Aprobación del plan | 11 | el envío del plan al repositorio es la aprobación; no hay gate adicional |
-| Nombre del comando de revisión | 16 | pendiente |
-| Prefijos de monorepo y teams por repositorio | 18 | se soporta `autor/app/003-slug`; un team por repositorio por ahora |
-| Tope de PRs en espera | 19 | sin tope, mostrando carga y antigüedad |
-| Plan de GitHub y gestor de hooks | 9 | verificar en el doctor antes de aplicar |
-| Crear `In Review` desde `onboard` | 13 | sí, y lo que Linear necesite para quedar bien configurado |
-| Canal de depuración de los handlers | 15 | una línea en stderr bajo una variable |
-| Refresh automático desde el trunk | 5 | solo mostrar |
-| Número de ronda | | los números de ronda y de `specs/` son independientes; el plan registra la ronda por nombre |
-| Idioma | | `AGENTS.md` suma `reliability.md` y `reliability/` a las excepciones |
+## Cómo evaluar la mejora
 
-## Anexo: qué queda abierto en el dogfooding
-
-- Con decisión pendiente, cubiertas por este documento: 60 y 64 (16); 67,
-  69 y 78 (8); 74, 79, 82 y 90 (6); 75 (8 y 10); 87 (3); 89 (15); 91 y
-  96 (16).
-- Sin cubrir todavía: 72, un frontmatter YAML inválido que falla en
-  silencio; encaja en el doctor (14) o como parche a upstream.
-- Etiquetas desactualizadas: 32 y 34 dicen "entregada" pero ya están
-  publicadas; 92 dice pendiente pero la 94 la cerró, con el residuo del
-  piso `>=1.0.1` en el `preset.yml` fuente.
-- Reglas que dependen de que alguien se acuerde: 31 y 96 (renders), 35 (la
-  receta de bump a mano, punto 14), 40 (el slug generado dos veces), 39 (la
-  excepción de la checklist); 33 y 65 quedan aceptadas.
-- Upstream: 18 y 36 los cubre el parche 0005; 22, 23 y 84 el diseño del
-  resolver; 38 el 0006; 66 el 0007; 73 el 0008; 95 el 0009; 24 y 25 los
-  parches 0002 y 0003. Siguen sin dueño 72 y la segunda mitad de la 55.
+En la aceptación final registrar intervenciones mecánicas por tarea,
+tiempo de recuperación, exactitud de Linear, cobertura y causas de revisión
+inconclusa, tiempo de instalación y espera
+de revisión. Los tests por spec demuestran sus contratos; la validación
+publicada acredita el recorrido real.

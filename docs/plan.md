@@ -414,13 +414,25 @@ command registration and this distribution's doctor mirror.
 ### Workflow reliability (agreed 2026-09-11)
 
 The next round, designed in [`reliability.md`](reliability.md) (Spanish,
-for the consuming team) with one file per phase under
+for the consuming team) with one numbered input per spec under
 [`reliability/`](reliability/): a Linear derivation that never invents a
 completion, a resumable loop with a verifiable `ready`, a review that can
 close, native guarantees in Git and GitHub, a guided product path,
-one-command install and update, and multi-developer coordination. Phase 0
-runs without spec-kit: the consumer upgrade landed as #116 (dogfooding
-entry 102); the upstream patch series 0001–0009 is prepared and verified
+one-command install and update, and multi-developer coordination. Follow the
+index sequentially, delivering each bounded spec before the next. Remaining
+live acceptance runs last. The consumer upgrade landed
+as #116 (dogfooding entry 102), and the pending documentation commits were
+sent; neither live acceptance nor upstream PRs block the first spec.
+
+Keep `NNN-slug` feature branches and `NNN-T###-slug` task branches. Bugs and
+chores use Linear's native issue branch name. Product refines delivery
+artifacts locally and explicitly approves them before their commit, push,
+and feature-gate creation; implement must not create that gate itself.
+The native assess extension serves optional discovery before specification.
+These are implementation requirements for the relevant specs, not claims
+that the current commands already implement them.
+
+The upstream patch series 0001–0009 is prepared and verified
 under [`upstream/`](upstream/README.md), with 0003/0004 replaced by the
 portable hook resolver design and parked until this round closes; the
 round's decisions were recorded on 2026-09-11. Round names and `specs/`
