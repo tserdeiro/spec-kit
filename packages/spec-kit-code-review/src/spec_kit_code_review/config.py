@@ -37,8 +37,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": SUPPORTED_SCHEMA_VERSION,
     "repository": {"slug": None, "github": None, "remote": "origin"},
     "engine": {
-        "ocr_version": "v1.8.3",
-        "rule_batch_size": 100,
+        "ocr_version": "v1.12.0",
         "timeout_seconds": 300,
     },
     "packet": {
@@ -500,7 +499,6 @@ def _validate_effective(values: Mapping[str, Any], path: Path) -> None:
         )
 
     for section, key in (
-        ("engine", "rule_batch_size"),
         ("engine", "timeout_seconds"),
         ("packet", "max_bytes_per_artifact"),
         ("packet", "max_total_bytes"),

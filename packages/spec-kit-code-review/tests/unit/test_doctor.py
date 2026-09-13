@@ -73,7 +73,7 @@ class DoctorCase(unittest.TestCase):
     # -- environment ----------------------------------------------------
 
     def _canonical_engine(self) -> Path:
-        return tool_executable(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)})
+        return tool_executable(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)})
 
     def _install_tools(self) -> dict[str, str]:
         overrides: dict[str, str] = {}
@@ -186,7 +186,7 @@ class OcrGroupTests(DoctorCase):
 
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         message = next(d.message for d in report.diagnostics if d.code == "ocr_missing")
-        self.assertIn("v1.8.3", message)
+        self.assertIn("v1.12.0", message)
         # The new policy, both halves: `--fix` installs it, a review never does.
         self.assertIn("doctor --fix", message)
         self.assertIn("A review never installs anything", message)
@@ -200,9 +200,9 @@ class OcrGroupTests(DoctorCase):
         # directory per version -- never a global install, which would outlive
         # the extension's own uninstall on the machine.
         self.assertIn("npm install --prefix", message)
-        self.assertIn("--save-exact @alibaba-group/open-code-review@1.8.3", message)
+        self.assertIn("--save-exact @alibaba-group/open-code-review@1.12.0", message)
         self.assertNotIn("npm install -g", message)
-        self.assertIn("tserdeiro/spec-kit/tools/ocr/1.8.3", message)
+        self.assertIn("tserdeiro/spec-kit/tools/ocr/1.12.0", message)
         self.assertIn("/bin/opencodereview", message)
         self.assertIn("JS shim", message)
         self.assertIn("rm -rf", message)
@@ -215,7 +215,7 @@ class OcrGroupTests(DoctorCase):
         report = self.run_doctor()
 
         message = next(d.message for d in report.diagnostics if d.code == "ocr_missing")
-        self.assertIn("--save-exact @alibaba-group/renamed-wrapper@1.8.3", message)
+        self.assertIn("--save-exact @alibaba-group/renamed-wrapper@1.12.0", message)
         self.assertNotIn("npm install -g", message)
 
     def test_the_report_names_the_three_resolved_roots_and_the_canonical_path(self) -> None:
@@ -288,14 +288,14 @@ class OcrGroupTests(DoctorCase):
         # The engine prints its platform and build time on the same line as its
         # identity. Pinning the whole string in a *shared* lock would fail for
         # every user on another platform, with a message blaming their correct
-        # installation. Verified against the real v1.8.3 output.
-        self.lock_version = "open-code-review v1.8.3 (80a579466)"
+        # installation. Verified against the real v1.12.0 output.
+        self.lock_version = "open-code-review v1.12.0 (494bf1c8d)"
         for platform in ("darwin/arm64", "linux/amd64", "windows/amd64"):
             with self.subTest(platform=platform):
                 self.ocr_state = {
                     "version": (
-                        f"open-code-review v1.8.3 (80a579466) {platform}\n"
-                        "built at: 2026-07-31T09:24:52Z\n"
+                        f"open-code-review v1.12.0 (494bf1c8d) {platform}\n"
+                        "built at: 2026-09-12T14:26:13Z\n"
                         "https://github.com/alibaba/open-code-review"
                     )
                 }
@@ -307,8 +307,8 @@ class OcrGroupTests(DoctorCase):
     def test_a_different_commit_is_still_a_mismatch(self) -> None:
         # The prefix is name, version *and* commit: a rebuild of the same
         # version from a different commit is a different binary.
-        self.lock_version = "open-code-review v1.8.3 (80a579466)"
-        self.ocr_state = {"version": "open-code-review v1.8.3 (deadbeef) darwin/arm64\nbuilt at: x"}
+        self.lock_version = "open-code-review v1.12.0 (494bf1c8d)"
+        self.ocr_state = {"version": "open-code-review v1.12.0 (deadbeef) darwin/arm64\nbuilt at: x"}
 
         report = self.run_doctor()
 
@@ -620,16 +620,16 @@ class EngineInstallTests(DoctorCase):
 
         self.assertEqual(report.code, EXIT_SUCCESS, [d.message for d in report.diagnostics if d.severity != "info"])
         self.assertTrue(self._canonical_engine().is_file())
-        self.assertTrue(any("installed ocr v1.8.3" in line for line in report.fixes), report.fixes)
+        self.assertTrue(any("installed ocr v1.12.0" in line for line in report.fixes), report.fixes)
         self.assertIn("ocr_digest", self.codes(report))
 
     def test_the_install_is_the_exact_pinned_argv_never_a_shell_string(self) -> None:
         self.run_doctor(fix=True)
 
-        destination = tool_root(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)})
+        destination = tool_root(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)})
         self.assertEqual(
             self._npm_invocations(),
-            [f"install --prefix {destination} --save-exact @alibaba-group/open-code-review@1.8.3"],
+            [f"install --prefix {destination} --save-exact @alibaba-group/open-code-review@1.12.0"],
         )
         # npm ignores `--save-exact` without a manifest in the prefix.
         self.assertTrue((destination / "package.json").is_file())
@@ -639,7 +639,7 @@ class EngineInstallTests(DoctorCase):
 
         self.run_doctor(fix=True)
 
-        self.assertIn("--save-exact @alibaba-group/renamed-wrapper@1.8.3", self._npm_invocations()[0])
+        self.assertIn("--save-exact @alibaba-group/renamed-wrapper@1.12.0", self._npm_invocations()[0])
 
     def test_a_digest_that_does_not_match_the_lock_removes_the_whole_tree(self) -> None:
         self.lock_digest = "b" * 64
@@ -648,7 +648,7 @@ class EngineInstallTests(DoctorCase):
 
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         self.assertIn("ocr_install_digest_mismatch", self.codes(report))
-        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)}).exists())
+        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)}).exists())
         self.assertEqual(report.fixes, [fix for fix in report.fixes if "installed ocr" not in fix])
 
     def test_an_install_that_produces_no_binary_leaves_nothing_behind(self) -> None:
@@ -658,7 +658,7 @@ class EngineInstallTests(DoctorCase):
 
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         self.assertIn("ocr_install_incomplete", self.codes(report))
-        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)}).exists())
+        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)}).exists())
 
     def test_a_failing_npm_is_reported_and_removes_the_directory(self) -> None:
         self.npm_state = {"exit_code": 1, "stderr": "npm ERR! code E404", "record_invocations": str(self.npm_log)}
@@ -668,7 +668,7 @@ class EngineInstallTests(DoctorCase):
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         message = next(d.message for d in report.diagnostics if d.code == "ocr_install_failed")
         self.assertIn("E404", message)
-        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.8.3", {"XDG_DATA_HOME": str(self.data_home)}).exists())
+        self.assertFalse(tool_root(OCR_TOOL_NAME, "v1.12.0", {"XDG_DATA_HOME": str(self.data_home)}).exists())
 
     def test_an_override_is_the_operators_decision_and_is_never_replaced(self) -> None:
         self.ocr_state = {"version": DEFAULT_OCR_VERSION}

@@ -233,7 +233,7 @@ class SharedDocumentTests(unittest.TestCase):
         document = shared_config_document(repository="tserdeiro/spec-kit", remote="upstream", slug=None)
 
         self.assertEqual(document["repository"], {"slug": "spec-kit", "github": "tserdeiro/spec-kit", "remote": "upstream"})
-        self.assertEqual(document["engine"]["ocr_version"], "v1.8.3")
+        self.assertEqual(document["engine"]["ocr_version"], "v1.12.0")
         self.assertNotIn("root", document["evidence"])
         self.assertEqual(document["protected_paths"], ["specs/*/spec.md", ".specify/memory/constitution.md"])
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The pinned engine moves from open-code-review v1.8.3 to v1.12.0. The
+  adapter now runs `delegate preview --format json` and
+  `delegate rule --format json` and reads the engine's JSON directly instead
+  of parsing its Markdown rendering; the Markdown parser is gone. Every
+  selected path goes into one `delegate rule` call, so `engine.rule_batch_size`
+  is gone from the config template, its defaults, and the README.
 - The review packet emits each source once: the engine's `delegate preview`
   and `delegate rule` outputs are no longer quoted verbatim — §2.1 and §3.2
   point at `raw/*.stdout` with its sha256 and byte count — and §3.2 is a rule

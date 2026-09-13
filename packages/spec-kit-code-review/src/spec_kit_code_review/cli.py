@@ -924,7 +924,6 @@ def _run_engine(
         prepared.working_root,
         preview.included_paths,
         rule_path=resolution.path,
-        batch_size=int(config.get("engine", "rule_batch_size", 100) or 100),
         on_raw=lambda raw: write_text(raw_directory / "ocr-delegate-rule.stdout", raw),
     )
 
@@ -1070,7 +1069,6 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
             context.root,
             preview.included_paths,
             rule_path=resolution.path,
-            batch_size=int(config.get("engine", "rule_batch_size", 100) or 100),
             on_raw=lambda raw: write_text(raw_directory / "ocr-delegate-rule.stdout", raw),
         )
 

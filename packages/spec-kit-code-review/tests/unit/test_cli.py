@@ -402,7 +402,7 @@ class DoctorCommandTests(CliCase):
         command = next(item for item in payload["diagnostics"] if item["code"] == "ocr_install_command")["message"]
         self.assertIn("npm install --prefix", command)
         self.assertIn("--save-exact", command)
-        self.assertIn("@alibaba-group/open-code-review@1.8.3", command)
+        self.assertIn("@alibaba-group/open-code-review@1.12.0", command)
         self.assertNotIn("npm install -g", command)
 
     def test_quiet_suppresses_human_output_but_not_the_exit_code(self) -> None:

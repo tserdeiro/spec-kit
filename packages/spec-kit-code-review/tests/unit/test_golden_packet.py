@@ -43,20 +43,41 @@ MERGE_BASE = "a" * 40
 HEAD = "b" * 40
 CANDIDATE_ID = "c" * 64
 
-CONSUMER_PREVIEW = """\
-# Delegate preview
-
-- **Mode**: range
-- **From**: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-- **To**: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-
-## Files
-
-- `src/module.py`
-- `tests/test_module.py`
-- `docs/guide.md` — excluded: documentation
-- `assets/logo.png` — excluded: binary
-"""
+CONSUMER_PREVIEW = json.dumps(
+    {
+        "schema_version": "1",
+        "mode": "range",
+        "repository": "/tmp/consumer",
+        "from": "a" * 40,
+        "to": "b" * 40,
+        "merge_base": "a" * 40,
+        "total_files": 4,
+        "reviewable_count": 2,
+        "excluded_count": 2,
+        "total_insertions": 2,
+        "total_deletions": 0,
+        "reviewable_files": [
+            {"path": "src/module.py", "status": "modified", "insertions": 1, "deletions": 0},
+            {"path": "tests/test_module.py", "status": "added", "insertions": 1, "deletions": 0},
+        ],
+        "excluded_files": [
+            {
+                "path": "docs/guide.md",
+                "status": "modified",
+                "insertions": 0,
+                "deletions": 0,
+                "exclude_reason": "documentation",
+            },
+            {
+                "path": "assets/logo.png",
+                "status": "modified",
+                "insertions": 0,
+                "deletions": 0,
+                "exclude_reason": "binary",
+            },
+        ],
+    }
+)
 
 HOSTILE_PATHS = tuple(
     json.loads((ADVERSARIAL / "hostile-paths.json").read_text(encoding="utf-8"))["paths"]

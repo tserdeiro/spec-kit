@@ -111,7 +111,7 @@
     ]
   },
   "engine": {
-    "adapter_version": "2",
+    "adapter_version": "3",
     "config_path": "<variable>",
     "executable": "<variable>",
     "invocations": [
@@ -122,6 +122,8 @@
           "preview",
           "--repo",
           "<workspace>/evidence/path-<slug>/<sha1>/worktree",
+          "--format",
+          "json",
           "--from",
           "<sha1>",
           "--to",
@@ -138,6 +140,8 @@
           "rule",
           "--repo",
           "<workspace>/evidence/path-<slug>/<sha1>/worktree",
+          "--format",
+          "json",
           "--rule",
           "<workspace>/evidence/path-<slug>/<sha1>/raw/rule.effective.json",
           "--",
@@ -212,13 +216,16 @@
   },
   "schema_version": "1.0",
   "scope": {
-    "adapter_version": "2",
+    "adapter_version": "3",
     "excluded_count": 0,
     "files": [
       {
+        "deletions": 0,
+        "insertions": 1,
         "path": "<variable>",
         "reason": null,
-        "state": "included"
+        "state": "included",
+        "status": "modified"
       }
     ],
     "from": "<sha1>",

@@ -114,8 +114,8 @@ extensions:
       open_code_review:
         source: https://github.com/alibaba/open-code-review
         license: Apache-2.0
-        release_tag: v1.8.3
-        version_string: "ocr version v1.8.3"
+        release_tag: v1.12.0
+        version_string: "open-code-review v1.12.0 (494bf1c8d)"
         npm_package: "@alibaba-group/open-code-review"
         binaries:
           ${platform_os}-${platform_arch}: "$engine_digest"

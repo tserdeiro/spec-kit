@@ -12,7 +12,7 @@ This review covers uncommitted content: staged, unstaged and untracked.
 
 ### 2.1 Engine output
 
-- engine output: `raw/ocr-delegate-preview.stdout` (sha256 d9d074e1fcbadb54589c60be9da2af055de1b5edd69835f6936fbf648299970d, 283 bytes)
+- engine output: `raw/ocr-delegate-preview.stdout` (sha256 01d5fd8e52c21f881cf611ca63363fa6478ee8588d482b673d1493b752df61a2, 777 bytes)
 
 ### 2.2 Normalized list
 
