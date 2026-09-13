@@ -27,6 +27,194 @@ class LinearClientTests(unittest.TestCase):
         )
         return client, opener, delays
 
+    @staticmethod
+    def _issue_node(
+        *, identifier: str = "WOR-12", branch_name: str = "users/alice/WOR-12"
+    ) -> dict[str, object]:
+        return {
+            "id": "issue-12",
+            "identifier": identifier,
+            "title": "Native branch lookup",
+            "description": "Keep the issue context.",
+            "url": "https://linear.example/acme/issue/WOR-12/native-branch-lookup",
+            "branchName": branch_name,
+            "team": {"id": "team-1", "key": "WOR", "name": "Work"},
+        }
+
+    def test_resolve_issue_context_reads_canonical_fields_and_exact_branch(self) -> None:
+        client, opener, _ = self._client([MemoryResponse({"data": {"issue": self._issue_node()}})])
+
+        found = client.resolve_issue_context("WOR-12")
+
+        self.assertEqual(found.id, "issue-12")
+        self.assertEqual(found.identifier, "WOR-12")
+        self.assertEqual(found.description, "Keep the issue context.")
+        self.assertEqual(
+            found.url,
+            "https://linear.example/acme/issue/WOR-12/native-branch-lookup",
+        )
+        self.assertEqual(found.branch_name, "users/alice/WOR-12")
+        self.assertEqual((found.team.id, found.team.key, found.team.name), ("team-1", "WOR", "Work"))
+        self.assertEqual(opener.requests[0]["payload"]["variables"], {"id": "WOR-12"})
+
+    def test_resolve_branch_issues_deduplicates_and_preserves_native_null(self) -> None:
+        client, opener, _ = self._client(
+            [MemoryResponse({"data": {"issue0": self._issue_node(), "issue1": None}})]
+        )
+
+        found = client.resolve_branch_issues(
+            ["users/alice/WOR-12", "WOR-13", "users/alice/WOR-12"]
+        )
+
+        self.assertEqual(set(found), {"users/alice/WOR-12", "WOR-13"})
+        self.assertEqual(found["users/alice/WOR-12"].identifier, "WOR-12")
+        self.assertIsNone(found["WOR-13"])
+        request = opener.requests[0]["payload"]
+        self.assertEqual(request["variables"], {"branch0": "users/alice/WOR-12", "branch1": "WOR-13"})
+        self.assertIn("issueVcsBranchSearch", str(request["query"]))
+
+    def test_resolve_branch_issues_batches_at_existing_page_bound(self) -> None:
+        branches = [f"users/alice/WOR-{number}" for number in range(51)]
+        first = {
+            f"issue{index}": self._issue_node(identifier=f"WOR-{index}", branch_name=branch)
+            for index, branch in enumerate(branches[:50])
+        }
+        second = {"issue0": self._issue_node(identifier="WOR-50", branch_name=branches[50])}
+        client, opener, _ = self._client([MemoryResponse({"data": first}), MemoryResponse({"data": second})])
+
+        found = client.resolve_branch_issues(branches)
+
+        self.assertEqual(len(found), 51)
+        self.assertEqual(len(opener.requests), 2)
+        self.assertEqual(len(opener.requests[0]["payload"]["variables"]), 50)
+        self.assertEqual(len(opener.requests[1]["payload"]["variables"]), 1)
+
+    def test_resolve_branch_issues_rejects_missing_or_malformed_native_result(self) -> None:
+        client, _, _ = self._client([MemoryResponse({"data": {}})])
+        with self.assertRaises(AppError) as missing:
+            client.resolve_branch_issues(["WOR-12"])
+        self.assertEqual(missing.exception.code, 9)
+        self.assertIn("missing", str(missing.exception))
+
+        client, _, _ = self._client([MemoryResponse({"data": {"issue0": {"id": "issue-12"}}})])
+        with self.assertRaises(AppError) as malformed:
+            client.resolve_branch_issues(["WOR-12"])
+        self.assertEqual(malformed.exception.code, 9)
+        self.assertIn("team", str(malformed.exception))
+
+    def test_resolve_issue_contexts_batches_distinct_keys_and_preserves_null(self) -> None:
+        client, opener, _ = self._client(
+            [
+                MemoryResponse(
+                    {
+                        "data": {
+                            "issues": {
+                                "nodes": [self._issue_node()],
+                                "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                            }
+                        }
+                    }
+                ),
+                MemoryResponse(
+                    {
+                        "data": {
+                            "issues": {
+                                "nodes": [self._issue_node(identifier="WOR-13")],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            }
+                        }
+                    }
+                ),
+            ]
+        )
+
+        found = client.resolve_issue_contexts("team-1", ["WOR-12", "WOR-13", "WOR-14", "WOR-12"])
+
+        self.assertEqual(set(found), {"WOR-12", "WOR-13", "WOR-14"})
+        self.assertEqual(found["WOR-12"].identifier, "WOR-12")
+        self.assertEqual(found["WOR-13"].identifier, "WOR-13")
+        self.assertIsNone(found["WOR-14"])
+        self.assertEqual(
+            opener.requests[0]["payload"]["variables"],
+            {"teamId": "team-1", "numbers": [12.0, 13.0, 14.0], "first": 50, "after": None},
+        )
+        self.assertEqual(opener.requests[1]["payload"]["variables"]["after"], "cursor-1")
+        self.assertIn("IssueContexts", str(opener.requests[0]["payload"]["query"]))
+        self.assertIn(
+            "filter: { team: { id: { eq: $teamId } }, number: { in: $numbers } }",
+            str(opener.requests[0]["payload"]["query"]),
+        )
+
+    def test_resolve_issue_contexts_batches_at_existing_page_bound(self) -> None:
+        identifiers = [f"WOR-{number}" for number in range(1, 52)]
+        client, opener, _ = self._client(
+            [
+                MemoryResponse(
+                    {
+                        "data": {
+                            "issues": {
+                                "nodes": [self._issue_node(identifier=identifier) for identifier in identifiers[:50]],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            }
+                        }
+                    }
+                ),
+                MemoryResponse(
+                    {
+                        "data": {
+                            "issues": {
+                                "nodes": [self._issue_node(identifier=identifiers[50])],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            }
+                        }
+                    }
+                ),
+            ]
+        )
+
+        found = client.resolve_issue_contexts("team-1", identifiers)
+
+        self.assertEqual(len(found), 51)
+        self.assertEqual(len(opener.requests), 2)
+        self.assertEqual(opener.requests[0]["payload"]["variables"]["first"], 50)
+        self.assertEqual(len(opener.requests[0]["payload"]["variables"]["numbers"]), 50)
+        self.assertEqual(opener.requests[1]["payload"]["variables"]["numbers"], [51.0])
+        self.assertEqual(opener.requests[1]["payload"]["variables"]["first"], 50)
+
+    def test_resolve_issue_contexts_rejects_missing_or_malformed_result(self) -> None:
+        client, _, _ = self._client([MemoryResponse({"data": {}})])
+        with self.assertRaises(AppError) as missing:
+            client.resolve_issue_contexts("team-1", ["WOR-12"])
+        self.assertEqual(missing.exception.code, 9)
+        self.assertIn("issues", str(missing.exception))
+
+        client, _, _ = self._client(
+            [
+                MemoryResponse(
+                    {
+                        "data": {
+                            "issues": {
+                                "nodes": [[]],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            }
+                        }
+                    }
+                )
+            ]
+        )
+        with self.assertRaises(AppError) as malformed:
+            client.resolve_issue_contexts("team-1", ["WOR-12"])
+        self.assertEqual(malformed.exception.code, 9)
+        self.assertIn("nodes", str(malformed.exception))
+
+    def test_resolve_issue_contexts_rejects_noncanonical_identifier_before_read(self) -> None:
+        client, opener, _ = self._client([])
+
+        with self.assertRaisesRegex(ValueError, "TEAM-number"):
+            client.resolve_issue_contexts("team-1", ["WOR-12-fix"])
+
+        self.assertEqual(opener.requests, [])
+
     def test_query_uses_authorization_request_id_and_only_named_queries(self) -> None:
         client, opener, _ = self._client([MemoryResponse({"data": {"viewer": {"id": "viewer"}}})])
 
