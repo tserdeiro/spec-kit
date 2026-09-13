@@ -271,3 +271,18 @@ def test_gate_requires_the_published_feature_checkout(published: tuple[Path, dic
     repo, state = published
     _git(repo, *command)
     _reject(repo, state)
+
+
+def test_gate_accepts_a_task_branch_in_the_published_feature_stack(published: tuple[Path, dict[str, object]]) -> None:
+    repo, _state = published
+    _git(repo, "switch", "-q", "-c", "003-T002-task-entry")
+    product_gate.check(repo)
+
+
+@pytest.mark.parametrize("branch", ["004-T002-wrong-feature", "003-T002", "003-other-task", "003-T002-task"])
+def test_task_context_requires_a_complete_matching_branch_name(published: tuple[Path, dict[str, object]],
+                                                                branch: str) -> None:
+    if branch == "003-T002-task":
+        assert product_gate._is_task_context(branch, "003-feature")
+    else:
+        assert not product_gate._is_task_context(branch, "003-feature")

@@ -9,11 +9,22 @@ failing reconcile is a warning, never a failure of this script.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import subprocess
 import sys
 from pathlib import Path
 
+import product_gate
+
 from _common import check_prerequisites, delivery_base, die, open_task_prs, reconcile_linear, run_git
+
+
+def _check_product_gate(repo_root: Path) -> None:
+    # Keep task-base's machine-readable ``base=`` output stable while the
+    # shared gate remains verbose when invoked as its own entrypoint.
+    with contextlib.redirect_stdout(io.StringIO()):
+        product_gate.check(repo_root)
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = run_git(*args, cwd=repo_root)
@@ -26,6 +37,7 @@ def refresh(repo_root: Path) -> None:
     feature_branch = check_prerequisites(repo_root)["BRANCH"]
     if current_branch != feature_branch:
         die(f"expected feature branch {feature_branch}, found {current_branch}")
+    _check_product_gate(repo_root)
     base = delivery_base(repo_root)
     _git(repo_root, "check-ref-format", "--branch", base)
     _git(repo_root, "fetch", "origin")
@@ -35,6 +47,7 @@ def refresh(repo_root: Path) -> None:
     # it never creates one, so there is nothing new for Linear to project.
 
 def task(repo_root: Path, task_branch: str) -> None:
+    _check_product_gate(repo_root)
     feature_branch = check_prerequisites(repo_root)["BRANCH"]
     feature_number = feature_branch.rsplit("/", 1)[-1].split("-", 1)[0]
     feature_prs = open_task_prs(repo_root, feature_number, "headRefName,baseRefName,isDraft")

@@ -8,12 +8,23 @@ this script printed.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+import product_gate
+
 from _common import check_prerequisites, delivery_base, die, first_unchecked, open_task_prs, parse_ledger, run_git
+
+
+def _check_product_gate(repo_root: Path) -> None:
+    # ``pr_create.py`` exposes a single ``base=`` result line; discard the
+    # gate's standalone success line when it is consumed as a library call.
+    with contextlib.redirect_stdout(io.StringIO()):
+        product_gate.check(repo_root)
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = run_git(*args, cwd=repo_root)
@@ -30,6 +41,7 @@ def feature_or_work_item(repo_root: Path) -> str:
     return base
 
 def task(repo_root: Path, named_task: str) -> str:
+    _check_product_gate(repo_root)
     paths = check_prerequisites(repo_root)
     feature_branch = paths["BRANCH"]
     feature_number = feature_branch.rsplit("/", 1)[-1].split("-", 1)[0]

@@ -47,14 +47,16 @@ def test_feature_or_work_item_falls_back_to_the_github_default(feature_repo: Pat
     assert pr_create.feature_or_work_item(feature_repo) == "trunk-main"
 
 def test_task_with_no_open_pr_uses_the_feature_branch(feature_repo: Path, fake_gh: Path,
-                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+                                                         monkeypatch: pytest.MonkeyPatch,
+                                                         product_gate_pass) -> None:
     _write_ledger(feature_repo, LEDGER)
     monkeypatch.setenv("GH_PR_LIST_JSON", "[]")
     _switch(feature_repo, "003-T002-slug")
     assert pr_create.task(feature_repo, "") == "003-feature"
 
 def test_task_stacks_on_the_open_non_draft_prs_head(feature_repo: Path, fake_gh: Path,
-                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+                                                       monkeypatch: pytest.MonkeyPatch,
+                                                       product_gate_pass) -> None:
     _write_ledger(feature_repo, LEDGER)
     _push_branch(feature_repo, "003-T001-x")
     _switch(feature_repo, "003-T002-slug", "003-T001-x")
@@ -63,22 +65,50 @@ def test_task_stacks_on_the_open_non_draft_prs_head(feature_repo: Path, fake_gh:
     assert pr_create.task(feature_repo, "") == "003-T001-x"
 
 def test_task_named_task_overrides_the_ledger(feature_repo: Path, fake_gh: Path,
-                                                monkeypatch: pytest.MonkeyPatch) -> None:
+                                                monkeypatch: pytest.MonkeyPatch,
+                                                product_gate_pass) -> None:
     _write_ledger(feature_repo, LEDGER)  # first unchecked is T002
     monkeypatch.setenv("GH_PR_LIST_JSON", "[]")
     _switch(feature_repo, "003-T003-slug")
     assert pr_create.task(feature_repo, "T003") == "003-feature"
 
-def test_task_branch_mismatch_exits_2(feature_repo: Path) -> None:
+def test_task_branch_mismatch_exits_2(feature_repo: Path, product_gate_pass) -> None:
     _write_ledger(feature_repo, LEDGER)  # first unchecked is T002
     _switch(feature_repo, "003-T003-slug")
     with pytest.raises(SystemExit) as excinfo:
         pr_create.task(feature_repo, "")
     assert excinfo.value.code == 2
 
-def test_task_no_unchecked_task_exits_2(feature_repo: Path) -> None:
+def test_task_no_unchecked_task_exits_2(feature_repo: Path, product_gate_pass) -> None:
     _write_ledger(feature_repo, "- [x] T001 Sample\n")
     _switch(feature_repo, "003-T002-slug")
     with pytest.raises(SystemExit) as excinfo:
         pr_create.task(feature_repo, "")
+    assert excinfo.value.code == 2
+
+
+def test_task_gate_runs_before_branch_and_ledger_observation(feature_repo: Path, fake_gh: Path,
+                                                              monkeypatch: pytest.MonkeyPatch,
+                                                              product_gate_pass) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(pr_create.product_gate, "check", lambda _repo: events.append("gate"))
+    original = pr_create._git
+
+    def record(repo: Path, *args: str):
+        events.append("git:" + args[0])
+        return original(repo, *args)
+
+    monkeypatch.setattr(pr_create, "_git", record)
+    _write_ledger(feature_repo, LEDGER)
+    _switch(feature_repo, "003-T002-slug")
+    monkeypatch.setenv("GH_PR_LIST_JSON", "[]")
+    assert pr_create.task(feature_repo, "") == "003-feature"
+    assert events[0] == "gate"
+    assert "git:fetch" in events
+
+
+def test_task_gate_failure_skips_pr_base_resolution(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pr_create.product_gate, "check", lambda _repo: (_ for _ in ()).throw(SystemExit(2)))
+    with pytest.raises(SystemExit) as excinfo:
+        pr_create.task(feature_repo, "T002")
     assert excinfo.value.code == 2

@@ -522,16 +522,19 @@ gh_calls="$consumer_root/.conformance/gh-calls.jsonl"
 git_calls="$consumer_root/.conformance/git-calls.jsonl"
 
 # Branch identity (plan D7) reads the task ledger through the same
-# check-prerequisites.sh FEATURE_DIR the base resolution already uses, so
-# the fixture lives at a feature directory distinct from the branch names
-# below. Its fenced "Task block format" sample must never be picked over
+# check-prerequisites.sh FEATURE_DIR the base resolution already uses. Its
+# published gate uses the same feature branch identity as the fixture. Its
+# fenced "Task block format" sample must never be picked over
 # the real ledger: the sample's T001 is unchecked, the real T001 is
 # checked, so a correct scan finds T002 first. The unclosed "```oops"
 # line has a backtick in its info string, so it is never a fence opener
 # either (parser.py's rule) -- a wrong mirror would swallow every task
 # below it and the match case would fail.
-task_tasks_file="$consumer_root/specs/003-directory-different/tasks.md"
+task_tasks_file="$consumer_root/specs/003-feature/tasks.md"
+task_feature_dir="$(dirname "$task_tasks_file")"
 mkdir -p "$(dirname "$task_tasks_file")"
+printf '%s\n' 'spec fixture' > "$task_feature_dir/spec.md"
+printf '%s\n' 'plan fixture' > "$task_feature_dir/plan.md"
 cat > "$task_tasks_file" <<'MD'
 # Tasks: Directory fixture
 
@@ -589,9 +592,23 @@ cat > "$fake_bin/gh" <<'PY'
 import json, os, sys
 
 args = sys.argv[1:]
-with open(os.environ["GH_CALLS"], "a", encoding="utf-8") as stream:
-    stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
-if args == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
+log = True
+if args[:2] == ["repo", "view"] and args[-2:] in (["--json", "nameWithOwner"], ["--json", "url"]):
+    log = False
+if args[:2] == ["repo", "view"] and "--json" in args and "defaultBranchRef" in args and len(args) == 7:
+    log = False
+if args[:3] == ["pr", "list", "--repo"] and args[-1:] == ["headRefName"]:
+    log = False
+if args[:2] == ["pr", "view"]:
+    log = False
+if log:
+    with open(os.environ["GH_CALLS"], "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
+if args[:2] == ["repo", "view"] and args[-2:] == ["--json", "nameWithOwner"]:
+    sys.stdout.write(json.dumps({"nameWithOwner": "team/web/spec-kit"}))
+elif args[:2] == ["repo", "view"] and args[-2:] == ["--json", "url"]:
+    sys.stdout.write(json.dumps({"url": "https://github.com/team/web/spec-kit"}))
+elif args[:2] == ["repo", "view"] and "--json" in args and "defaultBranchRef" in args:
     if os.environ.get("FAIL_COMMAND") == "gh":
         print("forced gh failure", file=sys.stderr)
         raise SystemExit(9)
@@ -601,13 +618,25 @@ elif args[:2] == ["pr", "create"]:
 elif args[:2] == ["pr", "list"]:
     fields = args[args.index("--json") + 1].split(",")
     prs = []
-    for i, line in enumerate(os.environ.get("GH_PR_LIST", "").splitlines(), 1):
+    rows = os.environ.get("GH_PR_LIST", "").splitlines()
+    if os.environ.get("GATE_OID"):
+        rows.insert(0, f"{os.environ.get('GATE_BRANCH', '003-feature')} {os.environ.get('GATE_BASE', 'main')} false")
+    for i, line in enumerate(rows, 1):
         head, base, draft = line.split(" ")
         pr = {"headRefName": head, "baseRefName": base, "isDraft": draft == "true"}
         if "number" in fields:
             pr["number"] = i
         prs.append(pr)
     sys.stdout.write(json.dumps(prs))
+elif args[:2] == ["pr", "view"]:
+    branch = args[2]
+    sys.stdout.write(json.dumps({
+        "url": "https://example.invalid/pr/1", "state": "OPEN", "isDraft": True,
+        "isCrossRepository": False, "headRepository": {"nameWithOwner": "team/web/spec-kit"},
+        "headRepositoryOwner": {"login": "team"}, "headRefName": branch,
+        "baseRefName": os.environ.get("GATE_BASE", "main"),
+        "headRefOid": os.environ.get("GATE_OID", "0" * 40),
+    }))
 elif len(args) == 4 and args[0] == "api" and args[1].startswith("repos/") and args[2] == "--jq" and args[3] == ".base.ref":
     number = int(args[1].rsplit("/", 1)[-1])
     rows = os.environ.get("GH_PR_LIST", "").splitlines()
@@ -638,20 +667,39 @@ cat > "$fake_bin/git" <<'PY'
 import json, os, subprocess, sys
 
 args = sys.argv[1:]
-observed = args == ["branch", "--show-current"] or (
+gate_branch_observation = args == ["branch", "--show-current"] and os.environ.get("GATE_OID")
+gate_fetch_observation = args[:2] == ["fetch", "--no-tags"] and os.environ.get("GATE_OID")
+skip_gate_observation = False
+if gate_branch_observation:
+    marker = os.environ["GIT_CALLS"] + ".gate-branch"
+    caller = os.environ.get("GATE_CALLER")
+    if caller == "refresh":
+        if os.path.exists(marker):
+            skip_gate_observation = True
+        else:
+            open(marker, "w").close()
+    elif not os.path.exists(marker):
+        open(marker, "w").close()
+        skip_gate_observation = True
+skip_gate_observation = skip_gate_observation or bool(gate_fetch_observation)
+observed = (args == ["branch", "--show-current"] or (
     args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch", "diff", "worktree"}
-)
+)) and not skip_gate_observation
 if observed:
     with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
         stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
 if args == ["branch", "--show-current"]:
     print(os.environ.get("GIT_CURRENT_BRANCH", "003-feature"))
+elif args == ["rev-parse", "FETCH_HEAD"] and os.environ.get("GATE_OID"):
+    print(os.environ["GATE_OID"])
 elif args and args[0] == "check-ref-format":
     if os.environ.get("FAIL_COMMAND") == "git":
         print("forced git failure", file=sys.stderr)
         raise SystemExit(9)
     raise SystemExit(subprocess.run([os.environ["REAL_GIT"], *args], check=False).returncode)
-elif args and os.environ.get("FAIL_COMMAND") == args[0]:
+elif args and os.environ.get("FAIL_COMMAND") == args[0] and not (
+    gate_fetch_observation and os.environ.get("GATE_CALLER") == "task-base"
+):
     print(f"forced {args[0]} failure", file=sys.stderr)
     raise SystemExit(9)
 elif args[:2] == ["diff", "--numstat"]:
@@ -664,6 +712,27 @@ elif not observed:
 PY
 chmod +x "$fake_bin/git"
 
+# The installed task helpers now consume the product gate before observing a
+# task stack. Seed a real local feature tree and remote ref, while the fake
+# providers supply the immutable PR identity and read-only observations.
+gate_branch='003-feature'
+gate_origin="$consumer_root/.conformance/origin.git"
+git init --bare -q "$gate_origin"
+git -C "$consumer_root" remote add origin "$gate_origin"
+git -C "$consumer_root" add "$task_feature_dir"
+git -C "$consumer_root" commit -q -m 'docs: publish conformance gate'
+git -C "$consumer_root" push -q origin "HEAD:refs/heads/$gate_branch"
+gate_oid=$(git -C "$consumer_root" rev-parse HEAD)
+
+gate_base() {
+  if [ -f "$trunk_config" ]; then
+    sed -n "s/^trunk:[[:space:]]*[\"']\\{0,1\\}\\([^\"'#[:space:]]*\\).*/\\1/p" \
+      "$trunk_config" | head -1
+  else
+    printf '%s\n' "${1:-main}"
+  fi
+}
+
 json_argv() {
   python3 -c 'import json,sys; print(json.dumps(sys.argv[1:], ensure_ascii=False, separators=(",", ":")))' "$@"
 }
@@ -671,6 +740,7 @@ json_argv() {
 reset_command_logs() {
   : > "$gh_calls"
   : > "$git_calls"
+  rm -f "$git_calls.gate-branch"
 }
 
 set_config() {
@@ -690,11 +760,13 @@ run_pr_create() {
   local kind="$1" github_default="$2" fail_command="$3" named_task="${4:-}"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    GATE_OID="$gate_oid" GATE_BRANCH="$gate_branch" GATE_BASE="$(gate_base "$github_default")" \
+    GATE_CALLER="$kind" \
     GH_PR_LIST="${GH_PR_LIST:-}" GIT_ANCESTORS="${GIT_ANCESTORS:-}" \
     GIT_CURRENT_BRANCH="${GIT_CURRENT_BRANCH:-}" \
     PATH="$fake_bin:$PATH" \
     SPECIFY_FEATURE='team/web/003-feature$(safe)' \
-    SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
+    SPECIFY_FEATURE_DIRECTORY="$task_feature_dir" \
     "$PYTHON" "$pr_create_script" "$kind" ${named_task:+"$named_task"})
 }
 
@@ -772,7 +844,8 @@ output=$(run_pr_create task main "" T003) ||
 [ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "identity: named task used incorrect gh argv"
 
-# A missing ledger is a coded diagnostic, never a bare awk crash.
+# A missing ledger is rejected by the product gate before task identity or
+# base resolution can run.
 mv "$task_tasks_file" "$task_tasks_file.hidden"
 reset_command_logs
 GIT_CURRENT_BRANCH=003-T002-slug
@@ -781,8 +854,8 @@ run_pr_create task main "" >/dev/null 2>"$identity_err" || identity_status=$?
 mv "$task_tasks_file.hidden" "$task_tasks_file"
 [ "$identity_status" -eq 2 ] ||
   fail "identity: missing ledger exited $identity_status, expected 2"
-grep -Eq 'error: task ledger not found: .*specs/003-directory-different/tasks\.md$' \
-  "$identity_err" || fail "identity: missing-ledger message did not name the path"
+grep -Fq 'error: product close pending:' "$identity_err" ||
+  fail "identity: missing-ledger gate did not name the product-close action"
 [ ! -s "$gh_calls" ] || fail "identity: missing ledger still queried or created a PR"
 
 # The work-item base resolves the delivery base exactly like the feature
@@ -852,10 +925,15 @@ $(switch_call 'default$(safe)')" ] ||
 # guards that the checkout is the expected feature branch.
 run_refresh() {
   local github_default="$1" current_branch="$2" fail_command="$3"
+  local feature_context=""
+  [ "$current_branch" = "$gate_branch" ] && feature_context="$current_branch"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_DEFAULT="$github_default" GIT_CURRENT_BRANCH="$current_branch" \
+    GATE_OID="$gate_oid" GATE_BRANCH="$gate_branch" GATE_BASE="$(gate_base "$github_default")" \
+    GATE_CALLER=refresh \
     FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" PATH="$fake_bin:$PATH" \
-    SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
+    SPECIFY_FEATURE="$feature_context" \
+    SPECIFY_FEATURE_DIRECTORY="$task_feature_dir" \
     "$PYTHON" "$task_base_script" refresh)
 }
 branch_call=$(json_argv branch --show-current)
@@ -888,9 +966,7 @@ run_refresh main wrong-branch "" >/dev/null 2>&1 && fail "trunk: refresh accepte
 set_config 'trunk: release\n'
 reset_command_logs
 run_refresh main 003-feature fetch >/dev/null 2>&1 && fail "trunk: refresh ignored a forced fetch failure"
-[ "$(cat "$git_calls")" = "$branch_call
-$(json_argv check-ref-format --branch release)
-$(json_argv fetch origin)" ] || fail "trunk: refresh did not stop after a forced fetch failure"
+[ "$(cat "$git_calls")" = "$branch_call" ] || fail "trunk: refresh did not stop after a failed gate fetch"
 [ ! -s "$gh_calls" ] || fail "trunk: refresh queried GitHub after a forced fetch failure"
 
 # SC-001: none of the installed delivery commands carry a marked shell
@@ -913,8 +989,11 @@ run_task_base() {
   local branch="$1" pr_list="$2" feature="${3:-}" fail_command="${4:-}"
   (cd "$consumer_root" && GH_CALLS="$gh_calls" GIT_CALLS="$git_calls" \
     GH_PR_LIST="$pr_list" FAIL_COMMAND="$fail_command" REAL_GIT="$real_git" \
+    GATE_OID="$gate_oid" GATE_BRANCH="$gate_branch" GATE_BASE="$(gate_base main)" \
+    GATE_CALLER=task-base \
+    GIT_CURRENT_BRANCH="$gate_branch" \
     PATH="$fake_bin:$PATH" \
-    SPECIFY_FEATURE="$feature" SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
+    SPECIFY_FEATURE="$feature" SPECIFY_FEATURE_DIRECTORY="$task_feature_dir" \
     "$PYTHON" "$task_base_script" task "$branch")
 }
 
