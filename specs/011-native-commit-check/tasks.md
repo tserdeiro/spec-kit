@@ -79,3 +79,58 @@ relative order and rejection effect, with one Spec Kit invocation per commit.
   merge root-first into `011-native-commit-check` after human review.
 - **MVP**: T001–T005 together: native enforcement, safe composition, consumer
   evidence, and actionable doctor guidance form one bounded feature.
+
+## Phase 3: Convergence
+
+Astra's independent review of `16a7952` identified the six partial gaps below.
+They extend the open stack after T005, one task per PR. Keep the original
+implementation and its evidence; human review and root-first merges remain
+pending. Each task preserves consumer configuration and upstream assets.
+
+- [ ] T006 Revalidate the selected configuration immediately before replacement per FR-009 and SC-003 (partial)
+  - **Traces**: FR-009, SC-003, plan D4; outcome: direct edits during temporary configuration preparation are preserved and reported as stale observations.
+  - **Depends on**: T005
+  - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py` and `tests/unit/test_commit_hook.py`; compare the selected destination and effective observation again immediately before replacement, refuse detected changes, and preserve bytes/mode. Keep Git's native exclusive lock. Document the distinction between cooperative Git writers and external writers ignoring that lock in package doctor guidance/README; describe restoration attempts truthfully without promising an impossible atomic compare-and-swap against arbitrary writers.
+  - **Evidence**: Focused hook tests on real Git 2.54/2.55 reproduce a direct edit after temporary preparation, confirm it survives, and retain first-install/idempotency/readback behavior; `git diff --check` passes.
+  - **Delivery**: single PR (~150 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T007 Detect manual validator invocation behind the Husky dispatcher per FR-007 and FR-008 (partial)
+  - **Traces**: FR-006, FR-007, FR-008, FR-009, SC-002, SC-003; outcome: an existing Husky user hook invoking the validator is diagnosed before another registration is added.
+  - **Depends on**: T006
+  - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py`, its hook tests, and the installed `scripts/conformance/commit-msg.sh` where needed. Inspect the effective Husky hook source behind its unchanged dispatcher without executing it or introducing a manager adapter/dependency. Preserve ordinary Husky/Lefthook composition and diagnose duplicate or unreadable effective invocation sources with a concrete manual action.
+  - **Evidence**: Real Git/Husky 9.1.7 fixture with a manual installed-validator call refuses repair without modifying config/dispatcher/user hook; one existing invocation remains. Ordinary installed-manager matrix still passes; `git diff --check` passes.
+  - **Delivery**: single PR (~160 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T008 Validate hook composition in every affected shared worktree per FR-005 and FR-008 (partial)
+  - **Traces**: FR-005, FR-008, FR-009, SC-002, SC-003; outcome: a shared registration is refused when a sibling checkout already invokes the validator through its own hook arrangement.
+  - **Depends on**: T007
+  - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py` and `tests/unit/test_commit_hook.py`; extend existing shared-worktree observation beyond payload presence to each affected checkout's effective hook arrangement. Report the unsafe sibling and preserve configuration. Keep worktree-local installation isolated and reuse the existing read-only observation mechanism.
+  - **Evidence**: Real linked-worktree fixture with relative `core.hooksPath` and a sibling manual invocation preserves all bytes and refuses duplicate registration; safe shared and worktree-local fixtures retain exactly one invocation; `git diff --check` passes.
+  - **Delivery**: single PR (~130 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T009 Preserve Git 2.55 explicit event resets per FR-009 and FR-010 (partial)
+  - **Traces**: FR-009, FR-010, SC-003, plan D3; outcome: an explicitly cleared native hook event list remains disabled until the consumer changes it.
+  - **Depends on**: T008
+  - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py` and `tests/unit/test_commit_hook.py`; respect Git 2.55 empty-event reset semantics, diagnose the effective disabled state and origin, and preserve configuration on `doctor --fix`. Retain recognized accidental partial-entry recovery and Git 2.54 support.
+  - **Evidence**: Real Git 2.55 fixtures with explicit empty event values remain byte-identical after repair, emit a concrete manual remedy, and execute no reactivated validator; existing partial-entry/idempotency tests pass; `git diff --check` passes.
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T010 Report unreadable installed validator modules as prerequisite failures per FR-010 (partial)
+  - **Traces**: FR-010, C-004, plan D2; outcome: an unreadable installed module rejects the commit with exit 4 and an exact recovery action instead of a traceback.
+  - **Depends on**: T009
+  - **Boundaries**: Update `packages/spec-kit-code-review/scripts/bash/commit-msg.sh` and `tests/unit/test_commit_msg.py`; check the required readable payload consistently before importing it. Preserve the shared predicate, installed interpreter selection, read-only message behavior, and zero review/network initialization.
+  - **Evidence**: Installed payload fixture with unreadable validator/policy module returns 4 with reinstall/repair guidance and no traceback; valid/invalid subject and missing-runtime tests pass; `git diff --check` passes.
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T011 Report native hook order and message-rewrite limits in doctor diagnostics per FR-001 and plan D3 (partial)
+  - **Traces**: FR-001, FR-006, C-002, plan D3; outcome: the doctor itself explains named-before-traditional ordering and later-message rewriting limits.
+  - **Depends on**: T010
+  - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py` and focused doctor/hook tests. Emit concise informational diagnostics alongside state/path/scope with no consumer-hook execution; preserve aggregate guidance's passthrough behavior. Record complete package/preset and installed conformance results for the composed corrections.
+  - **Evidence**: Doctor output includes order and bypass/rewrite limitations on an installed arrangement; package and preset suites, real installed Git/manager matrix, synthetic installed review, and `git diff --check` pass. Independent Astra review rechecks the final composed candidate.
+  - **Delivery**: single PR (~90 authored lines)
+  - **Completion evidence**: Pending
