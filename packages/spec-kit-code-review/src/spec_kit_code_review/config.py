@@ -46,7 +46,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "include_checklists": True,
         "include_pr_body": True,
     },
-    "budget": {"limit": 400},
     "protected_paths": ["specs/*/spec.md", ".specify/memory/constitution.md"],
     "publish": {
         "event": "request-changes",
@@ -157,9 +156,9 @@ def load_yaml_subset(path: Path) -> dict[str, Any]:
     """Load the mapping-and-scalar-list YAML subset this extension's config uses.
 
     Deliberately narrow: nested mappings, scalar leaves, and sequences of
-    scalars (the budget globs and generated markers). No aliases, no tags, no
-    nested sequences, nothing executable. A twenty-line configuration file is
-    not worth a runtime dependency.
+    scalars (the protected-path globs and generated markers). No aliases, no
+    tags, no nested sequences, nothing executable. A twenty-line configuration
+    file is not worth a runtime dependency.
     """
 
     try:
@@ -502,7 +501,6 @@ def _validate_effective(values: Mapping[str, Any], path: Path) -> None:
         ("engine", "timeout_seconds"),
         ("packet", "max_bytes_per_artifact"),
         ("packet", "max_total_bytes"),
-        ("budget", "limit"),
         ("publish", "batch_size"),
         ("publish", "max_inline_comments"),
         ("publish", "max_listed_files"),

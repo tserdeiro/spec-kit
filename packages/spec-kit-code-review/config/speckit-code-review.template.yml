@@ -17,11 +17,6 @@ packet:
   include_checklists: true
   include_pr_body: true
 
-budget:
-  # Authored executable lines added. Over this, the review warns and suggests
-  # stacked pull requests; it never fails.
-  limit: 400
-
 protected_paths:
   # Task pull requests (base branch NNN-...) that touch any of these get an
   # automatic blocking finding; the feature pull request itself is exempt.

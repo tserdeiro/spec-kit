@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The review budget is retired: `budget.py`, its config key, its seeded
+  over-budget finding, its packet section, and its field in the session,
+  reporting and publication outputs are gone. Size is observable from the
+  engine's own `insertions`/`deletions`; nothing gates or estimates it. The
+  ledger's own per-task size estimate and its packet column are retired with
+  it: `TaskEntry` no longer parses or reports one.
 - `context-inventory.json`'s `required` list now covers every in-scope,
   non-deletion file's changed hunks (the same ranges `anchors.py` anchors
   findings against), not only the SDD artifacts and the frozen pull-request

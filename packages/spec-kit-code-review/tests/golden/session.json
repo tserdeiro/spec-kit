@@ -1,17 +1,4 @@
 {
-  "budget": {
-    "counted": 1,
-    "files": [
-      {
-        "added": 1,
-        "binary": false,
-        "counted": 1,
-        "path": "<variable>"
-      }
-    ],
-    "limit": 400,
-    "over_budget": false
-  },
   "candidate": {
     "base_branch": null,
     "base_commit": "<variable>",
@@ -261,7 +248,6 @@
       "present": true,
       "sha256": "<variable>"
     },
-    "forecast_total": 210,
     "plan": {
       "bytes": "<variable>",
       "path": "<variable>",
@@ -288,13 +274,12 @@
     },
     "task_entries": [
       {
-        "block_text": "- [x] T001 Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)\n  - **Traces**: FR-001\n  - **Depends on**: none\n  - **Boundaries**: Change the candidate resolver.\n  - **Evidence**: focused tests pass\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n",
+        "block_text": "- [x] T001 Resolve the immutable candidate (PR strategy: single)\n  - **Traces**: FR-001\n  - **Depends on**: none\n  - **Boundaries**: Change the candidate resolver.\n  - **Evidence**: focused tests pass\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n",
         "changed_path_hints": [],
         "completion_evidence": "focused tests pass",
         "delivery": "single PR",
         "dependencies": [],
         "done": true,
-        "forecast": 120,
         "gaps": [],
         "id": "T001",
         "pr_strategy": "single",
@@ -304,13 +289,13 @@
           3,
           9
         ],
-        "title": "Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)",
+        "title": "Resolve the immutable candidate (PR strategy: single)",
         "traces": [
           "FR-001"
         ]
       },
       {
-        "block_text": "- [ ] T002 Report prerequisites without any write (forecast: 90 lines, PR strategy: single)\n  - **Traces**: FR-002\n  - **Depends on**: T001\n  - **Boundaries**: Change prerequisite reporting.\n  - **Evidence**: focused tests pass\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n",
+        "block_text": "- [ ] T002 Report prerequisites without any write (PR strategy: single)\n  - **Traces**: FR-002\n  - **Depends on**: T001\n  - **Boundaries**: Change prerequisite reporting.\n  - **Evidence**: focused tests pass\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n",
         "changed_path_hints": [],
         "completion_evidence": "focused tests pass",
         "delivery": "single PR",
@@ -318,7 +303,6 @@
           "T001"
         ],
         "done": false,
-        "forecast": 90,
         "gaps": [],
         "id": "T002",
         "pr_strategy": "single",
@@ -328,7 +312,7 @@
           10,
           16
         ],
-        "title": "Report prerequisites without any write (forecast: 90 lines, PR strategy: single)",
+        "title": "Report prerequisites without any write (PR strategy: single)",
         "traces": [
           "FR-002"
         ]

@@ -241,18 +241,18 @@ class AdvisoryReviewTests(WorkingTreeCase):
         self.assertIsNone(source["sha256"])
         self.assertEqual(source["status"], "unavailable")
 
-    def test_untracked_content_is_reviewed_and_counted(self) -> None:
+    def test_untracked_content_is_reviewed_and_hashed(self) -> None:
         # `git diff` cannot see an untracked file, and the usual remedy writes to
-        # the index -- which this command must never do. Its lines still count.
+        # the index -- which this command must never do. Its content is still
+        # read whole and inventoried.
         self._dirty("src/brand_new.py", lines=12)
         self._engine_reports("src/brand_new.py")
 
         _code, payload = self.invoke_json("review")
 
-        entry = next(item for item in payload["budget"]["files"] if item["path"] == "src/brand_new.py")
-        self.assertEqual(entry["added"], 12)
-        self.assertEqual(entry["counted"], 12)
-        self.assertEqual(payload["budget"]["counted"], 12)
+        source = next(item for item in self._inventory(payload)["sources"] if item["path"] == "src/brand_new.py")
+        target = self.root / "src/brand_new.py"
+        self.assertEqual(source["sha256"], hashlib.sha256(target.read_bytes()).hexdigest())
 
     def test_no_session_is_opened_and_nothing_is_written_in_the_repository(self) -> None:
         self._dirty("src/uncommitted.py")
@@ -416,19 +416,6 @@ class ContextTests(WorkingTreeCase):
         packet = self._packet(payload)
         self.assertIn("declare the change reviewed, approved, or ready to merge", packet)
         self.assertNotIn("approve or merge the pull request", packet)
-
-    def test_the_budget_warns_before_a_large_pull_request_is_opened(self) -> None:
-        self._dirty("src/huge.py", lines=450)
-        self._engine_reports("src/huge.py")
-
-        _code, payload = self.invoke_json("review")
-
-        self.assertTrue(payload["budget"]["over_budget"])
-        self.assertIn("budget_exceeded", {item["code"] for item in payload["diagnostics"]})
-        message = next(
-            item["message"] for item in payload["diagnostics"] if item["code"] == "budget_exceeded"
-        )
-        self.assertIn("stacked pull requests", message)
 
     def test_an_absent_context_is_a_warning_not_a_refusal(self) -> None:
         for path in self.root.rglob("specs"):

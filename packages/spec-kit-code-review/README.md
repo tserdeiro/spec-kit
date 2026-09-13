@@ -147,18 +147,11 @@ failure — is a silent no-op, exit 0.
   operator's own `gh`; OCR runs in delegation mode, so no model provider is
   introduced. Standard library only.
 
-## Review budget
-
-A reviewed pull request stays under ~400 authored executable lines. Over that,
-the review emits a warning and suggests stacked pull requests. It is a
-convention with a warning attached, never a failure: accepting a larger pull
-request is a human decision. `budget.limit` sets the number.
-
 ## Configuration
 
 | File | Committed? | Purpose |
 | --- | --- | --- |
-| `speckit-code-review.yml` | yes | shared policy: engine, packet, budget, publish ceiling, protected paths |
+| `speckit-code-review.yml` | yes | shared policy: engine, packet, publish ceiling, protected paths |
 | `speckit-code-review.local.yml` | no (gitignored) | machine preferences: evidence root, verbosity |
 | `.speckit-code-review.env` | no (gitignored) | `SPECKIT_CODE_REVIEW_*` values for this repository |
 | `${XDG_CONFIG_HOME:-~/.config}/tserdeiro/spec-kit/env` | n/a | the operator's own, trusted values |

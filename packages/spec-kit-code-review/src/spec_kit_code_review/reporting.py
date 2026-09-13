@@ -27,7 +27,6 @@ def review_document(
     packet_sha256: str,
     rules_sha256: str | None,
     scope: Mapping[str, Any] | None,
-    budget: Mapping[str, Any] | None,
     findings: FindingSet,
     verdict: Verdict,
     code: int,
@@ -55,7 +54,6 @@ def review_document(
         "packet_sha256": packet_sha256,
         "rules_sha256": rules_sha256,
         "scope": dict(scope or {}),
-        "budget": dict(budget or {}),
         "findings": [finding.as_dict() for finding in findings.findings],
         "discarded_findings": list(findings.discarded),
         "verdict": verdict.as_dict(),
@@ -72,12 +70,11 @@ def render_human(
     *,
     findings: FindingSet,
     verdict: Verdict,
-    budget: Mapping[str, Any] | None,
     evidence_path: str | None,
     packet_sha256: str = "",
     coverage: Mapping[str, Any] | None = None,
 ) -> str:
-    """Summary, findings by severity, budget, verdict, evidence path -- in that order."""
+    """Summary, findings by severity, verdict, evidence path -- in that order."""
 
     counts = findings.by_severity()
     lines = [
@@ -89,11 +86,6 @@ def render_human(
         "  " + "  ".join(f"{name}: {counts[name]}" for name in counts),
         f"anchorable inline: {len(findings.anchorable)}; reported in the summary: {len(findings.degraded)}",
     ]
-    if budget:
-        lines.append(
-            f"budget: {budget.get('counted')} counted against {budget.get('limit')}"
-            + (" (OVER BUDGET)" if budget.get("over_budget") else "")
-        )
     if packet_sha256:
         lines.append(f"packet_sha256: {packet_sha256}")
     if coverage is not None:

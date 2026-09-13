@@ -124,7 +124,6 @@ class HappyPathTests(PhaseTwoCase):
             "packet_sha256",
             "rules_sha256",
             "scope",
-            "budget",
             "findings",
             "verdict",
             "warnings",
@@ -349,7 +348,7 @@ class CorrespondenceTests(PhaseTwoCase):
     def test_a_configuration_changed_between_the_phases_is_refused(self) -> None:
         configuration = self.root / "speckit-code-review.yml"
         configuration.write_text(
-            configuration.read_text(encoding="utf-8").replace("limit: 400", "limit: 40"), encoding="utf-8"
+            configuration.read_text(encoding="utf-8").replace("max_total_bytes: 400000", "max_total_bytes: 40000"), encoding="utf-8"
         )
         before = self.findings_path.read_bytes()
 
@@ -687,7 +686,7 @@ class NormalizationThroughTheCommandTests(PhaseTwoCase):
                     payload["findings_attempt_id"] = "changed-attempt"
                 elif kind == "config":
                     config = self.root / "speckit-code-review.yml"
-                    config.write_text(config.read_text(encoding="utf-8").replace("limit: 400", "limit: 40"), encoding="utf-8")
+                    config.write_text(config.read_text(encoding="utf-8").replace("max_total_bytes: 400000", "max_total_bytes: 40000"), encoding="utf-8")
                 elif kind == "packet":
                     packet = Path(self.session) / "review-packet.md"
                     packet.write_text(packet.read_text(encoding="utf-8") + "drift", encoding="utf-8")

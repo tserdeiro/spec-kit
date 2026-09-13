@@ -72,14 +72,6 @@ Before touching any code for `T###`:
 
 ## 2. Finishing a task
 
-Before opening the PR, run the budget stop:
-
-```bash
-python3 .specify/presets/default/scripts/python/budget_stop.py <T###> <base>
-```
-
-(`base` is what step 1 printed.) It stops the task — no PR opens — when the authored executable lines pass the smaller of twice the task's `Delivery` forecast and 400, naming what does not fit. **A forecast or a budget is never amended in the PR that exceeds it**: a human changes it in the ledger, on the feature branch, outside that PR — or grants an explicit exception in the conversation, recorded in the PR's evidence, letting the PR open as is.
-
 Run `/speckit.pr`: it guarantees the branch invariant and opens the draft PR with the canonical body. Self-review it next: every sub-agent's brief is fixed text, its group's file list prepended:
 
 > Verify the implementer's claims in the packet's evidence instead of
@@ -104,7 +96,7 @@ python3 .specify/presets/default/scripts/python/stack_propagate.py <fixed_branch
 
 It merges the fix into every branch stacked above, in order, and pushes each; a conflict stops it there, naming the branch, without touching the branches above; an empty chain is reported and changes nothing.
 
-Then, in the PR's **final commit**, check the task's box and fill its **Completion evidence** (a task split into stacked PRs checks it in the stack's last PR), push, and run the budget stop again — the branch may have grown during review. Then the ledger gate:
+Then, in the PR's **final commit**, check the task's box and fill its **Completion evidence** (a task split into stacked PRs checks it in the stack's last PR), push. Then the ledger gate:
 
 ```bash
 python3 .specify/presets/default/scripts/python/ledger_check.py <T###>

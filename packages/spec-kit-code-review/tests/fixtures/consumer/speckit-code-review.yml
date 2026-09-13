@@ -16,19 +16,6 @@ packet:
   include_checklists: true
   include_pr_body: true
 
-budget:
-  limit: 400
-  executable_globs:
-    - "src/**"
-    - "tests/**"
-  excluded_globs:
-    - "**/*.md"
-    - "uv.lock"
-  generated_markers:
-    - "@generated"
-    - "DO NOT EDIT"
-  generated_marker_scan_lines: 5
-
 publish:
   event: "request-changes"
   batch_size: 25

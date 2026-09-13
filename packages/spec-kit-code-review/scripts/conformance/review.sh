@@ -505,7 +505,7 @@ import sys
 path = Path(sys.argv[1])
 lines = [
     "# Tasks\n", "\n",
-    "- [x] T007 Prepare the review context (forecast: 80 lines, PR strategy: single)\n",
+    "- [x] T007 Prepare the review context (PR strategy: single)\n",
     "  - **Traces**: FR-007\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/prelude.py`.\n",
@@ -516,21 +516,21 @@ lines = [
 ]
 lines.extend(f"Unrelated history {index:04d}: Árbol 🙈 {'x' * 75} prose is outside the selected task.\n" for index in range(800))
 lines.extend([
-    "\n- [ ] T010 Complete the feature review (forecast: 100 lines, PR strategy: single)\n",
+    "\n- [ ] T010 Complete the feature review (PR strategy: single)\n",
     "  - **Traces**: FR-009\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/full.py`.\n",
     "  - **Evidence**: focused tests pass.\n",
     "  - **Delivery**: single PR.\n",
     "  - **Completion evidence**: focused tests pass.\n",
-    "\n- [ ] T009 Share the review requirement (forecast: 90 lines, PR strategy: single)\n",
+    "\n- [ ] T009 Share the review requirement (PR strategy: single)\n",
     "  - **Traces**: FR-008\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/shared.py`.\n",
     "  - **Evidence**: focused tests pass.\n",
     "  - **Delivery**: single PR.\n",
     "  - **Completion evidence**: focused tests pass.\n",
-    "\n- [ ] T008 Review a late task (forecast: 140 lines, PR strategy: single)\n",
+    "\n- [ ] T008 Review a late task (PR strategy: single)\n",
     "  - **Traces**: FR-008\n",
     "  - **Depends on**: T007\n",
     "  - **Boundaries**: Change `src/late.py`.\n",

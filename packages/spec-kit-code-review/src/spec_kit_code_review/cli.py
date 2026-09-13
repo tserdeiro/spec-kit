@@ -28,8 +28,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import __version__
-from .budget import compute as compute_budget
-from .budget import compute_working_tree as compute_working_tree_budget
 from .candidate import parse_selector, resolve_from_pull_request, resolve_from_refs
 from .config import (
     RULE_RELATIVE_PATH,
@@ -655,7 +653,6 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                     "sdd": assembled["sdd"],
                     "review_scope_gaps": assembled["scope"]["gaps"],
                     "context_selection": assembled["context_selection"],
-                    "budget": assembled["budget"],
                     "packet": assembled["packet"].as_dict(),
                     "pr_intent": {"title": getattr(pull_request, "title", "") or "", "body": getattr(pull_request, "body", "") or ""},
                 },
@@ -687,7 +684,6 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
         review_scope=assembled["scope"],
         rules=engine["rules"],
         sdd=assembled["sdd"],
-        budget=assembled["budget"],
         packet=assembled["packet"].as_dict(),
     )
 
@@ -785,7 +781,7 @@ def _assemble_packet(
     engine: dict[str, Any],
     diagnostics: list[Diagnostic],
 ) -> dict[str, Any]:
-    """The SDD context, the budget, and the packet."""
+    """The SDD context and the packet."""
 
     changed = context.git.changed_paths(candidate.merge_base, candidate.head_commit)
     reader = CommitReader(context.git, candidate.head_commit)
@@ -823,14 +819,6 @@ def _assemble_packet(
         Diagnostic(gap.code, gap.detail, severity="warning") for gap in context_selection.gaps
     )
 
-    budget_report = compute_budget(
-        context.git,
-        merge_base=candidate.merge_base,
-        head_commit=candidate.head_commit,
-        limit=int(config.get("budget", "limit", 400) or 400),
-    )
-    diagnostics.extend(budget_report.diagnostics)
-
     hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
     diagnostics.extend(hunks.diagnostics)
     code_sources, code_ranges = _code_inventory(reader, engine["preview_result"], hunks)
@@ -848,7 +836,6 @@ def _assemble_packet(
         sdd=sdd,
         review_scope=review_scope,
         context_selection=context_selection,
-        budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
         include_pr_body=bool(config.get("packet", "include_pr_body", True)),
@@ -873,7 +860,6 @@ def _assemble_packet(
         "sdd": sdd.as_dict(),
         "scope": review_scope.as_dict(),
         "context_selection": context_selection.as_dict(),
-        "budget": budget_report.as_dict(),
     }
 
 
@@ -1106,11 +1092,6 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
     )
     context_selection = select_context(sdd, advisory_scope)
 
-    budget_report = compute_working_tree_budget(
-        context.git, context.root, limit=int(config.get("budget", "limit", 400) or 400)
-    )
-    diagnostics.extend(budget_report.diagnostics)
-
     working_hunks = load_working_tree_hunks(context.git)
     code_sources, code_ranges = _advisory_code_inventory(context.root, preview, working_hunks)
 
@@ -1127,7 +1108,6 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         sdd=sdd,
         review_scope=advisory_scope,
         context_selection=context_selection,
-        budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
         include_pr_body=False,
@@ -1177,7 +1157,6 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         rules={**resolution.as_dict(), "assignments": assignments.as_dict()["assignments"]},
         sdd=sdd.as_dict(),
         context_selection=context_selection.as_dict(),
-        budget=budget_report.as_dict(),
         advisory_evidence={
             "mode": "advisory",
             "coverage_path": str(directory / "coverage.json"),
@@ -1484,7 +1463,7 @@ def _verify_frozen_configuration(session: ReviewSession, config, diagnostics: li
             Diagnostic(
                 "config_sha256_mismatch",
                 f"the session was opened with configuration {recorded[:12]}, and {config.sha256[:12]} is in effect "
-                "now. The configuration governs the whole review -- the budget, the publication ceiling, the packet "
+                "now. The configuration governs the whole review -- the publication ceiling, the packet "
                 "limits -- so it does not continue under a different one.",
                 str(session.path),
             )
@@ -1704,7 +1683,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     suffix = str(session.payload.get("containment_suffix") or new_suffix())
-    budget = session.payload.get("budget") or {}
     plan = build_publication_plan(
         candidate=_PublicationCandidate(
             candidate_id=candidate.candidate_id,
@@ -1718,7 +1696,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         findings=normalized.findings,
         packet_sha256=str(session.payload.get("packet_sha256") or ""),
         suffix=suffix,
-        budget=_BudgetView(budget) if budget else None,
         event_ceiling=str(config.get("publish", "event", "request-changes")),
         request_changes=review_verdict.value == "changes-requested",
         # Read-only, and it decides whether REQUEST_CHANGES is even possible:
@@ -1768,7 +1745,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         packet_sha256=str(session.payload.get("packet_sha256") or ""),
         rules_sha256=(session.payload.get("rules") or {}).get("sha256"),
         scope=session.payload.get("scope"),
-        budget=budget,
         findings=normalized,
         verdict=review_verdict,
         code=code,
@@ -1780,7 +1756,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     payload["human"] = render_human(
         findings=normalized,
         verdict=review_verdict,
-        budget=budget,
         evidence_path=str(session.path),
         packet_sha256=str(session.payload.get("packet_sha256") or ""),
         coverage=coverage_record,
@@ -1808,15 +1783,6 @@ class _PublicationCandidate:
     repository: str | None
     pr_number: int | None
     author: str
-
-
-class _BudgetView:
-    """A read-only view of the budget as ``session.json`` recorded it."""
-
-    def __init__(self, payload: Mapping[str, Any]) -> None:
-        self.counted = payload.get("counted", 0)
-        self.limit = payload.get("limit", 0)
-        self.over_budget = bool(payload.get("over_budget"))
 
 
 ENGINE_STATUS_COMPLETE: tuple[str, ...] = ("success", "completed_with_warnings")

@@ -168,7 +168,7 @@ class CommandSurfaceTests(unittest.TestCase):
             config = load_config(root)
 
         self.assertEqual(config.get("engine", "ocr_version"), "v1.12.0")
-        self.assertEqual(config.get("budget", "limit"), 400)
+        self.assertEqual(config.get("packet", "max_total_bytes"), 400000)
         self.assertEqual(config.get("publish", "event"), "request-changes")
 
 
