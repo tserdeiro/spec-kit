@@ -6,7 +6,7 @@ from spec_kit_linear.domain import DesiredFeature, DesiredState, DesiredTask, Re
 from spec_kit_linear.remote_discovery import AdoptedResource, FeatureAdoption, UnmanagedIssue
 from spec_kit_linear.github import PullRequestScan
 from spec_kit_linear.reporting import build_remote_only_rows, build_task_rows, observation_report, render_status_table
-from spec_kit_linear.work_state import SOURCE_CHECKBOX, SOURCE_PULL_REQUEST, STATE_COMPLETED, STATE_REVIEW, TaskWorkState
+from spec_kit_linear.work_state import SOURCE_CHECKBOX, SOURCE_PULL_REQUEST, STATE_COMPLETED, STATE_REVIEW, STATE_STARTED, TaskWorkState
 
 
 def _binding() -> RepositoryBinding:
@@ -76,8 +76,10 @@ class BuildTaskRowsTests(unittest.TestCase):
                     "local_complete": False,
                     "derived_state": None,
                     "state_source": None,
+                    "projected_state": None,
+                    "projection_reason": None,
                     "pr_number": None,
-                "next": None,
+                    "next": None,
                     "remote_identifier": None,
                     "remote_state": None,
                     "assignee": None,
@@ -87,8 +89,10 @@ class BuildTaskRowsTests(unittest.TestCase):
                     "local_complete": True,
                     "derived_state": None,
                     "state_source": None,
+                    "projected_state": None,
+                    "projection_reason": None,
                     "pr_number": None,
-                "next": None,
+                    "next": None,
                     "remote_identifier": None,
                     "remote_state": None,
                     "assignee": None,
@@ -108,6 +112,20 @@ class BuildTaskRowsTests(unittest.TestCase):
         by_task = {row["task"]: row for row in rows[0]["tasks"]}
         self.assertEqual((by_task["T001"]["derived_state"], by_task["T001"]["state_source"]), (STATE_REVIEW, SOURCE_PULL_REQUEST))
         self.assertEqual((by_task["T002"]["derived_state"], by_task["T002"]["state_source"]), (STATE_COMPLETED, SOURCE_CHECKBOX))
+
+    def test_the_projected_state_and_its_fallback_reason_travel_with_each_row(self) -> None:
+        desired = _desired_state(_task("T001", completed=False), _task("T002", completed=True))
+        work_states = {
+            "task:001:T001": TaskWorkState(STATE_REVIEW, SOURCE_PULL_REQUEST, "001-T001-parser", 7),
+            "task:001:T002": TaskWorkState(STATE_COMPLETED, SOURCE_CHECKBOX),
+        }
+        lifecycle = {"completed_state_id": "c", "open_state_id": "o", "started_state_id": "s"}
+
+        rows = build_task_rows(_FakeDiscovery(features=()), (desired,), work_states, lifecycle)
+
+        by_task = {row["task"]: row for row in rows[0]["tasks"]}
+        self.assertEqual((by_task["T001"]["derived_state"], by_task["T001"]["projected_state"], by_task["T001"]["projection_reason"]), (STATE_REVIEW, STATE_STARTED, "review_state_id not configured"))
+        self.assertEqual((by_task["T002"]["derived_state"], by_task["T002"]["projected_state"], by_task["T002"]["projection_reason"]), (STATE_COMPLETED, STATE_COMPLETED, None))
 
     def test_adopted_task_carries_remote_identifier_state_and_assignee(self) -> None:
         desired = _desired_state(_task("T001", completed=True))
@@ -138,6 +156,8 @@ class BuildTaskRowsTests(unittest.TestCase):
                 "local_complete": True,
                 "derived_state": None,
                 "state_source": None,
+                "projected_state": None,
+                "projection_reason": None,
                 "pr_number": None,
                 "next": None,
                 "remote_identifier": "WOR-21",
@@ -230,6 +250,11 @@ class RenderStatusTableTests(unittest.TestCase):
         rendered = render_status_table([{"feature": "001", "has_remote_project": True, "tasks": [{"task": "T001", "local_complete": True, "derived_state": None, "state_source": "unknown", "remote_identifier": "WOR-1", "remote_state": "Triage", "assignee": None, "next": None}]}])
         self.assertIn("UNKNOWN (unverified)", rendered)
         self.assertIn("Triage", rendered)
+
+    def test_the_projected_column_carries_the_fallback_reason(self) -> None:
+        rendered = render_status_table([{"feature": "001", "has_remote_project": True, "tasks": [{"task": "T006", "local_complete": False, "derived_state": "review", "state_source": "pr", "projected_state": "started", "projection_reason": "review_state_id not configured", "remote_identifier": "WOR-6", "remote_state": "In Progress", "assignee": None, "next": "wait for the human merge"}]}])
+        self.assertIn("PROJECTED", rendered)
+        self.assertIn("started (review_state_id not configured)  WOR-6", rendered)
 
     def test_empty_task_rows_reports_no_local_features(self) -> None:
         rendered = render_status_table([])
