@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import tempfile
 from dataclasses import dataclass, field, replace
@@ -573,7 +574,12 @@ def _lefthook_config_paths(root: Path) -> tuple[list[Path], list[Diagnostic]]:
         path = Path(configured)
         if not path.is_absolute():
             path = root / path
-        return [path], []
+        local = [
+            candidate
+            for name in LEFTHOOK_LOCAL_CONFIGS
+            if os.path.lexists(candidate := root / name) and candidate != path
+        ]
+        return [path] + local, []
 
     main = [root / name for name in LEFTHOOK_MAIN_CONFIGS if os.path.lexists(root / name)]
     local = [root / name for name in LEFTHOOK_LOCAL_CONFIGS if os.path.lexists(root / name)]
@@ -639,6 +645,11 @@ def _lefthook_commit_msg_text(text: str) -> str | None:
         return _flatten_config_values(parsed.get(HOOK_EVENT)) if isinstance(parsed, dict) else ""
 
     if any(line.split("#", 1)[0].strip().startswith(("extends:", "remotes:")) for line in text.splitlines()):
+        return None
+    if any(
+        re.search(r"(^|[\s,:])(?:&|\*)[A-Za-z_][A-Za-z0-9_-]*\b", line.split("#", 1)[0])
+        for line in text.splitlines()
+    ):
         return None
     lines = text.splitlines()
     section: list[str] = []

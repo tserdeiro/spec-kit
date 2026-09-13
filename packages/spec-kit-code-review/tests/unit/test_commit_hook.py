@@ -408,6 +408,55 @@ class NativeHookTests(unittest.TestCase):
         self.assertEqual(repair.diagnostics, ())
         self.assertEqual(observe_native_hook(self.root, self.git).state, "installed")
 
+    def test_lefthook_yaml_alias_refuses_unverifiable_repair(self) -> None:
+        dispatcher = self.root / ".git/hooks/commit-msg"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text(
+            '#!/bin/sh\ncall_lefthook() { lefthook "$@"; }\ncall_lefthook run "commit-msg" "$@"\n',
+            encoding="utf-8",
+        )
+        dispatcher.chmod(0o751)
+        config = self.root / "lefthook.yml"
+        config.write_text(
+            "pre-push:\n  jobs:\n    - name: validator\n      run: &validate "
+            f"{HOOK_COMMAND} {{1}}\n"
+            "commit-msg:\n  jobs:\n    - name: validator\n      run: *validate\n",
+            encoding="utf-8",
+        )
+        before = config.read_bytes()
+        observation = observe_native_hook(self.root, self.git)
+        self.assertEqual(observation.state, "unverifiable")
+        self.assertIn("git_hooks_manager_unverifiable", {item.code for item in observation.manual_hook_diagnostics})
+        repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_manager_unverifiable", {item.code for item in repair.diagnostics})
+        self.assertEqual(config.read_bytes(), before)
+
+    def test_lefthook_config_override_includes_local_overlay(self) -> None:
+        dispatcher = self.root / ".git/hooks/commit-msg"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text(
+            '#!/bin/sh\ncall_lefthook() { lefthook "$@"; }\ncall_lefthook run "commit-msg" "$@"\n',
+            encoding="utf-8",
+        )
+        dispatcher.chmod(0o751)
+        config = self.root / "custom.yml"
+        config.write_text("commit-msg:\n  jobs:\n    - name: ordinary\n      run: echo hook\n", encoding="utf-8")
+        local = self.root / "lefthook-local.yml"
+        local.write_text(
+            "commit-msg:\n  jobs:\n    - name: validator\n      run: "
+            f"{HOOK_COMMAND} {{1}}\n",
+            encoding="utf-8",
+        )
+        git_config = self.root / ".git/config"
+        before = git_config.read_bytes()
+        with mock.patch.dict(os.environ, {"LEFTHOOK_CONFIG": "custom.yml"}):
+            observation = observe_native_hook(self.root, self.git)
+            self.assertEqual(observation.state, "duplicate")
+            self.assertIn(local.resolve(), observation.manual_invocation_sources)
+            repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_duplicate", {item.code for item in repair.diagnostics})
+        self.assertEqual(git_config.read_bytes(), before)
+
     def test_unknown_lefthook_config_refuses_unverified_repair(self) -> None:
         dispatcher = self.root / ".git/hooks/commit-msg"
         dispatcher.parent.mkdir(parents=True, exist_ok=True)
