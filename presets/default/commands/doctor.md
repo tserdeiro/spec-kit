@@ -105,7 +105,10 @@ categories.
 through 6, where the doctor offers one. The native-hook repair is the
 code-review doctor's `doctor --fix`: it may register the named hook in the
 Git config selected by that doctor, while preserving existing hooks and
-managers. Do not implement a second aggregator or edit Git configuration here.
+managers. Its cooperative lock, snapshot, atomic replacement, readback, and
+best-effort restoration limits remain the extension doctor's exact diagnostics;
+do not strengthen them in the aggregate. Do not implement a second aggregator
+or edit Git configuration here.
 Categories 1 and 7 stay
 report-only even with `--fix`: installing or activating an interpreter,
 and changing GitHub's delivery settings, are both human decisions.

@@ -75,12 +75,20 @@ the diagnostic names its origin and scope. An unverifiable result is never
 reported as healthy. Every such diagnostic remains visible when another doctor
 group fails, with its path and exact remedy.
 
-Repair uses the selected Git config's exclusive lock, compares the diagnosed
-bytes, mode, and effective snapshot, edits a temporary file through Git,
-atomically replaces the destination, and reads the effective config and hook
-list back. A lock, concurrent change, unsafe destination, write error, or
-failed readback leaves the original configuration intact and reports the
-retry or manual action.
+Repair takes the selected Git config's cooperative exclusive lock, compares the
+diagnosed bytes, mode, and effective snapshot before preparing a temporary
+file, edits that file through Git, atomically replaces the destination, and
+reads the effective config and hook list back. Git writers that honor the same
+lock cannot edit concurrently. A direct writer that ignores the lock can race
+after the snapshot; this path provides no atomic compare-and-swap guarantee.
+
+An unsafe destination or an early snapshot, lock, or temporary-write failure
+returns without replacing the destination. If readback fails after replacement,
+the repair attempts to restore the diagnosed bytes and mode. Restoration is
+best effort: if it fails, inspect the reported config path manually and use the
+owned-section rollback below. Diagnostics name the actual outcome and action;
+they do not promise preservation for every concurrent, write, or readback
+failure.
 
 To remove a registration manually, first confirm the scope reported by the
 doctor, then remove only the owned section:

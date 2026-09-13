@@ -54,7 +54,15 @@ concurrency, write, and readback diagnostics also reported. The doctor keeps
 the affected path and exact next action in every finding. A missing or
 unreadable payload requires reinstalling this extension and rerunning
 `doctor --fix`; a disabled or foreign entry requires explicit manual repair.
-Unsafe or concurrent repairs preserve the original configuration.
+The repair takes a cooperative exclusive lock and checks the diagnosed bytes,
+mode, and effective snapshot before preparing its temporary file. Writers that
+honor Git's lock cannot edit concurrently. A direct writer that ignores the
+lock can race after that snapshot; no atomic compare-and-swap guarantee is
+made. The temporary file is edited through Git, atomically replaces the
+destination, and is checked by effective-config and hook-list readback. If
+readback fails, restoration of the diagnosed bytes and mode is attempted. A
+restoration failure requires manual inspection of the reported config path and
+the owned-section rollback below.
 
 To roll back, confirm the scope reported by `doctor` and remove only the owned
 section with the matching command:

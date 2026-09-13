@@ -141,8 +141,15 @@ modos y efecto de rechazo.
 Los estados `missing`, `installed`, `disabled` y `unverifiable` (más fallas
 parciales, duplicadas, ajenas o de payload, lock, permisos, concurrencia,
 escritura y lectura posterior) se muestran con la ruta y la remediación exacta.
-Una reparación insegura deja intacta la configuración. Para revertirla, usa
-solo el alcance que el doctor informó: `git config --local --remove-section
+La reparación usa el lock cooperativo de Git y compara bytes, modo y estado
+efectivo antes de preparar el archivo temporal. Los escritores que respetan el
+lock no pueden editar a la vez; un escritor directo que lo ignore puede correr
+después de esa comparación, sin garantía de comparación e intercambio atómico.
+Luego edita con Git, reemplaza atómicamente y relee la configuración y la lista
+de hooks. Si la lectura posterior falla, intenta restaurar los bytes y el modo
+diagnosticados; si esa restauración falla, inspecciona manualmente la ruta y
+usa el rollback de la sección propia. Para revertirla, usa solo el alcance que
+el doctor informó: `git config --local --remove-section
 hook.speckit-commit-message` o `git config --worktree --remove-section
 hook.speckit-commit-message`; eso no toca los hooks de la aplicación.
 
