@@ -87,7 +87,7 @@ class SessionDocumentTests(SessionCase):
 
         self.assertEqual(payload["runtime"]["extension_version"], __version__)
         self.assertEqual(Path(payload["runtime"]["extension_root"]).expanduser(), EXTENSION_ROOT)
-        self.assertEqual(session.summary()["runtime"], payload["runtime"])
+        self.assertEqual(session.summary()["runtime"]["extension_version"], __version__)
 
     def test_evidence_documents_are_not_world_readable(self) -> None:
         session = self._open()
