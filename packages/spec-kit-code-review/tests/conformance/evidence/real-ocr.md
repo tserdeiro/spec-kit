@@ -1,5 +1,93 @@
 # Conformance capture against the real `ocr` binary
 
+## v1.12.0: switch to `--format json`
+
+**Status: PERFORMED.** Date: 2026-09-13. Engine: open-code-review v1.12.0,
+commit `494bf1c8d`, installed by the repository owner into this distribution's
+data root and used read-only for this capture. The extension never installed,
+moved or updated it.
+
+```text
+$ ocr --version
+open-code-review v1.12.0 (494bf1c8d) darwin/arm64
+built at: 2026-09-12T14:26:13Z
+https://github.com/alibaba/open-code-review
+```
+
+- Binary: `<data-root>/tools/ocr/1.12.0/node_modules/@alibaba-group/ocr-darwin-arm64/bin/opencodereview`
+- SHA-256: `92601579180aacc61d2d2861773271ddd03d6d5d3a2ac2bea553d883def81cf2` -- **matches** `external_tools.open_code_review.binaries.darwin-arm64` in `versions.lock.yml`
+- The other three platform digests (`darwin-amd64`, `linux-amd64`, `linux-arm64`)
+  were computed from the corresponding `@alibaba-group/ocr-<platform>` npm
+  packages (`npm pack`, then `shasum -a 256` of `bin/opencodereview` inside the
+  tarball), not run.
+
+Since v1.9.0, `ocr delegate preview` and `ocr delegate rule` both accept
+`--format json`, which prints the same content as a JSON object instead of the
+Markdown meant for a terminal. Both were run against a temporary repository
+with a two-commit range and a `.opencodereview/rule.json`:
+
+```text
+$ ocr delegate preview --repo <repo> --from main --to feature --format json
+{
+  "schema_version": "1",
+  "mode": "range",
+  "repository": "<repo>",
+  "from": "main",
+  "to": "feature",
+  "merge_base": "<sha>",
+  "total_files": 2,
+  "reviewable_count": 2,
+  "excluded_count": 0,
+  "total_insertions": 2,
+  "total_deletions": 0,
+  "reviewable_files": [
+    {"path": "src/a.py", "status": "modified", "insertions": 1, "deletions": 0},
+    {"path": "src/b.py", "status": "added", "insertions": 1, "deletions": 0}
+  ],
+  "excluded_files": []
+}
+
+$ ocr delegate rule --repo <repo> --format json -- src/a.py src/b.py
+{
+  "schema_version": "1",
+  "groups": [
+    {
+      "group_id": 1,
+      "source": "system",
+      "pattern": "**/*.{py,ipynb}",
+      "files": ["src/a.py", "src/b.py"],
+      "rule": "..."
+    }
+  ]
+}
+```
+
+The shapes match `delegate_cmd.go`'s `schema_version: "1"` exactly: `preview`'s
+`reviewable_files`/`excluded_files` each carry `path`, `status`, `insertions`,
+`deletions` (`exclude_reason` added only on an excluded entry), and `rule`'s
+`groups` each carry `group_id`, `source`, `pattern`, `files`, `rule`. The
+adapter (`ocr.py`) now decodes this JSON directly, verifies `schema_version`,
+and no longer runs any Markdown parser -- `ADAPTER_VERSION` moves to `3`.
+
+### Result
+
+`SPECKIT_CODE_REVIEW_OCR_BIN=<binary> uv run pytest tests/conformance -v`:
+all tests passed against the real binary described above (see the PR's
+verification log for the exact count from this run).
+
+### What changed from the v1.8.3 Markdown reading
+
+- `engine.rule_batch_size` is gone: every selected path goes into one
+  `delegate rule --format json` call. The real engine already groups files by
+  the rule content they share, so splitting the request into batches only
+  recombined what the engine had already grouped.
+- `ScopeEntry` now carries `status`, `insertions`, `deletions` from the JSON,
+  not only `path`/`included`/`reason`.
+- The strikethrough/table/heading tolerance the Markdown parser needed is
+  gone with it: JSON has no cosmetic variation to tolerate.
+
+## v1.8.3: initial Markdown capture (superseded)
+
 **Status: PERFORMED.** Date: 2026-08-02. Engine: open-code-review v1.8.3, commit
 `80a579466`, installed by the repository owner into this distribution's data
 root and used read-only for this capture. The extension never installed, moved
