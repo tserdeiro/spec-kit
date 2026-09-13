@@ -30,6 +30,7 @@ class ActiveRule:
     source_type: str
     source: str
     ruleset_id: int
+    parameters: dict[str, Any] | None = None
 
     @property
     def identity(self) -> tuple[str, str, int]:
@@ -64,6 +65,7 @@ class ClassicProtection:
     enforce_admins: bool | None = None
     allow_deletions: bool | None = None
     lock_branch: bool | None = None
+    required_linear_history: bool | None = None
     cause: str = ""
     evidence: str = ""
 
@@ -165,7 +167,10 @@ def parse_active_rules(payload: Any) -> tuple[ActiveRule, ...] | None:
                 or type(ruleset_id) is not int
             ):
                 return None
-            rule = ActiveRule(rule_type, source_type, source, ruleset_id)
+            parameters = item.get("parameters")
+            if parameters is not None and not isinstance(parameters, dict):
+                return None
+            rule = ActiveRule(rule_type, source_type, source, ruleset_id, parameters)
             identity = (*rule.identity, rule.type)
             if identity not in seen:
                 seen.add(identity)
@@ -184,7 +189,7 @@ def parse_classic_protection(payload: Any) -> ClassicProtection | None:
             return None
         values[name] = value["enabled"]
     optional: dict[str, bool | None] = {}
-    for name in ("allow_deletions", "lock_branch"):
+    for name in ("allow_deletions", "lock_branch", "required_linear_history"):
         value = payload.get(name)
         if value is None:
             optional[name] = None
@@ -199,6 +204,7 @@ def parse_classic_protection(payload: Any) -> ClassicProtection | None:
         values["enforce_admins"],
         optional["allow_deletions"],
         optional["lock_branch"],
+        optional["required_linear_history"],
     )
 
 
@@ -329,4 +335,252 @@ def unknown_branch_result(reason: str = "branch-rules-unobserved") -> Result:
         reason,
         "active rules and classic protection are not completely observed",
         "Retry the GitHub rules read after confirming access to repository metadata",
+    )
+
+
+_NEUTRAL_RULES = {
+    "creation", "deletion", "required_deployments", "required_signatures",
+    "required_status_checks", "non_fast_forward", "commit_message_pattern",
+    "commit_author_email_pattern", "committer_email_pattern", "branch_name_pattern",
+    "tag_name_pattern", "workflows", "file_path_restriction", "file_extension_restriction",
+    "file_size", "code_scanning", "code_quality", "code_coverage", "secret_scanning",
+}
+
+
+def _bypass_notes(rule: ActiveRule, details: dict[tuple[str, str, int], RulesetDetail], operation: str) -> tuple[str, ...]:
+    detail = details.get(rule.identity)
+    if detail is None:
+        return (f"{rule.label()} bypass detail missing",)
+    if detail.bypass_actors is None:
+        return (f"{detail.label()} bypass_actors omitted",)
+    notes: list[str] = []
+    for actor in detail.bypass_actors:
+        name = actor.actor_type + (f" #{actor.actor_id}" if actor.actor_id is not None else "")
+        if actor.bypass_mode == "pull_request":
+            suffix = f" (does not bypass {operation})" if "deletion" in operation else ""
+            notes.append(f"{detail.label()} {name} pull_request bypass{suffix}")
+        elif actor.bypass_mode in {"always", "exempt"}:
+            notes.append(f"{detail.label()} {name} {actor.bypass_mode} bypass")
+        else:
+            notes.append(f"{detail.label()} unsupported bypass mode {actor.bypass_mode}")
+    return tuple(notes)
+
+
+def _detail_gap(rule: ActiveRule, read: RuleRead, details: dict[tuple[str, str, int], RulesetDetail], operation: str) -> tuple[str, str]:
+    detail = details.get(rule.identity)
+    if not read.details_complete or detail is None:
+        return f"{rule.label()} {operation} detail unavailable: {read.details_evidence or 'ruleset detail was not observed'}", read.details_cause or "bypass-coverage-unobserved"
+    if detail.enforcement != "active":
+        return f"{detail.label()} enforcement changed to {detail.enforcement}", "ruleset-detail-mismatch"
+    if detail.bypass_actors is None:
+        return f"{detail.label()} bypass_actors omitted", "bypass-coverage-unobserved"
+    if any(actor.bypass_mode not in {"always", "pull_request", "exempt"} for actor in detail.bypass_actors):
+        return f"{detail.label()} has an unsupported bypass mode", "unsupported-bypass-mode"
+    return "", ""
+
+
+def _finish(
+    conflicts: list[str],
+    unknown: list[str],
+    unavailable: list[tuple[str, str, str]],
+    actions: list[str],
+    unknown_cause: str,
+    unknown_action: str,
+    notes: list[str] | None = None,
+) -> Result:
+    evidence = "; ".join(conflicts + (notes or []) + unknown) or "all required delivery constraints were observed"
+    action = "; ".join(dict.fromkeys(actions))
+    if conflicts:
+        return Result(INCOMPATIBLE, "conflicting-configuration", evidence, action or unknown_action)
+    if unavailable:
+        cause, detail, suggested = unavailable[0]
+        return Result(CAPABILITY_UNAVAILABLE, cause, "; ".join([detail, *unknown]), suggested)
+    if unknown:
+        return Result(UNVERIFIED, unknown_cause, evidence, action or unknown_action)
+    return Result(COMPATIBLE, "", evidence, "")
+
+
+def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | None = None) -> Result:
+    """Assess whether the ordinary delivery path can create merge commits."""
+    conflicts: list[str] = []
+    unknown: list[str] = []
+    unavailable: list[tuple[str, str, str]] = []
+    actions: list[str] = []
+    notes: list[str] = []
+    unknown_cause = ""
+
+    if repository_setting is None:
+        unknown.append("mergeCommitAllowed was not observed")
+    elif repository_setting.state == INCOMPATIBLE:
+        conflicts.append(f"mergeCommitAllowed {repository_setting.evidence}")
+        actions.append(repository_setting.next_action)
+    elif repository_setting.state == CAPABILITY_UNAVAILABLE:
+        unavailable.append((repository_setting.cause, repository_setting.evidence, repository_setting.next_action))
+    elif repository_setting.state != COMPATIBLE:
+        unknown.append(f"mergeCommitAllowed {repository_setting.evidence}")
+        unknown_cause = unknown_cause or repository_setting.cause or "read-failure"
+
+    if not read.complete:
+        unknown.append(read.evidence or "effective branch rules were not completely observed")
+        unknown_cause = read.cause or unknown_cause or "partial-read"
+    details = {detail.identity: detail for detail in read.details}
+    rules = read.rules if read.complete else ()
+    for rule in rules:
+        label = rule.label()
+        if rule.type in {"required_linear_history", "pull_request", "merge_queue", "update"}:
+            gap, cause = _detail_gap(rule, read, details, "merge")
+            if gap:
+                unknown.append(gap)
+                unknown_cause = unknown_cause or cause
+            else:
+                notes.extend(_bypass_notes(rule, details, "ordinary merge updates"))
+        if rule.type == "required_linear_history":
+            conflicts.append(f"{label} required_linear_history prevents merge commits on {branch}")
+            actions.append(f"Adjust {label} scope to allow merge commits on {branch}, preserving checks, reviews, and bypass policy")
+        elif rule.type == "pull_request":
+            parameters = rule.parameters
+            methods = parameters.get("allowed_merge_methods") if isinstance(parameters, dict) else None
+            if not isinstance(methods, list):
+                unknown.append(f"{label} pull_request.allowed_merge_methods was not observed")
+                actions.append(f"Inspect {label} pull_request.allowed_merge_methods before relying on merge-commit delivery for {branch}")
+            elif not methods or not all(isinstance(method, str) for method in methods):
+                unknown.append(f"{label} pull_request.allowed_merge_methods had unsupported values")
+                unknown_cause = unknown_cause or "unsupported-rule-semantics"
+            elif any(method not in {"merge", "squash", "rebase"} for method in methods):
+                unknown.append(f"{label} pull_request.allowed_merge_methods had an unknown method")
+                unknown_cause = unknown_cause or "unsupported-rule-semantics"
+            elif "merge" not in methods:
+                conflicts.append(f"{label} pull_request.allowed_merge_methods excludes merge")
+                actions.append(f"Adjust {label} pull_request.allowed_merge_methods to include merge for {branch}, preserving checks, reviews, and bypass policy")
+        elif rule.type == "merge_queue":
+            parameters = rule.parameters
+            method = parameters.get("merge_method") if isinstance(parameters, dict) else None
+            if not isinstance(method, str):
+                unknown.append(f"{label} merge_queue.parameters.merge_method was not observed")
+                actions.append(f"Inspect {label} merge_queue.parameters.merge_method before relying on merge-commit delivery for {branch}")
+            elif method not in {"MERGE", "SQUASH", "REBASE"}:
+                unknown.append(f"{label} merge_queue has unsupported merge_method {method}")
+                actions.append(f"Inspect {label} merge_queue.parameters.merge_method before relying on merge-commit delivery for {branch}")
+            elif method != "MERGE":
+                conflicts.append(f"{label} merge_queue.parameters.merge_method={method} does not create merge commits")
+                actions.append(f"Adjust {label} merge_queue.parameters.merge_method to MERGE for {branch}, preserving checks, reviews, and bypass policy")
+            else:
+                unknown.append(f"{label} merge_queue requires queue interaction; ordinary stack merge acceptance is unverified")
+                unknown_cause = unknown_cause or "unsupported-rule-semantics"
+                actions.append(f"Verify {label} queue interaction for ordinary stack delivery on {branch}")
+        elif rule.type == "update":
+            unknown.append(f"{label} update restricts ordinary branch updates to bypass actors; merge interaction is unverified")
+            unknown_cause = unknown_cause or "unsupported-rule-semantics"
+            actions.append(f"Review {label} update scope and bypass policy for ordinary merge delivery on {branch}")
+        elif rule.type not in _NEUTRAL_RULES:
+            unknown.append(f"{label} has unsupported rule semantics for merge evaluation")
+            actions.append(f"Review {label} before relying on merge-commit delivery for {branch}")
+            unknown_cause = unknown_cause or "unsupported-rule-semantics"
+
+    classic = read.classic
+    if classic is None or not classic.complete:
+        unknown.append((classic.evidence if classic else "classic protection was not read") or "classic protection was not read")
+        unknown_cause = unknown_cause or (classic.cause if classic else "classic-protection-unobserved")
+    elif classic.protected is None:
+        unknown.append("classic protection state was not observed")
+        unknown_cause = unknown_cause or "missing-field"
+    elif classic.protected:
+        if classic.required_linear_history is True:
+            conflicts.append(f"classic protection required_linear_history.enabled=true prevents merge commits on {branch}")
+            actions.append(f"Set required_linear_history.enabled=false in classic protection for {branch}, preserving checks, reviews, and bypass policy")
+        elif classic.required_linear_history is None:
+            unknown.append("classic protection required_linear_history was not observed")
+            unknown_cause = unknown_cause or "missing-field"
+        if classic.lock_branch is True:
+            conflicts.append(f"classic protection lock_branch.enabled=true makes {branch} read-only")
+            actions.append(f"Set lock_branch.enabled=false in classic protection for {branch}, preserving checks, reviews, and bypass policy")
+        elif classic.lock_branch is None:
+            unknown.append("classic protection lock_branch was not observed")
+            unknown_cause = unknown_cause or "missing-field"
+
+    return _finish(
+        conflicts,
+        unknown,
+        unavailable,
+        actions,
+        unknown_cause or "missing-field",
+        "Retry the GitHub merge rules and classic protection reads after confirming access",
+        notes,
+    )
+
+
+def evaluate_cleanup(
+    branch: str,
+    read: RuleRead,
+    repository_setting: Result | None = None,
+    role: str = "feature",
+) -> Result:
+    """Assess automatic cleanup while keeping the delivery trunk retained."""
+    if role == "trunk":
+        return Result(COMPATIBLE, "", "trunk is retained; cleanup applies to integrated feature/task branches", "")
+
+    conflicts: list[str] = []
+    unknown: list[str] = []
+    unavailable: list[tuple[str, str, str]] = []
+    actions: list[str] = []
+    unknown_cause = ""
+    if repository_setting is None:
+        unknown.append("deleteBranchOnMerge was not observed")
+    elif repository_setting.state == INCOMPATIBLE:
+        conflicts.append(f"deleteBranchOnMerge {repository_setting.evidence}")
+        actions.append(repository_setting.next_action)
+    elif repository_setting.state == CAPABILITY_UNAVAILABLE:
+        unavailable.append((repository_setting.cause, repository_setting.evidence, repository_setting.next_action))
+    elif repository_setting.state != COMPATIBLE:
+        unknown.append(f"deleteBranchOnMerge {repository_setting.evidence}")
+        unknown_cause = unknown_cause or repository_setting.cause or "read-failure"
+
+    if not read.complete:
+        unknown.append(read.evidence or "effective branch rules were not completely observed")
+        unknown_cause = read.cause or unknown_cause or "partial-read"
+    details = {detail.identity: detail for detail in read.details}
+    for rule in read.rules if read.complete else ():
+        label = rule.label()
+        if rule.type == "deletion":
+            conflicts.append(f"{label} deletion restricts {branch} to bypass actors")
+            actions.append(f"Adjust {label} deletion scope to permit cleanup of integrated feature/task branches while retaining trunk and preserving checks, reviews, and bypass policy")
+            gap, cause = _detail_gap(rule, read, details, "cleanup")
+            if gap:
+                unknown.append(gap)
+                unknown_cause = unknown_cause or cause
+            else:
+                unknown.extend(_bypass_notes(rule, details, "ordinary branch deletion"))
+        elif rule.type not in _NEUTRAL_RULES | {"required_linear_history", "pull_request", "merge_queue", "update"}:
+            unknown.append(f"{label} has unsupported rule semantics for cleanup evaluation")
+            actions.append(f"Review {label} before relying on automatic cleanup for {branch}")
+            unknown_cause = unknown_cause or "unsupported-rule-semantics"
+
+    classic = read.classic
+    if classic is None or not classic.complete:
+        unknown.append((classic.evidence if classic else "classic protection was not read") or "classic protection was not read")
+        unknown_cause = unknown_cause or (classic.cause if classic else "classic-protection-unobserved")
+    elif classic.protected is None:
+        unknown.append("classic protection state was not observed")
+        unknown_cause = unknown_cause or "missing-field"
+    elif classic.protected:
+        if classic.allow_deletions is False:
+            conflicts.append(f"classic protection allow_deletions.enabled=false blocks cleanup of {branch}")
+            actions.append(f"Set allow_deletions.enabled=true in classic protection for integrated {branch} cleanup, preserving checks, reviews, and bypass policy")
+        elif classic.allow_deletions is None:
+            unknown.append("classic protection allow_deletions was not observed")
+            unknown_cause = unknown_cause or "missing-field"
+        if classic.lock_branch is True:
+            conflicts.append(f"classic protection lock_branch.enabled=true blocks cleanup of {branch}")
+            actions.append(f"Set lock_branch.enabled=false in classic protection for integrated {branch} cleanup, preserving checks, reviews, and bypass policy")
+        elif classic.lock_branch is None:
+            unknown.append("classic protection lock_branch was not observed")
+            unknown_cause = unknown_cause or "missing-field"
+
+    return _finish(
+        conflicts,
+        unknown,
+        unavailable,
+        actions,
+        unknown_cause or "missing-field",
+        "Retry the GitHub cleanup rules and classic protection reads after confirming access",
     )

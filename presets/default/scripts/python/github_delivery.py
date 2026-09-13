@@ -23,7 +23,9 @@ from github_delivery_rules import (
     Result,
     RuleRead,
     RulesetDetail,
+    evaluate_cleanup,
     evaluate_force_push,
+    evaluate_merge,
     parse_active_rules,
     parse_branch_page_items,
     parse_classic_protection,
@@ -262,13 +264,17 @@ def _read_branch_rules(
     )
 
 
-def _branch_findings(repo_root: Path) -> tuple[tuple[str, Result], ...]:
+def _branch_findings(
+    repo_root: Path,
+    settings: dict[str, Result] | None = None,
+) -> tuple[tuple[str, Result], ...]:
     """Observe the complete remote inventory, then effective rules per shared branch."""
     try:
         with redirect_stderr(StringIO()):
             trunk = delivery_base(repo_root).strip()
     except (SystemExit, OSError):
         trunk = ""
+    settings = settings or {}
     if not trunk:
         finding = unknown_branch_result("trunk-unresolved")
         return (("force-push protection", finding), ("merge commits", finding), ("cleanup", finding))
@@ -302,18 +308,35 @@ def _branch_findings(repo_root: Path) -> tuple[tuple[str, Result], ...]:
         force = evaluate_force_push(name, rules)
         label = f"force-push protection [{name} ({role})]"
         results.append((label, force))
-        results.append((f"merge commits [{name} ({role})]", unknown_branch_result("merge-evaluation-pending")))
-        results.append((f"cleanup [{name} ({role})]", unknown_branch_result("cleanup-evaluation-pending")))
+        merge = evaluate_merge(name, rules, settings.get("mergeCommitAllowed"))
+        cleanup = evaluate_cleanup(name, rules, settings.get("deleteBranchOnMerge"), role=role)
+        results.append((f"merge commits [{name} ({role})]", merge))
+        results.append((f"cleanup [{name} ({role})]", cleanup))
     return tuple(results)
 
 
 def diagnose(repo_root: Path) -> tuple[dict[str, Result], tuple[tuple[str, Result], ...]]:
     settings = _read_settings(repo_root)
-    return settings, _branch_findings(repo_root)
+    return settings, _branch_findings(repo_root, settings)
+
+
+def overall_result(settings: dict[str, Result], branch: tuple[tuple[str, Result], ...]) -> Result:
+    """Summarize only the observed snapshot; future branches remain out of scope."""
+    results = [*settings.values(), *(finding for _, finding in branch)]
+    coverage_complete = all(setting in settings for setting, _ in _SETTINGS) and bool(branch)
+    if coverage_complete and all(result.state == COMPATIBLE for result in results):
+        return Result(COMPATIBLE, "", "all required guarantees verified within the observed branch snapshot", "")
+    incompatible = next((result for result in results if result.state == INCOMPATIBLE), None)
+    if incompatible is not None:
+        return Result(INCOMPATIBLE, incompatible.cause, "one or more observed guarantees are incompatible", incompatible.next_action)
+    unavailable = next((result for result in results if result.state == CAPABILITY_UNAVAILABLE), None)
+    if unavailable is not None:
+        return Result(CAPABILITY_UNAVAILABLE, unavailable.cause, "a required GitHub capability was unavailable", unavailable.next_action)
+    return Result(UNVERIFIED, "incomplete-observation", "one or more required guarantees remain unverified", "Retry the GitHub diagnosis after confirming access")
 
 
 def render(settings: dict[str, Result], branch: tuple[tuple[str, Result], ...]) -> str:
-    scope = "repository settings and observed shared-branch inventory; each result states its evidence and coverage."
+    scope = "repository settings and the current snapshot of existing shared branches; future branches are not certified."
     lines = ["GitHub delivery diagnosis", f"Scope: {scope}"]
     for name, setting in _SETTINGS:
         finding = settings[name]
@@ -325,7 +348,8 @@ def render(settings: dict[str, Result], branch: tuple[tuple[str, Result], ...]) 
     for name, finding in branch:
         suffix = f"; cause={finding.cause}" if finding.cause else ""
         lines.append(f"{name}: {finding.state} ({finding.evidence}{suffix}) — next: {finding.next_action}")
-    lines.append("Overall: unverified (classic protection, merge, cleanup, or complete rule coverage remains unverified).")
+    summary = overall_result(settings, branch)
+    lines.append(f"Overall: {summary.state} ({summary.evidence}).")
     return "\n".join(lines)
 
 
@@ -335,7 +359,7 @@ def main(argv: list[str]) -> int:
         return 2
     settings, branch = diagnose(Path.cwd())
     print(render(settings, branch))
-    return 1
+    return 0 if overall_result(settings, branch).state == COMPATIBLE else 1
 
 
 if __name__ == "__main__":
