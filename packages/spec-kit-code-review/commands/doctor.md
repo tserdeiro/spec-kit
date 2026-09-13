@@ -76,22 +76,25 @@ reported as healthy. Every such diagnostic remains visible when another doctor
 group fails, with its path and emitted remedy.
 
 Repair takes the selected Git config's cooperative exclusive lock, compares the
-diagnosed bytes, mode, and effective snapshot before preparing a temporary
-file, edits that file through Git, atomically replaces the destination, and
-reads the effective config and hook list back. Git writers that honor the same
-lock cannot edit concurrently. A direct writer that ignores the lock can race
-after the snapshot; this path provides no atomic compare-and-swap guarantee.
+diagnosed bytes, mode, existence, symlink state, parent arrangement, and
+effective snapshot before preparing a temporary file, edits that file through
+Git, repeats those destination and effective-observation checks immediately
+before atomically replacing the destination, and reads the effective config and
+hook list back. Git writers that honor the same lock cannot edit concurrently.
+A direct writer that ignores the lock can race after either check or during the
+replacement; the late check narrows that window but provides no atomic
+compare-and-swap guarantee.
 
-An unsafe destination or an early snapshot, lock, or temporary-write failure
-returns without replacing the destination. If readback fails after replacement,
-the repair attempts to restore the diagnosed bytes and mode. Restoration is
-best effort: if it fails, inspect the reported config path manually and use the
-owned-section rollback below. A `git_hooks_write_failed` diagnostic (`native
-registration was not completed ...; retry doctor`) is generic: it can mean a
-pre-replacement write failure or a replacement followed by failed restoration.
-Inspect the path before retrying. Diagnostics report the path and available
-action, but cannot always identify whether replacement occurred; they do not
-promise preservation for every concurrent, write, or readback failure.
+An unsafe destination or an early/late snapshot, lock, or temporary-write
+failure returns without replacing the destination. If readback fails after
+replacement, the repair compares the live destination with the expected
+replacement before attempting to restore the diagnosed bytes and mode. A
+changed destination is left untouched; a failed or refused restoration
+requires manual inspection of the reported config path and the owned-section
+rollback below. Diagnostics state whether the diagnosed config was restored or
+whether restoration was not applied. Direct writers can still race after the
+last comparison, so diagnostics cannot promise preservation for every
+concurrent, write, or readback failure.
 
 To remove a registration manually, first confirm the scope reported by the
 doctor, then remove only the owned section:

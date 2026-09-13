@@ -56,18 +56,19 @@ A missing or
 unreadable payload requires reinstalling this extension and rerunning
 `doctor --fix`; a disabled or foreign entry requires explicit manual repair.
 The repair takes a cooperative exclusive lock and checks the diagnosed bytes,
-mode, and effective snapshot before preparing its temporary file. Writers that
-honor Git's lock cannot edit concurrently. A direct writer that ignores the
-lock can race after that snapshot; no atomic compare-and-swap guarantee is
-made. The temporary file is edited through Git, atomically replaces the
-destination, and is checked by effective-config and hook-list readback. If
-readback fails, restoration of the diagnosed bytes and mode is attempted. A
-restoration failure requires manual inspection of the reported config path and
-the owned-section rollback below. A `git_hooks_write_failed` diagnostic (`native
-registration was not completed ...; retry doctor`) is generic: it can mean a
-pre-replacement write failure or a replacement followed by failed restoration.
-Inspect the path before retrying; the diagnostic cannot always say which
-outcome occurred.
+mode, existence, symlink state, parent arrangement, and effective snapshot
+before preparing its temporary file. It repeats those destination and
+effective-observation checks immediately before replacement. Writers that honor
+Git's lock cannot edit concurrently. A direct writer that ignores the lock can
+race after either check or during replacement; the late check narrows that
+window, but no atomic compare-and-swap guarantee is made. The temporary file is
+edited through Git, atomically replaces the destination, and is checked by
+effective-config and hook-list readback. If readback fails, restoration is
+attempted only while the expected replacement is still present. A changed
+destination is left untouched; a failed or refused restoration requires manual
+inspection of the reported config path and the owned-section rollback below.
+The diagnostic states whether restoration was applied, but cannot promise
+preservation for every concurrent, write, or readback failure.
 
 To roll back, confirm the scope reported by `doctor` and remove only the owned
 section with the matching command:
