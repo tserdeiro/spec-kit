@@ -299,6 +299,9 @@ def check(repo: Path | None = None) -> None:
     origin = _origin(repo)
     expected_repo = _repository(repo, origin)
     branch = _feature_branch(repo, feature, origin)
+    current = _git(repo, "branch", "--show-current").stdout.strip()
+    if current != branch:
+        _pending(f"checked-out branch {current or '<detached>'!r} does not match published feature ref {branch!r}")
     try:
         expected_base = delivery_base(repo, origin)
     except SystemExit:

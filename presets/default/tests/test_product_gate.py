@@ -200,3 +200,11 @@ def test_symlinked_feature_parent_stops(published: tuple[Path, dict[str, object]
     (repo / "specs").rename(external)
     os.symlink(external, repo / "specs", target_is_directory=True)
     _reject(repo, state)
+
+
+@pytest.mark.parametrize("command", [("switch", "-c", "unrelated"), ("switch", "--detach")])
+def test_gate_requires_the_published_feature_checkout(published: tuple[Path, dict[str, object]],
+                                                      command: tuple[str, ...]) -> None:
+    repo, state = published
+    _git(repo, *command)
+    _reject(repo, state)
