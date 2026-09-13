@@ -96,13 +96,13 @@ feature/task-stack behavior and reviewer-only portability remain intact.
   - **Delivery**: single PR (~260 authored lines)
   - **Completion evidence**: PR #170; Linear suite 544 passed / 315 subtests, with 3 preexisting sandbox loopback skips; focused CLI suite 130 passed / 78 subtests; `git diff --check` passed; budget 131/400. Fresh independent review of `4fa9a3731cba427edeebb5d9453454be96146b29` closed with `no-blocking-findings`, 0 findings after coverage of native hook/session identity, stale-feature exclusion, configured failures, quiet absent/disabled configuration, work-item-only routing, lifecycle safety, and regressions.
 
-- [ ] T007 [US3] Resolve work-item review context and exact task guards in packages/spec-kit-code-review/src/spec_kit_code_review/sdd_context.py
+- [x] T007 [US3] Resolve work-item review context and exact task guards in packages/spec-kit-code-review/src/spec_kit_code_review/sdd_context.py
   - **Traces**: FR-006–009, C-001, C-002, SC-003, SC-004; outcome: native work-item PRs stay on the short path and guards protect only actual feature tasks.
   - **Depends on**: T006
   - **Boundaries**: Update `sdd_context.py`, `review_context.py`, guard classification in `cli.py`, and unit/golden fixtures. Read canonical Work item/Tracker linkage, reject conflicting identities, and prefer work-item/bug evidence over stale feature selection. Classify complete feature/task conventions exactly; unsupported local identity stays explicit advisory. Preserve reviewer-only operation, anchored reads, coverage, and protected-path rules; execute no candidate bridge.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests -q` -> native prefixed/title-based PRs, ambiguous links, stale feature selection, full task names, and task-like native leaf guards pass without Linear installed.
   - **Delivery**: single PR (~350 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #171; final code-review package suite 988 passed / 615 subtests; focused SDD, review-context, and guard tests 133 passed / 66 subtests; `git diff --check` passed; budget 364/400. Fresh independent review of `b3330ba0be1f8ae9587a5a3d7ebb6bb8b4b91026` closed with changes requested: multiple branch Issue keys could be overridden by one matching Tracker key, and an obsolete `work_item` compatibility alias duplicated the canonical identity. Both findings were fixed in `66922e5e385936c2971340c0569ba24d43c37404`, with regressions for matching multi-key Tracker conflict and canonical-only serialization. Final review of `66922e5e385936c2971340c0569ba24d43c37404` closed with `no-blocking-findings` after anchored Tracker parsing, conflict/advisory behavior, stale-feature exclusion, exact feature/task refs, nested task-like leaves, local guards, snapshot-only context, and tests were covered.
 
 ## Final phase: Cross-cutting verification
 

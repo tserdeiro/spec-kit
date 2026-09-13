@@ -408,6 +408,12 @@ class ProtectedPathTests(GuardTestCase):
                     self.repository.branch(branch)
                 self.assertEqual(self._run(_write("specs/001-x/spec.md")), (0, ""))
 
+    def test_a_nested_task_like_native_branch_is_exempt(self) -> None:
+        self.repository.branch("users/alice/001-T003-x")
+        absolute = str(self.repository.path / "specs/001-x/spec.md")
+
+        self.assertEqual(self._run(_write(absolute)), (0, ""))
+
     def test_an_unprotected_write_is_allowed_on_a_task_branch(self) -> None:
         self.repository.branch("001-T003-x")
         self.assertEqual(self._run(_write("README.md")), (0, ""))
