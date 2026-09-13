@@ -69,6 +69,61 @@ def test_issue_key_branch_uses_the_short_path_and_does_not_inherit_a_feature() -
     assert scope.kind == "short-path"
     assert scope.task_ids == ()
     assert scope.gaps == ()
+
+def test_native_work_item_resolution_wins_over_stale_feature_selection() -> None:
+    resolution = FeatureResolution(feature="007-review-context", source="feature.json", work_item_key="OPS-42")
+    empty = Artifact("missing", None, None)
+    sdd = SddContext(resolution, empty, empty, task_entries=(_task("T001", "src/a.py"),))
+    scope = resolve_scope(_candidate(), pull_request=_pr("users/alice/fix-timeout"), sdd=sdd, changed_paths=("src/timeout.py",))
+
+    assert scope.kind == "short-path"
+    assert scope.feature is None
+    assert scope.task_ids == ()
+    assert scope.gaps == ()
+
+def test_unsupported_native_title_is_explicit_advisory_and_drops_stale_feature() -> None:
+    scope = resolve_scope(
+        _candidate(),
+        pull_request=_pr("users/alice/fix-timeout"),
+        sdd=_sdd(_task("T001", "src/a.py"), source="feature.json"),
+        changed_paths=("src/timeout.py",),
+    )
+
+    assert scope.kind == "short-path"
+    assert scope.feature is None
+    assert any(gap.code == "branch_unrecognized" for gap in scope.gaps)
+
+def test_nested_native_task_like_leaf_does_not_get_task_scope() -> None:
+    scope = resolve_scope(
+        _candidate(),
+        pull_request=_pr("users/alice/001-T001-change"),
+        sdd=_sdd(_task("T001", "src/a.py"), source="head-branch"),
+        changed_paths=("src/a.py",),
+    )
+
+    assert scope.kind == "short-path"
+    assert scope.task_ids == ()
+    assert scope.feature is None
+    assert any(gap.code == "branch_unrecognized" for gap in scope.gaps)
+
+def test_conflicting_work_item_identity_is_an_unresolved_scope() -> None:
+    resolution = FeatureResolution(
+        source="work-item",
+        candidates=("OPS-42", "OPS-43"),
+        work_item_candidates=("OPS-42", "OPS-43"),
+        ambiguous=True,
+        identity_conflict=True,
+    )
+    empty = Artifact("missing", None, None)
+    scope = resolve_scope(
+        _candidate(),
+        pull_request=_pr("users/alice/fix-timeout"),
+        sdd=SddContext(resolution, empty, empty),
+        changed_paths=("src/timeout.py",),
+    )
+
+    assert scope.kind == "short-path"
+    assert any(gap.code == "work_item_identity_conflict" for gap in scope.gaps)
 def test_ambiguous_feature_is_an_immediate_scope_gap() -> None:
     scope = resolve_scope(
         _candidate(),

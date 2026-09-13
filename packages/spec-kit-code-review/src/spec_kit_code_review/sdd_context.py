@@ -44,6 +44,7 @@ SOURCE_DIFF = "diff"
 SOURCE_PR_BODY = "pr-body"
 SOURCE_BRANCH = "head-branch"
 SOURCE_BUG = "bug"
+SOURCE_WORK_ITEM = "work-item"
 SOURCE_NONE = "none"
 
 _FEATURE_DIRECTORY_RE = re.compile(r"^specs/(?P<feature>\d{3}[A-Za-z0-9._-]*)/")
@@ -51,7 +52,12 @@ _BUG_DIRECTORY_RE = re.compile(r"^\.specify/bugs/(?P<slug>[A-Za-z0-9._-]+)/")
 _FEATURE_NUMBER_RE = re.compile(r"^\d{3}$")
 _TASK_BRANCH_RE = re.compile(r"^(?P<number>\d{3})(?:-[A-Za-z0-9._-]+)?-T(?P<task>\d{3,})(?:-[A-Za-z0-9._-]+)?$")
 _FEATURE_BRANCH_RE = re.compile(r"^\d{3}(?:-[A-Za-z0-9._-]+)?$")
-_ISSUE_BRANCH_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9]+-\d+(?:[-/].*)?|(?:bug|chore|fix)(?:[-/].*)?)$", re.IGNORECASE)
+_FEATURE_REF_RE = re.compile(r"^\d{3}-[A-Za-z0-9._-]+$")
+_ISSUE_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])(?P<team>[A-Za-z][A-Za-z0-9]*)-(?P<number>\d+)(?![A-Za-z0-9])")
+_ISSUE_BRANCH_RE = re.compile(r"^(?:[^/]+/)*(?:[A-Za-z][A-Za-z0-9]*-\d+(?:-[^/]*)?|(?:bug|chore|fix)(?:[-/].*)?)$", re.IGNORECASE)
+_TRACKER_SECTION_RE = re.compile(r"(?ms)^##[ \t]+Work item[ \t]*\r?\n(?P<section>.*?)(?=^#{1,6}[ \t]+|\Z)", re.IGNORECASE)
+_TRACKER_LINE_RE = re.compile(r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]*(?P<value>.*?)[ \t]*$", re.IGNORECASE)
+_TRACKER_VALUE_RE = re.compile(r"^Fixes[ \t]+(?P<key>[A-Za-z][A-Za-z0-9]*-\d+)[ \t]*$", re.IGNORECASE)
 # Doc "Resolucion del contexto SDD" path 4: the pull-request body carries a
 # "Spec Kit evidence" reference, per the canonical pull-request template.
 _PR_EVIDENCE_RE = re.compile(
@@ -219,16 +225,33 @@ class FeatureResolution:
     candidates: tuple[str, ...] = ()
     ambiguous: bool = False
     bug_slug: str | None = None
+    work_item_key: str | None = None
+    work_item_candidates: tuple[str, ...] = ()
+    identity_conflict: bool = False
     diagnostics: tuple[Diagnostic, ...] = ()
 
+    @property
+    def work_item(self) -> str | None:
+        """Compatibility name for the canonical Issue identity."""
+
+        return self.work_item_key
+
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "feature": self.feature,
             "source": self.source,
             "candidates": list(self.candidates),
             "ambiguous": self.ambiguous,
             "bug_slug": self.bug_slug,
         }
+        if self.work_item_key is not None:
+            result["work_item_key"] = self.work_item_key
+            result["work_item"] = self.work_item_key
+        if self.work_item_candidates:
+            result["work_item_candidates"] = list(self.work_item_candidates)
+        if self.identity_conflict:
+            result["identity_conflict"] = True
+        return result
 
 
 @dataclass
@@ -328,11 +351,69 @@ def resolve_feature(
         return FeatureResolution(feature=feature, source=SOURCE_FLAG, diagnostics=tuple(diagnostics))
 
     branch_feature = _feature_from_head_ref(reader, head_ref_name)
-    short_path = bool(head_ref_name and _ISSUE_BRANCH_RE.match(head_ref_name.strip()))
+    branch_value = head_ref_name.strip().strip("/") if head_ref_name else ""
+    reserved_sdd_branch = _reserved_sdd_branch(branch_value)
+    short_path = bool(branch_value and _ISSUE_BRANCH_RE.match(branch_value))
+    branch_keys = _issue_keys_from_branch(branch_value)
+    tracker_keys, tracker_conflict = _tracker_keys_from_pr_body(pr_body)
+
+    # A complete feature/task branch is authoritative SDD identity. Everything
+    # else may be a native work-item branch, including a user-prefixed path or a
+    # title-only branch whose canonical Tracker field carries the identity.
+    if not reserved_sdd_branch:
+        identity_candidates = tuple(dict.fromkeys((*branch_keys, *tracker_keys)))
+        if tracker_conflict or len(tracker_keys) > 1 or len(branch_keys) > 1 and not tracker_keys:
+            diagnostics.append(
+                Diagnostic(
+                    "work_item_identity_conflict",
+                    "the candidate's Work item identity is ambiguous or malformed; the review continues without SDD context",
+                    severity="warning",
+                )
+            )
+            return FeatureResolution(
+                source=SOURCE_WORK_ITEM,
+                candidates=identity_candidates,
+                work_item_candidates=identity_candidates,
+                ambiguous=True,
+                identity_conflict=True,
+                diagnostics=tuple(diagnostics),
+            )
+        if branch_keys and tracker_keys and tracker_keys[0] not in branch_keys:
+            diagnostics.append(
+                Diagnostic(
+                    "work_item_identity_conflict",
+                    f"the branch names {branch_keys[0]} but the canonical Work item Tracker names {tracker_keys[0]}",
+                    severity="warning",
+                )
+            )
+            identity_candidates = tuple(dict.fromkeys((*branch_keys, *tracker_keys)))
+            return FeatureResolution(
+                source=SOURCE_WORK_ITEM,
+                candidates=identity_candidates,
+                work_item_candidates=identity_candidates,
+                ambiguous=True,
+                identity_conflict=True,
+                diagnostics=tuple(diagnostics),
+            )
+        work_item_key = tracker_keys[0] if tracker_keys else (branch_keys[0] if len(branch_keys) == 1 else None)
+        if work_item_key:
+            bugs = _bugs_touched(changed_paths)
+            bug_slug = bugs[0] if len(bugs) == 1 else None
+            return FeatureResolution(
+                source=SOURCE_WORK_ITEM,
+                bug_slug=bug_slug,
+                work_item_key=work_item_key,
+                diagnostics=tuple(diagnostics),
+            )
+
     # An issue-key bug/chore branch is deliberately independent of any active
     # feature.json in the operator checkout. Bug artifacts are still discovered
     # below; ordinary short-path work stays ledger-free.
-    declared = None if short_path else _feature_from_feature_json(reader)
+    # A non-reserved branch is not enough to inherit the checkout's selected
+    # feature. The branch's own evidence (Tracker, bug paths, or touched
+    # feature paths) must establish that context first.
+    default_branch = branch_value.casefold() in {"main", "master", "develop", "development", "dev", "trunk"}
+    declared = None if short_path or (branch_value and not reserved_sdd_branch and not default_branch) else _feature_from_feature_json(reader)
     declared_feature = _normalize_feature(reader, declared) if declared else None
     touched = _features_touched(changed_paths)
     referenced = _feature_from_pr_body(pr_body)
@@ -343,6 +424,20 @@ def resolve_feature(
         return _ambiguous_feature(source, identities, diagnostics)
     if branch_feature is not None:
         return FeatureResolution(feature=branch_feature, source=SOURCE_BRANCH, diagnostics=tuple(diagnostics))
+
+    bugs = _bugs_touched(changed_paths)
+    if len(bugs) == 1:
+        return FeatureResolution(bug_slug=bugs[0], source=SOURCE_BUG, diagnostics=tuple(diagnostics))
+    if len(bugs) > 1:
+        diagnostics.append(
+            Diagnostic(
+                "sdd_context_ambiguous",
+                f"the candidate touches {len(bugs)} bug directories ({', '.join(bugs)}); "
+                "the review continues without SDD context.",
+                severity="warning",
+            )
+        )
+        return FeatureResolution(source=SOURCE_BUG, candidates=bugs, ambiguous=True, diagnostics=tuple(diagnostics))
     if declared is not None:
         if declared_feature is not None and (not touched or set(touched) == {declared_feature}):
             return FeatureResolution(feature=declared_feature, source=SOURCE_FEATURE_JSON, diagnostics=tuple(diagnostics))
@@ -371,20 +466,6 @@ def resolve_feature(
 
     if pr_feature is not None and not short_path:
         return FeatureResolution(feature=pr_feature, source=SOURCE_PR_BODY, diagnostics=tuple(diagnostics))
-
-    bugs = _bugs_touched(changed_paths)
-    if len(bugs) == 1:
-        return FeatureResolution(bug_slug=bugs[0], source=SOURCE_BUG, diagnostics=tuple(diagnostics))
-    if len(bugs) > 1:
-        diagnostics.append(
-            Diagnostic(
-                "sdd_context_ambiguous",
-                f"the candidate touches {len(bugs)} bug directories ({', '.join(bugs)}); "
-                "the review continues without SDD context.",
-                severity="warning",
-            )
-        )
-        return FeatureResolution(source=SOURCE_BUG, candidates=bugs, ambiguous=True, diagnostics=tuple(diagnostics))
 
     diagnostics.append(
         Diagnostic(
@@ -420,6 +501,71 @@ def _feature_from_pr_body(body: str | None) -> str | None:
     return match.group("feature") if match else None
 
 
+def _reserved_sdd_branch(branch: str) -> bool:
+    """Whether the complete branch name uses one of the SDD conventions.
+
+    The whole ref is checked deliberately. A native branch such as
+    ``users/alice/001-T002-fix`` is still a work-item path and must not inherit
+    task-only behavior from its final path segment.
+    """
+
+    return bool(_TASK_BRANCH_RE.fullmatch(branch) or _FEATURE_REF_RE.fullmatch(branch))
+
+
+def _issue_keys_from_branch(branch: str) -> tuple[str, ...]:
+    """Read explicit Issue keys from a native branch's leading leaf.
+
+    Branch names are evidence only when a path segment starts with an Issue key;
+    incidental mentions in a title do not establish identity. Multiple leading
+    keys remain visible so callers can report ambiguity instead of guessing.
+    """
+
+    if not branch or _reserved_sdd_branch(branch):
+        return ()
+    leaf = branch.rsplit("/", 1)[-1]
+    if re.match(r"^[A-Za-z][A-Za-z0-9]*-\d+(?:-|$)", leaf) is None:
+        return ()
+    return tuple(
+        dict.fromkeys(
+            f"{match.group('team').upper()}-{int(match.group('number'))}"
+            for match in _ISSUE_TOKEN_RE.finditer(leaf)
+        )
+    )
+
+
+def _tracker_keys_from_pr_body(body: str | None) -> tuple[tuple[str, ...], bool]:
+    """Read canonical ``Work item`` Tracker values, excluding fenced prose.
+
+    The review package intentionally keeps this parser local. It consumes the
+    anchored PR snapshot already supplied to review and never runs a bridge or
+    resolver from the candidate checkout.
+    """
+
+    if not body:
+        return (), False
+    lines = body.splitlines()
+    mask = _fence_mask(lines)
+    visible = "\n".join(line if not mask[index] else "" for index, line in enumerate(lines))
+    values = [
+        match.group("value").strip()
+        for section in _TRACKER_SECTION_RE.finditer(visible)
+        for match in _TRACKER_LINE_RE.finditer(section.group("section"))
+    ]
+    keys: list[str] = []
+    conflict = False
+    for value in values:
+        if not value or value.upper() == "N/A" or value.startswith("<!--"):
+            continue
+        match = _TRACKER_VALUE_RE.fullmatch(value)
+        if match is None:
+            conflict = True
+            continue
+        key = f"{match.group('key').split('-', 1)[0].upper()}-{int(match.group('key').split('-', 1)[1])}"
+        if key not in keys:
+            keys.append(key)
+    return tuple(keys), conflict
+
+
 def _feature_from_head_ref(reader: Reader, branch: str | None) -> str | None:
     if not branch:
         return None
@@ -427,7 +573,7 @@ def _feature_from_head_ref(reader: Reader, branch: str | None) -> str | None:
     directories = _feature_directories(reader)
     if value in directories:
         return value
-    if _FEATURE_BRANCH_RE.match(value):
+    if _FEATURE_BRANCH_RE.fullmatch(value):
         number = value.split("-", 1)[0]
         matches = [name for name in directories if name == number or name.startswith(f"{number}-")]
         if len(matches) == 1:

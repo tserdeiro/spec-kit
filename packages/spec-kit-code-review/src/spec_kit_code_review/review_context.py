@@ -4,13 +4,21 @@ import re
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from .sdd_context import SOURCE_BRANCH, SddContext, TaskEntry, _fence_mask
+from .sdd_context import (
+    SOURCE_BRANCH,
+    SOURCE_BUG,
+    SOURCE_WORK_ITEM,
+    SddContext,
+    TaskEntry,
+    _fence_mask,
+    _issue_keys_from_branch,
+    _reserved_sdd_branch,
+)
 
 _TASK_BRANCH_RE = re.compile(
     r"^(?P<number>\d{3})(?:-[A-Za-z0-9._-]+)?-T(?P<task>\d{3,})(?:-[A-Za-z0-9._-]+)?$"
 )
 _FEATURE_BRANCH_RE = re.compile(r"^\d{3}(?:-[A-Za-z0-9._-]+)?$")
-_ISSUE_BRANCH_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9]+-\d+(?:[-/].*)?|(?:bug|chore|fix)(?:[-/].*)?)$", re.IGNORECASE)
 
 @dataclass(frozen=True)
 class ScopeGap:
@@ -28,6 +36,7 @@ class ReviewScope:
     merge_base: str
     head_commit: str
     head_ref_name: str | None = None
+    work_item_key: str | None = None
     evidence: tuple[tuple[str, Any], ...] = ()
     gaps: tuple[ScopeGap, ...] = ()
 
@@ -36,7 +45,7 @@ class ReviewScope:
         return bool(self.gaps)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "kind": self.kind,
             "feature": self.feature,
             "task_ids": list(self.task_ids),
@@ -49,6 +58,10 @@ class ReviewScope:
             "gaps": [{"code": gap.code, "detail": gap.detail, "affected": list(gap.affected)} for gap in self.gaps],
             "unresolved": self.unresolved,
         }
+        if self.work_item_key is not None:
+            result["work_item_key"] = self.work_item_key
+            result["work_item"] = self.work_item_key
+        return result
 
 
 @dataclass(frozen=True)
@@ -316,12 +329,14 @@ def resolve_scope(
     paths = tuple(dict.fromkeys(changed_paths))
     head_ref = getattr(pull_request, "head_ref_name", None) or None
     feature = sdd.resolution.feature
+    advisory_candidate = str(getattr(candidate, "candidate_id", "")) == "working-tree"
     gaps: list[ScopeGap] = []
     branch_task: str | None = None
     branch_feature: str | None = None
     branch_kind = "short-path"
     if head_ref:
-        branch_task_match = _TASK_BRANCH_RE.match(head_ref.strip().strip("/"))
+        branch_value = head_ref.strip().strip("/")
+        branch_task_match = _TASK_BRANCH_RE.fullmatch(branch_value)
         if branch_task_match:
             branch_task = f"T{branch_task_match.group('task')}"
             branch_feature = feature if feature and feature.startswith(branch_task_match.group("number")) else None
@@ -329,13 +344,38 @@ def resolve_scope(
         elif feature and _feature_branch_matches(head_ref, feature):
             branch_feature = feature
             branch_kind = "feature"
-        elif feature and not _ISSUE_BRANCH_RE.match(head_ref.strip().strip("/")):
-            gaps.append(ScopeGap("branch_unrecognized", f"head branch {head_ref!r} is not attributable to a feature or issue-key work item"))
+        elif _reserved_sdd_branch(branch_value):
+            # The complete ref remains an SDD ref even when its feature
+            # directory is unavailable; existing mismatch/unknown-task gaps
+            # stay visible instead of becoming a native work-item guess.
+            branch_kind = "task" if "-T" in branch_value else "feature"
+        elif sdd.resolution.work_item_key or sdd.resolution.source in {SOURCE_WORK_ITEM, SOURCE_BUG} or _issue_keys_from_branch(branch_value):
+            branch_kind = "work-item"
+            feature = None
+        else:
+            if not advisory_candidate:
+                gaps.append(ScopeGap("branch_unrecognized", f"head branch {head_ref!r} is not attributable to a feature or issue-key work item"))
+            if not advisory_candidate and sdd.resolution.source in {"feature.json", SOURCE_BRANCH}:
+                feature = None
     elif pull_request is not None:
         gaps.append(ScopeGap("head_branch_missing", "the pull-request snapshot did not include headRefName"))
 
+    if sdd.resolution.identity_conflict:
+        gaps.append(
+            ScopeGap(
+                "work_item_identity_conflict",
+                "canonical Work item evidence conflicts within the candidate; the review remains advisory",
+                sdd.resolution.work_item_candidates or sdd.resolution.candidates,
+            )
+        )
     if sdd.resolution.ambiguous:
-        gaps.append(ScopeGap("feature_ambiguous", "candidate evidence names multiple feature directories", sdd.resolution.candidates))
+        code = "work_item_identity_conflict" if sdd.resolution.identity_conflict else "feature_ambiguous"
+        detail = (
+            "candidate Work item evidence names conflicting Issues"
+            if sdd.resolution.identity_conflict
+            else "candidate evidence names multiple feature directories"
+        )
+        gaps.append(ScopeGap(code, detail, sdd.resolution.candidates or sdd.resolution.work_item_candidates))
     if branch_task and not branch_feature:
         gaps.append(ScopeGap("branch_feature_mismatch", f"head branch {head_ref!r} does not match resolved feature {feature or '(none)'!r}"))
     if branch_task and not any(entry.identifier == branch_task for entry in sdd.task_entries):
@@ -386,6 +426,7 @@ def resolve_scope(
         ("path_matches", {key: list(value) for key, value in path_matches.items() if value}),
         ("changed_task_blocks", sorted(block_changes)),
         ("resolution", sdd.resolution.as_dict()),
+        ("work_item", sdd.resolution.work_item_key),
     )
     return ReviewScope(
         kind=kind,
@@ -396,6 +437,7 @@ def resolve_scope(
         merge_base=str(candidate.merge_base),
         head_commit=str(candidate.head_commit),
         head_ref_name=head_ref,
+        work_item_key=sdd.resolution.work_item_key,
         evidence=evidence,
         gaps=tuple(gaps),
     )
@@ -404,7 +446,7 @@ def _feature_branch_matches(branch: str, feature: str) -> bool:
     value = branch.strip().strip("/")
     if value == feature:
         return True
-    match = _FEATURE_BRANCH_RE.match(value)
+    match = _FEATURE_BRANCH_RE.fullmatch(value)
     return bool(match and feature.startswith(value.split("-", 1)[0] + "-"))
 
 def _changed_task_blocks(head: Sequence[TaskEntry], base: Sequence[TaskEntry]) -> set[str]:
