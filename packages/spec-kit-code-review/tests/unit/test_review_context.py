@@ -6,7 +6,7 @@ from spec_kit_code_review.sdd_context import Artifact, FeatureResolution, SddCon
 def _candidate() -> SimpleNamespace:
     return SimpleNamespace(candidate_id="c" * 64, merge_base="b" * 40, head_commit="h" * 40)
 def _task(identifier: str, path: str, block: str | None = None) -> TaskEntry:
-    return TaskEntry(identifier, identifier, False, 10, "single", referenced_paths=(path,), block_text=block or identifier)
+    return TaskEntry(identifier, identifier, False, "single", referenced_paths=(path,), block_text=block or identifier)
 def _sdd(*entries: TaskEntry, feature: str | None = "007-review-context", source: str = "head-branch", ambiguous: bool = False) -> SddContext:
     resolution = FeatureResolution(
         feature=feature,
@@ -91,8 +91,8 @@ def test_deleted_task_block_keeps_feature_scope_and_gap() -> None:
     assert any(gap.code == "task_block_missing" for gap in scope.gaps)
 
 def test_selection_keeps_late_task_and_ledger_strategy_but_excludes_unrelated_blocks() -> None:
-    first = TaskEntry("T001", "old", False, 1, "single", referenced_paths=("src/old.py",), source_start=3, source_end=3, block_text="old block")
-    late = TaskEntry("T002", "late", False, 1, "single", referenced_paths=("src/new.py",), source_start=4, source_end=4, block_text="late block")
+    first = TaskEntry("T001", "old", False, "single", referenced_paths=("src/old.py",), source_start=3, source_end=3, block_text="old block")
+    late = TaskEntry("T002", "late", False, "single", referenced_paths=("src/new.py",), source_start=4, source_end=4, block_text="late block")
     tasks = Artifact("specs/007/tasks.md", "Delivery strategy\n\n" + first.block_text + "\n" + late.block_text + "\n", "x")
     sdd = SddContext(FeatureResolution(feature="007-review-context"), Artifact("constitution", None), Artifact("feature", None), tasks=tasks, task_entries=(first, late))
     scope = resolve_scope(_candidate(), pull_request=_pr("007-T002-work"), sdd=sdd, changed_paths=("src/new.py",), base_task_entries=(first, late))
@@ -102,8 +102,8 @@ def test_selection_keeps_late_task_and_ledger_strategy_but_excludes_unrelated_bl
     assert any(item.start == late.source_start for item in selection.selected)
 
 def test_selection_includes_direct_dependency_and_reports_cycles() -> None:
-    first = TaskEntry("T001", "one", False, 1, "single", dependencies=("T002",), source_start=2, source_end=2, block_text="one")
-    second = TaskEntry("T002", "two", True, 1, "single", dependencies=("T001",), source_start=3, source_end=3, block_text="two")
+    first = TaskEntry("T001", "one", False, "single", dependencies=("T002",), source_start=2, source_end=2, block_text="one")
+    second = TaskEntry("T002", "two", True, "single", dependencies=("T001",), source_start=3, source_end=3, block_text="two")
     tasks = Artifact("tasks.md", "header\none\ntwo\n", "x")
     sdd = SddContext(FeatureResolution(feature="007-review-context"), Artifact("constitution", None), Artifact("feature", None), tasks=tasks, task_entries=(first, second))
     scope = resolve_scope(_candidate(), pull_request=_pr("007-T001-work"), sdd=sdd, changed_paths=("src/new.py",), base_task_entries=(first, second))
@@ -112,7 +112,7 @@ def test_selection_includes_direct_dependency_and_reports_cycles() -> None:
     assert any(gap.code == "dependency_cycle" for gap in selection.gaps)
 
 def test_selection_reports_missing_requirement_reference() -> None:
-    entry = TaskEntry("T001", "one", False, 1, "single", referenced_paths=("src/new.py",), traces=("FR-999",), source_start=1, source_end=1, block_text="one")
+    entry = TaskEntry("T001", "one", False, "single", referenced_paths=("src/new.py",), traces=("FR-999",), source_start=1, source_end=1, block_text="one")
     spec = Artifact("spec.md", "# Spec\n\n## Requirements\n\n- FR-001: present\n", "x")
     sdd = SddContext(FeatureResolution(feature="007-review-context"), Artifact("constitution", None), Artifact("feature", None), spec=spec, task_entries=(entry,))
     scope = resolve_scope(_candidate(), pull_request=_pr("007-T001-work"), sdd=sdd, changed_paths=("src/new.py",))
@@ -120,7 +120,7 @@ def test_selection_reports_missing_requirement_reference() -> None:
     assert any(gap.code == "requirement_missing" for gap in selection.gaps)
 
 def test_feature_scope_reports_missing_contract_artifacts_before_selection() -> None:
-    entry = TaskEntry("T001", "one", False, 1, "single", referenced_paths=("src/new.py",), source_start=1, source_end=1, block_text="one")
+    entry = TaskEntry("T001", "one", False, "single", referenced_paths=("src/new.py",), source_start=1, source_end=1, block_text="one")
     plan = Artifact("plan.md", "# Plan\ncontract\n", "x")
     tasks = Artifact("tasks.md", "# Tasks\none\n", "x")
     sdd = SddContext(FeatureResolution(feature="007-review-context"), Artifact("constitution", None), Artifact("feature", None), plan=plan, tasks=tasks, task_entries=(entry,))
@@ -174,7 +174,7 @@ def test_selection_finds_task_after_sixty_thousand_bytes_of_unrelated_ledger() -
     assert any(item.start == 1 and item.end >= late.source_end for item in selection.selected)
 
 def test_selection_excludes_unrelated_explicit_requirement_but_keeps_unscoped_section() -> None:
-    entry = TaskEntry("T001", "one", False, 1, "single", referenced_paths=("src/a.py",), traces=("FR-001",), source_start=2, source_end=2, block_text="one")
+    entry = TaskEntry("T001", "one", False, "single", referenced_paths=("src/a.py",), traces=("FR-001",), source_start=2, source_end=2, block_text="one")
     spec = Artifact("spec.md", "# Spec\n## FR-001\nneeded\n## FR-999\nunrelated\n## Shared constraints\nkeep this and preserve FR-999 when applicable\n", "x")
     tasks = Artifact("tasks.md", "header\none\n", "x")
     sdd = SddContext(FeatureResolution(feature="007-review-context"), Artifact("constitution", None), Artifact("feature", None), spec=spec, tasks=tasks, task_entries=(entry,))
@@ -186,7 +186,7 @@ def test_selection_excludes_unrelated_explicit_requirement_but_keeps_unscoped_se
     assert any(item.start == 4 and item.end == 5 for item in selection.excluded)
 
 def test_shared_headings_and_preamble_retain_incidental_requirement_references() -> None:
-    entry = TaskEntry("T001", "one", False, 1, "single", referenced_paths=("src/a.py",), traces=("FR-001",), source_start=1, source_end=1, block_text="one")
+    entry = TaskEntry("T001", "one", False, "single", referenced_paths=("src/a.py",), traces=("FR-001",), source_start=1, source_end=1, block_text="one")
     spec = Artifact(
         "spec.md",
         "preamble policy FR-999\n## FR-001\nneeded\n## Shared constraints for FR-999\nkeep global policy\n## FR-999\nunrelated\n",
@@ -199,7 +199,7 @@ def test_shared_headings_and_preamble_retain_incidental_requirement_references()
     assert any(item.path == "spec.md" and item.start == 6 and item.end == 7 for item in selection.excluded)
 
 def test_selection_keeps_parent_intro_before_a_requirement_heading() -> None:
-    entry = TaskEntry("T001", "one", False, 1, "single", referenced_paths=("src/a.py",), traces=("FR-001",), source_start=1, source_end=1, block_text="one")
+    entry = TaskEntry("T001", "one", False, "single", referenced_paths=("src/a.py",), traces=("FR-001",), source_start=1, source_end=1, block_text="one")
     spec = Artifact("spec.md", "# Spec\nparent policy\n## FR-001\nneeded\n", "x")
     sdd = SddContext(FeatureResolution(feature="007-review-context"), Artifact("constitution", None), Artifact("feature", None), spec=spec, task_entries=(entry,))
     scope = resolve_scope(_candidate(), pull_request=_pr("007-T001-work"), sdd=sdd, changed_paths=("src/a.py",), base_task_entries=(entry,))
@@ -207,7 +207,7 @@ def test_selection_keeps_parent_intro_before_a_requirement_heading() -> None:
     assert any(item.path == "spec.md" and item.start == 1 and item.end >= 3 for item in selection.selected)
 
 def test_feature_scope_keeps_untraced_spec_contract_and_plan_has_no_requirement_gap() -> None:
-    entry = TaskEntry("T001", "one", False, 1, "single", traces=("FR-001",), source_start=1, source_end=1, block_text="one")
+    entry = TaskEntry("T001", "one", False, "single", traces=("FR-001",), source_start=1, source_end=1, block_text="one")
     spec = Artifact("spec.md", "# Spec\n## FR-001\nneeded\n## FR-999\nuntraced\n", "x")
     plan = Artifact("plan.md", "# Plan\n## Delivery\nno identifiers\n", "x")
     sdd = SddContext(FeatureResolution(feature="007-review-context"), Artifact("constitution", None), Artifact("feature", None), spec=spec, plan=plan, task_entries=(entry,), requirement_ids=("FR-001",))
@@ -217,7 +217,7 @@ def test_feature_scope_keeps_untraced_spec_contract_and_plan_has_no_requirement_
     assert not any(gap.code == "requirement_missing" and "plan.md" in gap.affected for gap in selection.gaps)
 
 def test_long_dependency_chain_is_checked_without_recursive_depth_failure() -> None:
-    entries = tuple(TaskEntry(f"T{i:04d}", "task", False, 1, "single", dependencies=(f"T{i + 1:04d}",) if i < 1100 else (), source_start=i + 1, source_end=i + 1, block_text="task") for i in range(1, 1101))
+    entries = tuple(TaskEntry(f"T{i:04d}", "task", False, "single", dependencies=(f"T{i + 1:04d}",) if i < 1100 else (), source_start=i + 1, source_end=i + 1, block_text="task") for i in range(1, 1101))
     sdd = SddContext(FeatureResolution(feature="007-review-context"), Artifact("constitution", None), Artifact("feature", None), tasks=Artifact("tasks.md", "\n".join("task" for _ in entries), "x"), task_entries=entries)
     scope = resolve_scope(_candidate(), pull_request=_pr("007-review-context"), sdd=sdd, changed_paths=(), base_task_entries=entries)
     selection = select_context(sdd, scope)
