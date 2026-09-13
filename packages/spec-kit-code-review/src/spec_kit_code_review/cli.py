@@ -93,7 +93,7 @@ from .publish import InlineComment, PublicationFailed, PublicationPlan
 from .publish import build_plan as build_publication_plan
 from .publish import execute as execute_publication
 from .publish import resolve_event
-from .reporting import render_human, review_document
+from .reporting import compact_close, compact_open, render_human, review_document
 from .verdict import CAUSE_CONTEXT, CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
 from .verdict import derive as derive_verdict
 from .sdd_context import CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
@@ -294,7 +294,7 @@ def _write_non_info_diagnostics(payload: Mapping[str, Any]) -> None:
         sys.stdout.write(f"{diagnostic['severity']}: {diagnostic['message']}{location}\n")
 
 
-def _render(payload: Mapping[str, Any], as_json: bool, quiet: bool) -> None:
+def _render(payload: Mapping[str, Any], as_json: bool, quiet: bool, *, verbose: bool = False) -> None:
     """Render a result. Redaction is unconditional, not a flag.
 
     ``redaction.py`` is the only path through which text reaches stdout, the
@@ -304,6 +304,9 @@ def _render(payload: Mapping[str, Any], as_json: bool, quiet: bool) -> None:
 
     rendered = redact_payload(dict(payload))
     if as_json:
+        if not verbose:
+            # The compact document; the human text is for the human render.
+            rendered.pop("human", None)
         _write_json(rendered)
         return
     if quiet:
@@ -673,7 +676,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
             severity="info",
         )
     )
-    return _success(
+    payload = _success(
         f"review packet ready at {session.path / PACKET_FILENAME}",
         diagnostics=diagnostics,
         candidate=candidate.as_dict(),
@@ -686,6 +689,12 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
         sdd=assembled["sdd"],
         packet=assembled["packet"].as_dict(),
     )
+    # The full document stays on disk; what reaches the orchestrator's context
+    # is the compact one unless it asked for everything.
+    write_json(session.path / RESULT_OPEN_FILENAME, payload)
+    if _verbose_requested(args) or not args.json:
+        return payload
+    return compact_open(payload, extension_version=__version__)
 
 
 def _reclaim_existing_session(context: CommandContext, directory: Path, diagnostics: list[Diagnostic]) -> None:
@@ -1770,7 +1779,10 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         payload["operations"] = published.get("operations", [])
         payload["diagnostics"] = [item.as_dict() for item in diagnostics]
         payload["message"] = published["message"]
-    return payload
+    write_json(session.path / RESULT_CLOSE_FILENAME, payload)
+    if _verbose_requested(args) or not args.json:
+        return payload
+    return compact_close(payload, extension_version=__version__)
 
 
 @dataclass(frozen=True)
@@ -1786,6 +1798,8 @@ class _PublicationCandidate:
 
 
 ENGINE_STATUS_COMPLETE: tuple[str, ...] = ("success", "completed_with_warnings")
+RESULT_OPEN_FILENAME = "result-open.json"
+RESULT_CLOSE_FILENAME = "result-close.json"
 
 
 def _inconclusive_causes(session: ReviewSession, inventory: Mapping[str, Any]) -> list[InconclusiveCause]:
@@ -2631,7 +2645,7 @@ def main(argv: list[str] | None = None) -> int:
                 code=EXIT_USAGE,
                 diagnostics=[Diagnostic("command", "supported commands are review and doctor")],
             )
-        _render(payload, args.json, args.quiet)
+        _render(payload, args.json, args.quiet, verbose=_verbose_requested(args))
         if _verbose_requested(args) and not args.json and not args.quiet:
             _render_verbose(payload)
         # A completed review can still exit non-zero -- changes-requested, an

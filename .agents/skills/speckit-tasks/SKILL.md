@@ -35,6 +35,8 @@ Fill the template's task blocks — organized by user story, in priority order f
 - **Dependency order wins over user-story priority when they conflict** — a task with no caller yet cannot be verified. Tasks form one chain in file order: `Depends on` documents that order and never chooses the base — delivery stacks the next task on the open, ready task PR, or starts from the feature branch when none is open.
 - **The resolved template rules the sections and files this ledger produces** — only the sections `TASKS_TEMPLATE_CONTENT` defines, at the density of the previous feature's own ledger.
 - **`single PR` means one PR for the task.** Stacking the next task's branch on this one's open PR is the loop's own topology, never a choice a task's `Delivery` line makes.
+- **Each task proves its own contract**: its `Evidence` line names the tests that demonstrate the behavior the task declares delivered, including the behavior-family rows it owns. A later task may integrate the component elsewhere; it never completes guarantees an earlier task claims.
+- **An acceptance dependency on a future task is a defect of the ledger**: when a task's evidence would need a later task, rewrite the boundary before committing the ledger.
 - **IDs are permanent once this command commits the ledger** (Completion, below). A task added later takes the next unused ID; existing tasks are never renumbered.
 
 ## Completion

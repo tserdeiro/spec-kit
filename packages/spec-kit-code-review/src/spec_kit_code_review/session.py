@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from . import runtime_identity
 from .paths import EXTENSION_DIRECTORY, state_root
 from .errors import EXIT_DRIFT, EXIT_ENVIRONMENT, EXIT_USAGE, AppError, Diagnostic
 from .evidence import FILE_MODE, EvidenceRoot, harden_directories
@@ -115,6 +116,7 @@ class ReviewSession:
             "opened_at": self.opened_at,
             "age_hours": round(age, 2) if age is not None else None,
             "worktree_path": (self.payload.get("environment") or {}).get("worktree_path"),
+            "runtime": self.payload.get("runtime"),
         }
 
     # -- mutation -------------------------------------------------------
@@ -221,6 +223,7 @@ def open_session(
         "working_root": environment.get("working_root"),
         "environment": dict(environment),
         "config_sha256": config_sha256,
+        "runtime": runtime_identity(),
         "packet_sha256": None,
         "verdict": None,
         "findings_attempt_id": secrets.token_urlsafe(18),

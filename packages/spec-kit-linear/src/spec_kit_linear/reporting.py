@@ -267,9 +267,8 @@ def render_status_table(task_rows: list[dict[str, object]], remote_only_rows: li
 def _projected_label(projected: object, reason: object) -> str:
     """The state the next push writes; the fallback reason rides along."""
 
-    if not isinstance(projected, str):
-        return "—"
-    return f"{projected} ({reason})" if isinstance(reason, str) else projected
+    label = projected if isinstance(projected, str) else "—"
+    return f"{label} ({reason})" if isinstance(reason, str) else label
 
 
 def _source_label(source: object) -> str:

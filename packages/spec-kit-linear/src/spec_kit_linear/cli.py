@@ -408,10 +408,15 @@ def run_doctor(args: argparse.Namespace) -> dict[str, Any]:
     else:
         diagnostics.append(Diagnostic("lifecycle", "lifecycle sync is enabled", severity="info"))
         if not config["lifecycle"].get("review_state_id"):
+            fallback = (
+                "projected onto started_state_id"
+                if config["lifecycle"].get("started_state_id")
+                else "left at their current state"
+            )
             diagnostics.append(
                 Diagnostic(
                     "review_state_missing",
-                    "lifecycle.review_state_id is not configured; ready-for-review tasks are projected onto started_state_id. "
+                    f"lifecycle.review_state_id is not configured; ready-for-review tasks are {fallback}. "
                     "Run `onboard` to resolve it, or set it from the Team's workflow states",
                     severity="warning",
                 )

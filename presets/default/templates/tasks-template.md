@@ -48,7 +48,7 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
   - **Boundaries**: [files or system surfaces changed and protected]
   - **Evidence**: `[command]` -> [expected result or required review; the tests that prove this task's own contract]
   - **Delivery**: single PR | stacked PR [N] on [T###'s PR]
-  - **Completion evidence**: [filled in the task PR's final commit, before ready for review; the merge lands it on the feature branch]
+  - **Completion evidence**: [filled with the final commit, before the review opens; the merge lands it on the feature branch]
 ```
 
 ## Phase 1: Setup

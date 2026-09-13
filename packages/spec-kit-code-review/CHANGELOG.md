@@ -31,6 +31,18 @@
   of parsing its Markdown rendering; the Markdown parser is gone. Every
   selected path goes into one `delegate rule` call, so `engine.rule_batch_size`
   is gone from the config template, its defaults, and the README.
+- The session, `result-open.json`/`result-close.json` and the compact
+  documents name the runtime (`runtime.extension_version`, and the
+  extension root in `session.json`). `doctor` warns `runtime_source_drift`
+  when the running extension differs from the source tree in
+  `packages/spec-kit-code-review/`; `--fix` never touches installed copies.
+- `review --json` prints a compact operational document; the full one is
+  written to the session directory (`result-open.json`,
+  `result-close.json`) and printed by `--json --verbose`. The close carries
+  `delivery` — `proceed` only for a complete review with no `blocking` and no
+  `major` finding, else `hold` with the pending identifiers — and the human
+  render a `DELIVERY:` line. Verdicts, exit codes and publication are
+  unchanged.
 - The review packet emits each source once: the engine's `delegate preview`
   and `delegate rule` outputs are no longer quoted verbatim — §2.1 and §3.2
   point at `raw/*.stdout` with its sha256 and byte count — and §3.2 is a rule
@@ -41,6 +53,14 @@
   skills, templates) and test fixtures, so the engine's `unsupported_ext` and
   `default_path` gates no longer drop them from scope; a new `**/*.md` rule
   reviews Markdown as the executable procedure it is.
+- `code-review.md` states how a corrected candidate is reviewed as a
+  follow-up: new session and findings per head, digests reused only for
+  unchanged bytes, the delta and the previous findings as the checklist.
+- The packet's §3.2 rule-catalog pointer says `(not emitted)` instead of a
+  digest for an empty string when the scope is empty and
+  `raw/ocr-delegate-rule.stdout` was never written.
+- `doctor`'s source-drift check degrades to `unknown` instead of raising when
+  the source `extension.yml` exists but cannot be read.
 
 ## 0.5.0
 

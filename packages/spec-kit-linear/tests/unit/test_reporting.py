@@ -127,6 +127,17 @@ class BuildTaskRowsTests(unittest.TestCase):
         self.assertEqual((by_task["T001"]["derived_state"], by_task["T001"]["projected_state"], by_task["T001"]["projection_reason"]), (STATE_REVIEW, STATE_STARTED, "review_state_id not configured"))
         self.assertEqual((by_task["T002"]["derived_state"], by_task["T002"]["projected_state"], by_task["T002"]["projection_reason"]), (STATE_COMPLETED, STATE_COMPLETED, None))
 
+    def test_no_lifecycle_section_names_sync_as_disabled_in_json_and_text(self) -> None:
+        desired = _desired_state(_task("T001", completed=False))
+        work_states = {"task:001:T001": TaskWorkState(STATE_REVIEW, SOURCE_PULL_REQUEST, "001-T001-parser", 7)}
+
+        rows = build_task_rows(_FakeDiscovery(features=()), (desired,), work_states, lifecycle=None)
+
+        task = rows[0]["tasks"][0]
+        self.assertEqual((task["projected_state"], task["projection_reason"]), (None, "lifecycle sync disabled"))
+        rendered = render_status_table(rows)
+        self.assertIn("— (lifecycle sync disabled)", rendered)
+
     def test_adopted_task_carries_remote_identifier_state_and_assignee(self) -> None:
         desired = _desired_state(_task("T001", completed=True))
         adoption = FeatureAdoption(
