@@ -64,13 +64,13 @@ relative order and rejection effect, with one Spec Kit invocation per commit.
 
 ## Final phase: Cross-cutting verification
 
-- [ ] T005 Document the native repair and preserve doctor visibility in presets/default/commands/doctor.md
+- [x] T005 Document the native repair and preserve doctor visibility in presets/default/commands/doctor.md
   - **Traces**: FR-001, FR-002, FR-009, FR-010, C-001, C-002, C-003, SC-003, SC-004; outcome: consumers can diagnose, enable, retry, and remove validation with truthful version, scope, and bypass expectations.
   - **Depends on**: T004
   - **Boundaries**: Update `packages/spec-kit-code-review/commands/doctor.md`, its `README.md`, the root Spanish `README.md`, and `presets/default/commands/doctor.md`. Replace claims that the extension installs no hooks or only installs OCR. Make the aggregate doctor's current prose retain native-hook errors instead of dropping them from its fixed category list; pass through the extension's exact remedy and `--fix`. Describe Git 2.54+, local/shared/worktree scope, payload requirements, preserved managers, installed/disabled/unverifiable states, rollback from D4, native bypasses and subsequent message rewriting. Keep the aggregator as the existing agent command. Record actual conformance and regression results in this task's completion evidence.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests -q` -> full package passes; `uv run --frozen --offline --project presets/default pytest presets/default/tests -q` -> preset regressions pass; installed conformance from T004 passes; review generated doctor guidance for preserved exact native-hook diagnostics; `git diff --check` -> clean. Report generated guidance separately from live agent execution.
   - **Delivery**: single PR (~190 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #163; full package: 1007 passed, 635 subtests passed with native Git 2.54/2.55; preset: 71 passed; installed native/synthetic conformance passed in T004; final installed guidance readback matched source (preset SHA256 `002c7bef06cb0f3871c21bf1a2a6b4e0f43bfb35b322596cf25911d7a70f72b8`), not live agent execution; `git diff --check` clean; fresh independent review of `e448eeb` returned `no-blocking-findings`; executable budget 0/380.
 
 ## Dependencies and stack order
 
