@@ -47,6 +47,50 @@ class RuleRead:
     rules: tuple[ActiveRule, ...] = ()
     cause: str = ""
     evidence: str = ""
+    classic: "ClassicProtection | None" = None
+    details: tuple["RulesetDetail", ...] = ()
+    details_complete: bool = True
+    details_cause: str = ""
+    details_evidence: str = ""
+
+
+@dataclass(frozen=True)
+class ClassicProtection:
+    """The fields needed to assess classic force-push protection."""
+
+    complete: bool
+    protected: bool | None
+    allow_force_pushes: bool | None = None
+    enforce_admins: bool | None = None
+    allow_deletions: bool | None = None
+    lock_branch: bool | None = None
+    cause: str = ""
+    evidence: str = ""
+
+
+@dataclass(frozen=True)
+class BypassActor:
+    actor_type: str
+    bypass_mode: str
+    actor_id: int | None = None
+
+
+@dataclass(frozen=True)
+class RulesetDetail:
+    """A validated ruleset detail; omitted bypass actors remain unknown."""
+
+    ruleset_id: int
+    source_type: str
+    source: str
+    enforcement: str
+    bypass_actors: tuple[BypassActor, ...] | None = None
+
+    @property
+    def identity(self) -> tuple[str, str, int]:
+        return self.source_type, self.source, self.ruleset_id
+
+    def label(self) -> str:
+        return f"{self.source_type} {self.source} ruleset {self.ruleset_id}"
 
 
 def branch_role(name: str, trunk: str) -> str | None:
@@ -129,8 +173,79 @@ def parse_active_rules(payload: Any) -> tuple[ActiveRule, ...] | None:
     return tuple(parsed)
 
 
+def parse_classic_protection(payload: Any) -> ClassicProtection | None:
+    """Validate a successful classic protection response."""
+    if not isinstance(payload, dict):
+        return None
+    values: dict[str, bool] = {}
+    for name in ("allow_force_pushes", "enforce_admins"):
+        value = payload.get(name)
+        if not isinstance(value, dict) or type(value.get("enabled")) is not bool:
+            return None
+        values[name] = value["enabled"]
+    optional: dict[str, bool | None] = {}
+    for name in ("allow_deletions", "lock_branch"):
+        value = payload.get(name)
+        if value is None:
+            optional[name] = None
+        elif isinstance(value, dict) and type(value.get("enabled")) is bool:
+            optional[name] = value["enabled"]
+        else:
+            return None
+    return ClassicProtection(
+        True,
+        True,
+        values["allow_force_pushes"],
+        values["enforce_admins"],
+        optional["allow_deletions"],
+        optional["lock_branch"],
+    )
+
+
+def parse_ruleset_detail(payload: Any) -> RulesetDetail | None:
+    """Validate the detail fields used for source and bypass evidence."""
+    if not isinstance(payload, dict):
+        return None
+    ruleset_id = payload.get("id")
+    source_type = payload.get("source_type")
+    source = payload.get("source")
+    enforcement = payload.get("enforcement")
+    if (
+        type(ruleset_id) is not int
+        or not isinstance(source_type, str)
+        or not source_type
+        or not isinstance(source, str)
+        or not source
+        or not isinstance(enforcement, str)
+        or not enforcement
+    ):
+        return None
+    actors = payload.get("bypass_actors")
+    if actors is None and "bypass_actors" in payload:
+        return None
+    if actors is not None:
+        if not isinstance(actors, list):
+            return None
+        parsed: list[BypassActor] = []
+        for actor in actors:
+            if not isinstance(actor, dict):
+                return None
+            actor_type = actor.get("actor_type")
+            bypass_mode = actor.get("bypass_mode")
+            if not isinstance(actor_type, str) or not actor_type or not isinstance(bypass_mode, str) or not bypass_mode:
+                return None
+            actor_id = actor.get("actor_id")
+            if actor_id is not None and type(actor_id) is not int:
+                return None
+            parsed.append(BypassActor(actor_type, bypass_mode, actor_id))
+        actors_value: tuple[BypassActor, ...] | None = tuple(parsed)
+    else:
+        actors_value = None
+    return RulesetDetail(ruleset_id, source_type, source, enforcement, actors_value)
+
+
 def evaluate_force_push(branch: str, read: RuleRead) -> Result:
-    """Evaluate only active non-fast-forward evidence; classic protection is T003."""
+    """Combine effective rules, classic protection, and bypass visibility."""
     if not read.complete:
         return Result(
             UNVERIFIED,
@@ -138,20 +253,73 @@ def evaluate_force_push(branch: str, read: RuleRead) -> Result:
             read.evidence or "effective branch rules were not completely observed",
             "Retry the GitHub rules read after confirming access to repository metadata",
         )
-    sources = tuple(rule.label() for rule in read.rules if rule.type == "non_fast_forward")
-    if sources:
-        evidence = "active non_fast_forward from " + ", ".join(sources)
+    active = tuple(rule for rule in read.rules if rule.type == "non_fast_forward")
+    details = {detail.identity: detail for detail in read.details}
+    protected: list[str] = []
+    unknown: list[str] = []
+    exceptions: list[str] = []
+    uncertain_cause = ""
+    for rule in active:
+        detail = details.get(rule.identity)
+        if detail is None:
+            unknown.append(f"{rule.label()} bypass detail missing")
+            uncertain_cause = uncertain_cause or read.details_cause or "bypass-coverage-unobserved"
+            continue
+        if detail.enforcement == "active":
+            protected.append(rule.label())
+            if detail.bypass_actors is None:
+                unknown.append(f"{detail.label()} bypass_actors omitted")
+                uncertain_cause = uncertain_cause or "bypass-coverage-unobserved"
+            else:
+                for actor in detail.bypass_actors:
+                    actor_name = actor.actor_type + (f" #{actor.actor_id}" if actor.actor_id is not None else "")
+                    mode = actor.bypass_mode
+                    if mode == "pull_request":
+                        exceptions.append(f"{detail.label()} {actor_name} pull_request bypass (no direct force-push)")
+                    elif mode in {"always", "exempt"}:
+                        exceptions.append(f"{detail.label()} {actor_name} {mode} bypass")
+                    else:
+                        unknown.append(f"{detail.label()} unsupported bypass mode {mode}")
+                        uncertain_cause = uncertain_cause or "unsupported-bypass-mode"
+        else:
+            unknown.append(f"{detail.label()} enforcement changed to {detail.enforcement}")
+            uncertain_cause = uncertain_cause or "ruleset-detail-mismatch"
+
+    classic = read.classic
+    classic_unknown = classic is None or not classic.complete
+    if classic_unknown:
+        unknown.append((classic.evidence if classic else "classic protection was not read") or "classic protection was not read")
+        uncertain_cause = uncertain_cause or (classic.cause if classic else "classic-protection-unobserved")
+    elif classic.protected and classic.allow_force_pushes is False:
+        protected.append("classic protection allow_force_pushes.enabled=false")
+        if classic.enforce_admins is False:
+            exceptions.append("classic protection does not enforce administrators")
+    elif classic.protected and classic.allow_force_pushes is True:
+        exceptions.append("classic protection allow_force_pushes.enabled=true")
+
+    evidence = []
+    if protected:
+        evidence.append("force-push blocked by " + ", ".join(protected))
+    if classic is not None and classic.complete and not classic.protected:
+        evidence.append("classic protection absent (GitHub reported Branch not protected)")
+    if exceptions:
+        evidence.append("exceptions: " + "; ".join(exceptions))
+    if unknown:
+        evidence.extend(unknown)
+        cause = uncertain_cause or ("classic-protection-unobserved" if classic_unknown else "read-failure")
         return Result(
             UNVERIFIED,
-            "bypass-coverage-unobserved",
-            evidence + "; classic protection and bypass exceptions remain unverified until the next diagnosis stage",
-            "Inspect classic branch protection and bypass exceptions, then rerun the doctor",
+            cause,
+            "; ".join(evidence) or "force-push protection evidence is incomplete",
+            "Retry the GitHub protection and ruleset detail reads after confirming access",
         )
+    if protected:
+        return Result(COMPATIBLE, "", "; ".join(evidence), "")
     return Result(
-        UNVERIFIED,
-        "classic-protection-unobserved",
-        "no active non_fast_forward rule was returned; classic protection is not observed yet",
-        "Inspect classic branch protection and rerun the doctor",
+        INCOMPATIBLE,
+        "missing-configuration",
+        "; ".join(evidence) or "no enforced force-push protection was observed",
+        f"Protect shared branch {branch} from force pushes with an active non_fast_forward ruleset or classic branch protection",
     )
 
 

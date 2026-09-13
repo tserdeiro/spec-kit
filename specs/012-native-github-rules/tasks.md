@@ -38,13 +38,13 @@
   - **Delivery**: single PR (~370 authored lines)
   - **Completion evidence**: PR #153; 13 focused and 84 preset tests passed; budget 397/400; diff check clean. Trunk stderr leakage fixed and covered by a regression test. Independent native review of 6c9e400 returned no-blocking-findings. Current-head review and CI gate readiness.
 
-- [ ] T003 [US1] Combine classic protection and bypass visibility in presets/default/scripts/python/github_delivery_rules.py
+- [x] T003 [US1] Combine classic protection and bypass visibility in presets/default/scripts/python/github_delivery_rules.py
   - **Traces**: FR-003, FR-004, FR-006, FR-008, FR-009, C-002, SC-001, SC-002; outcome: force-push protection reflects all observed layers and names exceptions without relying on privilege.
   - **Depends on**: T002
   - **Boundaries**: Extend both helpers and their focused tests. Read classic protection and each relevant ruleset detail once per run, including parent scope. Implement plan D2/D3's distinction between documented absence of classic protection and ambiguous 404; combine enforced restrictions, `enforce_admins`, visible bypass modes, and hidden fields. An omitted `bypass_actors` is unknown; a visible empty list is known. Broader bypass is an explicit exception, and PR-only bypass does not allow direct force-push/deletion. Preserve review/check policy.
   - **Evidence**: `uv run --frozen --offline pytest presets/default/tests/test_github_delivery.py presets/default/tests/test_github_delivery_rules.py -q` -> classic-only protection, overlapping layers, admin exceptions, inherited detail, PR/always/exempt bypass, absent versus empty fields, and inaccessible protection retain correct force-push results and read-only argv. `git diff --check` -> clean.
   - **Delivery**: single PR (~340 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #155; 25 focused and 96 preset tests passed; budget 389/400; diff check clean. Independent native review of eba6fa4 returned no-blocking-findings. Current-head review and CI gate readiness.
 
 - [ ] T004 [US1] Expose merge and cleanup conflicts in presets/default/scripts/python/github_delivery_rules.py
   - **Traces**: FR-002, FR-003, FR-005, FR-007, FR-008, FR-009, C-002, SC-001, SC-003; outcome: repository booleans cannot hide a rule that blocks stack integration or branch cleanup.
