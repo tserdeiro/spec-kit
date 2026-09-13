@@ -75,20 +75,25 @@ def reject(message):
     sys.stderr.write("fake gh: " + message + "\\n")
     raise SystemExit(13)
 
-if argv and argv[0] == "api" and argv[1:3] != ["--method", "GET"]:
-    reject("write API calls are forbidden")
+if argv and argv[0] == "api":
+    expected_host = os.environ.get("GH_DELIVERY_HOST", "github.com")
+    expected_repo = os.environ.get("GH_DELIVERY_REPO", "acme/demo")
+    if argv[1:3] != ["--hostname", expected_host] or argv[3:5] != ["--method", "GET"]:
+        reject("REST calls must use the resolved host and GET")
+    if not argv[-1].startswith("repos/" + expected_repo + "/"):
+        reject("REST calls must use the resolved repository")
 if argv[:2] in (["repo", "edit"], ["pr", "merge"]) or argv[:1] in (["push"], ["merge"]):
     reject("write commands are forbidden")
 
 case = os.environ.get("GH_DELIVERY_CASE", "compatible")
-if argv == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
-    sys.stdout.write("main\\n")
-elif argv == ["repo", "view", "--json", "deleteBranchOnMerge,mergeCommitAllowed"]:
+if argv == ["repo", "view", "--json", "nameWithOwner,url,defaultBranchRef,deleteBranchOnMerge,mergeCommitAllowed"]:
     if case == "failed-read":
         sys.stderr.write("transport failure while reading repository settings\\n")
         raise SystemExit(1)
-    sys.stdout.write(json.dumps({"deleteBranchOnMerge": True, "mergeCommitAllowed": True}))
-elif argv and argv[-1] == "repos/{owner}/{repo}/branches?per_page=100":
+    host = os.environ.get("GH_DELIVERY_HOST", "github.com")
+    repository = os.environ.get("GH_DELIVERY_REPO", "acme/demo")
+    sys.stdout.write(json.dumps({"nameWithOwner": repository, "url": f"https://{host}/{repository}", "defaultBranchRef": {"name": "main"}, "deleteBranchOnMerge": True, "mergeCommitAllowed": True}))
+elif argv and argv[-1] == "repos/" + os.environ.get("GH_DELIVERY_REPO", "acme/demo") + "/branches?per_page=100":
     sys.stdout.write(json.dumps([[{"name": "main"}, {"name": "001-feature"}, {"name": "001-T001-task"}]]))
 elif argv and "/rules/branches/" in argv[-1]:
     if case == "permission-denied":
