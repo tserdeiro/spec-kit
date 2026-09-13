@@ -1,7 +1,7 @@
 # Tasks: Verify native GitHub delivery guarantees
 
 **Inputs**: [spec.md](spec.md), [plan.md](plan.md)
-**Next work**: T001 after technical approval and individual task assignment.
+**Next work**: Human final review of T001–T006 and the accumulated feature; merges remain pending.
 
 ## Delivery strategy
 
@@ -69,13 +69,13 @@
 
 ## Final phase: Cross-cutting verification
 
-- [ ] T006 Prove installed-consumer behavior in presets/default/tests/test_github_delivery_install.py
+- [x] T006 Prove installed-consumer behavior in presets/default/tests/test_github_delivery_install.py
   - **Traces**: FR-001, FR-008, FR-009, C-001, C-003, C-004, SC-001, SC-002, SC-003, SC-004; outcome: a consumer executes the packaged diagnosis independently of the source checkout, with accurately labelled synthetic evidence.
   - **Depends on**: T005
   - **Boundaries**: Add the installed test and only necessary shared fixture support in `presets/default/tests/conftest.py`; update `presets/default/README.md` with observed scope, outcomes, and native remediations. Use native preset installation into a temporary consumer and execute its installed helper with source paths absent from imports. Exercise compatible, cleanup-blocked, permission-denied, and failed-read cases; check manifest/script availability and the generated doctor's report-only GitHub caller, including `--fix` guidance. Run the existing bundle suite without adding a separate conformance runner. Preserve release pins, upstream renders, and live acceptance boundaries.
   - **Evidence**: `uv run --frozen --offline pytest presets/default/tests/test_github_delivery_install.py -q` -> installed synthetic matrix and generated caller pass; `uv run --frozen --offline pytest presets/default/tests -q` -> preset regressions pass; `bash scripts/conformance/bundles.sh` -> existing distribution lifecycle passes; `git diff --check` -> clean. Record generated-asset checks, installed synthetic execution, and pending entry-23 live acceptance separately.
   - **Delivery**: single PR (~260 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #164; 4 installed synthetic scenarios and 130 preset tests passed; budget 199/400; diff check clean. Native bundle conformance passed. Generated doctor/manifest assertions and installed helper execution are synthetic evidence; entry-23 live acceptance remains pending. Independent native review of bf4d83f returned no-blocking-findings. Current-head review and CI gate readiness.
 
 ## Dependencies and stack order
 

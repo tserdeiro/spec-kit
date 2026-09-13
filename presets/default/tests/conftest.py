@@ -63,6 +63,51 @@ else:
     sys.exit(1)
 '''
 
+_DELIVERY_FAKE_GH = '''#!/usr/bin/env python3
+import json, os, sys
+from urllib.parse import unquote
+
+argv = sys.argv[1:]
+with open(os.environ["GH_CALLS_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps(argv) + "\\n")
+
+def reject(message):
+    sys.stderr.write("fake gh: " + message + "\\n")
+    raise SystemExit(13)
+
+if argv and argv[0] == "api" and argv[1:3] != ["--method", "GET"]:
+    reject("write API calls are forbidden")
+if argv[:2] in (["repo", "edit"], ["pr", "merge"]) or argv[:1] in (["push"], ["merge"]):
+    reject("write commands are forbidden")
+
+case = os.environ.get("GH_DELIVERY_CASE", "compatible")
+if argv == ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"]:
+    sys.stdout.write("main\\n")
+elif argv == ["repo", "view", "--json", "deleteBranchOnMerge,mergeCommitAllowed"]:
+    if case == "failed-read":
+        sys.stderr.write("transport failure while reading repository settings\\n")
+        raise SystemExit(1)
+    sys.stdout.write(json.dumps({"deleteBranchOnMerge": True, "mergeCommitAllowed": True}))
+elif argv and argv[-1] == "repos/{owner}/{repo}/branches?per_page=100":
+    sys.stdout.write(json.dumps([[{"name": "main"}, {"name": "001-feature"}, {"name": "001-T001-task"}]]))
+elif argv and "/rules/branches/" in argv[-1]:
+    if case == "permission-denied":
+        sys.stdout.write(json.dumps({"message": "resource not accessible due to insufficient permissions"}))
+        sys.stderr.write("HTTP 403: Resource not accessible; permissions required\\n")
+        raise SystemExit(1)
+    sys.stdout.write("[[]]")
+elif argv and "/protection" in argv[-1]:
+    branch = unquote(argv[-1].split("/branches/", 1)[1].rsplit("/protection", 1)[0])
+    allow_deletions = case != "cleanup-blocked" or branch == "main"
+    sys.stdout.write(json.dumps({
+        "allow_force_pushes": {"enabled": False}, "enforce_admins": {"enabled": True},
+        "allow_deletions": {"enabled": allow_deletions}, "lock_branch": {"enabled": False},
+        "required_linear_history": {"enabled": False},
+    }))
+else:
+    reject("unexpected read argv")
+'''
+
 _CHECK_PREREQUISITES = """#!/bin/sh
 printf 'BRANCH: 003-feature\\n'
 printf 'FEATURE_DIR: specs/003-feature\\n'
@@ -76,6 +121,17 @@ def install_fake_linear(repo: Path) -> Path:
     run_sh.write_text(f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{calls}"\n', encoding="utf-8")
     run_sh.chmod(0o755)
     return calls
+
+def install_fake_delivery_gh(root: Path) -> tuple[Path, Path]:
+    """Install a read-only fake GitHub CLI for installed-helper tests."""
+    bin_dir = root / "bin"
+    bin_dir.mkdir(parents=True)
+    gh = bin_dir / "gh"
+    gh.write_text(_DELIVERY_FAKE_GH, encoding="utf-8")
+    gh.chmod(0o755)
+    calls = root / "gh-calls.jsonl"
+    calls.write_text("", encoding="utf-8")
+    return bin_dir, calls
 
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
