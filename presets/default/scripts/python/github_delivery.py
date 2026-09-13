@@ -325,8 +325,10 @@ def _api_object_read(repo_root: Path, identity: RepositoryIdentity, endpoint: st
 
 
 def _graphql_errors(payload: object) -> str:
-    if not isinstance(payload, dict) or not isinstance(payload.get("errors"), list):
+    if not isinstance(payload, dict) or "errors" not in payload:
         return ""
+    if not isinstance(payload["errors"], list):
+        return "GraphQL errors member was malformed"
     messages = [
         item["message"] for item in payload["errors"]
         if isinstance(item, dict) and isinstance(item.get("message"), str)
@@ -355,8 +357,9 @@ def _read_classic_merge_queue(repo_root: Path, branch: str, identity: Repository
     data = payload.get("data")
     repository = data.get("repository") if isinstance(data, dict) else None
     errors = _graphql_errors(payload)
+    malformed_errors = "errors" in payload and not isinstance(payload["errors"], list)
     if not isinstance(repository, dict):
-        cause = _failure_cause(result) if result.returncode else ("partial-read" if errors else "hidden-fields")
+        cause = _failure_cause(result) if result.returncode else ("malformed-response" if malformed_errors else "partial-read" if errors else "hidden-fields")
         return ClassicMergeQueue(False, None, cause=cause, evidence=errors or "GraphQL repository data was not observed")
     queue = parse_classic_merge_queue(repository)
     if queue is None:
@@ -370,7 +373,7 @@ def _read_classic_merge_queue(repo_root: Path, branch: str, identity: Repository
         cause = "hidden-fields" if not has_queue or missing_config else "malformed-response"
         return ClassicMergeQueue(False, None, cause=cause, evidence="GraphQL merge queue data had missing or invalid fields")
     if errors or result.returncode:
-        cause = _failure_cause(result) if result.returncode else "partial-read"
+        cause = _failure_cause(result) if result.returncode else ("malformed-response" if malformed_errors else "partial-read")
         if cause == "read-failure":
             cause = "partial-read"
         return ClassicMergeQueue(False, queue.enabled, queue.merge_method, cause, errors or _remote_error(result))

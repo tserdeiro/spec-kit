@@ -415,6 +415,23 @@ def test_classic_merge_queue_omitted_or_malformed_stays_unverified(tmp_path, mon
     assert result.state == rules.UNVERIFIED and result.cause == cause
 
 
+def test_classic_merge_queue_malformed_errors_cannot_certify_null_queue(tmp_path, monkeypatch) -> None:
+    response = SimpleNamespace(
+        returncode=0,
+        stdout=json.dumps({"data": {"repository": {"mergeQueue": None}}, "errors": {}}),
+        stderr="",
+    )
+    monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: response)
+    queue = github_delivery._read_classic_merge_queue(tmp_path, "main", IDENTITY)
+    assert not queue.complete and queue.enabled is False and queue.cause == "malformed-response"
+    result = rules.evaluate_merge(
+        "main",
+        rules.RuleRead(True, classic=_complete_classic(required_linear_history=False, lock_branch=False), merge_queue=queue),
+        _setting("mergeCommitAllowed"),
+    )
+    assert result.state == rules.UNVERIFIED and result.cause == "malformed-response"
+
+
 def test_classic_merge_queue_partial_data_keeps_confirmed_conflict_and_graphql_errors(tmp_path, monkeypatch) -> None:
     response = SimpleNamespace(
         returncode=1,
