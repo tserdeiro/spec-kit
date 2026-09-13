@@ -138,7 +138,12 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     assert "push_target" in pr
     assert "GitHub target URL is empty" in pr
     assert "origin push URL targets another repository" in pr
-    assert "current branch does not match selected feature" in pr
+    assert "selected_feature" in pr
+    assert 'expected_segment="${expected_head##*/}"' in pr
+    assert "current branch segment does not match selected feature" in pr
+    assert "jdoe/web/008-guided-tour" in pr
+    assert "jdoe/web/009-guided-tour" in pr
+    assert "final path segment" in pr
     assert 'expected_base="$base"' in pr
     assert "GitHub repository identity is empty" in pr
     assert "confirmed remote OID" in pr

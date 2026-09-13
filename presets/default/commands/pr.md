@@ -13,10 +13,12 @@ is absent.
 ## 1. Resolve what is being delivered
 
 - If the user named a task (`T###`) or an issue key (`WOR-123`-style), use it.
-- Otherwise derive it from the current branch: `NNN-T###-*` is a feature task;
-  `<team>-<n>-*` is a work item; the feature branch itself (`NNN-slug`) with
-  its selected feature is the **feature PR**, whether its artifacts are local
-  drafts or already published.
+- Otherwise derive it from the final path segment of the current branch:
+  `NNN-T###-*` is a feature task; `<team>-<n>-*` is a work item; the feature
+  branch itself (`NNN-slug`) with its selected feature is the **feature PR**,
+  whether its artifacts are local drafts or already published. A configured
+  namespace remains in the full branch name and does not change this final
+  segment classification.
 - Otherwise take the first unchecked task in the active feature's `tasks.md`
   (the active feature comes from `.specify/feature.json`) and report it.
 - A named task is also `pr_create.py`'s second argument; without one, that
@@ -87,9 +89,10 @@ adopting any existing PR gate, then capture all of this state:
 ```bash
 paths="$(bash .specify/scripts/bash/check-prerequisites.sh --paths-only)"
 feature_dir="$(printf '%s\n' "$paths" | sed -n 's/^FEATURE_DIR: //p')"
-expected_head="$(basename "$feature_dir")"
-current_head="$(git branch --show-current)"
-test "$current_head" = "$expected_head" || { echo "gate-consistency: current branch does not match selected feature" >&2; exit 1; }
+selected_feature="$(basename "$feature_dir")"
+expected_head="$(git branch --show-current)"
+expected_segment="${expected_head##*/}"
+test "$expected_segment" = "$selected_feature" || { echo "gate-consistency: current branch segment does not match selected feature" >&2; exit 1; }
 pr_python="python3"
 test -x .venv/bin/python && pr_python=".venv/bin/python"
 base_line="$(GH_REPO="$origin_url" "$pr_python" .specify/presets/default/scripts/python/pr_create.py feature)"
@@ -100,13 +103,14 @@ esac
 expected_base="$base"
 ```
 
-Derive `expected_head` from the selected feature directory basename in the
-paths output, and compare it with `git branch --show-current`; a mismatch is a
-gate-consistency failure and stops before any mutation. Record `base=<name>` as
-`expected_base`. The `gh pr view` query below is against `expected_repo`, the
-target repository for the delivery. Its `headRepository.nameWithOwner` must
-also equal `expected_repo`; a cross-repo head is never silently adopted as this
-delivery's gate.
+Keep the complete `git branch --show-current` value as `expected_head` for Git
+and PR operations, and compare only its final path segment with the selected
+feature directory basename. Thus `jdoe/web/008-guided-tour` matches
+`specs/008-guided-tour`, while `jdoe/web/009-guided-tour` is a
+gate-consistency failure. Record `base=<name>` as `expected_base`. The `gh pr
+view` query below is against `expected_repo`, the target repository for the
+delivery. Its `headRepository.nameWithOwner` must also equal `expected_repo`; a
+cross-repo head is never silently adopted as this delivery's gate.
 
 ```bash
 git status --short
