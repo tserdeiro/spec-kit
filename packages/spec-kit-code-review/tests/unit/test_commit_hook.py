@@ -395,6 +395,63 @@ class NativeHookTests(unittest.TestCase):
         self.assertEqual(config.read_bytes(), original + marker)
         self.assertNotIn(HOOK_COMMAND.encode(), config.read_bytes())
 
+    def test_parent_change_after_diagnosis_refuses_before_temporary_edit(self) -> None:
+        from spec_kit_code_review import commit_hook
+
+        config = self.root / ".git/config"
+        parent = config.parent
+        original_config = config.read_bytes()
+        original_mode = stat.S_IMODE(parent.stat().st_mode)
+        changed_mode = original_mode ^ stat.S_ISVTX
+        real_open = commit_hook.os.open
+        changed = False
+
+        def change_parent_after_lock(path: str | bytes | os.PathLike[str], flags: int, mode: int = 0o777) -> int:
+            nonlocal changed
+            descriptor = real_open(path, flags, mode)
+            if not changed:
+                changed = True
+                parent.chmod(changed_mode)
+            return descriptor
+
+        try:
+            with mock.patch.object(commit_hook.os, "open", side_effect=change_parent_after_lock):
+                repair = install_native_hook(self.root, self.git)
+        finally:
+            parent.chmod(original_mode)
+        self.assertTrue(changed)
+        self.assertIn("git_hooks_stale_snapshot", {item.code for item in repair.diagnostics})
+        self.assertIsNone(repair.applied)
+        self.assertEqual(config.read_bytes(), original_config)
+        self.assertNotIn(HOOK_COMMAND.encode(), config.read_bytes())
+
+    def test_late_traditional_dispatcher_edit_refuses_before_replacement(self) -> None:
+        config = self.root / ".git/config"
+        original = config.read_bytes()
+        hook = self.root / ".git/hooks/commit-msg"
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        hook.chmod(0o755)
+        real_run = self.git.run
+        injected = False
+
+        def edit_during_temp_preparation(*arguments: str, **kwargs):
+            nonlocal injected
+            result = real_run(*arguments, **kwargs)
+            if not injected and arguments[:2] == ("config", "set") and "--file" in arguments:
+                injected = True
+                hook.write_text(f"#!/bin/sh\n{HOOK_COMMAND} \"$1\"\n", encoding="utf-8")
+                hook.chmod(0o755)
+            return result
+
+        with mock.patch.object(self.git, "run", side_effect=edit_during_temp_preparation):
+            repair = install_native_hook(self.root, self.git)
+        self.assertTrue(injected)
+        self.assertIn("git_hooks_stale_snapshot", {item.code for item in repair.diagnostics})
+        self.assertIsNone(repair.applied)
+        self.assertEqual(config.read_bytes(), original)
+        self.assertIn(HOOK_COMMAND, hook.read_text(encoding="utf-8"))
+
     def test_readback_recovery_does_not_overwrite_a_new_config_edit(self) -> None:
         from spec_kit_code_review import commit_hook
 

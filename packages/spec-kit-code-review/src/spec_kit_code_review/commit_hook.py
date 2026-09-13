@@ -44,6 +44,11 @@ class HookObservation:
     config_bytes: bytes = b""
     config_exists: bool = False
     config_mode: int | None = None
+    config_is_regular: bool = True
+    config_is_symlink: bool = False
+    config_parent_mode: int = 0
+    config_parent_is_symlink: bool = False
+    traditional_hook_snapshot: tuple[object, ...] = ()
     records: list[HookRecord] = field(default_factory=list)
     listed: list[tuple[str, bool]] = field(default_factory=list)
     list_ok: bool = False
@@ -122,6 +127,12 @@ class HookObservation:
             self.config_exists,
             self.config_mode,
             self.config_bytes,
+            self.config_is_regular,
+            self.config_is_symlink,
+            self.config_parent_mode,
+            self.config_parent_is_symlink,
+            self.hooks_path,
+            self.traditional_hook_snapshot,
             tuple((r.scope, r.origin, r.key, r.value) for r in self.records),
             tuple(self.listed),
             self.list_ok,
@@ -162,6 +173,7 @@ def observe_native_hook(root: Path, git: Git) -> HookObservation:
         observation.diagnostics.append(
             Diagnostic("git_hooks_path_unreadable", "could not resolve Git's effective hooks path", str(root))
         )
+    observation.traditional_hook_snapshot = _traditional_hook_snapshot(observation.hooks_path)
 
     worktree_result = git.run("config", "--local", "--bool", "--get", "extensions.worktreeConfig")
     worktree_config = worktree_result.ok and worktree_result.stdout.strip().lower() in {"true", "yes", "on", "1"}
@@ -177,19 +189,35 @@ def observe_native_hook(root: Path, git: Git) -> HookObservation:
         lexical_config = _lexical_config_path(git, observation.config_scope, config_name)
         observation.config_path = lexical_config if lexical_config is not None and lexical_config.is_symlink() else resolved_config
         try:
-            mode = observation.config_path.lstat()
-        except FileNotFoundError:
-            observation.config_exists = False
-            observation.config_bytes = b""
+            parent = observation.config_path.parent.lstat()
+            observation.config_parent_mode = stat.S_IMODE(parent.st_mode)
+            observation.config_parent_is_symlink = stat.S_ISLNK(parent.st_mode)
+        except OSError as error:
+            observation.diagnostics.append(
+                Diagnostic("git_hooks_config_unreadable", f"could not inspect Git configuration directory: {error}", str(observation.config_path.parent))
+            )
         else:
-            observation.config_exists = True
-            observation.config_mode = stat.S_IMODE(mode.st_mode)
             try:
-                observation.config_bytes = observation.config_path.read_bytes()
-            except OSError as error:
-                observation.diagnostics.append(
-                    Diagnostic("git_hooks_config_unreadable", f"could not read Git configuration: {error}", str(observation.config_path))
-                )
+                mode = observation.config_path.lstat()
+            except FileNotFoundError:
+                observation.config_exists = False
+                observation.config_bytes = b""
+            else:
+                observation.config_exists = True
+                observation.config_mode = stat.S_IMODE(mode.st_mode)
+                observation.config_is_regular = stat.S_ISREG(mode.st_mode)
+                observation.config_is_symlink = stat.S_ISLNK(mode.st_mode)
+                if not observation.config_is_regular:
+                    observation.diagnostics.append(
+                        Diagnostic("git_hooks_config_unreadable", "Git configuration is not a regular file", str(observation.config_path))
+                    )
+                else:
+                    try:
+                        observation.config_bytes = observation.config_path.read_bytes()
+                    except OSError as error:
+                        observation.diagnostics.append(
+                            Diagnostic("git_hooks_config_unreadable", f"could not read Git configuration: {error}", str(observation.config_path))
+                        )
 
     config_result = git.run("config", "--null", "--show-origin", "--show-scope", "--get-regexp", r"^hook\.")
     if config_result.ok or config_result.returncode == 1:
@@ -307,10 +335,10 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
             observation.config_exists,
             observation.config_mode,
             observation.config_bytes,
-            True,
-            False,
-            current_snapshot.parent_mode,
-            current_snapshot.parent_is_symlink,
+            observation.config_is_regular,
+            observation.config_is_symlink,
+            observation.config_parent_mode,
+            observation.config_parent_is_symlink,
         )
         if current_snapshot != diagnosed_snapshot:
             return HookRepair(diagnostics=(Diagnostic("git_hooks_stale_snapshot", "Git configuration changed after diagnosis; no hook changes were made, retry doctor", str(observation.config_path)),))
@@ -356,8 +384,8 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
             replacement_bytes,
             True,
             False,
-            late_snapshot.parent_mode,
-            late_snapshot.parent_is_symlink,
+            diagnosed_snapshot.parent_mode,
+            diagnosed_snapshot.parent_is_symlink,
         )
         os.replace(temporary, observation.config_path)
         temporary = None
@@ -443,6 +471,25 @@ def _manual_hook_invocation(hooks_path: Path | None) -> bool:
         return any(str(PAYLOAD[0]) in line.split("#", 1)[0] for line in hook.read_text(encoding="utf-8", errors="ignore").splitlines())
     except OSError:
         return False
+
+
+def _traditional_hook_snapshot(hooks_path: Path | None) -> tuple[object, ...]:
+    """Capture the conventional dispatcher without following a changed path."""
+
+    if hooks_path is None:
+        return ("unresolved",)
+    try:
+        mode = hooks_path.lstat().st_mode
+    except FileNotFoundError:
+        return ("absent",)
+    except OSError as error:
+        return ("unreadable", type(error).__name__, str(error))
+    if not stat.S_ISREG(mode):
+        return ("not-regular", stat.S_IFMT(mode), stat.S_IMODE(mode))
+    try:
+        return ("regular", stat.S_IMODE(mode), hooks_path.read_bytes())
+    except OSError as error:
+        return ("unreadable", stat.S_IMODE(mode), type(error).__name__, str(error))
 
 
 def _payload_diagnostics(root: Path) -> list[Diagnostic]:
