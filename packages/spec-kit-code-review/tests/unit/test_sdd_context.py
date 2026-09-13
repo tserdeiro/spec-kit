@@ -37,9 +37,9 @@ SPEC = """\
 TASKS = """\
 # Tasks
 
-- [x] T001 Resolve the immutable candidate (forecast: 120 lines, PR strategy: single)
-- [ ] T002 Report prerequisites (forecast: 90 lines, PR strategy: feature-chain)
-- [ ] T003 Something with no declared size
+- [x] T001 Resolve the immutable candidate (PR strategy: single)
+- [ ] T002 Report prerequisites (PR strategy: feature-chain)
+- [ ] T003 Something with no declared strategy
 """
 CHECKLIST = """\
 # Checklist: requirements
@@ -351,18 +351,17 @@ class ArtifactLoadingTests(SddCase):
 
         self.assertNotIn("HOSTILE", context.spec.text or "")
 
-    def test_the_declared_forecast_is_summed_from_the_tasks(self) -> None:
+    def test_the_declared_strategy_is_read_from_each_task(self) -> None:
         resolution = resolve_feature(
             CommitReader(self.git, self.head),
             changed_paths=[])
 
         context = load_context(CommitReader(self.git, self.head), resolution=resolution)
 
-        self.assertEqual(context.forecast_total, 210)
         self.assertEqual([entry.identifier for entry in context.task_entries], ["T001", "T002", "T003"])
         self.assertEqual(context.task_entries[0].strategy, "single")
         self.assertEqual(context.task_entries[1].strategy, "feature-chain")
-        self.assertIsNone(context.task_entries[2].forecast)
+        self.assertIsNone(context.task_entries[2].strategy)
 
     def test_checklists_can_be_left_out(self) -> None:
         resolution = resolve_feature(
@@ -399,17 +398,16 @@ class TaskParsingTests(unittest.TestCase):
         entries = parse_tasks("- [ ] T007 Just a task\n")
 
         self.assertEqual(entries[0].identifier, "T007")
-        self.assertIsNone(entries[0].forecast)
         self.assertIsNone(entries[0].strategy)
         self.assertFalse(entries[0].done)
         self.assertIn("missing field: traces", entries[0].gaps)
         self.assertIn("missing field: completion evidence", entries[0].gaps)
 
     def test_prose_is_not_a_task(self) -> None:
-        self.assertEqual(parse_tasks("Some prose about T001 and its forecast: 900 lines.\n"), ())
+        self.assertEqual(parse_tasks("Some prose about T001 and its estimated size.\n"), ())
 
     def test_complete_blocks_keep_ranges_and_indented_fields(self) -> None:
-        text = """# Phase\n\n- [ ] T001 Add `src/app.py`\n  - **Traces**: FR-002, SC-001\n  - **Depends on**: T000\n  - **Boundaries**: Change `src/app.py`. Preserve `src/rules.py`.\n  - **Delivery**: single PR (~280 authored lines)\n  - **Completion evidence**: focused tests pass\n\n- [x] T002 Finish it\n  - **Evidence**: `pytest tests/unit`\n\n## Next phase\n- [ ] T003 A later task\n"""
+        text = """# Phase\n\n- [ ] T001 Add `src/app.py`\n  - **Traces**: FR-002, SC-001\n  - **Depends on**: T000\n  - **Boundaries**: Change `src/app.py`. Preserve `src/rules.py`.\n  - **Delivery**: single PR\n  - **Completion evidence**: focused tests pass\n\n- [x] T002 Finish it\n  - **Evidence**: `pytest tests/unit`\n\n## Next phase\n- [ ] T003 A later task\n"""
         first, second, third = parse_tasks(text)
 
         self.assertEqual((first.source_start, first.source_end), (3, 9))
@@ -418,8 +416,7 @@ class TaskParsingTests(unittest.TestCase):
         self.assertEqual(first.dependencies, ("T000",))
         self.assertEqual(first.changed_path_hints, ("src/app.py",))
         self.assertEqual(first.completion_evidence, "focused tests pass")
-        self.assertEqual(first.delivery, "single PR (~280 authored lines)")
-        self.assertEqual(first.forecast, 280)
+        self.assertEqual(first.delivery, "single PR")
         self.assertEqual((second.source_start, second.source_end), (10, 12))
         self.assertEqual((third.source_start, third.source_end), (14, 14))
 

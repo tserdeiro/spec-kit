@@ -408,6 +408,20 @@ def run_doctor(args: argparse.Namespace) -> dict[str, Any]:
         )
     else:
         diagnostics.append(Diagnostic("lifecycle", "lifecycle sync is enabled", severity="info"))
+        if not config["lifecycle"].get("review_state_id"):
+            fallback = (
+                "projected onto started_state_id"
+                if config["lifecycle"].get("started_state_id")
+                else "left at their current state"
+            )
+            diagnostics.append(
+                Diagnostic(
+                    "review_state_missing",
+                    f"lifecycle.review_state_id is not configured; ready-for-review tasks are {fallback}. "
+                    "Run `onboard` to resolve it, or set it from the Team's workflow states",
+                    severity="warning",
+                )
+            )
     diagnostics.append(github_cli_diagnostic(root, offline=bool(args.offline)))
     registry = load_lifecycle_registry(root)
     diagnostics.extend(lifecycle_registry_diagnostics(registry, lifecycle_enabled=hooks_gate(config, "lifecycle_enabled")))
@@ -764,7 +778,7 @@ _LIFECYCLE_STATE_SPECS: dict[str, tuple[str, str | None]] = {
 }
 # Without these two the section means nothing, so failing to resolve either
 # skips lifecycle entirely; the other two degrade instead (see
-# planner._LIFECYCLE_FIELDS_BY_STATE) and are only reported as missing.
+# work_state.LIFECYCLE_FIELDS_BY_STATE) and are only reported as missing.
 _LIFECYCLE_REQUIRED_FIELDS = ("completed_state_id", "open_state_id")
 _LIFECYCLE_MISSING_NAMES: dict[str, str] = {"started_state_id": "started_state", "review_state_id": "review_state"}
 # "In Review" is resolved by name only: two states share the `started` type,
@@ -1252,7 +1266,7 @@ def run_status(args: argparse.Namespace) -> dict[str, Any]:
     payload["read_only"] = True
     observation = observation_report(scan, desired, work_items)
     payload["observation"] = observation
-    payload["status"] = status_report(discovery, desired, work_states, work_items, remote_work_items, observation)
+    payload["status"] = status_report(discovery, desired, work_states, work_items, remote_work_items, observation, config.get("lifecycle"))
     return payload
 
 

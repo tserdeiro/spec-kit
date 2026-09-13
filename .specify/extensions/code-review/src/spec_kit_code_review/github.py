@@ -32,7 +32,7 @@ PR_URL_RE = re.compile(
 # Doc "Reglas de resolucion" rule 1: the exact field set the candidate
 # resolution asks for, and the only pull-request read this stage performs.
 PR_VIEW_FIELDS = (
-    "number,baseRefName,baseRefOid,headRefOid,headRepositoryOwner,headRepository,"
+    "number,baseRefName,baseRefOid,headRefName,headRefOid,headRepositoryOwner,headRepository,"
     # `author` and `labels` are mutable metadata the packet's section 0 has to
     # report, and the author decides whether REQUEST_CHANGES is even possible:
     # GitHub refuses it on your own pull request.
@@ -55,6 +55,7 @@ class PullRequest:
     url: str
     title: str
     body: str
+    head_ref_name: str = ""
     author: str = ""
     labels: tuple[str, ...] = ()
 
@@ -67,6 +68,7 @@ class PullRequest:
             "base_branch": self.base_branch,
             "base_commit": self.base_commit,
             "head_commit": self.head_commit,
+            "head_ref_name": self.head_ref_name,
             "head_repository": self.head_repository,
             "cross_repository": self.cross_repository,
             "state": self.state,
@@ -293,7 +295,7 @@ def _pull_request_from_payload(payload: object, *, fallback_repository: str | No
         name_value = head_name.get("name")
         if owner_login and name_value:
             head_repository = f"{owner_login}/{name_value}"
-    for field in ("baseRefName", "baseRefOid", "headRefOid"):
+    for field in ("baseRefName", "baseRefOid", "headRefName", "headRefOid"):
         if not payload.get(field):
             raise AppError(
                 f"gh pr view did not report {field}",
@@ -323,6 +325,7 @@ def _pull_request_from_payload(payload: object, *, fallback_repository: str | No
         base_branch=str(payload["baseRefName"]),
         base_commit=str(payload["baseRefOid"]),
         head_commit=str(payload["headRefOid"]),
+        head_ref_name=str(payload["headRefName"]),
         head_repository=head_repository,
         cross_repository=bool(payload.get("isCrossRepository")),
         state=str(payload.get("state") or "UNKNOWN").upper(),
@@ -400,4 +403,3 @@ def require_github(*, override: str | None = None, forbidden_roots: tuple[Path, 
             ],
         )
     return client
-

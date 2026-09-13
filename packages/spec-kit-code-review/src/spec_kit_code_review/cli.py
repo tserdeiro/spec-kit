@@ -28,8 +28,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from . import __version__
-from .budget import compute as compute_budget
-from .budget import compute_working_tree as compute_working_tree_budget
 from .candidate import parse_selector, resolve_from_pull_request, resolve_from_refs
 from .config import (
     RULE_RELATIVE_PATH,
@@ -80,7 +78,7 @@ from .session import (
 )
 from .lockfile import SELF_PIN_FILENAME, first_line, lock_path, platform_key, version_matches_pin
 from .ocr import ADAPTER_VERSION, Ocr, verify_scope_against_git, write_minimal_config
-from .anchors import load_hunks
+from .anchors import load_hunks, load_working_tree_hunks
 from .contract import matches_protected_path, protected_path_findings
 from .findings import load_document_bytes, normalize as normalize_findings, render_markdown as render_findings_markdown
 from .finding_corrections import (finish as finish_correction, has_invalid_categories,
@@ -95,13 +93,13 @@ from .publish import InlineComment, PublicationFailed, PublicationPlan
 from .publish import build_plan as build_publication_plan
 from .publish import execute as execute_publication
 from .publish import resolve_event
-from .reporting import render_human, review_document
+from .reporting import compact_close, compact_open, render_human, review_document
 from .verdict import CAUSE_CONTEXT, CAUSE_ENGINE, CAUSE_SCOPE, InconclusiveCause, Verdict
 from .verdict import derive as derive_verdict
 from .sdd_context import SOURCE_WORK_ITEM, CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
 from .review_context import resolve_scope, select_context
 from .rules import RuleResolution, parse_rule_document, resolve_rules
-from .process import resolve_executable, run_command, sha256_file
+from .process import resolve_executable, run_command, sha256_file, sha256_text
 from .redaction import redact_payload, redact_text
 
 
@@ -296,7 +294,7 @@ def _write_non_info_diagnostics(payload: Mapping[str, Any]) -> None:
         sys.stdout.write(f"{diagnostic['severity']}: {diagnostic['message']}{location}\n")
 
 
-def _render(payload: Mapping[str, Any], as_json: bool, quiet: bool) -> None:
+def _render(payload: Mapping[str, Any], as_json: bool, quiet: bool, *, verbose: bool = False) -> None:
     """Render a result. Redaction is unconditional, not a flag.
 
     ``redaction.py`` is the only path through which text reaches stdout, the
@@ -306,6 +304,9 @@ def _render(payload: Mapping[str, Any], as_json: bool, quiet: bool) -> None:
 
     rendered = redact_payload(dict(payload))
     if as_json:
+        if not verbose:
+            # The compact document; the human text is for the human render.
+            rendered.pop("human", None)
         _write_json(rendered)
         return
     if quiet:
@@ -655,7 +656,6 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
                     "sdd": assembled["sdd"],
                     "review_scope_gaps": assembled["scope"]["gaps"],
                     "context_selection": assembled["context_selection"],
-                    "budget": assembled["budget"],
                     "packet": assembled["packet"].as_dict(),
                     "pr_intent": {"title": getattr(pull_request, "title", "") or "", "body": getattr(pull_request, "body", "") or ""},
                 },
@@ -676,7 +676,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
             severity="info",
         )
     )
-    return _success(
+    payload = _success(
         f"review packet ready at {session.path / PACKET_FILENAME}",
         diagnostics=diagnostics,
         candidate=candidate.as_dict(),
@@ -687,9 +687,14 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
         review_scope=assembled["scope"],
         rules=engine["rules"],
         sdd=assembled["sdd"],
-        budget=assembled["budget"],
         packet=assembled["packet"].as_dict(),
     )
+    # The full document stays on disk; what reaches the orchestrator's context
+    # is the compact one unless it asked for everything.
+    write_json(session.path / RESULT_OPEN_FILENAME, payload)
+    if _verbose_requested(args) or not args.json:
+        return payload
+    return compact_open(payload, extension_version=__version__)
 
 
 def _reclaim_existing_session(context: CommandContext, directory: Path, diagnostics: list[Diagnostic]) -> None:
@@ -787,7 +792,7 @@ def _assemble_packet(
     engine: dict[str, Any],
     diagnostics: list[Diagnostic],
 ) -> dict[str, Any]:
-    """The SDD context, the budget, and the packet."""
+    """The SDD context and the packet."""
 
     changed = context.git.changed_paths(candidate.merge_base, candidate.head_commit)
     reader = CommitReader(context.git, candidate.head_commit)
@@ -825,13 +830,9 @@ def _assemble_packet(
         Diagnostic(gap.code, gap.detail, severity="warning") for gap in context_selection.gaps
     )
 
-    budget_report = compute_budget(
-        context.git,
-        merge_base=candidate.merge_base,
-        head_commit=candidate.head_commit,
-        limit=int(config.get("budget", "limit", 400) or 400),
-    )
-    diagnostics.extend(budget_report.diagnostics)
+    hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
+    diagnostics.extend(hunks.diagnostics)
+    code_sources, code_ranges = _code_inventory(reader, engine["preview_result"], hunks)
 
     assembled = assemble_packet(
         candidate=candidate,
@@ -846,12 +847,13 @@ def _assemble_packet(
         sdd=sdd,
         review_scope=review_scope,
         context_selection=context_selection,
-        budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
         include_pr_body=bool(config.get("packet", "include_pr_body", True)),
         include_checklists=bool(config.get("packet", "include_checklists", True)),
         generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        code_sources=code_sources,
+        code_ranges=code_ranges,
     )
     diagnostics.extend(assembled.warnings)
     for truncation in assembled.truncations:
@@ -869,7 +871,6 @@ def _assemble_packet(
         "sdd": sdd.as_dict(),
         "scope": review_scope.as_dict(),
         "context_selection": context_selection.as_dict(),
-        "budget": budget_report.as_dict(),
     }
 
 
@@ -926,7 +927,6 @@ def _run_engine(
         prepared.working_root,
         preview.included_paths,
         rule_path=resolution.path,
-        batch_size=int(config.get("engine", "rule_batch_size", 100) or 100),
         on_raw=lambda raw: write_text(raw_directory / "ocr-delegate-rule.stdout", raw),
     )
 
@@ -1072,7 +1072,6 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
             context.root,
             preview.included_paths,
             rule_path=resolution.path,
-            batch_size=int(config.get("engine", "rule_batch_size", 100) or 100),
             on_raw=lambda raw: write_text(raw_directory / "ocr-delegate-rule.stdout", raw),
         )
 
@@ -1104,10 +1103,8 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
     )
     context_selection = select_context(sdd, advisory_scope)
 
-    budget_report = compute_working_tree_budget(
-        context.git, context.root, limit=int(config.get("budget", "limit", 400) or 400)
-    )
-    diagnostics.extend(budget_report.diagnostics)
+    working_hunks = load_working_tree_hunks(context.git)
+    code_sources, code_ranges = _advisory_code_inventory(context.root, preview, working_hunks)
 
     packet = assemble_packet(
         candidate=origin,
@@ -1122,7 +1119,6 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         sdd=sdd,
         review_scope=advisory_scope,
         context_selection=context_selection,
-        budget=budget_report,
         max_bytes_per_artifact=int(config.get("packet", "max_bytes_per_artifact", 60000) or 60000),
         max_total_bytes=int(config.get("packet", "max_total_bytes", 400000) or 400000),
         include_pr_body=False,
@@ -1130,6 +1126,8 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         advisory=True,
         working_sources=advisory_sources,
+        code_sources=code_sources,
+        code_ranges=code_ranges,
     )
     diagnostics.extend(packet.warnings)
     for truncation in packet.truncations:
@@ -1170,7 +1168,6 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         rules={**resolution.as_dict(), "assignments": assignments.as_dict()["assignments"]},
         sdd=sdd.as_dict(),
         context_selection=context_selection.as_dict(),
-        budget=budget_report.as_dict(),
         advisory_evidence={
             "mode": "advisory",
             "coverage_path": str(directory / "coverage.json"),
@@ -1181,6 +1178,69 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         },
         packet={**packet.as_dict(), "path": str(packet_path)},
     )
+
+
+# Every status string the engine reports for a file whose content no longer
+# exists at the head: it has nothing to read, so it earns no changed-hunk
+# requirement -- the coverage contract that follows treats an absent range as
+# an unreadable one, not as a legitimate gap.
+_DELETION_STATUSES = {"deleted", "removed"}
+
+
+def _code_inventory(reader: Any, preview: Any, hunks: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Sources and required ranges for every changed hunk of an in-scope file.
+
+    Doc 1 "Required code ranges": coverage of the diff itself is mandatory, not
+    only of the SDD artifacts. Every included, non-deletion file's changed
+    hunks -- the same hunks `anchors.py` anchors findings against -- become
+    required reading receipts through the same generic `coverage.validate`.
+    """
+
+    sources: list[dict[str, Any]] = []
+    ranges: list[dict[str, Any]] = []
+    for entry in preview.entries:
+        if not entry.included or (entry.status or "").strip().lower() in _DELETION_STATUSES:
+            continue
+        file_hunks = hunks.for_path(entry.path)
+        if not file_hunks:
+            continue
+        text = reader.read(entry.path)
+        if text is None:
+            continue
+        sources.append({"path": entry.path, "sha256": sha256_text(text)})
+        for hunk in file_hunks:
+            ranges.append({"path": entry.path, "start": hunk.start, "end": hunk.end})
+    return sources, ranges
+
+
+def _advisory_code_inventory(root: Path, preview: Any, hunks: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The advisory counterpart of `_code_inventory`: reads from disk, and a file
+
+    with no hunk against `HEAD` -- an untracked file, invisible to `git diff` --
+    is required whole rather than skipped.
+    """
+
+    sources: list[dict[str, Any]] = []
+    ranges: list[dict[str, Any]] = []
+    for entry in preview.entries:
+        if not entry.included or (entry.status or "").strip().lower() in _DELETION_STATUSES:
+            continue
+        try:
+            validate_repository_relative_path(entry.path)
+            target = root / entry.path
+            if not target.is_file() or target.is_symlink():
+                continue
+            text = target.read_text(encoding="utf-8")
+        except (AppError, OSError, UnicodeDecodeError):
+            continue
+        sources.append({"path": entry.path, "sha256": sha256_text(text)})
+        file_hunks = hunks.for_path(entry.path)
+        if file_hunks:
+            for hunk in file_hunks:
+                ranges.append({"path": entry.path, "start": hunk.start, "end": hunk.end})
+        else:
+            ranges.append({"path": entry.path, "start": 1, "end": len(text.splitlines()) or 1})
+    return sources, ranges
 
 
 def _capture_advisory_sources(root: Path, git: Git, paths: list[str]) -> tuple[dict[str, Any], ...]:
@@ -1414,7 +1474,7 @@ def _verify_frozen_configuration(session: ReviewSession, config, diagnostics: li
             Diagnostic(
                 "config_sha256_mismatch",
                 f"the session was opened with configuration {recorded[:12]}, and {config.sha256[:12]} is in effect "
-                "now. The configuration governs the whole review -- the budget, the publication ceiling, the packet "
+                "now. The configuration governs the whole review -- the publication ceiling, the packet "
                 "limits -- so it does not continue under a different one.",
                 str(session.path),
             )
@@ -1634,7 +1694,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     suffix = str(session.payload.get("containment_suffix") or new_suffix())
-    budget = session.payload.get("budget") or {}
     plan = build_publication_plan(
         candidate=_PublicationCandidate(
             candidate_id=candidate.candidate_id,
@@ -1648,7 +1707,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         findings=normalized.findings,
         packet_sha256=str(session.payload.get("packet_sha256") or ""),
         suffix=suffix,
-        budget=_BudgetView(budget) if budget else None,
         event_ceiling=str(config.get("publish", "event", "request-changes")),
         request_changes=review_verdict.value == "changes-requested",
         # Read-only, and it decides whether REQUEST_CHANGES is even possible:
@@ -1698,7 +1756,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         packet_sha256=str(session.payload.get("packet_sha256") or ""),
         rules_sha256=(session.payload.get("rules") or {}).get("sha256"),
         scope=session.payload.get("scope"),
-        budget=budget,
         findings=normalized,
         verdict=review_verdict,
         code=code,
@@ -1710,7 +1767,6 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     payload["human"] = render_human(
         findings=normalized,
         verdict=review_verdict,
-        budget=budget,
         evidence_path=str(session.path),
         packet_sha256=str(session.payload.get("packet_sha256") or ""),
         coverage=coverage_record,
@@ -1725,7 +1781,10 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         payload["operations"] = published.get("operations", [])
         payload["diagnostics"] = [item.as_dict() for item in diagnostics]
         payload["message"] = published["message"]
-    return payload
+    write_json(session.path / RESULT_CLOSE_FILENAME, payload)
+    if _verbose_requested(args) or not args.json:
+        return payload
+    return compact_close(payload, extension_version=__version__)
 
 
 @dataclass(frozen=True)
@@ -1740,16 +1799,9 @@ class _PublicationCandidate:
     author: str
 
 
-class _BudgetView:
-    """A read-only view of the budget as ``session.json`` recorded it."""
-
-    def __init__(self, payload: Mapping[str, Any]) -> None:
-        self.counted = payload.get("counted", 0)
-        self.limit = payload.get("limit", 0)
-        self.over_budget = bool(payload.get("over_budget"))
-
-
 ENGINE_STATUS_COMPLETE: tuple[str, ...] = ("success", "completed_with_warnings")
+RESULT_OPEN_FILENAME = "result-open.json"
+RESULT_CLOSE_FILENAME = "result-close.json"
 
 
 def _inconclusive_causes(session: ReviewSession, inventory: Mapping[str, Any]) -> list[InconclusiveCause]:
@@ -2596,7 +2648,7 @@ def main(argv: list[str] | None = None) -> int:
                 code=EXIT_USAGE,
                 diagnostics=[Diagnostic("command", "supported commands are review and doctor")],
             )
-        _render(payload, args.json, args.quiet)
+        _render(payload, args.json, args.quiet, verbose=_verbose_requested(args))
         if _verbose_requested(args) and not args.json and not args.quiet:
             _render_verbose(payload)
         # A completed review can still exit non-zero -- changes-requested, an

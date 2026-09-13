@@ -20,6 +20,7 @@ from spec_kit_linear.work_state import (
     STATE_UNSTARTED,
     branch_pattern,
     derive_task_state,
+    projected_state,
 )
 
 
@@ -175,6 +176,37 @@ class DerivationTests(unittest.TestCase):
                     self.assertEqual((derived.detail, derived.pr_number), ("001-T004-low", 7))
                     from spec_kit_linear.work_state import next_action
                     self.assertEqual(next_action(derived.state, derived.source, pr_number=derived.pr_number), "wait for the human merge")
+
+
+class ProjectedStateTests(unittest.TestCase):
+    """`status` names the state the projection writes, and why it differs (hotfix 09)."""
+
+    LIFECYCLE = {"completed_state_id": "c", "open_state_id": "o", "started_state_id": "s", "review_state_id": "r"}
+
+    def test_a_configured_review_state_projects_review_without_a_reason(self) -> None:
+        self.assertEqual(projected_state(self.LIFECYCLE, STATE_REVIEW), (STATE_REVIEW, None))
+
+    def test_a_missing_review_state_projects_started_and_names_the_missing_id(self) -> None:
+        lifecycle = {key: value for key, value in self.LIFECYCLE.items() if key != "review_state_id"}
+
+        self.assertEqual(projected_state(lifecycle, STATE_REVIEW), (STATE_STARTED, "review_state_id not configured"))
+
+    def test_no_lifecycle_section_projects_nothing(self) -> None:
+        self.assertEqual(projected_state(None, STATE_REVIEW), (None, "lifecycle sync disabled"))
+        self.assertEqual(projected_state(None, STATE_UNSTARTED), (None, "lifecycle sync disabled"))
+
+    def test_an_unknown_state_projects_nothing_without_a_reason(self) -> None:
+        self.assertEqual(projected_state(self.LIFECYCLE, None), (None, None))
+
+    def test_a_checked_box_inside_an_open_pull_request_never_projects_completed(self) -> None:
+        lifecycle = {key: value for key, value in self.LIFECYCLE.items() if key != "review_state_id"}
+        ready = _derive(completed=True, pull_requests=(_pull_request("001-T004"),))
+        draft = _derive(completed=True, pull_requests=(_pull_request("001-T004", draft=True),))
+        merged = _derive(completed=True, pull_requests=(_pull_request("001-T004", state="MERGED"),))
+
+        self.assertEqual((ready.state, projected_state(lifecycle, ready.state)), (STATE_REVIEW, (STATE_STARTED, "review_state_id not configured")))
+        self.assertEqual((draft.state, projected_state(lifecycle, draft.state)), (STATE_STARTED, (STATE_STARTED, None)))
+        self.assertEqual((merged.state, projected_state(lifecycle, merged.state)), (STATE_COMPLETED, (STATE_COMPLETED, None)))
 
 
 class KnownBranchesTests(unittest.TestCase):
