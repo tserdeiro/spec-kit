@@ -95,13 +95,13 @@ pending. Each task preserves consumer configuration and upstream assets.
   - **Delivery**: single PR (~150 authored lines)
   - **Completion evidence**: PR #168; focused Git 2.54/2.55 hook suite: 27 passed; `git diff --check` clean; five required GitHub checks passed; fresh independent review of `ad4b02f` returned `no-blocking-findings`; 296/300 authored executable lines.
 
-- [ ] T007 Detect manual validator invocation behind the Husky dispatcher per FR-007 and FR-008 (partial)
+- [x] T007 Detect manual validator invocation behind the Husky dispatcher per FR-007 and FR-008 (partial)
   - **Traces**: FR-006, FR-007, FR-008, FR-009, SC-002, SC-003; outcome: an existing Husky user hook invoking the validator is diagnosed before another registration is added.
   - **Depends on**: T006
   - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py`, its hook tests, and the installed `scripts/conformance/commit-msg.sh` where needed. Inspect the effective Husky hook source behind its unchanged dispatcher without executing it or introducing a manager adapter/dependency. Preserve ordinary Husky/Lefthook composition and diagnose duplicate or unreadable effective invocation sources with a concrete manual action.
   - **Evidence**: Real Git/Husky 9.1.7 fixture with a manual installed-validator call refuses repair without modifying config/dispatcher/user hook; one existing invocation remains. Ordinary installed-manager matrix still passes; `git diff --check` passes.
   - **Delivery**: single PR (~160 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: Focused native hook tests: 30 passed; installed Git 2.54/2.55 × plain/Husky 9.1.7/Lefthook 2.1.12 matrix: `native installed commit-msg conformance passed`; package suite: 1035 passed, 639 subtests passed; `git diff --check`: clean.
 
 - [ ] T008 Validate hook composition in every affected shared worktree per FR-005 and FR-008 (partial)
   - **Traces**: FR-005, FR-008, FR-009, SC-002, SC-003; outcome: a shared registration is refused when a sibling checkout already invokes the validator through its own hook arrangement.

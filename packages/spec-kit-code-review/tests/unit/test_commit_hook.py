@@ -342,6 +342,65 @@ class NativeHookTests(unittest.TestCase):
         hook.write_text(f"#!/bin/sh\n{HOOK_COMMAND.replace('sh ', 'bash ', 1)}\n", encoding="utf-8")
         self.assertIn("git_hooks_duplicate", {item.code for item in hook_diagnostics(self.root, self.git)})
 
+    def test_husky_user_hook_manual_validator_is_detected_without_editing_manager_files(self) -> None:
+        self._native("config", "set", "core.hooksPath", ".husky/_")
+        dispatcher = self.root / ".husky/_/commit-msg"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text('#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n', encoding="utf-8")
+        dispatcher.chmod(0o751)
+        user_hook = self.root / ".husky/commit-msg"
+        user_hook.write_text(f"#!/bin/sh\n{HOOK_COMMAND} \"$1\"\n", encoding="utf-8")
+        user_hook.chmod(0o751)
+        config = self.root / ".git/config"
+        config_before = config.read_bytes()
+        dispatcher_before = dispatcher.read_bytes()
+        user_hook_before = user_hook.read_bytes()
+        self.assertEqual(observe_native_hook(self.root, self.git).state, "duplicate")
+        self.assertIn("git_hooks_duplicate", {item.code for item in hook_diagnostics(self.root, self.git)})
+        repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_duplicate", {item.code for item in repair.diagnostics})
+        self.assertEqual(config.read_bytes(), config_before)
+        self.assertEqual(dispatcher.read_bytes(), dispatcher_before)
+        self.assertEqual(user_hook.read_bytes(), user_hook_before)
+        self.assertEqual(stat.S_IMODE(dispatcher.stat().st_mode), 0o751)
+        self.assertEqual(stat.S_IMODE(user_hook.stat().st_mode), 0o751)
+
+    def test_lefthook_config_manual_validator_is_detected_without_editing_dispatcher(self) -> None:
+        dispatcher = self.root / ".git/hooks/commit-msg"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text(
+            '#!/bin/sh\ncall_lefthook() { lefthook "$@"; }\ncall_lefthook run "commit-msg" "$@"\n',
+            encoding="utf-8",
+        )
+        dispatcher.chmod(0o751)
+        config = self.root / "lefthook.yml"
+        config.write_text(
+            "commit-msg:\n  jobs:\n    - name: Spec Kit\n      run: sh .specify/extensions/code-review/scripts/bash/commit-msg.sh {1}\n",
+            encoding="utf-8",
+        )
+        before = config.read_bytes()
+        dispatcher_before = dispatcher.read_bytes()
+        self.assertEqual(observe_native_hook(self.root, self.git).state, "duplicate")
+        repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_duplicate", {item.code for item in repair.diagnostics})
+        self.assertEqual(config.read_bytes(), before)
+        self.assertEqual(dispatcher.read_bytes(), dispatcher_before)
+
+    def test_unreadable_husky_user_hook_is_reported_before_repair(self) -> None:
+        self._native("config", "set", "core.hooksPath", ".husky/_")
+        dispatcher = self.root / ".husky/_/commit-msg"
+        dispatcher.parent.mkdir(parents=True, exist_ok=True)
+        dispatcher.write_text('#!/usr/bin/env sh\n. "$(dirname "$0")/h"\n', encoding="utf-8")
+        source = self.root / ".husky/commit-msg"
+        source.symlink_to(self.root / ".husky/missing-commit-msg")
+        config = self.root / ".git/config"
+        before = config.read_bytes()
+        diagnostics = hook_diagnostics(self.root, self.git)
+        self.assertIn("git_hooks_manual_source_unreadable", {item.code for item in diagnostics})
+        repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_manual_source_unreadable", {item.code for item in repair.diagnostics})
+        self.assertEqual(config.read_bytes(), before)
+
     def test_read_only_config_and_missing_sibling_payload_refuse_repair(self) -> None:
         worktree = Path(self.tmp.name) / "sibling"
         self.repo.git("worktree", "add", "--detach", str(worktree))
