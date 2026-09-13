@@ -229,11 +229,6 @@ Reglas de oro. Lo que hacés vos:
   mano**: la siguiente tarea se apila sobre el PR ready sin mergear de
   la anterior, o sale del branch de feature si no hay ninguno — un solo
   stack por feature.
-- **El presupuesto frena solo**: al doble del forecast de la línea
-  `Delivery`, o 400 líneas ejecutables, lo que llegue primero, nombrando
-  lo que no entra; un forecast nunca se amplía en el PR que lo excede —
-  lo cambia el humano en el ledger, o graba una excepción explícita en
-  la conversación que queda en el PR.
 - **La auto-revisión es siempre fresca**, con el body del PR ya armado
   desde el template canónico
   ([`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md));

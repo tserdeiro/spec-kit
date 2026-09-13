@@ -21,7 +21,10 @@ rules, evidence root, and native commit-message validation. It prints the
 three resolved per-user roots, the exact command that installs the pinned
 `ocr`, and the command that removes it. The engine remains in this
 distribution's data root, one directory per version; it is never installed
-globally or in a project tree.
+globally or in a project tree. In a checkout that holds the extension's own source
+(`packages/spec-kit-code-review/`), the `runtime` group also compares the
+running copy with that source and warns `runtime_source_drift` when their
+versions or modules differ; it never repairs the installed copy.
 
 `--fix` repairs missing `.gitignore` entries, absent shared or local
 configuration files, a missing `.opencodereview/rule.json`, evidence-root
