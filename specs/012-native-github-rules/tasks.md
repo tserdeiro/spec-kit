@@ -22,13 +22,13 @@
 **Goal**: Show settings and effective shared-branch protection with explicit coverage.
 **Independent evidence**: `uv run --frozen --offline pytest presets/default/tests/test_github_delivery.py presets/default/tests/test_github_delivery_rules.py -q`
 
-- [ ] T001 [US1] Replace the settings-only doctor check with a runnable GitHub report in presets/default/scripts/python/github_delivery.py
+- [x] T001 [US1] Replace the settings-only doctor check with a runnable GitHub report in presets/default/scripts/python/github_delivery.py
   - **Traces**: FR-002, FR-008, FR-009, C-001, C-004, SC-001, SC-003; outcome: the existing doctor reports observed merge/deletion settings and explicitly unverified branch guarantees.
   - **Depends on**: none
   - **Boundaries**: Add the helper and `presets/default/tests/test_github_delivery.py`; register it in `presets/default/preset.yml` and update steps 4/5 in `presets/default/commands/doctor.md` atomically. Reuse the existing interpreter/repository conventions and read helpers where suitable. Establish the four-state result contract, safe GET-only execution, missing-field handling, deterministic rendering, and 0/1 exit status from plan D1/D4. Keep other doctor categories' local repairs unchanged. Until branch checks land, the aggregate remains unverified.
   - **Evidence**: `uv run --frozen --offline pytest presets/default/tests/test_github_delivery.py -q` -> true/false/missing settings, absent gh, and failed reads produce scoped results without false overall compatibility; fake argv rejects writes; consumer files stay unchanged. `git diff --check` -> clean.
   - **Delivery**: single PR (~280 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #151; 8 focused tests and 79 preset tests passed; budget 282/400; diff check clean. Independent native review of 1a215c1 returned no-blocking-findings. Current-head review and CI gate readiness.
 
 - [ ] T002 [US1] Diagnose active rules on the complete shared-branch inventory in presets/default/scripts/python/github_delivery_rules.py
   - **Traces**: FR-001, FR-003, FR-004, FR-008, FR-009, C-004, SC-001, SC-002; outcome: trunk and remote canonical feature/task branches have explicit active-rules evidence and honest scope coverage.
