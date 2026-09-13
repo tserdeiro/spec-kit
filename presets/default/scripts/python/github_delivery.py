@@ -7,12 +7,10 @@ import json
 import re
 import shutil
 import sys
-from contextlib import redirect_stderr
 from dataclasses import dataclass
-from io import StringIO
 from itertools import takewhile
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 from _common import delivery_base, run_gh
 from github_delivery_rules import (
@@ -41,6 +39,20 @@ _SETTINGS = (
     ("deleteBranchOnMerge", "Automatically delete head branches"),
     ("mergeCommitAllowed", "Allow merge commits"),
 )
+
+
+@dataclass(frozen=True)
+class RepositoryIdentity:
+    """The single repository target used by all REST observations."""
+
+    hostname: str
+    owner: str
+    repository: str
+
+    @property
+    def encoded_path(self) -> str:
+        return f"repos/{quote(self.owner, safe='')}/{quote(self.repository, safe='')}"
+
 
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _PLAN_PATTERNS = (
@@ -138,37 +150,44 @@ def _is_branch_not_protected(result: object) -> bool:
     return False
 
 
-def _read_settings(repo_root: Path) -> dict[str, Result]:
-    """Read both settings with one GET-only ``gh repo view`` invocation."""
-    if shutil.which("gh") is None:
-        result = Result(
-            CAPABILITY_UNAVAILABLE,
-            "github-cli-unavailable",
-            "gh was not found on PATH",
-            "Install GitHub CLI and authenticate it, then rerun the doctor",
-        )
-        return {name: result for name, _ in _SETTINGS}
-
+def _parse_identity(payload: dict[str, object]) -> tuple[RepositoryIdentity | None, str]:
+    name = payload.get("nameWithOwner")
+    url = payload.get("url")
+    if not isinstance(name, str) or not isinstance(url, str) or not name or not url:
+        return None, "missing-identity"
+    if name.count("/") != 1 or any(ord(char) < 32 for char in name) or name != name.strip():
+        return None, "malformed-identity"
+    owner, repository = name.split("/", 1)
+    if not owner or not repository:
+        return None, "malformed-identity"
     try:
-        completed = run_gh(
-            "repo", "view", "--json", "deleteBranchOnMerge,mergeCommitAllowed", cwd=repo_root
-        )
-    except OSError as error:
-        result = _unknown("read-failure", _safe_detail(str(error)), "Retry after confirming gh is available")
-        return {name: result for name, _ in _SETTINGS}
-    if completed.returncode != 0:
-        result = _failure_result(completed, "repository settings")
-        return {name: result for name, _ in _SETTINGS}
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return None, "malformed-identity"
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or any(ord(char) < 32 for char in url)
+    ):
+        return None, "malformed-identity"
+    path = parsed.path.rstrip("/").split("/")
+    if len(path) != 3 or not path[1] or not path[2]:
+        return None, "malformed-identity"
+    if (unquote(path[1]).casefold(), unquote(path[2]).casefold()) != (owner.casefold(), repository.casefold()):
+        return None, "malformed-identity"
+    hostname = parsed.hostname
+    if port is not None:
+        hostname = f"{hostname}:{port}"
+    return RepositoryIdentity(hostname, owner, repository), ""
 
-    try:
-        payload = json.loads(completed.stdout)
-    except json.JSONDecodeError:
-        result = _unknown("malformed-response", "gh repo view returned invalid JSON", "Retry the read")
-        return {name: result for name, _ in _SETTINGS}
-    if not isinstance(payload, dict):
-        result = _unknown("malformed-response", "gh repo view returned a non-object response", "Retry the read")
-        return {name: result for name, _ in _SETTINGS}
 
+def _settings_from_payload(payload: dict[str, object]) -> dict[str, Result]:
+    """Parse settings from the same native response that established identity."""
     findings: dict[str, Result] = {}
     for name, setting in _SETTINGS:
         value = payload.get(name)
@@ -188,6 +207,49 @@ def _read_settings(repo_root: Path) -> dict[str, Result]:
     return findings
 
 
+def _read_repository(repo_root: Path) -> tuple[RepositoryIdentity | None, str, dict[str, Result]]:
+    """Resolve identity and settings atomically through native ``gh`` selection."""
+    if shutil.which("gh") is None:
+        result = Result(
+            CAPABILITY_UNAVAILABLE,
+            "github-cli-unavailable",
+            "gh was not found on PATH",
+            "Install GitHub CLI and authenticate it, then rerun the doctor",
+        )
+        return None, "", {name: result for name, _ in _SETTINGS}
+
+    try:
+        completed = run_gh(
+            "repo", "view", "--json", "nameWithOwner,url,defaultBranchRef,deleteBranchOnMerge,mergeCommitAllowed", cwd=repo_root
+        )
+    except OSError as error:
+        result = _unknown("read-failure", _safe_detail(str(error)), "Retry after confirming gh is available")
+        return None, "", {name: result for name, _ in _SETTINGS}
+    if completed.returncode != 0:
+        result = _failure_result(completed, "repository settings")
+        return None, "", {name: result for name, _ in _SETTINGS}
+
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        result = _unknown("malformed-response", "gh repo view returned invalid JSON", "Retry the read")
+        return None, "", {name: result for name, _ in _SETTINGS}
+    if not isinstance(payload, dict):
+        result = _unknown("malformed-response", "gh repo view returned a non-object response", "Retry the read")
+        return None, "", {name: result for name, _ in _SETTINGS}
+    identity, cause = _parse_identity(payload)
+    if identity is None:
+        result = _unknown(
+            cause,
+            "repository identity was missing from the native repository response" if cause == "missing-identity" else "native repository identity was malformed or inconsistent",
+            "Retry the repository identity read after confirming the selected repository",
+        )
+        return None, "", {name: result for name, _ in _SETTINGS}
+    default_ref = payload.get("defaultBranchRef")
+    default_branch = default_ref.get("name", "").strip() if isinstance(default_ref, dict) and isinstance(default_ref.get("name"), str) else ""
+    return identity, default_branch, _settings_from_payload(payload)
+
+
 @dataclass(frozen=True)
 class _RemoteRead:
     complete: bool
@@ -198,10 +260,10 @@ class _RemoteRead:
     next_action: str = ""
 
 
-def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
+def _api_read(repo_root: Path, identity: RepositoryIdentity, endpoint: str) -> _RemoteRead:
     """Read a paginated REST collection through an explicit GET only."""
     try:
-        result = run_gh("api", "--method", "GET", "--paginate", "--slurp", endpoint, cwd=repo_root)
+        result = run_gh("api", "--hostname", identity.hostname, "--method", "GET", "--paginate", "--slurp", endpoint, cwd=repo_root)
     except OSError as error:
         return _RemoteRead(False, cause="read-failure", evidence=_safe_detail(str(error)))
     if result.returncode != 0:
@@ -223,10 +285,10 @@ def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
     return _RemoteRead(True, payload=payload)
 
 
-def _api_object_read(repo_root: Path, endpoint: str) -> _RemoteRead:
+def _api_object_read(repo_root: Path, identity: RepositoryIdentity, endpoint: str) -> _RemoteRead:
     """Read one REST object with an explicit GET, without pagination wrapping."""
     try:
-        result = run_gh("api", "--method", "GET", endpoint, cwd=repo_root)
+        result = run_gh("api", "--hostname", identity.hostname, "--method", "GET", endpoint, cwd=repo_root)
     except OSError as error:
         return _RemoteRead(False, cause="read-failure", evidence=_safe_detail(str(error)))
     if result.returncode != 0:
@@ -244,18 +306,18 @@ def _api_object_read(repo_root: Path, endpoint: str) -> _RemoteRead:
     return _RemoteRead(True, payload=payload)
 
 
-def _read_inventory(repo_root: Path) -> _RemoteRead:
+def _read_inventory(repo_root: Path, identity: RepositoryIdentity) -> _RemoteRead:
     if shutil.which("gh") is None:
         return _RemoteRead(False, cause="github-cli-unavailable", evidence="gh was not found on PATH")
-    read = _api_read(repo_root, "repos/{owner}/{repo}/branches?per_page=100")
+    read = _api_read(repo_root, identity, f"{identity.encoded_path}/branches?per_page=100")
     if not read.complete and read.cause == "read-failure":
         return _RemoteRead(False, payload=read.payload, cause="partial-inventory", evidence=read.evidence, next_action="Retry the GitHub branch inventory after confirming access to repository metadata")
     return read
 
 
-def _read_classic_protection(repo_root: Path, branch: str) -> ClassicProtection:
-    endpoint = "repos/{owner}/{repo}/branches/" + quote(branch, safe="") + "/protection"
-    read = _api_object_read(repo_root, endpoint)
+def _read_classic_protection(repo_root: Path, branch: str, identity: RepositoryIdentity) -> ClassicProtection:
+    endpoint = f"{identity.encoded_path}/branches/{quote(branch, safe='')}/protection"
+    read = _api_object_read(repo_root, identity, endpoint)
     if not read.complete:
         if read.documented_absence:
             return ClassicProtection(True, False, evidence="GitHub reported Branch not protected")
@@ -281,12 +343,13 @@ def _read_ruleset_detail(
     repo_root: Path,
     rule: object,
     cache: dict[tuple[str, str, int], tuple[RulesetDetail | None, str, str]],
+    repository: RepositoryIdentity,
 ) -> tuple[RulesetDetail | None, str, str]:
-    identity = rule.identity
-    if identity in cache:
-        return cache[identity]
-    endpoint = "repos/{owner}/{repo}/rulesets/" + str(rule.ruleset_id) + "?includes_parents=true"
-    read = _api_object_read(repo_root, endpoint)
+    rule_identity = rule.identity
+    if rule_identity in cache:
+        return cache[rule_identity]
+    endpoint = f"{repository.encoded_path}/rulesets/{rule.ruleset_id}?includes_parents=true"
+    read = _api_object_read(repo_root, repository, endpoint)
     if not read.complete:
         value = (None, read.cause, read.evidence)
     else:
@@ -297,22 +360,23 @@ def _read_ruleset_detail(
             cause = "hidden-fields" if missing else "malformed-response"
             evidence = f"ruleset detail omitted fields: {', '.join(missing)}" if missing else "ruleset detail had invalid fields"
             value = (None, cause, evidence)
-        elif detail.identity != identity:
+        elif detail.identity != rule_identity:
             value = (None, "malformed-response", "ruleset detail identity did not match active rules")
         else:
             value = (detail, "", "")
-    cache[identity] = value
+    cache[rule_identity] = value
     return value
 
 
 def _read_branch_rules(
     repo_root: Path,
     branch: str,
+    identity: RepositoryIdentity,
     detail_cache: dict[tuple[str, str, int], tuple[RulesetDetail | None, str, str]] | None = None,
 ) -> RuleRead:
-    endpoint = "repos/{owner}/{repo}/rules/branches/" + quote(branch, safe="") + "?per_page=100"
-    read = _api_read(repo_root, endpoint)
-    classic = _read_classic_protection(repo_root, branch)
+    endpoint = f"{identity.encoded_path}/rules/branches/{quote(branch, safe='')}?per_page=100"
+    read = _api_read(repo_root, identity, endpoint)
+    classic = _read_classic_protection(repo_root, branch, identity)
     if not read.complete:
         rules = parse_active_rules(read.payload, partial=True) if read.payload is not None else ()
         cause = "partial-rules" if read.cause == "read-failure" else read.cause
@@ -333,7 +397,7 @@ def _read_branch_rules(
     details: list[RulesetDetail] = []
     detail_errors: list[tuple[tuple[str, str, int], tuple[str, str]]] = []
     for rule in rules:
-        detail, cause, evidence = _read_ruleset_detail(repo_root, rule, cache)
+        detail, cause, evidence = _read_ruleset_detail(repo_root, rule, cache, identity)
         if detail is not None:
             details.append(detail)
         else:
@@ -349,22 +413,21 @@ def _read_branch_rules(
 
 def _branch_findings(
     repo_root: Path,
+    identity: RepositoryIdentity,
     settings: dict[str, Result] | None = None,
+    default_branch: str = "",
 ) -> tuple[tuple[str, Result], ...]:
     """Observe the complete remote inventory, then effective rules per shared branch."""
-    captured = StringIO()
+    settings = settings or {}
     try:
-        with redirect_stderr(captured):
-            trunk = delivery_base(repo_root).strip()
+        trunk = delivery_base(repo_root, observed_default=default_branch).strip()
     except (SystemExit, OSError):
         trunk = ""
-    trunk_error = _safe_detail(captured.getvalue()) if not trunk else ""
-    settings = settings or {}
     if not trunk:
-        finding = _unknown("trunk-unresolved", trunk_error or "the configured delivery base could not be resolved", "Resolve the delivery base and retry the GitHub diagnosis")
+        finding = _unknown("trunk-unresolved", "the configured delivery base could not be resolved", "Resolve the delivery base and retry the GitHub diagnosis")
         return (("force-push protection", finding), ("merge commits", finding), ("cleanup", finding))
 
-    inventory = _read_inventory(repo_root)
+    inventory = _read_inventory(repo_root, identity)
     if not inventory.complete:
         state = CAPABILITY_UNAVAILABLE if inventory.cause in {"plan-limitation", "github-cli-unavailable"} else UNVERIFIED
         finding = Result(
@@ -391,7 +454,7 @@ def _branch_findings(
         if name not in names:
             rules = RuleRead(False, cause="branch-missing", evidence="the delivery base was absent from the remote inventory")
         else:
-            rules = _read_branch_rules(repo_root, name, detail_cache)
+            rules = _read_branch_rules(repo_root, name, identity, detail_cache)
         force = evaluate_force_push(name, rules)
         label = f"force-push protection [{name} ({role})]"
         results.append((label, force))
@@ -403,8 +466,19 @@ def _branch_findings(
 
 
 def diagnose(repo_root: Path) -> tuple[dict[str, Result], tuple[tuple[str, Result], ...]]:
-    settings = _read_settings(repo_root)
-    return settings, _branch_findings(repo_root, settings)
+    identity, default_branch, settings = _read_repository(repo_root)
+    if identity is None:
+        failure = next(iter(settings.values()))
+        finding = Result(
+            failure.state,
+            failure.cause or "repository-identity-unverified",
+            f"repository identity was not verified: {failure.evidence}",
+            failure.next_action or "Retry the repository identity read after confirming the selected repository",
+        )
+        return settings, (("force-push protection", finding), ("merge commits", finding), ("cleanup", finding), ("repository identity", finding))
+    branch = _branch_findings(repo_root, identity, settings, default_branch)
+    identity_finding = Result(COMPATIBLE, "", f"observed {identity.hostname}/{identity.owner}/{identity.repository}", "")
+    return settings, (*branch, ("repository identity", identity_finding))
 
 
 def overall_result(settings: dict[str, Result], branch: tuple[tuple[str, Result], ...]) -> Result:
@@ -423,7 +497,7 @@ def overall_result(settings: dict[str, Result], branch: tuple[tuple[str, Result]
 
 
 def render(settings: dict[str, Result], branch: tuple[tuple[str, Result], ...]) -> str:
-    scope = "repository settings and the current snapshot of existing shared branches; future branches are not certified."
+    scope = "repository identity, settings, and the current snapshot of existing shared branches; future branches are not certified."
     lines = ["GitHub delivery diagnosis", f"Scope: {scope}"]
     for name, setting in _SETTINGS:
         finding = settings[name]

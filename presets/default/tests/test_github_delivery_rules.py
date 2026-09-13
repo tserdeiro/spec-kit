@@ -10,6 +10,12 @@ import github_delivery
 import github_delivery_rules as rules
 import _common
 
+IDENTITY = github_delivery.RepositoryIdentity("github.com", "acme", "demo")
+
+
+def _repository_payload(**settings: object) -> str:
+    return json.dumps({"nameWithOwner": "acme/demo", "url": "https://github.com/acme/demo", "defaultBranchRef": {"name": "main"}, **settings})
+
 
 def _active(kind: str = "non_fast_forward", ident: int = 7, parameters: dict[str, object] | None = None) -> dict[str, object]:
     value = {
@@ -178,9 +184,9 @@ def test_detail_errors_keep_identity_and_plan_priority() -> None:
 def test_partial_rule_pages_keep_prior_merge_and_cleanup_conflicts(tmp_path, monkeypatch, malformed: bool, evidence: str) -> None:
     responses = iter((SimpleNamespace(returncode=0 if malformed else 1, stdout=json.dumps([[_active("required_linear_history")], [{"bad": True}] if malformed else {"message": "HTTP 429: Too Many Requests"}]), stderr="" if malformed else "HTTP 429"), SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""), SimpleNamespace(returncode=0 if malformed else 1, stdout=json.dumps([[_active("deletion")], [{"bad": True}] if malformed else {"message": "HTTP 429: Too Many Requests"}]), stderr="" if malformed else "HTTP 429"), SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr="")))
     monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))
-    merge = rules.evaluate_merge("main", github_delivery._read_branch_rules(tmp_path, "main"), _setting("mergeCommitAllowed"))
+    merge = rules.evaluate_merge("main", github_delivery._read_branch_rules(tmp_path, "main", identity=IDENTITY), _setting("mergeCommitAllowed"))
     assert merge.state == rules.INCOMPATIBLE and "required_linear_history" in merge.evidence and evidence in merge.evidence
-    cleanup = rules.evaluate_cleanup("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature"), _setting("deleteBranchOnMerge"))
+    cleanup = rules.evaluate_cleanup("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature", identity=IDENTITY), _setting("deleteBranchOnMerge"))
     assert cleanup.state == rules.INCOMPATIBLE and "deletion restricts" in cleanup.evidence and evidence in cleanup.evidence
 
 
@@ -231,8 +237,8 @@ def test_diagnose_preserves_merge_uncertainty_when_ruleset_detail_is_denied(tmp_
     def fake_gh(*args: str, cwd=None):
         endpoint = args[-1]
         if args[:3] == ("repo", "view", "--json"):
-            return SimpleNamespace(returncode=0, stdout=json.dumps({"deleteBranchOnMerge": True, "mergeCommitAllowed": True}), stderr="")
-        if endpoint == "repos/{owner}/{repo}/branches?per_page=100":
+            return SimpleNamespace(returncode=0, stdout=_repository_payload(deleteBranchOnMerge=True, mergeCommitAllowed=True), stderr="")
+        if endpoint == "repos/acme/demo/branches?per_page=100":
             return SimpleNamespace(returncode=0, stdout=json.dumps([[{"name": "main"}]]), stderr="")
         if "/rules/branches/" in endpoint:
             return SimpleNamespace(returncode=0, stdout=json.dumps([[_active("pull_request", parameters={"allowed_merge_methods": ["merge"]})]]), stderr="")
@@ -243,7 +249,7 @@ def test_diagnose_preserves_merge_uncertainty_when_ruleset_detail_is_denied(tmp_
         raise AssertionError(endpoint)
 
     monkeypatch.setattr(github_delivery, "run_gh", fake_gh)
-    monkeypatch.setattr(github_delivery, "delivery_base", lambda _root: "main")
+    monkeypatch.setattr(github_delivery, "delivery_base", lambda _root, **_kwargs: "main")
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
     settings, findings = github_delivery.diagnose(tmp_path)
     merge = next(result for name, result in findings if name.startswith("merge commits"))
@@ -262,8 +268,8 @@ def test_classic_404_only_documents_absence_for_exact_message(tmp_path, monkeypa
         SimpleNamespace(returncode=1, stdout='{"message":"Not Found"}', stderr="HTTP 404"),
     ))
     monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))
-    assert github_delivery._read_classic_protection(tmp_path, "main").protected is False
-    assert github_delivery._read_classic_protection(tmp_path, "main").complete is False
+    assert github_delivery._read_classic_protection(tmp_path, "main", IDENTITY).protected is False
+    assert github_delivery._read_classic_protection(tmp_path, "main", IDENTITY).complete is False
     result = rules.evaluate_force_push("main", rules.RuleRead(True, classic=rules.ClassicProtection(False, None, cause="read-failure", evidence="forbidden")))
     assert result.cause == "read-failure"
 
@@ -288,8 +294,8 @@ def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, 
     def fake_gh(*args: str, cwd=None):
         calls.append(args)
         if args[:3] == ("repo", "view", "--json"):
-            return SimpleNamespace(returncode=0, stdout=json.dumps({"deleteBranchOnMerge": True, "mergeCommitAllowed": True}), stderr="")
-        if args[-1] == "repos/{owner}/{repo}/branches?per_page=100":
+            return SimpleNamespace(returncode=0, stdout=_repository_payload(deleteBranchOnMerge=True, mergeCommitAllowed=True), stderr="")
+        if args[-1] == "repos/acme/demo/branches?per_page=100":
             return SimpleNamespace(returncode=0, stdout=json.dumps([[{"name": "main"}, {"name": "001-feature"}, {"name": "001-feature"}], [{"name": "001-T001-task"}, {"name": "unrelated"}]]), stderr="")
         if "%24%28touch%20pwned%29" in args[-1]:
             return SimpleNamespace(returncode=0, stdout=active, stderr="")
@@ -300,20 +306,20 @@ def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, 
         return SimpleNamespace(returncode=0, stdout=active if any(marker in args[-1] for marker in ("/main?", "/001-T001-task?")) else "[[]]", stderr="")
 
     monkeypatch.setattr(github_delivery, "run_gh", fake_gh)
-    monkeypatch.setattr(github_delivery, "delivery_base", lambda _root: "main")
+    monkeypatch.setattr(github_delivery, "delivery_base", lambda _root, **_kwargs: "main")
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
     _settings, findings = github_delivery.diagnose(tmp_path)
     detail_calls = [call[-1] for call in calls if "/rulesets/" in call[-1]]
-    assert detail_calls.count("repos/{owner}/{repo}/rulesets/7?includes_parents=true") == 1
-    assert "repos/{owner}/{repo}/rulesets/8?includes_parents=true" in detail_calls
-    github_delivery._read_branch_rules(tmp_path, "001-$(touch pwned)")
+    assert detail_calls.count("repos/acme/demo/rulesets/7?includes_parents=true") == 1
+    assert "repos/acme/demo/rulesets/8?includes_parents=true" in detail_calls
+    github_delivery._read_branch_rules(tmp_path, "001-$(touch pwned)", identity=IDENTITY)
     detail_calls = [call[-1] for call in calls if "/rulesets/" in call[-1]]
-    assert detail_calls.count("repos/{owner}/{repo}/rulesets/7?includes_parents=true") == 2
+    assert detail_calls.count("repos/acme/demo/rulesets/7?includes_parents=true") == 2
     assert [(name, result.state) for name, result in findings if name.startswith("force-push")] == [("force-push protection [main (trunk)]", rules.COMPATIBLE), ("force-push protection [001-feature (feature)]", rules.INCOMPATIBLE), ("force-push protection [001-T001-task (task)]", rules.COMPATIBLE)]
-    assert github_delivery._read_branch_rules(tmp_path, "001-feature").complete
-    assert rules.evaluate_force_push("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature")).cause == "missing-configuration"
+    assert github_delivery._read_branch_rules(tmp_path, "001-feature", identity=IDENTITY).complete
+    assert rules.evaluate_force_push("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature", identity=IDENTITY)).cause == "missing-configuration"
     assert "Organization acme ruleset 7" in github_delivery.render(_settings, findings)
-    assert all(call[1:3] == ("--method", "GET") for call in calls[1:])
+    assert all(call[1:3] == ("--hostname", "github.com") and call[3:5] == ("--method", "GET") for call in calls[1:])
 
 
 def test_transport_failures_keep_distinct_causes_and_malformed_pages_unknown(tmp_path, monkeypatch) -> None:
@@ -327,10 +333,10 @@ def test_transport_failures_keep_distinct_causes_and_malformed_pages_unknown(tmp
     ))
     monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
-    assert github_delivery._read_inventory(tmp_path).cause == "partial-inventory"
-    assert github_delivery._read_branch_rules(tmp_path, "main").cause == "ambiguous-read"
-    assert github_delivery._read_branch_rules(tmp_path, "main").cause == "branch-disappeared"
-    assert github_delivery._read_inventory(tmp_path).cause == "malformed-response"
+    assert github_delivery._read_inventory(tmp_path, IDENTITY).cause == "partial-inventory"
+    assert github_delivery._read_branch_rules(tmp_path, "main", identity=IDENTITY).cause == "ambiguous-read"
+    assert github_delivery._read_branch_rules(tmp_path, "main", identity=IDENTITY).cause == "branch-disappeared"
+    assert github_delivery._read_inventory(tmp_path, IDENTITY).cause == "malformed-response"
 
 
 def test_trunk_resolution_failure_does_not_leak_raw_stderr(tmp_path, monkeypatch, capsys) -> None:
@@ -338,7 +344,7 @@ def test_trunk_resolution_failure_does_not_leak_raw_stderr(tmp_path, monkeypatch
         return SimpleNamespace(returncode=1, stdout="", stderr="Authorization: bearer github_pat_synthetic")
 
     monkeypatch.setattr(_common, "run_gh", fail)
-    findings = github_delivery._branch_findings(tmp_path)
+    findings = github_delivery._branch_findings(tmp_path, IDENTITY)
     captured = capsys.readouterr()
     assert captured.err == ""
     assert "github_pat_synthetic" not in captured.out
