@@ -274,6 +274,21 @@ def test_in_repo_feature_alias_is_rejected_before_realpath_inventory(tmp_path: P
     with pytest.raises(SystemExit) as error:
         product_gate._feature_paths(repo, repo / "alias/003-feature")
     assert error.value.code == 2
+    (repo / "repo-alias").symlink_to(repo, target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        product_gate._feature_paths(repo, repo / "repo-alias/specs/003-feature")
+    assert error.value.code == 2
+
+
+def test_external_repository_alias_is_allowed(tmp_path: Path) -> None:
+    repo = tmp_path / "real-repo"
+    feature = repo / "specs/003-feature"
+    feature.mkdir(parents=True)
+    (feature / "spec.md").write_text("spec\n", encoding="utf-8")
+    alias = tmp_path / "external-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    resolved, relative = product_gate._feature_paths(repo, alias / "specs/003-feature")
+    assert resolved == feature and relative == "specs/003-feature"
 
 
 @pytest.mark.parametrize("command", [("switch", "-c", "unrelated"), ("switch", "--detach")])
