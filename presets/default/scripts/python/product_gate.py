@@ -60,6 +60,16 @@ def _repository(repo: Path, origin: str) -> str:
     return name
 
 
+def _check_push_destinations(repo: Path, expected_repo: str) -> None:
+    result = run_git("remote", "get-url", "--push", "--all", "origin", cwd=repo)
+    push_urls = [url for url in result.stdout.splitlines() if url]
+    if result.returncode or not push_urls:
+        _pending("cannot read origin push URLs")
+    for push_url in push_urls:
+        if _repository(repo, push_url) != expected_repo:
+            _pending("origin push URL targets another repository")
+
+
 def _feature_branch(repo: Path, feature: str, origin: str) -> str:
     current = _git(repo, "branch", "--show-current").stdout.strip()
     candidates = _gh_json(repo, "pr", "list", "--repo", origin, "--state", "open", "--limit", "1000", "--json", "headRefName")
@@ -298,6 +308,7 @@ def check(repo: Path | None = None) -> None:
     feature = feature_rel.rsplit("/", 1)[-1]
     origin = _origin(repo)
     expected_repo = _repository(repo, origin)
+    _check_push_destinations(repo, expected_repo)
     branch = _feature_branch(repo, feature, origin)
     current = _git(repo, "branch", "--show-current").stdout.strip()
     if current != branch:

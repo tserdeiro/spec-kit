@@ -71,7 +71,7 @@ def published(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     oid = _git(feature_repo, "rev-parse", "HEAD").stdout.strip()
     origin = _git(feature_repo, "remote", "get-url", "origin").stdout.strip()
     state: dict[str, object] = {"oid": oid, "state": "OPEN", "base": "main", "refs": True, "missing": False,
-                                "gh_writes": []}
+                                "repositories": {origin: "org/repo"}, "gh_writes": []}
     monkeypatch.setattr(product_gate, "delivery_base", lambda *_: "main")
     runs: list[list[str]] = []
     original_run = product_gate.subprocess.run
@@ -82,7 +82,7 @@ def published(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     state["runs"] = runs
 
     def gh(*args):
-        read_only = (args == ("repo", "view", origin, "--json", "nameWithOwner") or
+        read_only = (args[:2] == ("repo", "view") and args[-2:] == ("--json", "nameWithOwner") or
                      args == ("pr", "list", "--repo", origin, "--state", "open", "--limit", "1000",
                               "--json", "headRefName") or
                      args == ("pr", "view", "003-feature", "--repo", origin, "--json", product_gate.FIELDS))
@@ -90,7 +90,7 @@ def published(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
             state["gh_writes"].append(args)
             product_gate._pending(f"unexpected GitHub mutation: {' '.join(args)}")
         if args[0:2] == ("repo", "view"):
-            return {"nameWithOwner": "org/repo"}
+            return {"nameWithOwner": state["repositories"].get(args[2], "org/repo")}
         if args[0:2] == ("pr", "list"):
             return [{"headRefName": "003-feature"}] if state["refs"] else []
         if state["missing"]:
@@ -180,6 +180,17 @@ def test_fetch_failure_stops_before_artifact_reads(published: tuple[Path, dict[s
         return subprocess.CompletedProcess(args, 1, "fetch failed", "") if args and args[0] == "fetch" else original(*args, **kwargs)
     monkeypatch.setattr(product_gate, "run_git", fail_fetch)
     _reject(repo, published[1])
+
+
+def test_mismatched_origin_push_destination_stops(published: tuple[Path, dict[str, object]]) -> None:
+    repo, state = published
+    external = repo.parent / "external-push.git"
+    _git(repo, "init", "--bare", "-q", str(external))
+    origin = _git(repo, "remote", "get-url", "origin").stdout.strip()
+    _git(repo, "remote", "set-url", "--add", "--push", "origin", origin)
+    _git(repo, "remote", "set-url", "--add", "--push", "origin", str(external))
+    state["repositories"][str(external)] = "org/other"
+    _reject(repo, state)
 
 
 @pytest.mark.parametrize("scope", ["worktree", "index", "HEAD"])
