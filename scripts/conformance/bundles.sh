@@ -638,8 +638,8 @@ import json, os, subprocess, sys
 
 args = sys.argv[1:]
 observed = args == ["branch", "--show-current"] or (
-    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch", "diff", "worktree"}
-)
+    args and args[0] in {"check-ref-format", "fetch", "merge", "push", "switch", "diff", "worktree", "for-each-ref"}
+) or args[:2] in (["remote", "get-url"], ["rev-parse", "--verify"])
 if observed:
     with open(os.environ["GIT_CALLS"], "a", encoding="utf-8") as stream:
         stream.write(json.dumps(args, ensure_ascii=False, separators=(",", ":")) + "\n")
@@ -653,6 +653,12 @@ elif args and args[0] == "check-ref-format":
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
     raise SystemExit(result.returncode)
+elif args[:2] == ["rev-parse", "--verify"]:
+    print("0123456789012345678901234567890123456789")
+elif args[:2] == ["remote", "get-url"]:
+    raise SystemExit(1)
+elif args and args[0] == "for-each-ref":
+    pass
 elif args and os.environ.get("FAIL_COMMAND") == args[0]:
     print(f"forced {args[0]} failure", file=sys.stderr)
     raise SystemExit(9)
@@ -841,9 +847,13 @@ set_config 'trunk: unused\n'
 reset_command_logs
 run_work_item_branch main >/dev/null || fail "trunk: work-item branch create failed"
 [ ! -s "$gh_calls" ] || fail "trunk: work-item branch queried GitHub although trunk was configured"
-[ "$(cat "$git_calls")" = "$(work_item_check_calls)
-$(json_argv check-ref-format --branch unused)
-$(json_argv fetch origin)
+[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch unused)
+$(json_argv fetch --all)
+$(json_argv for-each-ref '--format=%(refname)' refs/heads refs/remotes)
+$(json_argv remote get-url origin)
+$(json_argv check-ref-format --branch wor-123-short-slug)
+$(json_argv check-ref-format refs/heads/wor-123-short-slug)
+$(json_argv rev-parse --verify 'origin/unused^{commit}')
 $(switch_call unused)" ] ||
   fail "trunk: work-item branch used incorrect git argv for the configured base"
 
@@ -853,9 +863,13 @@ reset_command_logs
 run_work_item_branch 'default$(safe)' >/dev/null || fail "trunk: work-item branch create failed"
 [ "$(cat "$gh_calls")" = "$repo_view" ] ||
   fail "trunk: work-item branch did not resolve the GitHub default at runtime"
-[ "$(cat "$git_calls")" = "$(work_item_check_calls)
-$(json_argv check-ref-format --branch 'default$(safe)')
-$(json_argv fetch origin)
+[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')
+$(json_argv fetch --all)
+$(json_argv for-each-ref '--format=%(refname)' refs/heads refs/remotes)
+$(json_argv remote get-url origin)
+$(json_argv check-ref-format --branch wor-123-short-slug)
+$(json_argv check-ref-format refs/heads/wor-123-short-slug)
+$(json_argv rev-parse --verify 'origin/default$(safe)^{commit}')
 $(switch_call 'default$(safe)')" ] ||
   fail "trunk: work-item branch did not validate its fallback base"
 

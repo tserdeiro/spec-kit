@@ -29,6 +29,7 @@ elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "hea
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
 elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "number,headRefName,baseRefName,isDraft"]:
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
+elif len(argv) >= 3 and argv[0:3] == ["api", "repos/{owner}/{repo}/pulls", "--paginate"]: sys.stdout.write(os.environ.get("GH_PR_API_JSON", "[]"))
 elif len(argv) == 6 and argv[0:3] == ["api", "-X", "PATCH"] and argv[3].startswith("repos/") and argv[4] == "-f":
     number = argv[3].rsplit("/", 1)[-1]
     if os.environ.get("GH_PATCH_FAIL") == number:

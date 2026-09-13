@@ -16,7 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from _common import check_prerequisites, delivery_base, die, open_task_prs, reconcile_linear, run_git
-from work_item_start import WorkItemContext, start as start_work_item
+from work_item_start import StartPlan, WorkItemContext, prepare as prepare_work_item
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = run_git(*args, cwd=repo_root)
@@ -56,14 +56,43 @@ def task(repo_root: Path, task_branch: str) -> None:
     reconcile_linear(repo_root)
 
 def work_item(repo_root: Path, issue_key: str, title: str | None = None) -> WorkItemContext:
-    context = start_work_item(repo_root, issue_key, title)
     base = delivery_base(repo_root)
     _git(repo_root, "check-ref-format", "--branch", base)
-    _git(repo_root, "fetch", "origin")
-    _git(repo_root, "switch", "-c", context.branch_name, f"origin/{base}")
+    _git(repo_root, "fetch", "--all")
+    plan = prepare_work_item(repo_root, issue_key, title, exclude_branches={base})
+    if plan.existing:
+        _adopt_existing(repo_root, plan)
+    else:
+        _git(repo_root, "rev-parse", "--verify", f"origin/{base}^{{commit}}")
+        _git(repo_root, "switch", "-c", plan.context.branch_name, f"origin/{base}")
     reconcile_linear(repo_root)
-    print(json.dumps(asdict(context), ensure_ascii=False, sort_keys=True))
-    return context
+    print(json.dumps(asdict(plan.context), ensure_ascii=False, sort_keys=True))
+    return plan.context
+
+
+def _adopt_existing(repo_root: Path, plan: StartPlan) -> None:
+    current = _git(repo_root, "branch", "--show-current").stdout.strip()
+    worktrees = _git(repo_root, "worktree", "list", "--porcelain").stdout.splitlines()
+    path = None
+    for index, line in enumerate(worktrees):
+        if line.startswith("worktree "):
+            path = Path(line.removeprefix("worktree ")).resolve()
+        elif line == f"branch refs/heads/{plan.context.branch_name}" and path != repo_root.resolve():
+            die(f"existing work branch is checked out in another worktree: {plan.context.branch_name}")
+    if current != plan.context.branch_name:
+        if plan.remote_ref and not _local_branch(repo_root, plan.context.branch_name):
+            _git(repo_root, "switch", "--track", "-c", plan.context.branch_name, plan.remote_ref)
+        else:
+            _git(repo_root, "switch", plan.context.branch_name)
+    if plan.remote_ref:
+        upstream = run_git("rev-parse", "--abbrev-ref", f"{plan.context.branch_name}@{{upstream}}", cwd=repo_root)
+        if upstream.returncode != 0:
+            _git(repo_root, "branch", "--set-upstream-to", plan.remote_ref, plan.context.branch_name)
+
+
+def _local_branch(repo_root: Path, branch: str) -> bool:
+    result = run_git("show-ref", "--verify", "--quiet", f"refs/heads/{branch}", cwd=repo_root)
+    return result.returncode == 0
 
 def main(argv: list[str]) -> int:
     if not argv:
