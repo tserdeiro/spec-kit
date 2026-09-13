@@ -31,8 +31,6 @@ Términos que se repiten:
   calcula desde lo observable (casilla, rama, PR) y se escribe; repetirlo
   sin cambios no hace nada.
 - **Packet**: el paquete de archivos que lee el motor de revisión.
-- **Presupuesto y forecast**: cada tarea estima cuántas líneas va a agregar;
-  el loop frena al doble de la estimación o a 400 líneas.
 - **Guard**: un chequeo que bloquea una acción peligrosa antes de que
   ocurra. Solo funciona en agentes con eventos (Claude, Codex, Cursor).
 - **Doctor**: el chequeo de salud del setup.
@@ -184,28 +182,14 @@ Términos que se repiten:
   [`implement.md:94`](../presets/default/commands/implement.md:94),
   [`implement.md:104`](../presets/default/commands/implement.md:104).
 
-**8. Una sola forma de contar el presupuesto.** Codex; Claude.
+**8. Resuelto: se retira el presupuesto, en vez de unificarlo.** Codex; Claude.
 
-- Hoy: hay dos contadores que no coinciden. Renombrar un archivo de 300
-  líneas cuenta 300 en el loop y 0 en la revisión. Ambos ignoran Markdown.
-  El loop cuenta solo líneas agregadas, con blancos y comentarios, y solo lo
-  ya commiteado, así que quien implementa no puede medirse antes de
-  commitear. El ejemplo del template no lleva el forecast que el comando
-  exige. Las cifras de evidencia se tipean a mano y se desfasan.
-- Propuesta: una sola definición de la métrica (qué cuenta, cómo se tratan
-  renames, blancos y Markdown), una sola implementación o dos probadas
-  equivalentes, y un modo que mida el trabajo sin commitear. El ejemplo del
-  template lleva `(~N authored lines)`. El PR toma las cifras de la salida de
-  los scripts, nunca tipeadas.
-- Detalle:
-  [`budget_stop.py:56`](../presets/default/scripts/python/budget_stop.py:56),
-  [`budget.py:92`](../packages/spec-kit-code-review/src/spec_kit_code_review/budget.py:92),
-  entradas [58](dogfooding.md:491), [67](dogfooding.md:576),
-  [69](dogfooding.md:595), [75](dogfooding.md:649), [78](dogfooding.md:672);
-  [`tasks-template.md:55`](../presets/default/templates/tasks-template.md:55)
-  contra [`tasks.md:42`](../presets/default/commands/tasks.md:42).
-- Decisión (2026-09-11): unificar primero y medir después; no contar
-  líneas netas, porque una eliminación grande también necesita revisión.
+- Decisión revisada: el motor de revisión ya acota el alcance a cada
+  archivo cambiado, exige lectura de los hunks cambiados con constancia
+  de lectura, y despacha por grupos de hasta 10 archivos relacionados. El
+  tamaño queda visible en `insertions`/`deletions` del propio packet, sin
+  frenar ni pronosticar nada. No hace falta unificar dos contadores que ya
+  no existen.
 
 ### D. Usar lo nativo de Git, GitHub y Linear
 
@@ -392,14 +376,11 @@ estén escritos.** Codex; Claude.
   carga y antigüedad para que el humano decida cuándo revisar.
 - Decisión (2026-09-11): sin tope; se muestran carga y antigüedad.
 
-**20. La regla del doble del forecast.** Claude.
+**20. Resuelto: se retira la regla del doble del forecast.** Claude.
 
-- Hoy: la regla frenó tareas por estimaciones mal hechas por diseño (T026
-  en 91 contra 80, T021 en 972 contra 10) y cuatro presupuestos quedaron
-  excedidos tras correcciones, por decisión humana. En la 004 frenó dos veces.
-- Propuesta: no tocarla todavía. Medir las interrupciones que produce y
-  decidir con esa cifra si el forecast pasa a advertencia y solo frena el
-  techo de 400.
+- Decisión revisada: en vez de medir sus interrupciones antes de tocarla,
+  la regla se elimina junto con todo el presupuesto (punto 8); no hay
+  forecast ni techo de líneas que frenar.
 - Detalle: entradas [70](dogfooding.md:604), [83](dogfooding.md:720),
   [94](dogfooding.md:869); [`plan.md:348`](plan.md:348).
 
@@ -413,9 +394,9 @@ porque la fase 1 depende de ellas.
 
 | Fase | Puntos | Por qué en este lugar |
 | --- | --- | --- |
-| 0. Antes de empezar | actualizar y cablear este repositorio (chore en curso); pendientes de aceptación de la 005; PRs a upstream con sus pruebas de agente; decisiones de los puntos 8, 11, 16, 18 y 19; plan de GitHub para el 9 | sin la 18 no se toca la derivación; sin la 8 no se unifica el presupuesto; el repo tiene que correr con lo que va a probar |
+| 0. Antes de empezar | actualizar y cablear este repositorio (chore en curso); pendientes de aceptación de la 005; PRs a upstream con sus pruebas de agente; decisiones de los puntos 11, 16, 18 y 19; plan de GitHub para el 9 | sin la 18 no se toca la derivación; el repo tiene que correr con lo que va a probar |
 | 1. Linear correcto | 1 | el mayor impacto, sin cambiar la superficie; base de todo lo demás |
-| 2. Revisión y presupuesto | 6, 8 | sin una revisión que pueda cerrarse no hay "listo" verificable |
+| 2. Revisión | 6 | sin una revisión que pueda cerrarse no hay "listo" verificable |
 | 3. Loop reanudable y listo verificable | 2, 7, 5 | aquí nacen los scripts de cierre de tarea y de feature |
 | 4. Nativo | 9, 10, 11, 12, 13 | independientes del loop; casi todo es doctor y configuración |
 | 5. Recorrido completo | 3, 4 | usa el "qué sigue", el gate por aprobación y los títulos de Linear |
@@ -443,7 +424,6 @@ Por lo que se ve en el día a día, no por tests verdes:
   incluyendo varios PRs y caídas de red.
 - Revisión útil: cobertura de los archivos relevantes, causas de
   "inconcluso", hallazgos que solo necesitaban corregir el formato.
-- Presupuesto: frecuencia y causa de las paradas y de las excepciones.
 - Instalación: tiempo hasta el primer PR revisable, en instalación limpia y
   en actualización.
 - Relevo humano: PRs listos, antigüedad y tiempo hasta la revisión.
@@ -457,8 +437,8 @@ validación de archivos generados.
 
 Una extensión nueva; aprobar o mergear desde el harness; refrescar la rama
 de feature sola sin una política acordada; cambiar la convención de ramas
-salvo lo que decida el punto 18; tocar la regla del doble antes de medirla;
-un script de bootstrap; adaptadores de canal; reimplementar lo que un
+salvo lo que decida el punto 18; un script de bootstrap; adaptadores de
+canal; reimplementar lo que un
 ruleset, un hook de Git, CODEOWNERS o la integración GitHub y Linear ya
 hacen.
 
@@ -469,7 +449,7 @@ Respondidas el 2026-09-11; el detalle vive en
 
 | Decisión | Punto | Respuesta |
 | --- | --- | --- |
-| Métrica del presupuesto y alcance del packet | 6, 8 | unificar primero, medir después; sin líneas netas |
+| Alcance del packet | 6 | el motor scopea cada archivo cambiado; sin métrica de presupuesto que unificar |
 | Aprobación del plan | 11 | el envío del plan al repositorio es la aprobación; no hay gate adicional |
 | Nombre del comando de revisión | 16 | pendiente |
 | Prefijos de monorepo y teams por repositorio | 18 | se soporta `autor/app/003-slug`; un team por repositorio por ahora |
