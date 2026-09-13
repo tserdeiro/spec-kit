@@ -28,11 +28,23 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 This distribution delivers **one branch and one draft PR per task**; wrap every task in the steps below.
 
-**Orchestrate when your host can.** If your host supports delegating to sub-agents (Claude Code's Task tool, OpenCode agents, or equivalent), run this loop as an orchestrator: implement each task in a **fresh sub-agent**, so no context carries one task's residue into the next, and keep for yourself only what the loop needs — state derivation, branches, commits, and the conversation with the human. Everything a sub-agent needs (spec, plan, tasks, checkboxes, branches, PRs) is observable from the repository, so hand it pointers, never your conversation. Without that capability, run the loop yourself as written.
-
 **One task at a time.** Task lists here carry no parallel-task marker and no task ever runs in parallel. Exactly one task is in flight: one branch, one sub-agent, one draft PR. The next task starts only once the current one is `ready for review` (step 2). Tasks other developers deliver on their own branches are not this loop's concern.
 
 Run every script below with the consumer's `.venv/bin/python` when it exists, else `python3` on PATH — the rule upstream's own `py` scripts follow.
+
+## Orchestration
+
+When your host can delegate to sub-agents (Claude Code's Task tool, OpenCode agents, or equivalent), run this loop as an orchestrator: each task is implemented in its own sub-agent, so no context carries one task's residue into the next. Without that capability, run the loop yourself as written.
+
+- **Working state.** Keep five facts — task id, branch, head SHA, current step, next action — and pointers: PR number, session path, packet path. Never contents.
+- **Never read** packets, diffs, test logs, findings files, plan or spec bodies, or full JSON documents. Consume exit codes, the compact JSON of the scripts and of the review command, and the sub-agents' return lines. What you must know about the code, a sub-agent finds out for you.
+- **Implementer brief**, fixed: the task block copied verbatim from `tasks.md`; plan sections by path and heading, never pasted; files and boundaries; the task's Evidence commands; branch and base; the exit condition — evidence commands pass, changes committed with a conventional subject, ledger filled as step 2 says; the delegation budget below; and the return format: at most fifteen lines — head SHA, files changed, each evidence command with its result line, deviations or open questions. Nothing else comes back.
+- **Reviewer brief**: the packet path and step 2's fixed brief. It returns one line, `findings written at <path>: N (blocking/major/minor/nit/info)`. Finding contents never reach you; the close command's `delivery` decision is what you act on.
+- **Waiting.** Wait on the host's completion notification: no polling, no status message, no file read, no remote query while waiting, unless there is a new reason. A host that requires a periodic update gets one line — no new investigation, no re-sent instructions. Silence is not a block: before interrupting, check one piece of evidence once (did the branch head move, does the test output file exist).
+- **Delegation budget.** One attempt, plus one recovery after a diagnosed cause; the recovery brief carries only the verified progress (head SHA, what is done) and the blocker. When the recovery is spent: keep the work on the branch, report the blocker to the human, stop. Exhaustion is never success.
+- **Resume from native state**, never from conversation summaries: the branch, `gh pr view`, the ledger, the session directory. Adopt what exists before doing anything; verify an uncertain remote result — a push, a PR creation, a comment — before repeating the write.
+- **Effort.** Respect the user's model selection. Where the host sets effort per delegation, mechanical steps — waiting, state derivation, follow-up verification — take the lower setting; complex decisions and the final feature audit keep the higher one.
+- **Communication.** Report findings, decisions and blockers. The completion report below stays as it is.
 
 ## 0. The gate
 
@@ -88,7 +100,7 @@ Run `/speckit.pr`: it guarantees the branch invariant and opens the draft PR wit
 > when there is one; otherwise, return the findings directly to the
 > orchestrator.
 
-- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to a **fresh sub-agent** with no implementation residue, which reads the packet in full, reviews the candidate, and writes `findings.json` **inside the review session directory**; close the review with that file. Without sub-agents, run the review yourself — findings still written inside the session directory, fresh per review, never copied from an earlier one.
+- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to a **fresh sub-agent** with no implementation residue, which reads the packet in full, reviews the candidate, writes `findings.json` **inside the review session directory**, and returns the one line the Orchestration section fixes; close the review with that file and act on its `delivery` decision. Without sub-agents, run the review yourself — findings still written inside the session directory, fresh per review, never copied from an earlier one.
 - **Without `code-review`**, hand a fresh sub-agent (or, without one, a fresh context) the PR's diff and body — `gh pr diff <n>` and `gh pr view <n>` — and the brief, nothing else carried over. It returns its findings; post them as one PR comment (`gh pr comment <n>`) — no session, no verdict, the degraded mode — and name that comment in the Completion evidence.
 
 That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it.
