@@ -134,6 +134,17 @@ class HookRepair:
     diagnostics: tuple[Diagnostic, ...] = ()
 
 
+@dataclass(frozen=True)
+class _ConfigSnapshot:
+    exists: bool
+    mode: int | None
+    bytes: bytes
+    is_regular: bool
+    is_symlink: bool
+    parent_mode: int
+    parent_is_symlink: bool
+
+
 def observe_native_hook(root: Path, git: Git) -> HookObservation:
     """Read Git's effective hook arrangement without executing consumer hooks."""
 
@@ -289,12 +300,19 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
     temporary: Path | None = None
     try:
         try:
-            current_exists = observation.config_path.exists()
-            current_bytes = observation.config_path.read_bytes() if current_exists else b""
+            current_snapshot = _config_snapshot(observation.config_path)
         except OSError as error:
             return HookRepair(diagnostics=(Diagnostic("git_hooks_stale_snapshot", f"could not re-read Git config under lock: {error}; retry", str(observation.config_path)),))
-        current_mode = stat.S_IMODE(observation.config_path.lstat().st_mode) if current_exists else None
-        if (current_exists, current_mode, current_bytes) != (observation.config_exists, observation.config_mode, observation.config_bytes):
+        diagnosed_snapshot = _ConfigSnapshot(
+            observation.config_exists,
+            observation.config_mode,
+            observation.config_bytes,
+            True,
+            False,
+            current_snapshot.parent_mode,
+            current_snapshot.parent_is_symlink,
+        )
+        if current_snapshot != diagnosed_snapshot:
             return HookRepair(diagnostics=(Diagnostic("git_hooks_stale_snapshot", "Git configuration changed after diagnosis; no hook changes were made, retry doctor", str(observation.config_path)),))
         fresh = observe_native_hook(root, git)
         if fresh.signature != observation.signature:
@@ -321,12 +339,36 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
         events = git.run("config", "--file", str(temporary), "--get-all", f"hook.{HOOK_NAME}.event")
         if not verify.ok or verify.stdout.splitlines() != [HOOK_COMMAND] or not events.ok or events.stdout.splitlines() != [HOOK_EVENT]:
             return HookRepair(diagnostics=(Diagnostic("git_hooks_temp_config_failed", "Git's edited configuration did not contain exactly one owned command and event", str(temporary)),))
+        replacement_bytes = temporary.read_bytes()
+        replacement_mode = stat.S_IMODE(temporary.lstat().st_mode)
+        late_observation = observe_native_hook(root, git)
+        if late_observation.signature != observation.signature:
+            return HookRepair(diagnostics=(Diagnostic("git_hooks_stale_snapshot", "effective hook configuration changed while preparing the repair; no hook changes were made, retry doctor", str(observation.config_path)),))
+        try:
+            late_snapshot = _config_snapshot(observation.config_path)
+        except OSError as error:
+            return HookRepair(diagnostics=(Diagnostic("git_hooks_stale_snapshot", f"could not re-read Git config immediately before replacement: {error}; no hook changes were made, retry", str(observation.config_path)),))
+        if late_snapshot != diagnosed_snapshot:
+            return HookRepair(diagnostics=(Diagnostic("git_hooks_stale_snapshot", "Git configuration changed while preparing the repair; no hook changes were made, retry doctor", str(observation.config_path)),))
+        expected_replacement = _ConfigSnapshot(
+            True,
+            replacement_mode,
+            replacement_bytes,
+            True,
+            False,
+            late_snapshot.parent_mode,
+            late_snapshot.parent_is_symlink,
+        )
         os.replace(temporary, observation.config_path)
         temporary = None
         final = observe_native_hook(root, git)
         if final.state != "installed":
-            _restore_config(observation)
-            return HookRepair(diagnostics=(Diagnostic("git_hooks_readback_failed", "native registration was written but Git could not verify it; inspect the config and retry", str(observation.config_path)),))
+            restored, recovery = _restore_config(observation, expected_replacement)
+            if restored:
+                message = "native registration was written but Git could not verify it; restored the diagnosed config and mode, inspect it and retry doctor"
+            else:
+                message = f"native registration was written but Git could not verify it; restoration was not applied ({recovery}), inspect the config manually and use the owned-section rollback before retrying"
+            return HookRepair(diagnostics=(Diagnostic("git_hooks_readback_failed", message, str(observation.config_path)),))
         return HookRepair(applied=f"registered {HOOK_NAME} for {HOOK_EVENT} in {observation.config_scope} Git config")
     except OSError as error:
         return HookRepair(diagnostics=(Diagnostic("git_hooks_write_failed", f"native registration was not completed: {error}; retry doctor", str(observation.config_path)),))
@@ -425,10 +467,46 @@ def _payload_roots(observation: HookObservation) -> list[Path] | None:
     return list(dict.fromkeys(roots or [observation.root]))
 
 
-def _restore_config(observation: HookObservation) -> None:
+def _config_snapshot(path: Path) -> _ConfigSnapshot:
+    parent = path.parent.lstat()
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return _ConfigSnapshot(
+            False,
+            None,
+            b"",
+            True,
+            False,
+            stat.S_IMODE(parent.st_mode),
+            stat.S_ISLNK(parent.st_mode),
+        )
+    is_symlink = stat.S_ISLNK(current.st_mode)
+    is_regular = stat.S_ISREG(current.st_mode)
+    return _ConfigSnapshot(
+        True,
+        stat.S_IMODE(current.st_mode),
+        path.read_bytes() if is_regular else b"",
+        is_regular,
+        is_symlink,
+        stat.S_IMODE(parent.st_mode),
+        stat.S_ISLNK(parent.st_mode),
+    )
+
+
+def _restore_config(observation: HookObservation, expected: _ConfigSnapshot) -> tuple[bool, str]:
+    try:
+        current = _config_snapshot(observation.config_path)
+    except OSError as error:
+        return False, f"could not inspect the destination: {error}"
+    if current != expected:
+        return False, "the destination or its parent changed after replacement; it was left untouched"
     if not observation.config_exists:
-        observation.config_path.unlink(missing_ok=True)
-        return
+        try:
+            observation.config_path.unlink()
+        except OSError as error:
+            return False, f"could not remove the newly created config: {error}"
+        return True, ""
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(prefix=f".{observation.config_path.name}.speckit-restore-", dir=observation.config_path.parent, delete=False) as handle:
@@ -437,8 +515,20 @@ def _restore_config(observation: HookObservation) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         temporary.chmod(observation.config_mode or 0o644)
+        try:
+            current = _config_snapshot(observation.config_path)
+        except OSError as error:
+            return False, f"could not recheck the destination before restoration: {error}"
+        if current != expected:
+            return False, "the destination or its parent changed during restoration; it was left untouched"
         os.replace(temporary, observation.config_path)
         temporary = None
+        return True, ""
+    except OSError as error:
+        return False, f"could not restore the diagnosed config: {error}"
     finally:
         if temporary is not None:
-            temporary.unlink(missing_ok=True)
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass

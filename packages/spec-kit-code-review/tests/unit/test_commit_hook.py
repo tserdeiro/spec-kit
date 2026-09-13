@@ -373,6 +373,65 @@ class NativeHookTests(unittest.TestCase):
         self.assertNotIn(HOOK_COMMAND.encode(), config.read_bytes())
         self.assertEqual(calls, 2)
 
+    def test_late_direct_config_edit_is_preserved_before_replacement(self) -> None:
+        config = self.root / ".git/config"
+        original = config.read_bytes()
+        marker = b"\n[consumer]\n\tconcurrent = keep-me\n"
+        real_run = self.git.run
+        injected = False
+
+        def edit_during_temp_preparation(*arguments: str, **kwargs):
+            nonlocal injected
+            if not injected and arguments[:2] == ("config", "set") and "--file" in arguments:
+                injected = True
+                config.write_bytes(config.read_bytes() + marker)
+            return real_run(*arguments, **kwargs)
+
+        with mock.patch.object(self.git, "run", side_effect=edit_during_temp_preparation):
+            repair = install_native_hook(self.root, self.git)
+        self.assertTrue(injected)
+        self.assertIn("git_hooks_stale_snapshot", {item.code for item in repair.diagnostics})
+        self.assertIsNone(repair.applied)
+        self.assertEqual(config.read_bytes(), original + marker)
+        self.assertNotIn(HOOK_COMMAND.encode(), config.read_bytes())
+
+    def test_readback_recovery_does_not_overwrite_a_new_config_edit(self) -> None:
+        from spec_kit_code_review import commit_hook
+
+        config = self.root / ".git/config"
+        marker = b"\n[consumer]\n\tconcurrent = keep-me\n"
+        observed = commit_hook.observe_native_hook
+        real_fsync = commit_hook.os.fsync
+        calls = 0
+        fsync_calls = 0
+
+        def fail_readback(root: Path, git: Git):
+            nonlocal calls
+            calls += 1
+            observation = observed(root, git)
+            if calls == 4:
+                observation.list_ok = False
+                observation.list_error = "synthetic readback failure"
+            return observation
+
+        def edit_during_restore_temp(fd: int) -> None:
+            nonlocal fsync_calls
+            real_fsync(fd)
+            fsync_calls += 1
+            if fsync_calls == 2:
+                config.write_bytes(config.read_bytes() + marker)
+
+        with (
+            mock.patch.object(commit_hook, "observe_native_hook", side_effect=fail_readback),
+            mock.patch.object(commit_hook.os, "fsync", side_effect=edit_during_restore_temp),
+        ):
+            repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_readback_failed", {item.code for item in repair.diagnostics})
+        self.assertIn("restoration was not applied", repair.diagnostics[0].message)
+        self.assertIn("during restoration", repair.diagnostics[0].message)
+        self.assertIn(marker, config.read_bytes())
+        self.assertIn(HOOK_COMMAND.encode(), config.read_bytes())
+
     def test_partial_owned_entry_is_normalized_to_one_event(self) -> None:
         self.repo.git("config", "set", f"hook.{HOOK_NAME}.command", HOOK_COMMAND)
         self.repo.git("config", "set", f"hook.{HOOK_NAME}.event", "pre-commit")
