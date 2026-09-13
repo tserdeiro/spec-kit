@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import stat
 import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+import tomllib
 
 from .errors import AppError, Diagnostic
 from .git import Git
@@ -21,6 +24,26 @@ PAYLOAD = (
     Path(".specify/extensions/code-review/src/spec_kit_code_review/__init__.py"),
     Path(".specify/extensions/code-review/src/spec_kit_code_review/commit_msg.py"),
     Path(".specify/extensions/code-review/src/spec_kit_code_review/commit_policy.py"),
+)
+LEFTHOOK_MAIN_CONFIGS = (
+    "lefthook.yml",
+    "lefthook.yaml",
+    "lefthook.json",
+    "lefthook.toml",
+    ".lefthook.yml",
+    ".lefthook.yaml",
+    ".lefthook.json",
+    ".lefthook.toml",
+)
+LEFTHOOK_LOCAL_CONFIGS = (
+    "lefthook-local.yml",
+    "lefthook-local.yaml",
+    "lefthook-local.json",
+    "lefthook-local.toml",
+    ".lefthook-local.yml",
+    ".lefthook-local.yaml",
+    ".lefthook-local.json",
+    ".lefthook-local.toml",
 )
 
 
@@ -43,6 +66,9 @@ class HookObservation:
     hooks_path: Path | None = None
     config_snapshot: _ConfigSnapshot | None = None
     traditional_hook_snapshot: tuple[object, ...] = ()
+    manual_hook_snapshots: tuple[tuple[str, tuple[object, ...]], ...] = ()
+    manual_invocation_sources: tuple[Path, ...] = ()
+    manual_hook_diagnostics: list[Diagnostic] = field(default_factory=list)
     records: list[HookRecord] = field(default_factory=list)
     listed: list[tuple[str, bool]] = field(default_factory=list)
     list_ok: bool = False
@@ -59,6 +85,8 @@ class HookObservation:
     def state(self) -> str:
         own = self.own
         if not self.list_ok and not self._event_only_list_failure:
+            return "unverifiable"
+        if self.manual_hook_diagnostics:
             return "unverifiable"
         if self._disabled:
             return "disabled"
@@ -100,7 +128,7 @@ class HookObservation:
         return any(
             str(PAYLOAD[0]) in record.value and not record.key.startswith(f"hook.{HOOK_NAME}.")
             for record in self.records
-        ) or _manual_hook_invocation(self.hooks_path)
+        ) or bool(self.manual_invocation_sources)
 
     @property
     def _disabled(self) -> bool:
@@ -121,6 +149,7 @@ class HookObservation:
             self.config_snapshot,
             self.hooks_path,
             self.traditional_hook_snapshot,
+            self.manual_hook_snapshots,
             tuple((r.scope, r.origin, r.key, r.value) for r in self.records),
             tuple(self.listed),
             self.list_ok,
@@ -167,6 +196,7 @@ def observe_native_hook(root: Path, git: Git) -> HookObservation:
             Diagnostic("git_hooks_path_unreadable", "could not resolve Git's effective hooks path", str(root))
         )
     observation.traditional_hook_snapshot = _traditional_hook_snapshot(observation.hooks_path)
+    _observe_manual_hook_sources(observation)
 
     worktree_result = git.run("config", "--local", "--bool", "--get", "extensions.worktreeConfig")
     worktree_config = worktree_result.ok and worktree_result.stdout.strip().lower() in {"true", "yes", "on", "1"}
@@ -228,6 +258,9 @@ def hook_diagnostics(root: Path, git: Git) -> list[Diagnostic]:
         if observation.config_path.is_symlink():
             diagnostics.append(Diagnostic("git_hooks_unsafe_config", "native registration uses a symlinked Git configuration destination; preserve it and integrate the hook manually", str(observation.config_path), severity="error"))
             return diagnostics
+    if observation.manual_hook_diagnostics:
+        diagnostics.extend(observation.manual_hook_diagnostics)
+        return diagnostics
     if observation.git_version < MIN_NATIVE_GIT:
         diagnostics.append(
             Diagnostic(
@@ -262,7 +295,14 @@ def hook_diagnostics(root: Path, git: Git) -> list[Diagnostic]:
     elif state == "conflict":
         diagnostics.append(Diagnostic("git_hooks_name_conflict", f"{HOOK_NAME} has a different command; preserve it and choose another name or repair it manually", str(observation.config_path), severity="error"))
     elif state == "duplicate":
-        diagnostics.append(Diagnostic("git_hooks_duplicate", f"another native entry or traditional hook invokes the validator; remove the duplicate manually before running `doctor --fix`", str(observation.hooks_path or observation.config_path), severity="error"))
+        if observation.manual_invocation_sources:
+            sources = ", ".join(str(path) for path in observation.manual_invocation_sources)
+            message = f"the validator is already invoked by {sources}; remove the manual call before running `doctor --fix`"
+            path = str(observation.manual_invocation_sources[0])
+        else:
+            message = "another native entry or traditional hook invokes the validator; remove the duplicate manually before running `doctor --fix`"
+            path = str(observation.hooks_path or observation.config_path)
+        diagnostics.append(Diagnostic("git_hooks_duplicate", message, path, severity="error"))
     else:
         diagnostics.append(Diagnostic("git_hooks_unverifiable", "native commit-msg validation could not be verified; inspect Git configuration and retry", str(observation.root), severity="error"))
     return diagnostics
@@ -274,7 +314,7 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
     observation = observe_native_hook(root, git)
     if observation.git_version < MIN_NATIVE_GIT:
         return HookRepair(diagnostics=(Diagnostic("git_hooks_upgrade", "upgrade Git to >= 2.54, then run `doctor --fix`", str(root)),))
-    if observation.diagnostics or observation.config_path is None or observation.config_snapshot is None or observation.config_snapshot.is_symlink or observation.state in {"disabled", "foreign", "conflict", "duplicate", "unverifiable"}:
+    if observation.diagnostics or observation.manual_hook_diagnostics or observation.config_path is None or observation.config_snapshot is None or observation.config_snapshot.is_symlink or observation.state in {"disabled", "foreign", "conflict", "duplicate", "unverifiable"}:
         return HookRepair(diagnostics=tuple(hook_diagnostics(root, git)))
     payloads = _payload_roots(observation)
     if payloads is None:
@@ -436,16 +476,225 @@ def _origin_matches(origin: str, target: Path | None, root: Path) -> bool:
     return _absolute_path(source if os.path.isabs(source) else str(root / source)) == target
 
 
-def _manual_hook_invocation(hooks_path: Path | None) -> bool:
+def _observe_manual_hook_sources(observation: HookObservation) -> None:
+    """Inspect bounded manager entry surfaces without running their hooks."""
+
+    sources, manager_diagnostics = _manual_hook_sources(
+        observation.root, observation.hooks_path, observation.traditional_hook_snapshot
+    )
+    snapshots: list[tuple[str, tuple[object, ...]]] = []
+    invocations: list[Path] = []
+    diagnostics: list[Diagnostic] = list(manager_diagnostics)
+    for path, owner, snapshot in sources:
+        snapshots.append((str(path), snapshot))
+        if snapshot and snapshot[0] == "unreadable":
+            diagnostics.append(
+                Diagnostic(
+                    "git_hooks_manual_source_unreadable",
+                    f"could not inspect the effective {owner} commit-msg source {path}; make it readable or integrate the validator manually before running `doctor --fix`",
+                    str(path),
+                )
+            )
+            continue
+        if snapshot and snapshot[0] == "nonregular":
+            diagnostics.append(
+                Diagnostic(
+                    "git_hooks_manual_source_unreadable",
+                    f"the effective {owner} commit-msg source {path} is not a regular readable file; repair it or integrate the validator manually before running `doctor --fix`",
+                    str(path),
+                )
+            )
+            continue
+        if owner == "Lefthook" and snapshot and snapshot[0] == "absent":
+            diagnostics.append(
+                Diagnostic(
+                    "git_hooks_manager_unverifiable",
+                    f"the effective Lefthook commit-msg configuration {path} is missing; integrate the validator manually before running `doctor --fix`",
+                    str(path),
+                )
+            )
+            continue
+        invocation = _manual_invocation_in_snapshot(snapshot, owner)
+        if invocation is None:
+            diagnostics.append(
+                Diagnostic(
+                    "git_hooks_manager_unverifiable",
+                    f"could not resolve the effective Lefthook commit-msg configuration in {path}; integrate the validator manually before running `doctor --fix`",
+                    str(path),
+                )
+            )
+        elif invocation:
+            invocations.append(path)
+    observation.manual_hook_snapshots = tuple(snapshots)
+    observation.manual_invocation_sources = tuple(invocations)
+    observation.manual_hook_diagnostics = diagnostics
+
+
+def _manual_hook_sources(
+    root: Path,
+    hooks_path: Path | None,
+    traditional_snapshot: tuple[object, ...],
+) -> tuple[list[tuple[Path, str, tuple[object, ...]]], list[Diagnostic]]:
+    sources: list[tuple[Path, str, tuple[object, ...]]] = []
+    diagnostics: list[Diagnostic] = []
+    if hooks_path is not None:
+        sources.append((hooks_path, "traditional", traditional_snapshot))
     if hooks_path is None:
+        return sources, diagnostics
+
+    if hooks_path.parent.name == "_" and _is_husky_dispatcher(traditional_snapshot):
+        path = hooks_path.parent.parent / HOOK_EVENT
+        sources.append((path, "Husky", _traditional_hook_snapshot(path)))
+    elif _is_lefthook_dispatcher(traditional_snapshot):
+        config_paths, config_diagnostics = _lefthook_config_paths(root)
+        diagnostics.extend(config_diagnostics)
+        for path in config_paths:
+            sources.append((path, "Lefthook", _traditional_hook_snapshot(path)))
+    elif hooks_path.parent.name == "_":
+        diagnostics.append(
+            Diagnostic(
+                "git_hooks_manager_unverifiable",
+                f"the manager behind the effective commit-msg dispatcher {hooks_path} could not be identified; integrate the validator manually before running `doctor --fix`",
+                str(hooks_path),
+            )
+        )
+    return sources, diagnostics
+
+
+def _is_husky_dispatcher(snapshot: tuple[object, ...]) -> bool:
+    contents = snapshot[-1] if snapshot and isinstance(snapshot[-1], bytes) else b""
+    return b'$(dirname "$0")/h' in contents
+
+
+def _lefthook_config_paths(root: Path) -> tuple[list[Path], list[Diagnostic]]:
+    """Resolve Lefthook's bounded config surfaces without invoking Lefthook."""
+
+    configured = os.environ.get("LEFTHOOK_CONFIG")
+    if configured:
+        path = Path(configured)
+        if not path.is_absolute():
+            path = root / path
+        local = [
+            candidate
+            for name in LEFTHOOK_LOCAL_CONFIGS
+            if os.path.lexists(candidate := root / name) and candidate != path
+        ]
+        return [path] + local, []
+
+    main = [root / name for name in LEFTHOOK_MAIN_CONFIGS if os.path.lexists(root / name)]
+    local = [root / name for name in LEFTHOOK_LOCAL_CONFIGS if os.path.lexists(root / name)]
+    if len(main) > 1:
+        return main + local, [
+            Diagnostic(
+                "git_hooks_manager_unverifiable",
+                "multiple Lefthook main configuration files were found; choose the effective file or integrate the validator manually before running `doctor --fix`",
+                str(root),
+            )
+        ]
+    if not main and not local:
+        return [], [
+            Diagnostic(
+                "git_hooks_manager_unverifiable",
+                "Lefthook's effective configuration could not be resolved from its supported project files; set LEFTHOOK_CONFIG or integrate the validator manually before running `doctor --fix`",
+                str(root),
+            )
+        ]
+    return main + local, []
+
+
+def _is_lefthook_dispatcher(snapshot: tuple[object, ...]) -> bool:
+    contents = snapshot[-1] if snapshot and isinstance(snapshot[-1], bytes) else b""
+    return b"call_lefthook" in contents and b'run "commit-msg"' in contents
+
+
+def _manual_invocation_in_snapshot(snapshot: tuple[object, ...], owner: str) -> bool | None:
+    contents = snapshot[-1] if snapshot and isinstance(snapshot[-1], bytes) else b""
+    if not contents:
         return False
-    try:
-        hook = hooks_path
-        if not hook.is_file():
-            return False
-        return any(str(PAYLOAD[0]) in line.split("#", 1)[0] for line in hook.read_text(encoding="utf-8", errors="ignore").splitlines())
-    except OSError:
-        return False
+    text = contents.decode("utf-8", errors="ignore")
+    if owner == "Lefthook":
+        text = _lefthook_commit_msg_text(text)
+        if text is None:
+            return None
+    candidates = (str(PAYLOAD[0]), f"./{PAYLOAD[0]}")
+    return any(
+        any(candidate in line.split("#", 1)[0] for candidate in candidates)
+        for line in text.splitlines()
+    )
+
+
+def _lefthook_commit_msg_text(text: str) -> str | None:
+    """Extract only Lefthook's commit-msg configuration values."""
+
+    stripped = text.lstrip()
+    if stripped.startswith("{"):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+        if _contains_external_config(parsed):
+            return None
+        return _flatten_config_values(parsed.get(HOOK_EVENT)) if isinstance(parsed, dict) else ""
+    if any(line.strip().startswith("[") and line.strip().endswith("]") for line in text.splitlines()):
+        try:
+            parsed = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            return None
+        if _contains_external_config(parsed):
+            return None
+        return _flatten_config_values(parsed.get(HOOK_EVENT)) if isinstance(parsed, dict) else ""
+
+    if any(line.split("#", 1)[0].strip().startswith(("extends:", "remotes:")) for line in text.splitlines()):
+        return None
+    if any(
+        re.search(r"(^|[\s,:])(?:&|\*)[A-Za-z_][A-Za-z0-9_-]*\b", line.split("#", 1)[0])
+        for line in text.splitlines()
+    ):
+        return None
+    lines = text.splitlines()
+    section: list[str] = []
+    in_event = False
+    event_count = 0
+    for line in lines:
+        content = line.split("#", 1)[0].rstrip()
+        if not content.strip():
+            if in_event:
+                section.append(line)
+            continue
+        indentation = len(content) - len(content.lstrip())
+        key, separator, value = content.strip().partition(":")
+        normalized = key.strip(" '\"")
+        if indentation == 0 and separator:
+            if normalized == HOOK_EVENT:
+                event_count += 1
+                in_event = True
+                if value.strip():
+                    section.append(value)
+                continue
+            if in_event:
+                break
+        if in_event:
+            section.append(line)
+    return None if event_count > 1 else "\n".join(section)
+
+
+def _contains_external_config(value: object) -> bool:
+    if isinstance(value, dict):
+        return any(
+            key in {"extends", "remotes"} or _contains_external_config(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_external_config(item) for item in value)
+    return False
+
+
+def _flatten_config_values(value: object) -> str:
+    if isinstance(value, dict):
+        return "\n".join(_flatten_config_values(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return "\n".join(_flatten_config_values(item) for item in value)
+    return str(value) if value is not None else ""
 
 
 def _traditional_hook_snapshot(hooks_path: Path | None) -> tuple[object, ...]:
@@ -455,15 +704,20 @@ def _traditional_hook_snapshot(hooks_path: Path | None) -> tuple[object, ...]:
         return ("unresolved",)
     try:
         link_status = hooks_path.lstat()
+    except FileNotFoundError:
+        return ("absent",)
+    except OSError as error:
+        return ("unreadable", type(error).__name__, str(error))
+    try:
         link = os.readlink(hooks_path) if stat.S_ISLNK(link_status.st_mode) else ""
         target_status = (target := hooks_path.resolve(strict=True) if link else hooks_path).lstat()
-        contents = target.read_bytes() if stat.S_ISREG(target_status.st_mode) else b""
+        if not stat.S_ISREG(target_status.st_mode):
+            return ("nonregular", str(target))
+        contents = target.read_bytes()
         return (
             stat.S_IFMT(link_status.st_mode), stat.S_IMODE(link_status.st_mode), link, str(target), target_status.st_dev,
             target_status.st_ino, stat.S_IFMT(target_status.st_mode), stat.S_IMODE(target_status.st_mode), contents,
         )
-    except FileNotFoundError:
-        return ("absent",)
     except OSError as error:
         return ("unreadable", type(error).__name__, str(error))
 

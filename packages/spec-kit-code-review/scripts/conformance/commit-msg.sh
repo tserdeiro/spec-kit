@@ -131,7 +131,7 @@ exercise() {
   engine_digest=$(shasum -a 256 "$fake_ocr" | cut -d' ' -f1)
   case "$(uname -s)" in Darwin) platform_os=darwin ;; Linux) platform_os=linux ;; *) platform_os=$(uname -s | tr '[:upper:]' '[:lower:]') ;; esac
   case "$(uname -m)" in arm64|aarch64) platform_arch=arm64 ;; x86_64|amd64) platform_arch=amd64 ;; *) platform_arch=$(uname -m) ;; esac
-  printf '%s\n' 'schema_version: "1.0"' '' 'extensions:' '  code-review:' '    id: code-review' '    version: 0.5.0' '    provenance: first-party-conformance' '    external_tools:' '      open_code_review:' '        version_string: "ocr version v1.8.3"' '        binaries:' "          $platform_os-$platform_arch: \"$engine_digest\"" >"$repo/versions.lock.yml"
+  printf '%s\n' 'schema_version: "1.0"' '' 'extensions:' '  code-review:' '    id: code-review' '    version: 0.5.0' '    provenance: first-party-conformance' '    external_tools:' '      open_code_review:' '        version_string: "open-code-review v1.12.0 (494bf1c8d)"' '        binaries:' "          $platform_os-$platform_arch: \"$engine_digest\"" >"$repo/versions.lock.yml"
 
   reject_marker="$repo/reject-manager"
   manager_log="$repo/manager.log"
@@ -290,6 +290,30 @@ exercise() {
   test "$(count_lines "$manager_log")" -eq 8
   test ! -s "$tripwire_log"
   test ! -e "$repo/.specify/agent-events.log"
+  if [ "$manager" = husky ]; then
+    local manual_config_digest manual_dispatcher_digest manual_user_digest manual_output manual_code
+    git_env "$git_bin" "$repo" config --local --remove-section hook.speckit-commit-message
+    printf '%s\n' '#!/bin/sh' 'sh .specify/extensions/code-review/scripts/bash/commit-msg.sh "$1"' >"$repo/.husky/commit-msg"
+    chmod "$manager_mode" "$repo/.husky/commit-msg"
+    manual_config_digest=$(shasum -a 256 "$repo/.git/config" | cut -d' ' -f1)
+    manual_dispatcher_digest=$(shasum -a 256 "$repo/.husky/_/commit-msg" | cut -d' ' -f1)
+    manual_user_digest=$(shasum -a 256 "$repo/.husky/commit-msg" | cut -d' ' -f1)
+    set +e
+    manual_output=$(run_doctor 2>&1)
+    manual_code=$?
+    set -e
+    test "$manual_code" -ne 0
+    [[ "$manual_output" == *git_hooks_duplicate* ]]
+    test "$(shasum -a 256 "$repo/.git/config" | cut -d' ' -f1)" = "$manual_config_digest"
+    test "$(shasum -a 256 "$repo/.husky/_/commit-msg" | cut -d' ' -f1)" = "$manual_dispatcher_digest"
+    test "$(shasum -a 256 "$repo/.husky/commit-msg" | cut -d' ' -f1)" = "$manual_user_digest"
+    test -z "$(git_env "$git_bin" "$repo" config --get-all hook.speckit-commit-message.command || true)"
+    printf '%s\n' manual >"$repo/manual.txt"
+    git_commit add manual.txt
+    git_commit commit --quiet -m 'feat(core): manual validator'
+    test "$(count_validators "$validator_log")" -eq 9
+    echo "$label husky manual validator refused repair unchanged: one existing invocation remained"
+  fi
   echo "$label $manager passed: eight validator calls, eight prior-hook calls, two fixes, manager bytes/modes preserved"
 }
 
