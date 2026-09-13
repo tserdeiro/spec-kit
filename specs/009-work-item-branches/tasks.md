@@ -66,13 +66,13 @@ missing configuration alone enables supplied key/title fallback.
 **Independent evidence**: Repeated start after title/format/assignee changes keeps
 one branch/PR and preserves commits; conflicting evidence prevents mutation.
 
-- [ ] T004 [US2] Adopt existing branch or PR work in presets/default/scripts/python/work_item_start.py
+- [x] T004 [US2] Adopt existing branch or PR work in presets/default/scripts/python/work_item_start.py
   - **Traces**: FR-005, FR-006, C-004, SC-002, SC-003; outcome: uniquely identified local/remote work wins over the current suggested name.
   - **Depends on**: T003
   - **Boundaries**: Extend the Linear resolver to return per-observation `affected_issue_keys`, grouped by exact head, retaining valid canonical Tracker identities alongside malformed evidence and validated native/leading strict identity. Exclude prefix/slug tokens and reserved feature/task refs. Use this evidence in the start helper to block conflicting title-only PR adoption without a second identity parser. Extend start helper and tests with complete remote-head/PR observation, canonical Tracker linkage, native head resolution, local/remote deduplication, unique-open-PR precedence, and tracking adoption. Cover changed title/format/assignee, multiple candidates, fork heads, closed unmerged PRs, unavailable refs, dirty work, and another worktree. Preserve history and stop before speculative switches/creation on failed evidence.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` -> repeated starts adopt exact existing heads, including an old title-only PR head with canonical Tracker identity and null native branch lookup; conflicting or partly malformed Trackers retain affected identities and prevent duplicate work; preserve history/files and report conflicts/failures without duplicate work.
   - **Delivery**: single PR (~370 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #162; Linear suite 533 passed / 315 subtests, with 3 preexisting sandbox loopback skips; preset suite 108 passed; post-review focused suite 40 passed; full bundles conformance, syntax/compile checks and `git diff --check` passed. Fresh extension review of `6521804f9e354f760259bca343e1d2d38ff2b2ca` closed with changes-requested, 6 covered ranges / 0 gaps: two correctness findings fixed in `851861f` (prune stale refs, verify observed PR commit, preserve excluded delivery base). Independent local-only matching SHA adoption and divergent SHA rejection passed; a real matching local head remains available even without a remote head. The retained seeded major at 400 is covered by the explicit user exception “Continúa, sin agregar un T10. Ignora el límite de 400”. Final actual size 812 additions, forecast unchanged at 370; budget gate exits 2 as recorded, not overridden. Installed fixtures are not actual agent-runtime evidence.
 
 ## Phase 3: User Story 3 - Keep identity consistent through delivery (P2)
 
