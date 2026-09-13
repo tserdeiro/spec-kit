@@ -17,7 +17,8 @@ each outcome.
 - The user must name the issue key (`WOR-123`-style), alone or inside a
   pasted Linear URL or title. Without one, stop and ask for it — the
   issue is created by a human in Linear first, never by you.
-- Normalize the key to lowercase for the branch (`wor-123`).
+- Start from the key with the preset helper. It queries the installed Linear
+  resolver and returns the canonical title, context, and exact native branch.
 
 ## 2. Create the branch
 
@@ -27,17 +28,17 @@ running `task_base.py`'s `work-item` mode — with the consumer's
 upstream's own `py` scripts follow:
 
 ```bash
-python3 .specify/presets/default/scripts/python/task_base.py work-item wor-123-short-slug
+python3 .specify/presets/default/scripts/python/task_base.py work-item WOR-123
 ```
 
-- The slug is 2–4 words from the issue's title. If the user gave only the
-  key and the title is not in the conversation, ask for the title — do
-  not invent a slug.
-- If a branch for this key already exists (`git branch --all --list
-  '*wor-123-*'`), switch to it instead and say so. Re-running this
-  command must never create a duplicate.
+- If Linear is genuinely unconfigured, provide the title as the second
+  argument so the helper derives `wor-123-title-slug`. A configured resolver
+  failure stops the command with its diagnosis; it never switches to the
+  fallback.
+- The JSON result is the context for the chore. Use its returned title and
+  description instead of asking the user to repeat Issue information.
 - The branch is what projects the issue to *In Progress*; the script
-  reconciles Linear itself. Report the state.
+  reconciles Linear only after the branch setup succeeds. Report the state.
 
 ## 3. Hand off to the delivery flow
 
