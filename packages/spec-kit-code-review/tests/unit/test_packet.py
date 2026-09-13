@@ -693,10 +693,6 @@ class DegradedContextTests(unittest.TestCase):
         self.assertEqual(severities, {"info", "major"})
 
 
-if __name__ == "__main__":  # pragma: no cover - convenience for local runs
-    unittest.main()
-
-
 class SourceOnceTests(unittest.TestCase):
     """Each packet source is emitted once; the engine's stdout stays under raw/."""
 
@@ -766,3 +762,17 @@ class SourceOnceTests(unittest.TestCase):
         self.assertEqual(with_raw.inventory, without_raw.inventory)
         self.assertEqual(with_raw.inventory_sha256, without_raw.inventory_sha256)
         self.assertNotEqual(with_raw.packet_sha256, without_raw.packet_sha256)
+
+    def test_an_empty_scope_reports_the_rule_output_as_not_emitted(self) -> None:
+        # `ocr.py`'s `delegate_rule` returns early on an empty scope without
+        # ever calling `on_raw`, so `raw/ocr-delegate-rule.stdout` is never
+        # written -- the packet must say so instead of pointing at a digest
+        # for bytes that do not exist on disk.
+        packet = _assemble(rule_assignments=self._rules_for(raw=""))
+
+        self.assertIn("- engine output: `raw/ocr-delegate-rule.stdout` (not emitted)", packet.text)
+        self.assertNotIn(f"raw/ocr-delegate-rule.stdout` (sha256 {sha256_text('')}", packet.text)
+
+
+if __name__ == "__main__":  # pragma: no cover - convenience for local runs
+    unittest.main()

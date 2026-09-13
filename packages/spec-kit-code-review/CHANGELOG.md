@@ -22,6 +22,9 @@
 - `code-review.md` states how a corrected candidate is reviewed as a
   follow-up: new session and findings per head, digests reused only for
   unchanged bytes, the delta and the previous findings as the checklist.
+- The packet's §3.2 rule-catalog pointer says `(not emitted)` instead of a
+  digest for an empty string when the scope is empty and
+  `raw/ocr-delegate-rule.stdout` was never written.
 
 ## 0.5.0
 
