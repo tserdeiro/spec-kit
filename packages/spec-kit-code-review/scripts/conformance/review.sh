@@ -114,8 +114,8 @@ extensions:
       open_code_review:
         source: https://github.com/alibaba/open-code-review
         license: Apache-2.0
-        release_tag: v1.8.3
-        version_string: "ocr version v1.8.3"
+        release_tag: v1.12.0
+        version_string: "open-code-review v1.12.0 (494bf1c8d)"
         npm_package: "@alibaba-group/open-code-review"
         binaries:
           ${platform_os}-${platform_arch}: "$engine_digest"
@@ -315,10 +315,15 @@ STATE
 
 opened=$(run review --root "$consumer_root" --base main --head "$head_commit" --json)
 session=$(echo "$opened" | json '["session"]["path"]')
-worktree=$(echo "$opened" | json '["environment"]["worktree_path"]')
+# The compact document: the full one is in the session directory.
+test "$(printf '%s' "$opened" | wc -c | tr -d ' ')" -lt 4096
+test "$(echo "$opened" | json '["next"]["findings_path"]')" = "$session/findings.json"
+test "$(echo "$opened" | json '["packet"]["path"]')" = "$session/review-packet.md"
+worktree=$(json '["environment"]["worktree_path"]' <"$session/session.json")
 test -d "$worktree"
 test -f "$session/review-packet.md"
-test "$(echo "$opened" | json '["scope"]["included_count"]')" = "1"
+test -f "$session/result-open.json"
+test "$(json '["scope"]["included_count"]' <"$session/result-open.json")" = "1"
 test "$(git -C "$consumer_root" status --porcelain)" = "$status_before"
 test "$(git -C "$consumer_root" rev-parse --abbrev-ref HEAD)" = "$branch_before"
 # The rule file the engine received came from a commit, inside the evidence.
@@ -344,8 +349,11 @@ closed=$(run review --root "$consumer_root" --findings "$session/findings.json" 
 closed_code=$?
 set -e
 test "$closed_code" -eq 1  # changes-requested
+test "$(printf '%s' "$closed" | wc -c | tr -d ' ')" -lt 4096
 test "$(echo "$closed" | json '["verdict"]["value"]')" = "changes-requested"
-test "$(echo "$closed" | json '["verdict"]["is_approval"]')" = "False"
+test "$(echo "$closed" | json '["delivery"]["decision"]')" = "hold"
+test "$(echo "$closed" | json '["delivery"]["is_approval"]')" = "False"
+test "$(json '["verdict"]["is_approval"]' <"$session/result-close.json")" = "False"
 test ! -d "$worktree"
 for artifact in findings.json findings-normalized.json findings.md publication-plan.json review-packet.md session.json; do
   test -f "$session/$artifact"
@@ -505,7 +513,7 @@ import sys
 path = Path(sys.argv[1])
 lines = [
     "# Tasks\n", "\n",
-    "- [x] T007 Prepare the review context (forecast: 80 lines, PR strategy: single)\n",
+    "- [x] T007 Prepare the review context (PR strategy: single)\n",
     "  - **Traces**: FR-007\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/prelude.py`.\n",
@@ -516,21 +524,21 @@ lines = [
 ]
 lines.extend(f"Unrelated history {index:04d}: Árbol 🙈 {'x' * 75} prose is outside the selected task.\n" for index in range(800))
 lines.extend([
-    "\n- [ ] T010 Complete the feature review (forecast: 100 lines, PR strategy: single)\n",
+    "\n- [ ] T010 Complete the feature review (PR strategy: single)\n",
     "  - **Traces**: FR-009\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/full.py`.\n",
     "  - **Evidence**: focused tests pass.\n",
     "  - **Delivery**: single PR.\n",
     "  - **Completion evidence**: focused tests pass.\n",
-    "\n- [ ] T009 Share the review requirement (forecast: 90 lines, PR strategy: single)\n",
+    "\n- [ ] T009 Share the review requirement (PR strategy: single)\n",
     "  - **Traces**: FR-008\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/shared.py`.\n",
     "  - **Evidence**: focused tests pass.\n",
     "  - **Delivery**: single PR.\n",
     "  - **Completion evidence**: focused tests pass.\n",
-    "\n- [ ] T008 Review a late task (forecast: 140 lines, PR strategy: single)\n",
+    "\n- [ ] T008 Review a late task (PR strategy: single)\n",
     "  - **Traces**: FR-008\n",
     "  - **Depends on**: T007\n",
     "  - **Boundaries**: Change `src/late.py`.\n",
@@ -565,7 +573,7 @@ engine_state <<STATE
 }
 STATE
 set_pr "$context_base" "$late_head" "007-T008-installed-coverage"
-late_opened=$(run review --root "$consumer_root" 128 --json)
+late_opened=$(run review --root "$consumer_root" 128 --json --verbose)
 late_session=$(echo "$late_opened" | json '["session"]["path"]')
 test "$(echo "$late_opened" | json '["review_scope"]["kind"]')" = "task"
 test "$(echo "$late_opened" | json '["review_scope"]["task_ids"][0]')" = "T008"
@@ -605,10 +613,12 @@ for mode in selected reference valid; do
     test "$close_code" -eq 0
     test "$(echo "$late_closed" | json '["coverage"]["complete"]')" = True
     test "$(echo "$late_closed" | json '["verdict"]["value"]')" = no-blocking-findings
+    test "$(echo "$late_closed" | json '["delivery"]["decision"]')" = proceed
   else
     test "$close_code" -eq 6
     test "$(echo "$late_closed" | json '["verdict"]["value"]')" = inconclusive
-    echo "$late_closed" | json '["coverage"]["uncovered"]' | grep -q tasks.md
+    test "$(echo "$late_closed" | json '["delivery"]["decision"]')" = hold
+    json '["coverage"]["uncovered"]' <"$late_session/result-close.json" | grep -q tasks.md
   fi
 done
 
@@ -626,7 +636,7 @@ engine_state <<STATE
 }
 STATE
 set_pr "$context_base" "$multi_head" "007-T008-installed-coverage"
-multi_opened=$(run review --root "$consumer_root" 128 --json)
+multi_opened=$(run review --root "$consumer_root" 128 --json --verbose)
 multi_session=$(echo "$multi_opened" | json '["session"]["path"]')
 test "$(echo "$multi_opened" | json '["review_scope"]["kind"]')" = "multi-task"
 echo "$multi_opened" | json '["review_scope"]["task_ids"]' | grep -q 'T008'
@@ -648,9 +658,9 @@ invalid_code=$?
 set -e
 test "$invalid_code" -eq 6
 test "$(echo "$invalid_closed" | json '["verdict"]["value"]')" = "inconclusive"
-echo "$invalid_closed" | json '["verdict"]["causes"]' | grep -q 'coverage_source_mismatch'
-echo "$invalid_closed" | json '["verdict"]["causes"]' | grep -q 'coverage_read_assessment'
-echo "$invalid_closed" | json '["verdict"]["causes"]' | grep -q 'coverage_hash_mismatch'
+json '["verdict"]["causes"]' <"$multi_session/result-close.json" | grep -q 'coverage_source_mismatch'
+json '["verdict"]["causes"]' <"$multi_session/result-close.json" | grep -q 'coverage_read_assessment'
+json '["verdict"]["causes"]' <"$multi_session/result-close.json" | grep -q 'coverage_hash_mismatch'
 
 # Additional valid receipts cover every required range and permit closure.
 set_pr "$context_base" "$multi_head" "007-T008-installed-coverage"
@@ -674,7 +684,7 @@ engine_state <<STATE
 {"files": [{"path": "src/full.py"}], "rules": {"src/full.py": ["Validate every input."]}, "record_invocations": "$engine_log"}
 STATE
 set_pr "$context_base" "$full_head" "007-review-context"
-full_opened=$(run review --root "$consumer_root" 128 --json)
+full_opened=$(run review --root "$consumer_root" 128 --json --verbose)
 test "$(echo "$full_opened" | json '["review_scope"]["kind"]')" = "feature"
 echo "$full_opened" | python3 -c 'import json,sys; assert set(json.load(sys.stdin)["review_scope"]["task_ids"]) == {"T007", "T008", "T009", "T010"}'
 full_session=$(echo "$full_opened" | json '["session"]["path"]')
@@ -695,7 +705,7 @@ engine_state <<STATE
 {"files": [{"path": "src/bug.py"}, {"path": ".specify/bugs/fix-123/assessment.md"}, {"path": ".specify/bugs/fix-123/fix.md"}, {"path": ".specify/bugs/fix-123/test.md"}], "rules": {"src/bug.py": ["Validate every input."]}, "record_invocations": "$engine_log"}
 STATE
 set_pr "$context_base" "$bug_head" "bug-123"
-bug_opened=$(run review --root "$consumer_root" 128 --json)
+bug_opened=$(run review --root "$consumer_root" 128 --json --verbose)
 test "$(echo "$bug_opened" | json '["review_scope"]["kind"]')" = "short-path"
 test "$(echo "$bug_opened" | json '["review_scope"]["task_ids"]' | tr -d '[]' | tr -d ' ')" = ""
 bug_session=$(echo "$bug_opened" | json '["session"]["path"]')
