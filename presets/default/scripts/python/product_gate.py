@@ -60,13 +60,21 @@ def _repository(repo: Path, origin: str) -> str:
     return name
 
 
-def _check_push_destinations(repo: Path, expected_repo: str) -> None:
+def _repository_url(repo: Path, origin: str) -> str:
+    value = _gh_json(repo, "repo", "view", origin, "--json", "url")
+    url = value.get("url") if isinstance(value, dict) else None
+    if not isinstance(url, str) or not url:
+        _pending("GitHub repository URL is empty")
+    return url
+
+
+def _check_push_destinations(repo: Path, expected_url: str) -> None:
     result = run_git("remote", "get-url", "--push", "--all", "origin", cwd=repo)
     push_urls = [url for url in result.stdout.splitlines() if url]
     if result.returncode or not push_urls:
         _pending("cannot read origin push URLs")
     for push_url in push_urls:
-        if _repository(repo, push_url) != expected_repo:
+        if _repository_url(repo, push_url) != expected_url:
             _pending("origin push URL targets another repository")
 
 
@@ -153,13 +161,13 @@ def _remote_oid(repo: Path, origin: str, branch: str, expected: str) -> str:
         _pending("published feature ref is missing")
     oid = rows[0][0]
     if rows[0][1] != f"refs/heads/{branch}" or oid != expected:
-        _pending("published feature ref OID differs from the feature gate")
+        _pending("published feature ref OID differs from the feature gate; re-observe and reconcile the feature PR, rerun product analysis, and obtain fresh approval/publication before implementation")
     fetched = run_git("fetch", "--no-tags", origin, branch, cwd=repo)
     if fetched.returncode:
         _pending(fetched.stderr.strip() or "cannot fetch the published feature ref")
     fetched_oid = _git(repo, "rev-parse", "FETCH_HEAD").stdout.strip()
     if fetched_oid != oid:
-        _pending("fetched feature ref OID differs from the observed remote OID")
+        _pending("fetched feature ref OID differs from the observed remote OID; re-observe and reconcile the feature PR, rerun product analysis, and obtain fresh approval/publication before implementation")
     return oid
 
 
@@ -281,14 +289,17 @@ def _canonical(entries: dict[str, tuple[str, str, bytes]]) -> dict[str, tuple[st
 
 
 def _compare(remote: dict[str, tuple[str, str, bytes]], sources: list[tuple[str, dict[str, tuple[str, str, bytes]]]]) -> None:
-    remote = _canonical(remote)
     required = _REQUIRED
+    remote_canonical = _canonical(remote)
     for name, entries in [("published tree", remote)] + sources:
-        canonical = _canonical(entries)
-        missing = sorted(required - canonical.keys())
+        missing = sorted(required - entries.keys())
         if missing:
             _pending(f"{name} is missing required product artifacts: {', '.join(missing)}")
-        if canonical != remote:
+        symlinks = sorted(path for path in required & entries.keys() if entries[path][0] == "120000")
+        if symlinks:
+            _pending(f"{name} has symlinked required product artifacts: {', '.join(symlinks)}")
+        canonical = _canonical(entries)
+        if canonical != remote_canonical:
             if name == "HEAD":
                 reason = "committed product changes are unpublished"
             elif name == "index":
@@ -308,7 +319,8 @@ def check(repo: Path | None = None) -> None:
     feature = feature_rel.rsplit("/", 1)[-1]
     origin = _origin(repo)
     expected_repo = _repository(repo, origin)
-    _check_push_destinations(repo, expected_repo)
+    expected_url = _repository_url(repo, origin)
+    _check_push_destinations(repo, expected_url)
     branch = _feature_branch(repo, feature, origin)
     current = _git(repo, "branch", "--show-current").stdout.strip()
     if current != branch:
@@ -327,9 +339,9 @@ def check(repo: Path | None = None) -> None:
     _compare(remote, [("HEAD", head), ("index", index), ("worktree", worktree)])
     final = _pr(repo, origin, branch)
     if any(final.get(field) != first.get(field) for field in FIELDS.split(",")):
-        _pending("feature gate changed while its published artifacts were being checked")
+        _pending("feature gate changed while its published artifacts were being checked; re-observe and reconcile the feature PR, rerun product analysis, and obtain fresh approval/publication before implementation")
     if final.get("headRefOid") != remote_oid:
-        _pending("feature gate head changed after the published ref was checked")
+        _pending("feature gate head changed after the published ref was checked; re-observe and reconcile the feature PR, rerun product analysis, and obtain fresh approval/publication before implementation")
     print(f"product gate: {final.get('url', branch)} head={remote_oid}")
 
 

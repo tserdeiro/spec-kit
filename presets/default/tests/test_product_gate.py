@@ -71,7 +71,7 @@ def published(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     oid = _git(feature_repo, "rev-parse", "HEAD").stdout.strip()
     origin = _git(feature_repo, "remote", "get-url", "origin").stdout.strip()
     state: dict[str, object] = {"oid": oid, "state": "OPEN", "base": "main", "refs": True, "missing": False,
-                                "repositories": {origin: "org/repo"}, "gh_writes": []}
+                                "repositories": {origin: ("org/repo", "https://github.com/org/repo")}, "gh_writes": []}
     monkeypatch.setattr(product_gate, "delivery_base", lambda *_: "main")
     runs: list[list[str]] = []
     original_run = product_gate.subprocess.run
@@ -82,7 +82,7 @@ def published(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     state["runs"] = runs
 
     def gh(*args):
-        read_only = (args[:2] == ("repo", "view") and args[-2:] == ("--json", "nameWithOwner") or
+        read_only = (args[:2] == ("repo", "view") and args[-2:] in (("--json", "nameWithOwner"), ("--json", "url")) or
                      args == ("pr", "list", "--repo", origin, "--state", "open", "--limit", "1000",
                               "--json", "headRefName") or
                      args == ("pr", "view", "003-feature", "--repo", origin, "--json", product_gate.FIELDS))
@@ -90,7 +90,8 @@ def published(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
             state["gh_writes"].append(args)
             product_gate._pending(f"unexpected GitHub mutation: {' '.join(args)}")
         if args[0:2] == ("repo", "view"):
-            return {"nameWithOwner": state["repositories"].get(args[2], "org/repo")}
+            name, url = state["repositories"].get(args[2], ("org/repo", "https://github.com/org/repo"))
+            return {"nameWithOwner": name, "url": url}
         if args[0:2] == ("pr", "list"):
             return [{"headRefName": "003-feature"}] if state["refs"] else []
         if state["missing"]:
@@ -189,8 +190,47 @@ def test_mismatched_origin_push_destination_stops(published: tuple[Path, dict[st
     origin = _git(repo, "remote", "get-url", "origin").stdout.strip()
     _git(repo, "remote", "set-url", "--add", "--push", "origin", origin)
     _git(repo, "remote", "set-url", "--add", "--push", "origin", str(external))
-    state["repositories"][str(external)] = "org/other"
+    state["repositories"][str(external)] = ("org/repo", "https://ghe.example/org/repo")
     _reject(repo, state)
+
+
+@pytest.mark.parametrize("scope", ["published", "HEAD", "index", "worktree"])
+def test_required_product_artifact_symlink_stops(published: tuple[Path, dict[str, object]],
+                                                 scope: str) -> None:
+    repo, state = published
+    path = repo / "specs/003-feature/spec.md"
+    path.unlink()
+    os.symlink("plan.md", path)
+    if scope != "worktree":
+        _git(repo, "add", str(path))
+    if scope in ("HEAD", "published"):
+        _git(repo, "commit", "-q", "-m", "docs: replace required artifact")
+    if scope == "published":
+        _git(repo, "push", "-q", "origin", "003-feature")
+        state["oid"] = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    _reject(repo, state)
+
+
+def test_stale_remote_oid_names_recovery(published: tuple[Path, dict[str, object]],
+                                         capsys: pytest.CaptureFixture[str]) -> None:
+    repo, state = published
+    state["oid"] = "0" * 40
+    _reject(repo, state)
+    assert "re-observe and reconcile the feature PR" in capsys.readouterr().err
+
+
+def test_stale_fetch_oid_names_recovery(published: tuple[Path, dict[str, object]],
+                                        monkeypatch: pytest.MonkeyPatch,
+                                        capsys: pytest.CaptureFixture[str]) -> None:
+    repo, state = published
+    original = product_gate.run_git
+    def stale_fetch(*args, **kwargs):
+        if args == ("rev-parse", "FETCH_HEAD"):
+            return subprocess.CompletedProcess(args, 0, "0" * 40 + "\n", "")
+        return original(*args, **kwargs)
+    monkeypatch.setattr(product_gate, "run_git", stale_fetch)
+    _reject(repo, state)
+    assert "re-observe and reconcile the feature PR" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("scope", ["worktree", "index", "HEAD"])
