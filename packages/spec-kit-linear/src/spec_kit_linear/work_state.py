@@ -34,7 +34,7 @@ this module names the state, never the id.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .domain import DesiredState
@@ -51,6 +51,42 @@ SOURCE_PULL_REQUEST = "pr"
 SOURCE_BRANCH = "branch"
 SOURCE_NONE = "none"
 SOURCE_UNKNOWN = "unknown"
+
+# Which `lifecycle` id each derived state writes to, in fallback order. The
+# `review` fallback is the documented degradation: a Team with no "In Review"
+# workflow state projects a ready-for-review task onto its "In Progress" one
+# rather than leaving the Issue stale. `planner` writes the id; `status`
+# names the state the fallback lands on so the developer sees it.
+LIFECYCLE_FIELDS_BY_STATE: dict[str, tuple[str, ...]] = {
+    STATE_COMPLETED: ("completed_state_id",),
+    STATE_REVIEW: ("review_state_id", "started_state_id"),
+    STATE_STARTED: ("started_state_id",),
+    STATE_UNSTARTED: ("open_state_id",),
+}
+_STATE_BY_LIFECYCLE_FIELD = {fields[0]: state for state, fields in LIFECYCLE_FIELDS_BY_STATE.items()}
+
+
+def projected_state(lifecycle: Mapping[str, object] | None, state: str | None) -> tuple[str | None, str | None]:
+    """The state the projection will write for ``state``, and why it differs.
+
+    Returns ``(projected, reason)``: ``projected`` is the derived state
+    itself when its id is configured, the fallback state when only that one
+    is, or ``None`` when nothing will be written. ``reason`` names the
+    unconfigured id whenever ``projected`` is not ``state``, unless the
+    consumer has no ``lifecycle`` section at all -- sync is off, so the
+    reason says that instead of naming a field that was never meant to
+    exist.
+    """
+
+    if lifecycle is None:
+        fields = LIFECYCLE_FIELDS_BY_STATE.get(state, ())
+        return (None, None) if not fields else (None, "lifecycle sync disabled")
+    configured = lifecycle if isinstance(lifecycle, Mapping) else {}
+    fields = LIFECYCLE_FIELDS_BY_STATE.get(state, ())
+    projected = next((_STATE_BY_LIFECYCLE_FIELD[field] for field in fields if isinstance(configured.get(field), str) and configured.get(field)), None)
+    if not fields or projected == state:
+        return projected, None
+    return projected, f"{fields[0]} not configured"
 
 
 def branch_pattern(feature: str, task: str) -> re.Pattern[str]:

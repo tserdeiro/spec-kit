@@ -18,7 +18,7 @@ untouched) and skipping silently when nothing changed.
 ## Install
 
 ```bash
-specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.16.0/default-0.10.0.zip
+specify preset add --from https://github.com/tserdeiro/spec-kit/releases/download/bundles%2Fv0.17.0/default-0.11.0.zip
 ```
 
 Local development:
@@ -47,15 +47,6 @@ work-item branches and PRs (`speckit.chore`, `speckit.bugfix`,
 Delivery keeps one linear stack per feature: `speckit.implement` and
 `speckit.pr` derive each task's base from the feature's open, ready task
 PRs, never a second stack.
-
-## Budget stop
-
-A task stops before its PR opens — and again before `ready for review`
-if the branch grew — when its authored executable lines (the added
-lines of the files the review budget counts) pass the smaller of twice
-its `Delivery` forecast and 400. A breached forecast or budget is
-amended only by a human in the ledger, never inside the PR that
-exceeded it.
 
 ## Closing the run
 
@@ -99,15 +90,6 @@ branch-identity check against the named task or the ledger's first
 unchecked one. It never runs `gh pr create` itself; `speckit.pr` composes
 that call's title and body and runs it with the printed base. Same
 interpreter rule as `task_base.py`.
-
-`scripts/python/budget_stop.py <task_id> <base>` stops a task before its
-authored executable lines pass the review budget — same rules as the
-`budget-stop` block it will replace: the forecast comes from the task's
-`Delivery` line (fence-aware; absent or without a `~N` marker defaults to
-400), the sum is `git diff --numstat --no-renames <base>...HEAD` excluding
-binary rows, the four lockfiles, and eleven doc/asset suffixes, and the
-stop is the smaller of twice the forecast and 400. Same interpreter rule
-as `task_base.py`.
 
 `scripts/python/stack_propagate.py <fixed_branch>` carries a fix landed
 on `fixed_branch` through every open task PR stacked above it — the
@@ -171,6 +153,6 @@ say) is skipped, never duplicated. Same interpreter rule as
 
 The preset's commands carry no marked shell block for the agent to keep
 intact or edit by hand: `chore.md`, `bugfix.md`, `pr.md`, `doctor.md`,
-and `implement.md` each invoke one of the eight scripts above directly,
+and `implement.md` each invoke one of the seven scripts above directly,
 with real argv. Conformance runs the same installed files the commands
 call, not a block extracted from prose.

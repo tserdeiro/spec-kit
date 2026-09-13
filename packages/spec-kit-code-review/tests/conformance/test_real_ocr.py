@@ -21,32 +21,34 @@ location, or install it yourself::
 
     bash .specify/extensions/code-review/scripts/bash/run.sh doctor --fix
 
-    prefix="${XDG_DATA_HOME:-$HOME/.local/share}/tserdeiro/spec-kit/tools/ocr/1.8.3"
+    prefix="${XDG_DATA_HOME:-$HOME/.local/share}/tserdeiro/spec-kit/tools/ocr/1.12.0"
     mkdir -p "$prefix" && printf '{}' > "$prefix/package.json"
-    npm install --prefix "$prefix" --save-exact @alibaba-group/open-code-review@1.8.3
+    npm install --prefix "$prefix" --save-exact @alibaba-group/open-code-review@1.12.0
 
     uv run pytest packages/spec-kit-code-review/tests/conformance -v
 
 What it verifies, one assertion per surface this package actually consumes:
 
 1. ``--version`` exists and its exact output (the operative half of the pin).
-2. ``delegate preview`` exists and accepts ``--repo/--from/--to/--rule/--exclude``.
-3. ``delegate preview`` in **workspace mode**, with no range flags at all.
-4. ``delegate rule`` exists, accepts ``--repo/--rule`` and **positional paths**.
-5. The **output shape** of both, read by this package's own parsers -- the
+2. ``delegate preview --format json`` exists and accepts
+   ``--repo/--from/--to/--rule``.
+3. ``delegate preview --format json`` in **workspace mode**, with no range
+   flags at all.
+4. ``delegate rule --format json`` exists, accepts ``--repo/--rule`` and
+   **positional paths**.
+5. The **JSON shape** of both, read by this package's own parsers -- the
    assertion that matters most, because a shape change is what would silently
    alter a review's scope.
-6. ``rules check`` and its layer report.
-7. That ``-B``/``--background`` is never needed for any of the above.
+6. That ``-B``/``--background`` is never needed for any of the above.
 
 The standard-engine surfaces (``--audience``, ``--concurrency``, ``--timeout``
 in **minutes per file**, ``--max-tokens-budget``, and the full ``review`` JSON)
 are deliberately **not** exercised here: that engine is deferred outside v0.1.0
 and no code in this package can reach it. They join this file when it lands.
 
-When this test passes for the first time, its captured output must replace the
-contract-derived fixtures in ``tests/support/fake_ocr.py`` -- that is what turns
-the fake from "what we believe" into "what we observed".
+This test has run against the pinned binary: its captured output is what
+``tests/support/fake_ocr.py`` reproduces, and ``tests/conformance/evidence/
+real-ocr.md`` records the run.
 """
 
 from __future__ import annotations
@@ -61,12 +63,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Mapping
 
-from spec_kit_code_review.ocr import Ocr, parse_preview, parse_rules, write_minimal_config
+from spec_kit_code_review.ocr import SUPPORTED_SCHEMA_VERSION, Ocr, parse_preview, parse_rules, write_minimal_config
 from spec_kit_code_review.paths import tool_executable
 from tests.support.repo import TemporaryRepository
 
 
-PINNED_TAG = "v1.8.3"
+PINNED_TAG = "v1.12.0"
 _INSTALL_HINT = (
     "Run `doctor --fix` to install the pinned engine at its canonical location, or install it yourself (see "
     "validation/ocr-npm-specifier.md) and re-run with SPECKIT_CODE_REVIEW_OCR_BIN pointing at the platform "
@@ -100,12 +102,12 @@ def resolve_pinned_engine(
     location for the pinned version, then ``PATH``.
 
     **A binary of another version is not a failure of this package.** A machine
-    can legitimately carry a newer engine on its ``PATH`` -- observed: v1.8.5
-    while the lock pins v1.8.3 -- and running the capture against it would turn
-    a green suite red for a reason that has nothing to do with this code. The
-    prerequisite is "captured against the *pinned* binary", so a different
-    version means the prerequisite is unmet on this machine, exactly as an
-    absent one does: skipped, loudly, naming what was found and where.
+    can legitimately carry a newer engine on its ``PATH`` than the lock pins,
+    and running the capture against it would turn a green suite red for a
+    reason that has nothing to do with this code. The prerequisite is
+    "captured against the *pinned* binary", so a different version means the
+    prerequisite is unmet on this machine, exactly as an absent one does:
+    skipped, loudly, naming what was found and where.
     """
 
     source_environment = os.environ if environment is None else environment
@@ -236,74 +238,34 @@ class RealEngineConformanceTests(unittest.TestCase):
         self.assertFalse(version_matches_pin(version, first_line + " and more"))
 
     # 2-3. delegate preview, both modes --------------------------------------
-    #
-    # The two shapes below are the ones that broke the first capture against the
-    # real binary and forced ADAPTER_VERSION to 2. They are asserted on the raw
-    # output, not only through the parser, so an upstream change to either is a
-    # loud failure here rather than a silent reinterpretation.
 
-    def test_excluded_entries_are_struck_through_whole(self) -> None:
+    def test_delegate_preview_json_has_the_documented_shape(self) -> None:
         result = self.engine.run(
-            "delegate", "preview", "--repo", str(self.repository.path), "--from", self.base, "--to", self.head
+            "delegate", "preview", "--repo", str(self.repository.path), "--from", self.base, "--to", self.head,
+            "--format", "json",
         )
-        self._capture("delegate-preview-strikethrough", result.stdout)
+        self._capture("delegate-preview-json", result.stdout)
 
-        struck = [line for line in result.stdout.splitlines() if line.strip().startswith("~~")]
-        self.assertTrue(struck, "no excluded entry was struck through; the parser's unwrapping is now untested")
-        for line in struck:
-            with self.subTest(line=line[:60]):
-                # The wrapper spans the whole item, dash included.
-                self.assertTrue(line.strip().endswith("~~"), line)
-                self.assertRegex(line.strip(), r"^~~(?:[-*+])\s+`[^`]+`.*\(excluded: [^)]+\)~~$")
-
-    def test_included_entries_are_indented_list_items(self) -> None:
-        result = self.engine.run(
-            "delegate", "preview", "--repo", str(self.repository.path), "--from", self.base, "--to", self.head
-        )
-        self._capture("delegate-preview-indent", result.stdout)
-
-        included = [
-            line
-            for line in result.stdout.splitlines()
-            if line.startswith("  ") and line.strip().startswith("-") and "`" in line
-        ]
-        self.assertTrue(included, "no included entry was an indented list item")
-
-    def test_the_metadata_are_list_items_inside_the_file_section(self) -> None:
-        result = self.engine.run(
-            "delegate", "preview", "--repo", str(self.repository.path), "--from", self.base, "--to", self.head
-        )
-
-        lines = result.stdout.splitlines()
-        heading = next(index for index, line in enumerate(lines) if line.startswith("# "))
-        metadata = {
-            line.strip().lstrip("- ").split(":", 1)[0]
-            for line in lines[heading:]
-            if line.strip().startswith("- ") and ":" in line
-        }
-        # Read as *entries* these would have become files named `mode`, `from`
-        # and `to` -- a corrupted scope that no exit code would have announced.
-        for key in ("mode", "from", "to", "merge_base"):
+        document = json.loads(result.stdout)
+        self.assertEqual(document["schema_version"], SUPPORTED_SCHEMA_VERSION)
+        for key in (
+            "mode", "repository", "total_files", "reviewable_count", "excluded_count",
+            "total_insertions", "total_deletions", "reviewable_files", "excluded_files",
+        ):
             with self.subTest(key=key):
-                self.assertIn(key, metadata)
-
-    def test_rule_output_is_grouped_with_its_own_content_heading(self) -> None:
-        invocation = self.engine.run(
-            "delegate", "rule", "--repo", str(self.repository.path), "--rule", str(self.rule_path), "--", "src/module.py"
-        )
-        result = invocation.stdout
-        self._capture("delegate-rule-groups", result)
-
-        self.assertRegex(result, r"(?m)^#{1,6}\s*Rule Group\s+\d+")
-        self.assertRegex(result, r"(?m)^\s*Applies\s+to\s*:")
-        self.assertRegex(result, r"(?m)^#{1,6}\s*Content\s*$")
+                self.assertIn(key, document)
+        self.assertTrue(document["excluded_files"] or document["reviewable_files"])
+        for entry in document["reviewable_files"] + document["excluded_files"]:
+            for key in ("path", "status", "insertions", "deletions"):
+                with self.subTest(entry=entry.get("path"), key=key):
+                    self.assertIn(key, entry)
 
     def test_delegate_preview_accepts_the_documented_flags(self) -> None:
         result = self.engine.run("delegate", "preview", "--help")
 
         self._capture("delegate-preview-help", result.stdout + result.stderr)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for flag in ("--repo", "--from", "--to", "--rule", "--exclude"):
+        for flag in ("--repo", "--from", "--to", "--rule", "--format"):
             with self.subTest(flag=flag):
                 self.assertIn(flag, result.stdout + result.stderr)
 
@@ -332,6 +294,37 @@ class RealEngineConformanceTests(unittest.TestCase):
 
         self.assertEqual(parse_preview(preview.raw).as_dict(), preview.as_dict())
 
+    # `include` bypasses `unsupported_ext`/`default_path` --------------------
+
+    def test_an_included_markdown_glob_reaches_scope_and_its_project_rule(self) -> None:
+        # Gate 3 (the rule file's `include`) must beat gate 4 (`unsupported_ext`:
+        # `.md` is outside ocr's extension allowlist) and gate 5
+        # (`default_path`), and `**/*.md` must be the rule that resolves for it.
+        self.repository.commit(
+            ".opencodereview/rule.json",
+            json.dumps(
+                {
+                    "include": ["presets/**/*.md"],
+                    "rules": [{"path": "**/*.md", "rule": "Review the procedure.", "merge_system_rule": False}],
+                }
+            ),
+            "include markdown commands",
+        )
+        head = self.repository.commit("presets/x/commands/y.md", "# y\n", "add a markdown command")
+
+        preview = self.engine.delegate_preview(
+            self.repository.path, from_ref=self.base, to_ref=head, rule_path=self.rule_path,
+        )
+        self.assertIn("presets/x/commands/y.md", preview.included_paths)
+
+        result = self.engine.run(
+            "rules", "check", "--repo", str(self.repository.path), "--rule", str(self.rule_path),
+            "presets/x/commands/y.md",
+        )
+        self._capture("rules-check-markdown-include", result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("**/*.md", result.stdout)
+
     # 4-5. delegate rule ------------------------------------------------------
 
     def test_delegate_rule_accepts_positional_paths(self) -> None:
@@ -339,9 +332,24 @@ class RealEngineConformanceTests(unittest.TestCase):
 
         self._capture("delegate-rule-help", result.stdout + result.stderr)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for flag in ("--repo", "--rule"):
+        for flag in ("--repo", "--rule", "--format"):
             with self.subTest(flag=flag):
                 self.assertIn(flag, result.stdout + result.stderr)
+
+    def test_delegate_rule_json_has_the_documented_shape(self) -> None:
+        result = self.engine.run(
+            "delegate", "rule", "--repo", str(self.repository.path), "--rule", str(self.rule_path),
+            "--format", "json", "--", "src/module.py",
+        )
+        self._capture("delegate-rule-json", result.stdout)
+
+        document = json.loads(result.stdout)
+        self.assertEqual(document["schema_version"], SUPPORTED_SCHEMA_VERSION)
+        self.assertTrue(document["groups"])
+        for group in document["groups"]:
+            for key in ("group_id", "source", "pattern", "files", "rule"):
+                with self.subTest(group=group.get("group_id"), key=key):
+                    self.assertIn(key, group)
 
     def test_delegate_rule_resolves_the_requested_paths(self) -> None:
         resolution = self.engine.delegate_rule(
@@ -357,16 +365,14 @@ class RealEngineConformanceTests(unittest.TestCase):
             resolution.as_dict(),
         )
 
-    def test_delegate_rule_batches_do_not_change_the_answer(self) -> None:
+    def test_delegate_rule_resolves_every_selected_path_in_one_call(self) -> None:
         paths = ["src/module.py", "docs/guide.md"]
 
-        one = self.engine.delegate_rule(self.repository.path, paths, rule_path=self.rule_path, batch_size=100)
-        many = self.engine.delegate_rule(self.repository.path, paths, rule_path=self.rule_path, batch_size=1)
+        resolution = self.engine.delegate_rule(self.repository.path, paths, rule_path=self.rule_path)
 
-        self.assertEqual(
-            [assignment.path for assignment in one.assignments],
-            [assignment.path for assignment in many.assignments],
-        )
+        self.assertEqual([assignment.path for assignment in resolution.assignments], paths)
+        rule_invocations = [invocation for invocation in self.engine.invocations if invocation.argv[1:3] == ("delegate", "rule")]
+        self.assertEqual(len(rule_invocations), 1, "every selected path goes into one delegate rule call")
 
     # 6. no background mode ---------------------------------------------------
 
