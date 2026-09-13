@@ -10,11 +10,13 @@ everything, which is the failure this verdict exists to prevent.
 
 from __future__ import annotations
 
+import shlex
 from typing import Any, Mapping, Sequence
 
 from .errors import EXIT_CATEGORIES, Diagnostic
 from .findings import FindingSet
-from .verdict import Verdict, describe
+from .session import FINDINGS_FILENAME, FINDINGS_MARKDOWN_FILENAME, INVENTORY_FILENAME, PACKET_FILENAME
+from .verdict import Verdict, delivery as derive_delivery, describe, describe_delivery
 
 
 SCHEMA_VERSION = "1.0"
@@ -27,7 +29,6 @@ def review_document(
     packet_sha256: str,
     rules_sha256: str | None,
     scope: Mapping[str, Any] | None,
-    budget: Mapping[str, Any] | None,
     findings: FindingSet,
     verdict: Verdict,
     code: int,
@@ -55,10 +56,10 @@ def review_document(
         "packet_sha256": packet_sha256,
         "rules_sha256": rules_sha256,
         "scope": dict(scope or {}),
-        "budget": dict(budget or {}),
         "findings": [finding.as_dict() for finding in findings.findings],
         "discarded_findings": list(findings.discarded),
         "verdict": verdict.as_dict(),
+        "delivery": derive_delivery(findings.findings, verdict),
         **({"coverage": dict(coverage)} if coverage is not None else {}),
         "warnings": warnings,
         "diagnostics": [item.as_dict() for item in diagnostics],
@@ -72,12 +73,11 @@ def render_human(
     *,
     findings: FindingSet,
     verdict: Verdict,
-    budget: Mapping[str, Any] | None,
     evidence_path: str | None,
     packet_sha256: str = "",
     coverage: Mapping[str, Any] | None = None,
 ) -> str:
-    """Summary, findings by severity, budget, verdict, evidence path -- in that order."""
+    """Summary, findings by severity, verdict, evidence path -- in that order."""
 
     counts = findings.by_severity()
     lines = [
@@ -89,24 +89,27 @@ def render_human(
         "  " + "  ".join(f"{name}: {counts[name]}" for name in counts),
         f"anchorable inline: {len(findings.anchorable)}; reported in the summary: {len(findings.degraded)}",
     ]
-    if budget:
-        lines.append(
-            f"budget: {budget.get('counted')} counted against {budget.get('limit')}"
-            + (" (OVER BUDGET)" if budget.get("over_budget") else "")
-        )
     if packet_sha256:
         lines.append(f"packet_sha256: {packet_sha256}")
     if coverage is not None:
         covered = coverage.get("covered", ())
         uncovered = coverage.get("uncovered", ())
         lines.append(f"coverage: {len(covered)} covered range(s); {len(uncovered)} uncovered range(s)")
+        gapped_paths = {item.get("path") for item in uncovered}
+        scoped_paths = gapped_paths | {item.get("path") for item in covered}
+        lines.append(
+            f"files: {len(scoped_paths)} in scope; {len(scoped_paths - gapped_paths)} fully covered; "
+            f"{len(gapped_paths)} with gaps"
+        )
+        for path in sorted(gapped_paths):
+            lines.append(f"  - gap: {path}")
         for item in uncovered:
             lines.append(
                 f"  - uncovered {item.get('path')}:{item.get('start_line')}-{item.get('end_line')} "
                 f"(version {item.get('version')}; retrieve with {item.get('command', 'the recorded source command')})"
             )
 
-    lines.extend(["", f"VERDICT: {describe(verdict)}"])
+    lines.extend(["", f"VERDICT: {describe(verdict)}", f"DELIVERY: {describe_delivery(derive_delivery(findings.findings, verdict))}"])
     if verdict.inconclusive:
         # Never a quiet success: the parts that were not covered are named.
         lines.append("The review did NOT cover its intended scope:")
@@ -126,3 +129,104 @@ def render_human(
     if evidence_path:
         lines.extend(["", f"evidence: {evidence_path}"])
     return "\n".join(lines) + "\n"
+
+
+# -- compact documents ------------------------------------------------------
+#
+# What `--json` prints. The full document is written into the session directory
+# (`result-open.json`, `result-close.json`) and printed by `--json --verbose`;
+# these are derived from it, so there is one assembly and no second shape to
+# keep in step. Everything the loop needs to act is here; everything else has a
+# path.
+
+CANDIDATE_KEYS = ("candidate_id", "head_commit", "merge_base", "base_branch", "pr_number", "repository")
+
+
+def _pick(mapping: Mapping[str, Any] | None, keys: Sequence[str]) -> dict[str, Any]:
+    source = mapping or {}
+    return {key: source.get(key) for key in keys}
+
+
+def _head(payload: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "code": payload["code"],
+        "category": payload["category"],
+        "message": payload["message"],
+        "candidate": _pick(payload.get("candidate"), CANDIDATE_KEYS),
+        "warnings": [item for item in payload.get("diagnostics", []) if item.get("severity") != "info"],
+    }
+
+
+def compact_open(payload: Mapping[str, Any], *, extension_version: str) -> dict[str, Any]:
+    """The compact document of an opened review."""
+
+    packet = payload.get("packet") or {}
+    session = payload.get("session") or {}
+    session_path = str(session.get("path") or "")
+    findings_path = f"{session_path}/{FINDINGS_FILENAME}"
+    return {
+        **_head(payload),
+        "session": _pick(session, ("path", "phase", "opened_at")),
+        "packet": {
+            # The packet's own record carries digests, never its location: the
+            # paths are the session's, and the loop hands them to the reviewer.
+            "path": f"{session_path}/{PACKET_FILENAME}",
+            "inventory_path": f"{session_path}/{INVENTORY_FILENAME}",
+            **_pick(packet, ("bytes", "packet_sha256", "inventory_sha256")),
+            "truncations": len(packet.get("truncations") or ()),
+        },
+        "scope": _pick(payload.get("scope"), ("included_count",)),
+        "runtime": {"extension_version": extension_version},
+        "next": {
+            "findings_path": findings_path,
+            "close": f"review --findings {shlex.quote(findings_path)} --session {shlex.quote(session_path)}",
+        },
+    }
+
+
+def compact_close(payload: Mapping[str, Any], *, extension_version: str) -> dict[str, Any]:
+    """The compact document of a closed review."""
+
+    verdict = payload["verdict"]
+    record = payload["delivery"]
+    coverage = payload.get("coverage")
+    session = payload.get("session") or {}
+    document = {
+        **_head(payload),
+        "session": _pick(session, ("path", "phase")),
+        "verdict": {
+            "value": verdict["value"],
+            "blocking": verdict["blocking"],
+            "inconclusive_causes": len(verdict.get("causes") or ()),
+        },
+        "delivery": dict(record),
+        "coverage": {
+            "complete": bool(coverage.get("complete")) if coverage is not None else False,
+            "uncovered": len(coverage.get("uncovered") or ()) if coverage is not None else 0,
+        },
+        "findings": {
+            "count": len(payload.get("findings") or ()),
+            "discarded": len(payload.get("discarded_findings") or ()),
+            "path": f"{session.get('path')}/{FINDINGS_MARKDOWN_FILENAME}",
+        },
+        "runtime": {"extension_version": extension_version},
+        "next": _next_sentence(verdict, record),
+    }
+    if "publication" in payload:
+        # A published close keeps what the publication did; the plan and the
+        # per-operation detail stay in the full document.
+        document["publication"] = _pick(
+            payload["publication"], ("executed", "event", "posted_inline", "review_urls", "summary_comment_url")
+        )
+        document["operations"] = len(payload.get("operations") or ())
+    return document
+
+
+def _next_sentence(verdict: Mapping[str, Any], record: Mapping[str, Any]) -> str:
+    if record["decision"] == "proceed":
+        return "Mark the pull request ready; the review is complete with no blocking or major finding."
+    if record["reason"] == "inconclusive":
+        causes = "; ".join(f"[{cause['kind']}] {cause['detail']}" for cause in verdict.get("causes") or ())
+        return f"Resolve the inconclusive causes and review the new candidate: {causes}"
+    return f"Fix {', '.join(record['pending'])} on the task branch and review the new candidate."
