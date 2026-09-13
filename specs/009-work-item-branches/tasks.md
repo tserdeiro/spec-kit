@@ -88,13 +88,13 @@ feature/task-stack behavior and reviewer-only portability remain intact.
   - **Delivery**: single PR (~360 authored lines)
   - **Completion evidence**: PR #167; Linear suite 541 passed / 315 subtests, with 3 preexisting sandbox loopback skips; focused projection suites 154 passed / 103 subtests; `git diff --check` passed; budget 323/400. Fresh independent review of `b9d88425232c14bd2c7e988593adbf7944c411e9` closed with `no-blocking-findings`, 0 findings after coverage of native resolution, resolver failure preservation, conflict identities, independent resolution, exclusions, PR body linkage, and projection.
 
-- [ ] T006 [US3] Reuse native identity for session and hook context in packages/spec-kit-linear/src/spec_kit_linear/cli.py
+- [x] T006 [US3] Reuse native identity for session and hook context in packages/spec-kit-linear/src/spec_kit_linear/cli.py
   - **Traces**: FR-004, FR-006, FR-007, FR-008, FR-010, SC-003, SC-004; outcome: hooks identify native work items without selecting an unrelated active feature.
   - **Depends on**: T005
   - **Boundaries**: Update `_reconcile_hook`, session-start/context callers and focused tests. Use the resolver consistently for current branches; configured failures remain explicit and preserve state, absent/disabled hooks remain quiet. Retire remaining caller-local work-item regex assumptions; retain existing event/reentrancy protections.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> native current-branch context, stale feature selection, absent/disabled configuration, and configured failure regressions pass.
   - **Delivery**: single PR (~260 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #170; Linear suite 544 passed / 315 subtests, with 3 preexisting sandbox loopback skips; focused CLI suite 130 passed / 78 subtests; `git diff --check` passed; budget 131/400. Fresh independent review of `4fa9a3731cba427edeebb5d9453454be96146b29` closed with `no-blocking-findings`, 0 findings after coverage of native hook/session identity, stale-feature exclusion, configured failures, quiet absent/disabled configuration, work-item-only routing, lifecycle safety, and regressions.
 
 - [ ] T007 [US3] Resolve work-item review context and exact task guards in packages/spec-kit-code-review/src/spec_kit_code_review/sdd_context.py
   - **Traces**: FR-006–009, C-001, C-002, SC-003, SC-004; outcome: native work-item PRs stay on the short path and guards protect only actual feature tasks.
