@@ -45,12 +45,15 @@ Fill the template's task blocks — organized by user story, in priority order f
   the exact analyzed artifacts receive their first approved publication. A
   later task addition uses the next unused ID and requires fresh analysis and
   product approval; completion checkboxes and evidence do not change the
-  approved product intent.
+  approved product intent. Preserve the published IDs, descriptions, traces,
+  dependencies, boundaries, and delivery forecasts across normal task progress.
+  A material task-definition edit is a new product scope and cannot be
+  published by retrying the old approval.
 
 ## Completion
 
 Run `.specify/extensions.yml`'s `hooks.after_tasks` by Setup step 4's own rule — silently, mandatory hooks awaited, eligible optional hooks run quietly, every other one skipped. Product-phase `git.commit` remains suppressed, including when configured as mandatory.
 
-Leave the generated `tasks.md` local. Do not commit, push, or create a feature PR from this phase. After `/speckit.analyze` reports clean, present the exact product artifact set and handoff prerequisites; explicit human approval is required before the feature variant of `/speckit.pr` publishes it.
+Leave the generated `tasks.md` local. Do not commit, push, or create a feature PR from this phase. After `/speckit.analyze` reports clean, present the exact product artifact set and handoff prerequisites; explicit human approval is required before the feature variant of `/speckit.pr` publishes it. If that publication is interrupted, resume through `/speckit.pr`: observe the existing head and PR, reuse only an OPEN gate, and skip writes already confirmed. After publication, the existing Linear preview/apply/status result and native assignee for every executable task remain visible prerequisites.
 
 Report: the path to the generated `tasks.md`; that no publication occurred; the total task count and the count per user story; the independent-test criterion for each story; the suggested MVP scope; and confirmation every task follows the template's checklist format.
