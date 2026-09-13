@@ -67,12 +67,14 @@ def _key(value: object, team_key: str, source: str) -> str:
 
 
 def _strict_keys(branch: str) -> list[str]:
-    if re.fullmatch(r"^(?:[^/]+/)?[A-Za-z][A-Za-z0-9]*-(\d+)(?:-.*)?$", branch) is None:
+    if re.fullmatch(r"^(?:[^/]+/)?[A-Za-z][A-Za-z0-9]*-(\d+)(?:-[^/]*)?$", branch) is None:
         return []
-    return list(dict.fromkeys(
-        f"{match.group('team').upper()}-{int(match.group('number'))}"
-        for match in ISSUE_TOKEN_RE.finditer(branch.rsplit("/", 1)[-1])
-    ))
+    return list(
+        dict.fromkeys(
+            f"{match.group('team').upper()}-{int(match.group('number'))}"
+            for match in ISSUE_TOKEN_RE.finditer(branch.rsplit("/", 1)[-1])
+        )
+    )
 
 
 def _tracker_keys(body: object, team_key: str, source: str) -> list[str]:
@@ -178,8 +180,7 @@ def _observations(payload: Mapping[str, object], team_key: str) -> tuple[str | N
                 status = "conflict"
                 diagnostics = [Diagnostic("work_item_identity_conflict", "branch and Tracker evidence disagree within one pull request")]
             entry = _entry("pull_request", branch, keys=keys, status=status, diagnostics=diagnostics)
-            if tracker:
-                entry["_tracker"] = tracker
+            entry["_tracker"] = tracker
             observations.append(entry)
     if not observations:
         raise _input("request must contain at least one observation")
