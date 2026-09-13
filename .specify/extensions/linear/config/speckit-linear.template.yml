@@ -18,8 +18,9 @@ repository:
 # open_state_id are required together. started_state_id ("In Progress") and
 # review_state_id ("In Review") are each optional: without them the tasks
 # that derive to those states keep the state they already have, and a
-# ready-for-review task falls back to started_state_id. `onboard` fills all
-# four in automatically from the Team's workflow states.
+# ready-for-review task falls back to started_state_id (`status` shows the
+# projected state and that reason; `doctor` warns `review_state_missing`).
+# `onboard` fills all four in automatically from the Team's workflow states.
 # lifecycle:
 #   completed_state_id: "00000000-0000-0000-0000-000000000000"
 #   open_state_id: "00000000-0000-0000-0000-000000000000"
