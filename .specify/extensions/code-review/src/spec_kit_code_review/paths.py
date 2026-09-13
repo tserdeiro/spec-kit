@@ -114,15 +114,26 @@ OCR_SHIM_RELATIVE = ("node_modules", ".bin", "ocr")
 OCR_BINARY_NAME = "opencodereview"
 
 
+# The lock's `binaries` map keys its digests `<os>-amd64`/`<os>-arm64` -- the
+# form `lockfile.platform_key()` produces, matching `uname -m`'s vocabulary.
+# npm's own platform packages are named `<os>-x64`/`<os>-arm64` instead: one
+# mapping from the former to the latter, consulted here and nowhere else, so
+# the two naming schemes never drift into two independent guesses. An
+# architecture this dict does not know is a `KeyError`, not a package name
+# that would silently 404 against the registry.
+_NPM_ARCH = {"amd64": "x64", "arm64": "arm64"}
+
+
 def platform_package(platform: str | None = None) -> str:
     """The npm platform package that carries the real binary for this machine."""
 
     key = platform or _platform_key()
-    return f"ocr-{key}"
+    operating_system, _, architecture = key.rpartition("-")
+    return f"ocr-{operating_system}-{_NPM_ARCH[architecture]}"
 
 
 def _platform_key() -> str:
-    """``<os>-<arch>`` as the engine's own packages name it."""
+    """``<os>-<arch>`` in the lock's own vocabulary (``amd64``/``arm64``)."""
 
     import platform as platform_module
 

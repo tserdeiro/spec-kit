@@ -18,12 +18,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from . import runtime_identity
 from .paths import EXTENSION_DIRECTORY, state_root
 from .errors import EXIT_DRIFT, EXIT_ENVIRONMENT, EXIT_USAGE, AppError, Diagnostic
 from .evidence import FILE_MODE, EvidenceRoot, harden_directories
@@ -33,6 +36,7 @@ from .redaction import redact_payload, redact_text
 SESSION_FILENAME = "session.json"
 RAW_DIRECTORY = "raw"
 PACKET_FILENAME = "review-packet.md"
+INVENTORY_FILENAME = "context-inventory.json"
 FINDINGS_FILENAME = "findings.json"
 FINDINGS_NORMALIZED_FILENAME = "findings-normalized.json"
 FINDINGS_MARKDOWN_FILENAME = "findings.md"
@@ -112,6 +116,7 @@ class ReviewSession:
             "opened_at": self.opened_at,
             "age_hours": round(age, 2) if age is not None else None,
             "worktree_path": (self.payload.get("environment") or {}).get("worktree_path"),
+            "runtime": self.payload.get("runtime"),
         }
 
     # -- mutation -------------------------------------------------------
@@ -148,11 +153,25 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> None:
 
     try:
         harden_directories(path.parent)
-        path.write_text(
-            json.dumps(redact_payload(dict(payload)), ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        os.chmod(path, FILE_MODE)
+        content = (json.dumps(redact_payload(dict(payload)), ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        try:
+            os.fchmod(descriptor, FILE_MODE)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        except OSError:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
     except OSError as error:
         raise AppError(
             f"could not write the session evidence at {path}",
@@ -204,8 +223,10 @@ def open_session(
         "working_root": environment.get("working_root"),
         "environment": dict(environment),
         "config_sha256": config_sha256,
+        "runtime": runtime_identity(),
         "packet_sha256": None,
         "verdict": None,
+        "findings_attempt_id": secrets.token_urlsafe(18),
     }
     if extra:
         collisions = sorted(set(extra) & set(payload))
@@ -494,7 +515,7 @@ class Drift:
         return Diagnostic(
             "candidate_merge_base_changed",
             f"the merge base changed from {self.previous} to {self.current}: the head did not move, but the base branch "
-            "advanced and the comparison range is another one, so the file scope and the budget no longer correspond; "
+            "advanced and the comparison range is another one, so the file scope no longer corresponds; "
             "redo the pass against the new range",
         )
 

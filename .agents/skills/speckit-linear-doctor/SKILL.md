@@ -15,7 +15,9 @@ bash .specify/extensions/linear/scripts/bash/run.sh doctor --offline --fix
 ```
 
 Checks the Python/uv runtime, the Git worktree, `.gitignore`, the shared
-configuration, the lifecycle section, the `gh` binary (present and
+configuration, the lifecycle section (warning `review_state_missing` when
+`review_state_id` is absent, since ready-for-review tasks then project onto
+`started_state_id`), the `gh` binary (present and
 authenticated — a warning only, since pull-request states are optional),
 Spec Kit's hook registry, and the local feature artifacts. `--offline` skips
 the `gh` authentication check. Without `--offline` it additionally validates the

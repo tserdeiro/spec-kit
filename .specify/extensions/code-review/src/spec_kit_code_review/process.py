@@ -52,12 +52,12 @@ def run_command(
         completed = subprocess.run(
             command,
             check=False,
-            text=True,
+            text=False,
             capture_output=True,
             # A request body goes in on stdin, never in argv: it carries the
             # candidate's own text, and argv is visible to every process on the
             # machine.
-            input=stdin,
+            input=stdin.encode("utf-8") if stdin is not None else None,
             cwd=str(cwd) if cwd is not None else None,
             env=dict(env) if env is not None else None,
             timeout=timeout,
@@ -84,8 +84,8 @@ def run_command(
     return CommandResult(
         argv=tuple(command),
         returncode=completed.returncode,
-        stdout=completed.stdout or "",
-        stderr=completed.stderr or "",
+        stdout=(completed.stdout or b"").decode("utf-8", errors="strict"),
+        stderr=(completed.stderr or b"").decode("utf-8", errors="replace"),
     )
 
 
