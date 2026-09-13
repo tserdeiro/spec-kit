@@ -27,6 +27,14 @@ GitHub.
   which then verifies the branch against it; without a named task, the
   script verifies against the ledger's first unchecked task instead.
 
+For a configured work item, the Linear resolver is the identity source: carry
+its Issue identifier, title, context, and exact native `branchName` through
+start and PR creation byte-for-byte. Do not rebuild a native branch from the
+Issue title or replace a prefix such as `users/alice/`. Without a configured
+resolver, use the supplied key and the documented lowercase
+`<team>-<number>-<title-slug>` fallback. Feature and task branches keep their
+`NNN-*` identity and link to Linear only through the canonical PR body.
+
 ## 2. Guarantee the branch invariant
 
 The branch is what projects the task to *In Progress*; it must exist and
@@ -67,6 +75,13 @@ Use `.github/PULL_REQUEST_TEMPLATE.md` — every section, in its order:
   `.specify/bugs/<slug>/` for a bug; `N/A (chore)` otherwise.
   Requirements: the FR, C, and SC ranges the task traces. Tasks: the
   `T###`, or `N/A (short path)`.
+
+The `Work item` section has one Tracker line. A task PR's line is the one
+explicit bridge from its `NNN-T###-*` branch to the Linear Issue, and must be
+exactly `Fixes TEAM-number`; a work-item PR carries the Issue key resolved by
+the native branch contract. Review parses this snapshot independently and
+does not call the Linear bridge. Conflicting, malformed, or incomplete branch
+or Tracker evidence stays unresolved and blocks speculative routing.
 - **Outcome** — the task's outcome line, phrased as the delivered result.
 - **Changes** — summarize the real diff against the PR's base branch
   (`git diff <base>...HEAD --stat` — the feature branch for a feature

@@ -178,6 +178,15 @@ as the feature branch `004-delivery-discipline` or a stacked task's own
 regardless of what the reviewing agent found. A pull request based on the
 delivery trunk is exempt.
 
+### Work-item identity
+
+Use the PR snapshot as the complete routing evidence. One `Work item` Tracker
+line must use `Fixes TEAM-number` for a feature task; a work-item PR may carry
+the exact configured native branch name, including a prefix such as
+`users/alice/`. Reviewers report native and Tracker conflicts or missing
+identity as gaps and preserve the review result without resolving Linear or
+running its internal bridge.
+
 ### findings.json
 
 ```json

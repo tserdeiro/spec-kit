@@ -106,13 +106,13 @@ feature/task-stack behavior and reviewer-only portability remain intact.
 
 ## Final phase: Cross-cutting verification
 
-- [ ] T008 [US3] Complete PR routing and installed contract evidence in presets/default/commands/pr.md
+- [x] T008 [US3] Complete PR routing and installed contract evidence in presets/default/commands/pr.md
   - **Traces**: FR-001–010, C-001–004, SC-001–005; outcome: all five surfaces follow the native identity contract in independently installed consumers.
   - **Depends on**: T007
   - **Boundaries**: Update PR guidance/helpers, package command/README references, preset tests, and the Linear installed-artifact and code-review review conformance scripts. Exercise the equivalent format/failure matrix across start, PRs, review, guards, and projection. Confirm packaged internal bridge and reviewer-only independence; regenerate authored-command skills in isolated consumers via supported dev install. Repeat read-only live prefix/native-resolution probe using implemented code and record redacted evidence in this task's completion. Preserve unrelated dirty docs and distinguish synthetic fixtures from actual agent runtime.
   - **Evidence**: Run both package pytest suites and preset tests; `bash packages/spec-kit-linear/scripts/conformance/installed-artifact.sh`; `bash packages/spec-kit-code-review/scripts/conformance/review.sh`; `git diff --check` -> pass. Live native probe returns the same Issue, exact valid branch and credential-prefix shape without remote mutation.
   - **Delivery**: single PR (~350 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: Linear package suite 560 passed / 315 subtests; code-review package suite 1008 passed / 619 subtests; preset suite 105 passed; installed-artifact and review conformance passed; `git diff --check` passed. Installed bridge loopback matrix resolved the exact prefixed native branch, canonical Tracker fallback, and conflict/exclusion cases with query-only requests; reviewer conformance regenerated `speckit-pr` through supported dev install and verified no Linear extension or bridge. Live read-only probe resolved TDS-108 with native branch `feature/tds-108-t008-complete-pr-routing-and-installed-contract-evidence-in`, `git check-ref-format --branch` passed, credential `LINEAR_API_KEY:<redacted>`, and no remote mutation. Friction recorded in `/private/tmp/spec-kit-009-t008-friction.md`.
 
 ## Dependencies and stack order
 

@@ -24,8 +24,13 @@ set -euo pipefail
 repository_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/spec-kit-linear-conformance.XXXXXX")
 consumer_root="$temporary_root/consumer"
+fake_server_pid=""
 
 cleanup() {
+  if [ -n "$fake_server_pid" ]; then
+    kill "$fake_server_pid" >/dev/null 2>&1 || true
+    wait "$fake_server_pid" >/dev/null 2>&1 || true
+  fi
   rm -rf "$temporary_root"
 }
 trap cleanup EXIT
@@ -127,6 +132,7 @@ cp "$repository_root/tests/fixtures/consumer/.specify/feature.json" "$consumer_r
 (
   cd "$consumer_root"
   specify extension add "$repository_root" --dev >/dev/null
+  specify preset add --dev "$repository_root/../../presets/default" >/dev/null
 )
 
 installed_root="$consumer_root/.specify/extensions/linear"
@@ -138,6 +144,9 @@ test -f "$installed_root/extension.yml"
 test -f "$installed_root/commands/push.md"
 test -x "$runtime"
 test -f "$consumer_root/.specify/extensions/.registry"
+test -f "$consumer_root/.agents/skills/speckit-pr/SKILL.md"
+grep -Fq 'exact native `branchName`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md"
+grep -Fq '`Fixes TEAM-number`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md"
 
 python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["extensions"]["linear"]["registered_commands"]' "$consumer_root/.specify/extensions/.registry"
 
@@ -238,6 +247,137 @@ expect_unreachable status-quiet status --root "$consumer_root" --feature 001 --q
 for label in status push onboard; do
   python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["code"] == 8, data["code"]; assert data["endpoint"]["override_active"] is True, data["endpoint"]; assert data["endpoint"]["is_production"] is False, data["endpoint"]' "$temporary_root/$label.out"
 done
+
+# --------------------------------------------------------------------------
+# 4a. The packaged bridge reads native Issue identity and preserves the exact
+# branch name. This loopback GraphQL server is intentionally query-only: its
+# request log is checked below so the installed bridge cannot acquire a
+# mutation path while this conformance script exercises the start/PR matrix.
+# --------------------------------------------------------------------------
+
+fake_server="$temporary_root/fake-linear.py"
+cat >"$fake_server" <<'PY'
+from __future__ import annotations
+
+import json
+import re
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+TEAM_ID = "22222222-2222-4222-8222-222222222222"
+
+
+def context(identifier: str, branch: str) -> dict[str, object]:
+    return {
+        "id": f"issue-{identifier.lower()}",
+        "identifier": identifier,
+        "title": f"Native {identifier}",
+        "description": f"Context for {identifier}",
+        "url": f"https://linear.invalid/issue/{identifier}",
+        "branchName": branch,
+        "team": {"id": TEAM_ID, "key": "WOR", "name": "Work"},
+    }
+
+
+def for_branch(branch: str) -> dict[str, object] | None:
+    if branch == "users/alice/WOR-12-native-shape":
+        return context("WOR-12", branch)
+    if branch == "WOR-13-fix":
+        return context("WOR-13", branch)
+    if branch == "WOR-99-conflict":
+        return context("WOR-12", branch)
+    return None
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        request = json.loads(self.rfile.read(length))
+        query = request.get("query", "")
+        variables = request.get("variables", {})
+        Path(sys.argv[2]).open("a", encoding="utf-8").write(query.replace("\n", " ") + "\n")
+        if "issueVcsBranchSearch" in query:
+            data: dict[str, object] = {}
+            for alias, variable in re.findall(r"(issue\d+): issueVcsBranchSearch\(branchName: \$(branch\d+)\)", query):
+                data[alias] = for_branch(str(variables[variable]))
+        elif "query IssueContexts" in query:
+            data = {"issues": {"nodes": [
+                context(f"WOR-{int(number)}", f"wor-{int(number)}-native")
+                for number in variables.get("numbers", [])
+            ], "pageInfo": {"hasNextPage": False, "endCursor": None}}}
+        elif "query IssueContext" in query:
+            identifier = str(variables["id"]).upper()
+            data = {"issue": context(identifier, f"{identifier.lower()}-native")}
+        else:
+            data = {}
+        payload = json.dumps({"data": data}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *_args: object) -> None:
+        return
+
+
+server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+Path(sys.argv[1]).write_text(str(server.server_address[1]), encoding="utf-8")
+server.serve_forever()
+PY
+uv run --frozen --offline --project "$repository_root" python "$fake_server" "$temporary_root/linear-port" "$temporary_root/linear-requests" &
+fake_server_pid=$!
+for _ in $(seq 1 100); do
+  [ -s "$temporary_root/linear-port" ] && break
+  sleep 0.01
+done
+if [ ! -s "$temporary_root/linear-port" ]; then
+  echo "fake Linear server did not start" >&2
+  exit 1
+fi
+export SPECKIT_LINEAR_GRAPHQL_ENDPOINT="http://127.0.0.1:$(cat "$temporary_root/linear-port")/graphql"
+
+bridge="$installed_root/scripts/python/resolve_work_item.py"
+bridge_json() {
+  printf '%s' "$1" | uv run --frozen --offline --project "$repository_root" python "$bridge" --root "$consumer_root"
+}
+
+native=$(bridge_json '{"issue_key":"WOR-12"}')
+python3 - "$native" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["status"] == "resolved"
+resolution = payload["resolution"]
+assert resolution["identifier"] == "WOR-12"
+assert resolution["branch_name"] == "wor-12-native"
+assert resolution["team"]["key"] == "WOR"
+PY
+
+observed=$(bridge_json '{"branch_names":["users/alice/WOR-12-native-shape","old-title","WOR-99-conflict","009-feature"],"pull_requests":[{"head_branch":"users/alice/old-title","body":"## Work item\n\n- Tracker: Fixes WOR-13\n"},{"head_branch":"users/alice/conflicting","body":"## Work item\n\n- Tracker: Fixes WOR-12\n- Tracker: Fixes WOR-13\n"},{"head_branch":"009-feature","body":""}]}')
+python3 - "$observed" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["status"] == "partial"
+observations = payload["observations"]
+assert [item["status"] for item in observations] == ["resolved", "unresolved", "conflict", "excluded", "resolved", "conflict", "excluded"]
+assert observations[0]["resolution"]["branch_name"] == "users/alice/WOR-12-native-shape"
+assert observations[4]["resolution"]["identifier"] == "WOR-13"
+assert observations[2]["affected_issue_keys"] == ["WOR-12", "WOR-99"]
+PY
+
+python3 - "$temporary_root/linear-requests" <<'PY'
+import sys
+from pathlib import Path
+
+requests = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+assert requests and all(line.startswith("query ") for line in requests)
+assert not any("mutation" in line.lower() for line in requests)
+PY
 
 # --------------------------------------------------------------------------
 # 5. Mode conflicts are refused before any transport is attempted.

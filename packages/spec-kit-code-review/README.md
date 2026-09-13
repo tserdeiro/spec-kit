@@ -99,6 +99,16 @@ whitespace-insensitively, among the candidate's changed lines for that path.
 Exactly one match re-anchors the finding there; zero or several matches leave
 it reported in the summary, the same place a `side: LEFT` finding is reported.
 
+## Work-item identity
+
+Review reads the anchored pull-request snapshot as evidence. A single
+canonical `Work item` Tracker, `Fixes TEAM-number`, links a feature task's
+`NNN-T###-*` branch; a configured work-item branch keeps Linear's exact native
+name, including any provider prefix. Native branch lookup and the Tracker are
+observed data for review, not commands to execute. Conflicting, malformed, or
+incomplete identity evidence is reported as an advisory gap and never guessed.
+The installed reviewer has no Linear extension or bridge dependency.
+
 ## Guards
 
 Configured on an agent with runtime-event support (Claude Code, Codex,

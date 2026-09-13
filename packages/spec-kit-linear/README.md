@@ -109,6 +109,22 @@ Native automation is an accelerator, not the source of truth. `push`
 re-derives state from checkboxes, branches, and PRs and reconciles the Issue
 regardless of whether the GitHub integration or its target-branch rule ran.
 
+## Native work-item identity
+
+When configured, the installed `resolve_work_item.py` bridge reads an Issue's
+native identifier, title, context, and exact `branchName`. The preset start
+and PR paths carry that value unchanged, including a provider prefix such as
+`users/alice/`; they never derive a configured branch from a title. With no
+configuration, the supplied key uses the lowercase `<team>-<number>-slug`
+fallback. Feature and task branches retain `NNN-*`, and their task PR uses one
+canonical `Work item` Tracker line, `Fixes TEAM-number`, as the explicit link.
+
+Native branch lookup is preferred for observations; a canonical Tracker is
+the explicit PR fallback. Conflicting, malformed, or incomplete evidence is
+reported as unresolved, so no branch, PR, or lifecycle state is guessed. The
+code-review extension consumes the PR snapshot independently and never
+executes the Linear bridge.
+
 ## Task states
 
 Every `push` and every `status` re-derives each task's state from a fresh observation. The paginated pull-request scan is `complete`, `failed`, or `incomplete`; only `complete` permits lifecycle derivation, including a verified empty result. Failed or incomplete observations preserve existing remote states and explain the affected repository work.
@@ -263,7 +279,8 @@ Tests run from the repository root: `uv run pytest packages/spec-kit-linear/test
 `scripts/conformance/installed-artifact.sh` installs the extension into a
 throwaway consumer repository and asserts that the installed artifact
 materializes its commands, never references its source checkout, resolves its
-configuration, fails closed (exit 8) when it cannot reach its endpoint, and
+configuration, exercises the packaged native work-item bridge and generated
+preset skill, fails closed (exit 8) when it cannot reach its endpoint, and
 announces a non-production endpoint on every invocation. It pins the endpoint
 override to a loopback destination and refuses to run if the effective
 endpoint would be production, so credentials on a machine cannot change what

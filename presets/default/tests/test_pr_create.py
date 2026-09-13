@@ -14,6 +14,12 @@ import pr_create
 
 LEDGER = "- [x] T001 Sample\n- [ ] T002 Sample\n"
 
+def test_pr_command_documents_native_identity_contract() -> None:
+    command = (Path(__file__).parents[1] / "commands" / "pr.md").read_text(encoding="utf-8")
+    assert "exact native `branchName`" in command
+    assert "`Fixes TEAM-number`" in command
+    assert "Review parses this snapshot independently" in command
+
 def _set_trunk(repo: Path, branch: str) -> None:
     config = repo / ".specify/extensions/git/git-config.yml"
     config.parent.mkdir(parents=True)

@@ -42,6 +42,14 @@ Task PRs target the open task PR they stack on, else the feature branch;
 work-item branches and PRs (`speckit.chore`, `speckit.bugfix`,
 `speckit.pr`) use the delivery base too.
 
+Configured work items use Linear's native Issue identity. Start carries the
+returned `identifier`, `title`, context, and exact `branchName` into the PR
+without reconstructing a name from the title. The unconfigured fallback is
+`<team>-<number>-<title-slug>`. Feature and task branches retain `NNN-*`; the
+task PR's single `Work item` Tracker line, `Fixes TEAM-number`, is their
+explicit Linear link. Review reads that PR snapshot without the Linear bridge
+and leaves conflicting or incomplete identity evidence unresolved.
+
 ## One stack
 
 Delivery keeps one linear stack per feature: `speckit.implement` and
