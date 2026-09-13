@@ -430,6 +430,8 @@ class NativeHookTests(unittest.TestCase):
                 swapped = True
                 parent.rename(displaced_parent)
                 shutil.copytree(displaced_parent, parent)
+                (parent / "config.lock").unlink()
+                os.link(displaced_parent / "config.lock", parent / "config.lock")
             return real_run(*arguments, **kwargs)
 
         try:

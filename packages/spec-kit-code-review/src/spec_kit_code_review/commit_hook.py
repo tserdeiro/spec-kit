@@ -379,8 +379,9 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
                 pass
         if lock_identity is not None:
             try:
+                current_parent = lock.parent.lstat()
                 current_lock = lock.lstat()
-                if (current_lock.st_dev, current_lock.st_ino) == lock_identity:
+                if (current_parent.st_dev, current_parent.st_ino) == (diagnosed_snapshot.parent_device, diagnosed_snapshot.parent_inode) and (current_lock.st_dev, current_lock.st_ino) == lock_identity:
                     lock.unlink()
             except OSError:
                 pass
