@@ -26,7 +26,7 @@ Research, data contracts, and validation remain here, following the resolved tem
 - **Target environment**: current consumer platforms and selected integrations;
   reviewer-only installations remain independent of Linear.
 - **Constraints**: delivered stages, one task in flight, whole-deliverable forecasts
-  below 400 authored executable lines, unchanged upstream baseline and pins.
+  retained with the user-authorized 400-line exception, unchanged upstream baseline and pins.
 
 ## Documentation
 
