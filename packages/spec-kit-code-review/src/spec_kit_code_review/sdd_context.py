@@ -342,7 +342,13 @@ def resolve_feature(
     # title-only branch whose canonical Tracker field carries the identity.
     if not reserved_sdd_branch:
         identity_candidates = tuple(dict.fromkeys((*branch_keys, *tracker_keys)))
-        if tracker_conflict or len(tracker_keys) > 1 or len(branch_keys) > 1:
+        # A strict key at the start of the branch is the branch's only
+        # identity.  Additional Issue-like tokens are title evidence: they
+        # stay ambiguous without a canonical Tracker, but an agreeing
+        # Tracker resolves the title suffix.  A malformed or empty Tracker
+        # remains a conflict so review agrees with the native resolver.
+        leading_branch_key = branch_keys[0] if branch_keys else None
+        if tracker_conflict or len(tracker_keys) > 1 or (len(branch_keys) > 1 and not tracker_keys):
             diagnostics.append(
                 Diagnostic(
                     "work_item_identity_conflict",
@@ -358,7 +364,7 @@ def resolve_feature(
                 identity_conflict=True,
                 diagnostics=tuple(diagnostics),
             )
-        if branch_keys and tracker_keys and tracker_keys[0] not in branch_keys:
+        if leading_branch_key and tracker_keys and tracker_keys[0] != leading_branch_key:
             diagnostics.append(
                 Diagnostic(
                     "work_item_identity_conflict",
@@ -375,7 +381,7 @@ def resolve_feature(
                 identity_conflict=True,
                 diagnostics=tuple(diagnostics),
             )
-        work_item_key = tracker_keys[0] if tracker_keys else (branch_keys[0] if len(branch_keys) == 1 else None)
+        work_item_key = tracker_keys[0] if tracker_keys else leading_branch_key
         if work_item_key:
             bugs = _bugs_touched(changed_paths)
             bug_slug = bugs[0] if len(bugs) == 1 else None
@@ -534,7 +540,10 @@ def _tracker_keys_from_pr_body(body: str | None) -> tuple[tuple[str, ...], bool]
     keys: list[str] = []
     conflict = False
     for value in values:
-        if not value or value.upper() == "N/A" or value.startswith("<!--"):
+        if not value:
+            conflict = True
+            continue
+        if value.upper() == "N/A" or value.startswith("<!--"):
             continue
         match = _TRACKER_VALUE_RE.fullmatch(value)
         if match is None:

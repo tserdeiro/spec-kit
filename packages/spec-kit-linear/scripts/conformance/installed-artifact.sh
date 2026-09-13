@@ -139,6 +139,17 @@ installed_root="$consumer_root/.specify/extensions/linear"
 cp "$repository_root/tests/fixtures/consumer/speckit-linear.yml" "$consumer_root/"
 runtime="$installed_root/scripts/bash/run.sh"
 
+# Give the isolated consumer a committed SDD ledger and a deterministic
+# delivery base so the installed start and PR-routing helpers run against the
+# same stale-feature fixture as the native status/push paths below.
+git -C "$consumer_root" config user.email conformance@example.invalid
+git -C "$consumer_root" config user.name Conformance
+git -C "$consumer_root" symbolic-ref HEAD refs/heads/main
+git -C "$consumer_root" add .
+git -C "$consumer_root" commit -qm conformance
+mkdir -p "$consumer_root/.specify/extensions/git"
+printf 'trunk: "main"\n' >"$consumer_root/.specify/extensions/git/git-config.yml"
+
 # 1. The installed artifact materializes its commands.
 test -f "$installed_root/extension.yml"
 test -f "$installed_root/commands/push.md"
@@ -280,6 +291,17 @@ def context(identifier: str, branch: str) -> dict[str, object]:
     }
 
 
+def binding() -> dict[str, object]:
+    return {
+        "viewer": {"organization": {"id": "11111111-1111-4111-8111-111111111111"}},
+        "team": {"id": TEAM_ID, "key": "WOR", "name": "Work"},
+        "projectLabelGroup": {"id": "33333333-3333-4333-8333-333333333333", "name": "Repository", "isGroup": True},
+        "projectLabel": {"id": "44444444-4444-4444-8444-444444444444", "name": "sample-repository", "isGroup": False, "parent": {"id": "33333333-3333-4333-8333-333333333333"}},
+        "projectView": {"id": "55555555-5555-4555-8555-555555555555", "name": "sample-repository / Features", "type": "project", "shared": True, "projectFilterData": {"labels": {"some": {"id": {"eq": "44444444-4444-4444-8444-444444444444"}}}}},
+        "issueView": {"id": "66666666-6666-4666-8666-666666666666", "name": "sample-repository / Work", "type": "issue", "shared": True, "filterData": {"project": {"labels": {"some": {"id": {"eq": "44444444-4444-4444-8444-444444444444"}}}}}},
+    }
+
+
 def for_branch(branch: str) -> dict[str, object] | None:
     if branch == "users/alice/WOR-12-native-shape":
         return context("WOR-12", branch)
@@ -301,6 +323,15 @@ class Handler(BaseHTTPRequestHandler):
             data: dict[str, object] = {}
             for alias, variable in re.findall(r"(issue\d+): issueVcsBranchSearch\(branchName: \$(branch\d+)\)", query):
                 data[alias] = for_branch(str(variables[variable]))
+        elif "query BindingInspection" in query:
+            data = binding()
+        elif "query FeatureProjects" in query:
+            data = {"projects": {"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}
+        elif "query WorkItemIssues" in query:
+            data = {"issues": {"nodes": [
+                {"id": f"issue-{int(number)}", "identifier": f"WOR-{int(number)}", "title": f"Native WOR-{int(number)}", "updatedAt": "2099-01-01T00:00:00Z", "url": f"https://linear.invalid/issue/WOR-{int(number)}", "state": {"id": "state-todo", "name": "Todo"}}
+                for number in variables.get("numbers", [])
+            ], "pageInfo": {"hasNextPage": False, "endCursor": None}}}
         elif "query IssueContexts" in query:
             data = {"issues": {"nodes": [
                 context(f"WOR-{int(number)}", f"wor-{int(number)}-native")
@@ -308,7 +339,8 @@ class Handler(BaseHTTPRequestHandler):
             ], "pageInfo": {"hasNextPage": False, "endCursor": None}}}
         elif "query IssueContext" in query:
             identifier = str(variables["id"]).upper()
-            data = {"issue": context(identifier, f"{identifier.lower()}-native")}
+            branch = "users/alice/WOR-12-native-shape" if identifier == "WOR-12" else f"{identifier.lower()}-native"
+            data = {"issue": context(identifier, branch)}
         else:
             data = {}
         payload = json.dumps({"data": data}).encode("utf-8")
@@ -352,7 +384,7 @@ payload = json.loads(sys.argv[1])
 assert payload["status"] == "resolved"
 resolution = payload["resolution"]
 assert resolution["identifier"] == "WOR-12"
-assert resolution["branch_name"] == "wor-12-native"
+assert resolution["branch_name"] == "users/alice/WOR-12-native-shape"
 assert resolution["team"]["key"] == "WOR"
 PY
 
@@ -370,6 +402,108 @@ assert observations[4]["resolution"]["identifier"] == "WOR-13"
 assert observations[2]["affected_issue_keys"] == ["WOR-12", "WOR-99"]
 PY
 
+python3 - "$temporary_root/linear-requests" <<'PY'
+import sys
+from pathlib import Path
+
+requests = Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+assert requests and all(line.startswith("query ") for line in requests)
+assert not any("mutation" in line.lower() for line in requests)
+PY
+
+# The installed preset helpers and extension entry points cross their real
+# subprocess boundaries. The active feature fixture is deliberately stale so
+# successful native status/push runs prove the resolver wins before ledger
+# selection; all checks below are read-only.
+start_helper="$consumer_root/.specify/presets/default/scripts/python/work_item_start.py"
+pr_helper="$consumer_root/.specify/presets/default/scripts/python/pr_create.py"
+native_start=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$start_helper" WOR-12)
+python3 - "$native_start" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["issue_key"] == "WOR-12"
+assert payload["branch_name"] == "users/alice/WOR-12-native-shape"
+assert payload["configured"] is True
+PY
+
+mv "$consumer_root/speckit-linear.yml" "$consumer_root/speckit-linear.configured.yml"
+fallback_start=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$start_helper" WOR-13 "Fallback title")
+mv "$consumer_root/speckit-linear.configured.yml" "$consumer_root/speckit-linear.yml"
+python3 - "$fallback_start" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["issue_key"] == "WOR-13"
+assert payload["branch_name"] == "wor-13-fallback-title"
+assert payload["configured"] is False
+PY
+
+pr_base=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$pr_helper" work-item)
+test "$pr_base" = "base=main"
+
+fake_bin="$temporary_root/bin"
+mkdir -p "$fake_bin"
+cat >"$fake_bin/gh" <<'SH'
+#!/usr/bin/env sh
+printf '[[]]\n'
+SH
+chmod +x "$fake_bin/gh"
+export PATH="$fake_bin:$PATH"
+
+git -C "$consumer_root" branch users/alice/WOR-12-native-shape main
+git -C "$consumer_root" branch users/alice/unresolved-title main
+git -C "$consumer_root" branch WOR-99-conflict main
+git -C "$consumer_root" switch -q users/alice/WOR-12-native-shape
+before_head=$(git -C "$consumer_root" rev-parse HEAD)
+native_status=$("$runtime" status --root "$consumer_root" --json)
+python3 - "$native_status" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["code"] == 0
+assert payload["status"]["task_rows"] == []
+assert any(item["identifier"] == "WOR-12" for item in payload["status"]["work_items"])
+PY
+
+native_push=$("$runtime" push --root "$consumer_root" --dry-run --json)
+python3 - "$native_push" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["code"] == 0
+assert payload["plans"] == []
+assert payload["work_item_plan"]["operations"] == []
+PY
+
+git -C "$consumer_root" switch -q users/alice/unresolved-title
+unresolved_status=$("$runtime" status --root "$consumer_root" --json)
+python3 - "$unresolved_status" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["code"] == 0
+assert payload["status"]["task_rows"] == []
+PY
+
+git -C "$consumer_root" switch -q WOR-99-conflict
+conflict_status=$("$runtime" status --root "$consumer_root" --json)
+python3 - "$conflict_status" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["code"] == 0
+assert payload["status"]["task_rows"] == []
+PY
+
+test "$(git -C "$consumer_root" rev-parse HEAD)" = "$before_head"
+test "$(git -C "$consumer_root" branch --show-current)" = "WOR-99-conflict"
 python3 - "$temporary_root/linear-requests" <<'PY'
 import sys
 from pathlib import Path

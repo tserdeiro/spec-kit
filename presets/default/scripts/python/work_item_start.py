@@ -199,6 +199,14 @@ def _validate_branch(repo_root: Path, branch: str) -> None:
         die(f"Issue branch name is not a valid Git ref: {branch}")
 
 
+def _validate_native_identity(issue_key: str, branch: str) -> None:
+    """Reject a native suggestion whose leading strict key names another Issue."""
+
+    strict = _strict_keys(branch)
+    if strict and not _same_issue(strict[0], issue_key):
+        die(f"native Issue branch identity conflicts with {issue_key}: {branch}")
+
+
 def _same_issue(left: str, right: str) -> bool:
     if not KEY_RE.fullmatch(left.strip()) or not KEY_RE.fullmatch(right.strip()):
         return False
@@ -529,6 +537,8 @@ def prepare(
     adopted = _adopt(key, refs, prs, observations, observed_branches)
     if adopted is not None:
         return StartPlan(WorkItemContext(context.issue_key, context.title, context.description, adopted, context.url, context.configured), True, refs[adopted][1])
+    if context.configured:
+        _validate_native_identity(context.issue_key, context.branch_name)
     _validate_branch(repo_root, context.branch_name)
     return StartPlan(context)
 

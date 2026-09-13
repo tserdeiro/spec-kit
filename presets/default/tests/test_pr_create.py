@@ -19,6 +19,10 @@ def test_pr_command_documents_native_identity_contract() -> None:
     assert "exact native `branchName`" in command
     assert "`Fixes TEAM-number`" in command
     assert "Review parses this snapshot independently" in command
+    assert command.index("installed Linear resolver") < command.index("Otherwise take the first unchecked task")
+    assert "preserves the checkout" in command
+    assert "keep an adopted" in command
+    assert "existing head" in command
 
 def _set_trunk(repo: Path, branch: str) -> None:
     config = repo / ".specify/extensions/git/git-config.yml"

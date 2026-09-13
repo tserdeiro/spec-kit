@@ -181,6 +181,17 @@ def test_configured_start_returns_exact_native_context(feature_repo: Path) -> No
     assert _branch(feature_repo) == "users/alice/003-T001-task"
 
 
+def test_configured_start_rejects_native_suggestion_with_different_leading_issue(feature_repo: Path) -> None:
+    _resolver(feature_repo, {"status": "resolved", "resolution": {
+        "identifier": "WOR-123", "title": "Native title", "description": "Native context",
+        "branch_name": "WOR-124-cache", "url": "",
+    }})
+
+    with pytest.raises(SystemExit):
+        work_item_start.start(feature_repo, "WOR-123")
+    assert _branch(feature_repo) == "003-feature"
+
+
 @pytest.mark.parametrize("branch", ["003-feature", "003-T001-task", "@{-1}"])
 def test_configured_start_rejects_reserved_or_expanding_names(feature_repo: Path, branch: str) -> None:
     _resolver(feature_repo, {"status": "resolved", "resolution": {

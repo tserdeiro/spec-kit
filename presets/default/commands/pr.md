@@ -20,6 +20,17 @@ GitHub.
   **feature branch itself** (`NNN-slug`) with its artifacts committed
   names the **feature PR** — the spec-review gate that later closes the
   feature (see step 4's feature variant).
+- Before selecting the active feature's first unchecked task, resolve the
+  current head and any existing PR through the installed Linear resolver.
+  Pass the current branch as `branch_names` and each matching PR's
+  `head_branch` and body as `pull_requests`; invoke the resolver with
+  `python .specify/extensions/linear/scripts/python/resolve_work_item.py --root .`.
+  Treat every complete `NNN-slug`/`NNN-T###-slug` ref as an SDD ref only
+  after checking the whole ref. For a native or title-only branch, including
+  a prefixed path or a key-only ref, use the resolved Issue identity and
+  exact current/adopted native head. A configured unresolved, conflicting,
+  absent, or failed resolution stops the command and preserves the checkout;
+  it never falls through to the feature ledger.
 - Otherwise take the first unchecked task in the active feature's
   `tasks.md` (the active feature comes from `.specify/feature.json`), and
   say which one you picked.
@@ -30,7 +41,8 @@ GitHub.
 For a configured work item, the Linear resolver is the identity source: carry
 its Issue identifier, title, context, and exact native `branchName` through
 start and PR creation byte-for-byte. Do not rebuild a native branch from the
-Issue title or replace a prefix such as `users/alice/`. Without a configured
+Issue title or replace a prefix such as `users/alice/`, and keep an adopted
+existing head instead of replacing it with a newer suggestion. Without a configured
 resolver, use the supplied key and the documented lowercase
 `<team>-<number>-<title-slug>` fallback. Feature and task branches keep their
 `NNN-*` identity and link to Linear only through the canonical PR body.
