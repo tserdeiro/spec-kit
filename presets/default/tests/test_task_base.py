@@ -73,7 +73,7 @@ def test_task_stops_on_two_open_stacks(feature_repo: Path, fake_gh: Path, monkey
 
 def test_work_item_branches_from_the_delivery_base(feature_repo: Path) -> None:
     _set_trunk(feature_repo, "main")
-    task_base.work_item(feature_repo, "wor-123-short-slug")
+    task_base.work_item(feature_repo, "WOR-123", "Short slug")
     branches = subprocess.run(["git", "branch", "--show-current"], cwd=feature_repo, text=True,
                                capture_output=True, check=True)
     assert branches.stdout.strip() == "wor-123-short-slug"
@@ -81,10 +81,10 @@ def test_work_item_branches_from_the_delivery_base(feature_repo: Path) -> None:
 def test_reconcile_calls_the_installed_linear_extension_when_present(feature_repo: Path) -> None:
     _set_trunk(feature_repo, "main")
     calls = install_fake_linear(feature_repo)
-    task_base.work_item(feature_repo, "wor-124-other-slug")
+    task_base.work_item(feature_repo, "WOR-124", "Other slug")
     assert calls.read_text(encoding="utf-8").strip() == "push --hook"
 
 def test_reconcile_is_a_silent_no_op_without_the_extension(feature_repo: Path) -> None:
     _set_trunk(feature_repo, "main")
-    task_base.work_item(feature_repo, "wor-125-third-slug")  # no .specify/extensions/linear: no error
+    task_base.work_item(feature_repo, "WOR-125", "Third slug")  # no .specify/extensions/linear: no error
     assert not (feature_repo / ".specify/extensions/linear").exists()
