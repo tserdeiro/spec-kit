@@ -24,39 +24,39 @@ extensions:
 
   linear:
     id: linear
-    version: 0.13.0
+    version: 0.14.0
     provenance: first-party-monorepo
     path: packages/spec-kit-linear
-    tag: spec-kit-linear/v0.13.0
-    commit: 5398d69e2416f1d09b58d4c0d3f126f64492f1f1
-    subtree_archive_sha256: eb18fb6157625a53c11691a4cd45a583b04b5e2d4f8fb914d69a71dcb5d66f76
-    release_zip_sha256: 0cd8c0ebd527250bf5f1baf177e9f45ad7516d4adb7444a38e27eba0070f2073
-    manifest_sha256: 8f4d1a5ec08cc7fdc117b337db138a03c43b4f289ca8ddb071f558cf54e3935e
+    tag: spec-kit-linear/v0.14.0
+    commit: 490a7fafa0d1c76e20e2bbf9db73743b5779bca2
+    subtree_archive_sha256: 9b0de8a6a7f99cd8543faa98b4d3168f52c1a9649c0d550f336b2fcfee406a06
+    release_zip_sha256: 1d15709843fe03f5a1942a1d54131a681188287ab608c35f674ee2e6b7afdd63
+    manifest_sha256: b7da7a4968a633285e955ebc7a46f8b4130ec4b3084d027077f7d62252e5bbfc
     conformance_evidence: validation/linear-stage5-acceptance.md
 
   code-review:
     id: code-review
-    version: 0.5.0
+    version: 0.6.0
     provenance: first-party-monorepo
     path: packages/spec-kit-code-review
-    tag: spec-kit-code-review/v0.5.0
-    commit: 5398d69e2416f1d09b58d4c0d3f126f64492f1f1
-    subtree_archive_sha256: 706a05adc77677ae01fa884e9f44ab9efc4baaf583c7a0f4d9653ec1920116f6
-    release_zip_sha256: 1b1527d34fe4996b4c830178be86f10808381c3aa9a5ab2d73832f4b866577db
-    manifest_sha256: b6206268c2929168daeaaee6ef2eb35e9080726fb9ce414d302da6f5a4eccfa3
+    tag: spec-kit-code-review/v0.6.0
+    commit: 490a7fafa0d1c76e20e2bbf9db73743b5779bca2
+    subtree_archive_sha256: a2b3145965cba3c3eb648fe645f128b3b6af639d184b6106108dc4ec4182d416
+    release_zip_sha256: 9b2b496dbf98bda7c7c5c8c0d8c1abfdef2e63e010d646c49ca1482167a760a4
+    manifest_sha256: 0f6f60eaf4e75bac6ac8bb0a6fb6eecdbc9ad550a16c9275d9ca46fb30bba347
     conformance_evidence: validation/code-review-acceptance.md
     external_tools:
       open_code_review:
         source: https://github.com/alibaba/open-code-review
         license: Apache-2.0
-        release_tag: v1.8.3
-        version_string: "open-code-review v1.8.3 (80a579466)"
+        release_tag: v1.12.0
+        version_string: "open-code-review v1.12.0 (494bf1c8d)"
         npm_package: "@alibaba-group/open-code-review"
         binaries:
-          darwin-arm64: ed12e4599a7d2ddf5ac09324193d9781bd0a4215e867631432bc04cf5918f324
-          darwin-amd64: a5f884bb9a04abb2068e8f9f3b3c567cb65f0847f61876c7c44deb42b8c2d61a
-          linux-amd64: 445c2c3d7528d6a642b2eb83dc76978d7a5558b838d0c385b0c841b094104c17
-          linux-arm64: 4badb4b02fb9f7b4e91b5078fa78e88bfa8e3864f43bedd216b179494e9df4d7
+          darwin-arm64: 92601579180aacc61d2d2861773271ddd03d6d5d3a2ac2bea553d883def81cf2
+          darwin-amd64: 80e48f98b8b50bed4ee8b92247de8e00cf8c1189072bc22efe9e405f28e5fef2
+          linux-amd64: 0e71d2bbea71fbc9a76a999b9ecabb2c63d1efca36ab490db727ba7450444def
+          linux-arm64: e69c695c85e301b754940f743b13e9122562e17c6eaedadb9a259ec7415b7be9
         requires:
           git: ">=2.41"
           node: ">=14"   # solo para el wrapper npm

@@ -16,10 +16,10 @@ TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "tasks-templat
 
 REAL_TASK = """\
 - [x] T025 [US1] Shared helper and test harness
-  - **Delivery**: single PR (~120 authored lines)
+  - **Delivery**: single PR
   - **Completion evidence**: PR #90, `uv run pytest presets/default/tests` -> green
 - [ ] T001 [US1] Next task
-  - **Delivery**: single PR (~150 authored lines)
+  - **Delivery**: single PR
   - **Completion evidence**: Pending
 """
 
@@ -31,13 +31,11 @@ def test_parse_ledger_skips_the_template_fenced_sample() -> None:
     tasks = _common.parse_ledger(TEMPLATE.read_text(encoding="utf-8"))
     assert [task.id for task in tasks] == ["T001", "T002", "T003", "T004"]
     assert tasks[0].completion_evidence == "Pending"
-    assert tasks[0].forecast == _common.DEFAULT_FORECAST
 
 def test_parse_ledger_reads_a_real_task_block() -> None:
     tasks = _common.parse_ledger(REAL_TASK)
-    assert tasks[0] == _common.Task("T025", True, 120, "PR #90, `uv run pytest presets/default/tests` -> green")
+    assert tasks[0] == _common.Task("T025", True, "PR #90, `uv run pytest presets/default/tests` -> green")
     assert _common.first_unchecked(tasks) == tasks[1]
-    assert tasks[1].forecast == 150
 
 def _set_trunk(repo: Path, value: str) -> None:
     (repo / ".specify/extensions/git").mkdir(parents=True)

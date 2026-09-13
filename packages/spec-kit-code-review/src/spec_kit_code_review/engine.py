@@ -50,7 +50,7 @@ from .process import DEFAULT_TIMEOUT_SECONDS, resolve_executable, run_command, s
 from .redaction import redact_text
 
 
-DEFAULT_OCR_TAG = "v1.8.3"
+DEFAULT_OCR_TAG = "v1.12.0"
 OCR_RELEASES_URL = "https://github.com/alibaba/open-code-review/releases/tag/{tag}"
 
 
