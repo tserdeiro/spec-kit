@@ -9,11 +9,14 @@ failing reconcile is a warning, never a failure of this script.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from _common import check_prerequisites, delivery_base, die, open_task_prs, reconcile_linear, run_git
+from work_item_start import WorkItemContext, start as start_work_item
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = run_git(*args, cwd=repo_root)
@@ -52,16 +55,19 @@ def task(repo_root: Path, task_branch: str) -> None:
     print(f"base={base}")
     reconcile_linear(repo_root)
 
-def work_item(repo_root: Path, branch: str) -> None:
+def work_item(repo_root: Path, issue_key: str, title: str | None = None) -> WorkItemContext:
+    context = start_work_item(repo_root, issue_key, title)
     base = delivery_base(repo_root)
     _git(repo_root, "check-ref-format", "--branch", base)
     _git(repo_root, "fetch", "origin")
-    _git(repo_root, "switch", "-c", branch, f"origin/{base}")
+    _git(repo_root, "switch", "-c", context.branch_name, f"origin/{base}")
     reconcile_linear(repo_root)
+    print(json.dumps(asdict(context), ensure_ascii=False, sort_keys=True))
+    return context
 
 def main(argv: list[str]) -> int:
     if not argv:
-        die("usage: task_base.py <refresh|task <branch>|work-item <branch>>")
+        die("usage: task_base.py <refresh|task <branch>|work-item <issue-key> [title]>")
     repo_root = Path.cwd()
     mode, rest = argv[0], argv[1:]
     if mode == "refresh":
@@ -72,8 +78,10 @@ def main(argv: list[str]) -> int:
         task(repo_root, rest[0])
     elif mode == "work-item":
         if not rest:
-            die("usage: task_base.py work-item <branch-name>")
-        work_item(repo_root, rest[0])
+            die("usage: task_base.py work-item <issue-key> [title]")
+        if len(rest) > 2:
+            die("usage: task_base.py work-item <issue-key> [title]")
+        work_item(repo_root, rest[0], rest[1] if len(rest) == 2 else None)
     else:
         die(f"unknown mode: {mode}")
     return 0

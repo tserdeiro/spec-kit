@@ -80,6 +80,12 @@ provides:
       strategy: "replace"
 
     - type: "script"
+      name: "work-item-start"
+      file: "scripts/python/work_item_start.py"
+      description: "Resolve and validate a work-item branch before Git setup"
+      strategy: "replace"
+
+    - type: "script"
       name: "pr-create"
       file: "scripts/python/pr_create.py"
       description: "Resolve and print the delivery base for a feature, task, or work-item PR"
