@@ -254,7 +254,7 @@ class CliTestCase(unittest.TestCase):
         isolate_operator_global_env(self)
         self.temporary, self.fixture_root = copy_consumer_fixture()
         self._resolver_patch = patch("spec_kit_linear.cli.resolve_work_item", side_effect=_fixture_work_item_resolution)
-        self._resolver_patch.start()
+        self._resolver = self._resolver_patch.start()
         self.addCleanup(self._resolver_patch.stop)
 
     def tearDown(self) -> None:
@@ -1598,6 +1598,7 @@ class SessionStartTests(CliTestCase):
         self.assertEqual(output, "")
         self.assertEqual(errors.getvalue(), "")
         status.assert_not_called()
+        self._resolver.assert_not_called()
 
     def test_disabled_configuration_skips_context_without_warning(self) -> None:
         self._set_hooks(lifecycle_enabled=False)
@@ -1606,6 +1607,7 @@ class SessionStartTests(CliTestCase):
             code, output = self._run("001-T001-parse-artifacts")
         self.assertEqual((code, output, errors.getvalue()), (0, "", ""))
         status.assert_not_called()
+        self._resolver.assert_not_called()
 
     def test_malformed_configuration_warns_once_and_skips_context(self) -> None:
         config_path = self.fixture_root / ROOT_CONFIG_FILENAME
@@ -1654,6 +1656,83 @@ class SessionStartTests(CliTestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(output.getvalue(), "")
+
+    def test_native_current_branch_uses_resolver_and_ignores_stale_feature(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        resolution = {
+            "status": "resolved",
+            "observations": [{
+                "status": "resolved",
+                "resolution": {"identifier": "WOR-123"},
+                "affected_issue_keys": ["WOR-123"],
+                "diagnostics": [],
+            }],
+            "diagnostics": [],
+        }
+        status = {
+            "diagnostics": [],
+            "status": {
+                "task_rows": [{"feature": "001", "tasks": []}],
+                "work_items": [{"identifier": "WOR-123", "derived_state": "started", "next": "/speckit.pr"}],
+            },
+        }
+        output, errors = StringIO(), StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value="user/fix/title"), \
+             patch("spec_kit_linear.cli.resolve_work_item", return_value=resolution) as resolver, \
+             patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": []}) as run_push, \
+             patch("spec_kit_linear.cli.run_status", return_value=status) as run_status, \
+             redirect_stdout(output), redirect_stderr(errors):
+            code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+
+        self.assertEqual((code, output.getvalue(), errors.getvalue()), (0, "Linear: WOR-123 (started) — next: /speckit.pr\n", ""))
+        resolver.assert_called_once_with(
+            {"branch_names": ["user/fix/title"]},
+            root=self.fixture_root.resolve(),
+            config_path=str((self.fixture_root / ROOT_CONFIG_FILENAME).resolve()),
+        )
+        hook_args = run_push.call_args.args[0]
+        self.assertFalse(hook_args.current)
+        self.assertTrue(hook_args.work_items_only)
+        status_args = run_status.call_args.args[0]
+        self.assertFalse(status_args.current)
+        self.assertTrue(status_args.work_items_only)
+
+    def test_configured_resolver_failure_preserves_state_and_skips_push(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        error = AppError(
+            "Linear request was denied",
+            code=7,
+            category="graphql",
+            diagnostics=[Diagnostic("linear_denied", "Linear request was denied")],
+        )
+        errors = StringIO()
+        with patch("spec_kit_linear.cli._current_branch", return_value="user/fix/title"), \
+             patch("spec_kit_linear.cli.resolve_work_item", side_effect=error), \
+             patch("spec_kit_linear.cli.run_push") as run_push, redirect_stderr(errors):
+            code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+
+        self.assertEqual(code, 0)
+        self.assertIn("reconciliation failure: Linear request was denied", errors.getvalue())
+        run_push.assert_not_called()
+
+    def test_current_branch_without_identity_reconciles_work_items_without_context(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        unresolved = {
+            "status": "unresolved",
+            "observations": [{"status": "unresolved", "resolution": None, "affected_issue_keys": [], "diagnostics": []}],
+            "diagnostics": [],
+        }
+        with patch("spec_kit_linear.cli._current_branch", return_value="main"), \
+             patch("spec_kit_linear.cli.resolve_work_item", return_value=unresolved), \
+             patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": []}) as run_push, \
+             patch("spec_kit_linear.cli.run_status") as run_status:
+            code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+
+        self.assertEqual(code, 0)
+        hook_args = run_push.call_args.args[0]
+        self.assertFalse(hook_args.current)
+        self.assertTrue(hook_args.work_items_only)
+        run_status.assert_not_called()
 
     def test_a_feature_branch_reconciles_and_prints_one_line(self) -> None:
         client = _ApplyingClient()
