@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -11,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import __version__
+from . import EXTENSION_ROOT, __version__
 from .config import (
     LOCAL_CONFIG_FILENAME,
     LOCAL_CONFIG_TEMPLATE,
@@ -77,7 +78,7 @@ def _speckit_requirement() -> tuple[tuple[str, ...], tuple[int, int] | None]:
     instead of ever failing hard.
     """
 
-    manifest = Path(__file__).resolve().parents[2] / "extension.yml"
+    manifest = EXTENSION_ROOT / "extension.yml"
     try:
         match = re.search(r'speckit_version:\s*"([^"]+)"', manifest.read_text(encoding="utf-8"))
     except OSError:
@@ -234,8 +235,51 @@ def _check_runtime(options: DoctorOptions) -> GroupResult:
         result.error(EXIT_PREREQUISITE, Diagnostic("uv_missing", "install uv before using this extension"))
     else:
         result.info("uv", "uv found on PATH")
-    result.info("extension_version", f"spec-kit-code-review {__version__}")
+    result.info("extension_version", f"spec-kit-code-review {__version__}", str(EXTENSION_ROOT))
+    drift = source_drift(options.root, runtime_root=EXTENSION_ROOT, runtime_version=__version__)
+    if drift is not None:
+        result.warn(drift)
     return result
+
+
+# This repository dogfoods its own distribution: the installed copy lags the
+# source between publications, and a review must never pass for a gate the
+# running copy does not have yet. A consumer without the source tree has
+# nothing to compare.
+SOURCE_PACKAGE_PATH = Path("packages/spec-kit-code-review")
+SOURCE_MODULE_PATH = Path("src/spec_kit_code_review")
+_MANIFEST_VERSION = re.compile(r"^\s+version:\s*\"?([^\"\s]+)\"?\s*$", re.MULTILINE)
+
+
+def source_drift(root: Path, *, runtime_root: Path, runtime_version: str) -> Diagnostic | None:
+    """Warn when the running extension differs from the source tree beside it."""
+
+    source_root = root / SOURCE_PACKAGE_PATH
+    manifest = source_root / "extension.yml"
+    if not manifest.is_file() or source_root.resolve() == runtime_root.resolve():
+        return None
+    match = _MANIFEST_VERSION.search(manifest.read_text(encoding="utf-8"))
+    source_version = match.group(1) if match else "unknown"
+    if source_version == runtime_version and _tree_digest(source_root) == _tree_digest(runtime_root):
+        return None
+    return Diagnostic(
+        "runtime_source_drift",
+        f"the running extension ({runtime_version} at {runtime_root}) differs from the source "
+        f"({source_version} at {source_root}); publish and run `specify bundle update --all`, "
+        f"or reinstall the source with `specify extension add {SOURCE_PACKAGE_PATH} --dev`",
+        str(runtime_root),
+        severity="warning",
+    )
+
+
+def _tree_digest(root: Path) -> str:
+    """One digest over the sorted ``*.py`` modules of an extension tree."""
+
+    digest = hashlib.sha256()
+    for path in sorted((root / SOURCE_MODULE_PATH).glob("*.py")):
+        digest.update(path.name.encode("utf-8"))
+        digest.update((sha256_file(path) or "").encode("utf-8"))
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)

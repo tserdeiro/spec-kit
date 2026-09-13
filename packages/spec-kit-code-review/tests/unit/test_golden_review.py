@@ -302,6 +302,8 @@ _VARIABLE_KEYS = {
     "duration_ms",
     "bytes",
     "version",
+    "extension_version",
+    "extension_root",
 }
 
 

@@ -1043,7 +1043,7 @@ class RedactedSessionPathTests(PhaseTwoCase):
 COMPACT_OPEN_KEYS = {"schema_version", "code", "category", "message", "candidate", "session", "packet", "budget",
                      "scope", "runtime", "warnings", "next"}
 COMPACT_CLOSE_KEYS = {"schema_version", "code", "category", "message", "candidate", "session", "verdict", "delivery",
-                      "coverage", "findings", "warnings", "next"}
+                      "coverage", "findings", "runtime", "warnings", "next"}
 
 
 class CompactOutputTests(PhaseTwoCase):
@@ -1086,6 +1086,7 @@ class CompactOutputTests(PhaseTwoCase):
         self.assertEqual(payload["coverage"], {"complete": True, "uncovered": 0})
         self.assertEqual(payload["findings"], {"count": 1, "discarded": 0, "path": f"{self.session}/findings.md"})
         self.assertIn("F001", payload["next"])
+        self.assertTrue(payload["runtime"]["extension_version"])
         self.assertLess(len(json.dumps(payload)), 4096)
         full = json.loads((Path(self.session) / "result-close.json").read_text(encoding="utf-8"))
         self.assertIn("publication_plan", full)

@@ -210,6 +210,10 @@
     "seeded_findings": [],
     "sha256": "<variable>"
   },
+  "runtime": {
+    "extension_root": "<variable>",
+    "extension_version": "<variable>"
+  },
   "schema_version": "1.0",
   "scope": {
     "adapter_version": "2",

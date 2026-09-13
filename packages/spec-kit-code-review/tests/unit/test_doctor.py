@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 
 from spec_kit_code_review.config import LOCAL_CONFIG_FILENAME, RULE_RELATIVE_PATH
-from spec_kit_code_review.doctor import CHECK_GROUPS, DoctorOptions, RULE_TEMPLATE, run_doctor
+from spec_kit_code_review.doctor import CHECK_GROUPS, DoctorOptions, RULE_TEMPLATE, run_doctor, source_drift
 from spec_kit_code_review.env_files import REPO_ENV_FILENAME, load_env_files
 from spec_kit_code_review.errors import (
     EXIT_AUTHENTICATION,
@@ -701,3 +701,61 @@ class EngineInstallTests(DoctorCase):
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs
     unittest.main()
+
+
+class RuntimeSourceDriftTests(unittest.TestCase):
+    """The dogfooding drift check reads two trees and writes nothing."""
+
+    MODULE = Path("src/spec_kit_code_review")
+
+    def setUp(self) -> None:
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "consumer"
+        self.runtime = Path(self.tmp.name) / "installed"
+        self._write_tree(self.runtime, version="0.5.0", body="x = 1\n")
+
+    def _write_tree(self, root: Path, *, version: str, body: str) -> None:
+        (root / self.MODULE).mkdir(parents=True, exist_ok=True)
+        (root / "extension.yml").write_text(
+            f'schema_version: "1.0"\n\nextension:\n  id: code-review\n  version: "{version}"\n', encoding="utf-8"
+        )
+        (root / self.MODULE / "doctor.py").write_text(body, encoding="utf-8")
+
+    def _drift(self):
+        return source_drift(self.root, runtime_root=self.runtime, runtime_version="0.5.0")
+
+    def test_a_consumer_without_the_source_tree_is_not_compared(self) -> None:
+        self.root.mkdir()
+
+        self.assertIsNone(self._drift())
+
+    def test_the_source_tree_running_itself_is_not_drift(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.6.0", body="y = 2\n")
+
+        self.assertIsNone(
+            source_drift(self.root, runtime_root=self.root / "packages" / "spec-kit-code-review", runtime_version="0.6.0")
+        )
+
+    def test_an_identical_installed_copy_is_not_drift(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.5.0", body="x = 1\n")
+
+        self.assertIsNone(self._drift())
+
+    def test_a_newer_source_version_is_a_warning_naming_both(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.6.0", body="x = 1\n")
+
+        diagnostic = self._drift()
+
+        self.assertIsNotNone(diagnostic)
+        self.assertEqual(diagnostic.code, "runtime_source_drift")
+        self.assertEqual(diagnostic.severity, "warning")
+        self.assertIn("(0.5.0 at", diagnostic.message)
+        self.assertIn("(0.6.0 at", diagnostic.message)
+        self.assertIn("specify bundle update --all", diagnostic.message)
+        self.assertIn("specify extension add packages/spec-kit-code-review --dev", diagnostic.message)
+
+    def test_the_same_version_with_different_modules_is_a_warning(self) -> None:
+        self._write_tree(self.root / "packages" / "spec-kit-code-review", version="0.5.0", body="x = 2\n")
+
+        self.assertEqual(self._drift().code, "runtime_source_drift")
