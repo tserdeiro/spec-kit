@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0
 
 - `status` names disabled lifecycle sync as `lifecycle sync disabled`, not a
   misleading "id not configured", and agrees between `--json` and the text

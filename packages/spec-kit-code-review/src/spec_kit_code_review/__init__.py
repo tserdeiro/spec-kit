@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 # The installed extension this process runs from (the directory holding
 # ``extension.yml``): the evidence names it so nobody has to guess which copy
