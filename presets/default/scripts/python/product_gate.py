@@ -19,7 +19,7 @@ FIELDS = (
 )
 _TASK = re.compile(r"^(\s*-\s+\[)[ xX](\]\s+T[0-9]{3}\b)")
 _EVIDENCE = re.compile(r"^(\s*-\s+\*\*Completion evidence\*\*:)[ \t]*")
-_FIELD = re.compile(r"^\s*-\s+\*\*(?:Traces|Depends on|Boundaries|Evidence|Delivery|Completion evidence)\*\*:")
+_FIELD = re.compile(r"^\s*-\s+\*\*[^*]+\*\*:")
 _REQUIRED = {"spec.md", "plan.md", "tasks.md"}
 
 
@@ -68,8 +68,10 @@ def _feature_branch(repo: Path, feature: str, origin: str) -> str:
     names = sorted({p.get("headRefName", "") for p in candidates if isinstance(p, dict)
                     and p.get("headRefName", "").rsplit("/", 1)[-1] == feature})
     if current.rsplit("/", 1)[-1] == feature:
-        if not names or (current in names and len(names) == 1):
+        if not names:
             return current
+        if len(names) == 1:
+            return names[0]
         _pending("ambiguous published feature refs: " + ", ".join(names))
     if len(names) == 1:
         return names[0]

@@ -17,7 +17,8 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def test_added_task_is_not_a_completion_continuation() -> None:
     base = b"- [ ] T001 Work\n  - **Completion evidence**: Pending\n"
     for added in (base + b"    - [ ] T002 Added scope\n",
-                  base + b"    - **Delivery**: single PR (~999 lines)\n"):
+                  base + b"    - **Delivery**: single PR (~999 lines)\n",
+                  base + b"    - **Unreviewed field**: changes task intent\n"):
         assert product_gate._normalise_tasks(base) != product_gate._normalise_tasks(added)
 
 
@@ -27,14 +28,15 @@ def test_unclosed_tasks_fence_fails_closed() -> None:
     assert error.value.code == 2
 
 
-@pytest.mark.parametrize("refs,expected", [
-    (["jdoe/web/008-guided-tour"], "jdoe/web/008-guided-tour"),
-    (["jdoe/web/008-guided-tour", "other/008-guided-tour"], None),
+@pytest.mark.parametrize("refs,current,expected", [
+    (["jdoe/web/008-guided-tour"], "jdoe/web/008-guided-tour", "jdoe/web/008-guided-tour"),
+    (["jdoe/web/008-guided-tour"], "008-guided-tour", "jdoe/web/008-guided-tour"),
+    (["jdoe/web/008-guided-tour", "other/008-guided-tour"], "008-guided-tour", None),
 ])
 def test_namespaced_feature_ref_is_unique_or_rejected(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-                                                      refs: list[str], expected: str | None) -> None:
+                                                      refs: list[str], current: str, expected: str | None) -> None:
     monkeypatch.setattr(product_gate, "_git", lambda repo, *args: subprocess.CompletedProcess(
-        ["git", *args], 0, (expected or "008-guided-tour") + "\n", ""))
+        ["git", *args], 0, current + "\n", ""))
     monkeypatch.setattr(product_gate, "_gh_json", lambda *args: [{"headRefName": ref} for ref in refs])
     if expected:
         assert product_gate._feature_branch(tmp_path, "008-guided-tour", "origin") == expected
