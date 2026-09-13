@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from spec_kit_code_review.errors import EXIT_ENGINE, AppError
 from spec_kit_code_review.ocr import (
     ADAPTER_VERSION,
+    SUPPORTED_SCHEMA_VERSION,
     PreviewResult,
     MINIMAL_CONFIG,
     OCR_CONFIG_ENV,
@@ -20,27 +21,43 @@ from spec_kit_code_review.ocr import (
 from tests.support.fixtures import install_fake_ocr
 
 
-PREVIEW = """\
-# Delegate preview
-
-- **Mode**: range
-- **From**: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-- **To**: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-- **Merge base**: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-
-## Files
-
-- `src/module.py`
-- `tests/test_module.py`
-- `docs/guide.md` — excluded: documentation is out of scope
-"""
+def _preview_json(**overrides) -> str:
+    payload = {
+        "schema_version": SUPPORTED_SCHEMA_VERSION,
+        "mode": "range",
+        "repository": "/repo",
+        "from": "a" * 40,
+        "to": "b" * 40,
+        "merge_base": "a" * 40,
+        "total_files": 3,
+        "reviewable_count": 2,
+        "excluded_count": 1,
+        "total_insertions": 2,
+        "total_deletions": 0,
+        "reviewable_files": [
+            {"path": "src/module.py", "status": "modified", "insertions": 1, "deletions": 0},
+            {"path": "tests/test_module.py", "status": "added", "insertions": 1, "deletions": 0},
+        ],
+        "excluded_files": [
+            {
+                "path": "docs/guide.md",
+                "status": "modified",
+                "insertions": 0,
+                "deletions": 0,
+                "exclude_reason": "documentation is out of scope",
+            }
+        ],
+    }
+    payload.update(overrides)
+    return json.dumps(payload)
 
 
 class PreviewParsingTests(unittest.TestCase):
-    """The scope is read strictly; presentation is read loosely."""
+    """The scope is read strictly from the engine's JSON."""
 
     def test_the_documented_shape_is_read_completely(self) -> None:
-        result = parse_preview(PREVIEW)
+        raw = _preview_json()
+        result = parse_preview(raw)
 
         self.assertEqual(result.mode, "range")
         self.assertEqual(result.merge_base, "a" * 40)
@@ -48,56 +65,35 @@ class PreviewParsingTests(unittest.TestCase):
         self.assertEqual([entry.path for entry in result.excluded], ["docs/guide.md"])
         self.assertEqual(result.excluded[0].reason, "documentation is out of scope")
         self.assertEqual(result.adapter_version, ADAPTER_VERSION)
-        self.assertEqual(result.raw, PREVIEW)
+        self.assertEqual(result.raw, raw)
 
-    def test_cosmetic_variation_does_not_change_the_scope(self) -> None:
-        # Bullet style, emphasis, checkboxes, heading level and key casing are
-        # presentation; the answer must not depend on them.
-        variants = [
-            PREVIEW,
-            PREVIEW.replace("- `", "* `").replace("## Files", "### Selected files"),
-            PREVIEW.replace("- `", "1. `").replace("**Mode**", "Mode"),
-            PREVIEW.replace("- `", "- [x] `"),
-            PREVIEW.replace("— excluded:", "(excluded:").replace("out of scope", "out of scope)"),
-        ]
-        for index, variant in enumerate(variants):
-            with self.subTest(variant=index):
-                result = parse_preview(variant)
-                self.assertEqual(result.included_paths, ("src/module.py", "tests/test_module.py"))
-                self.assertEqual([entry.path for entry in result.excluded], ["docs/guide.md"])
+    def test_status_and_line_counts_are_carried_through(self) -> None:
+        result = parse_preview(_preview_json())
 
-    def test_a_table_is_read_as_well_as_a_list(self) -> None:
-        table = """\
-# Delegate preview
+        included = {entry.path: entry for entry in result.entries if entry.included}
+        self.assertEqual(included["src/module.py"].status, "modified")
+        self.assertEqual(included["src/module.py"].insertions, 1)
+        self.assertEqual(included["tests/test_module.py"].status, "added")
 
-## Files
+    def test_workspace_mode_has_no_range(self) -> None:
+        result = parse_preview(_preview_json(mode="workspace", **{"from": "", "to": "", "merge_base": ""}))
 
-| File | State | Reason |
-| --- | --- | --- |
-| src/module.py | included | |
-| docs/guide.md | excluded | documentation |
-"""
-
-        result = parse_preview(table)
-
-        self.assertEqual(result.included_paths, ("src/module.py",))
-        self.assertEqual(result.excluded[0].reason, "documentation")
+        self.assertEqual(result.mode, "workspace")
+        self.assertIsNone(result.from_ref)
+        self.assertIsNone(result.merge_base)
 
     def test_an_empty_scope_is_a_legitimate_answer(self) -> None:
         # An empty diff, or a diff where everything was excluded, is not an error.
-        result = parse_preview("# Delegate preview\n\n## Files\n\n## Summary\n\nNothing to review.\n")
+        result = parse_preview(
+            _preview_json(total_files=0, reviewable_count=0, excluded_count=0, reviewable_files=[], excluded_files=[])
+        )
 
         self.assertEqual(result.included_paths, ())
         self.assertEqual(result.entries, ())
 
-    def test_output_without_a_file_section_is_never_guessed_at(self) -> None:
+    def test_missing_output_is_never_guessed_at(self) -> None:
         # The one failure mode that would silently shrink a review.
-        for raw in (
-            "Delegate preview complete. 3 entries considered.\n",
-            "# Delegate preview\n\n- **Mode**: range\n- **From**: abc\n",
-            "",
-            "   \n",
-        ):
+        for raw in ("", "   \n", "not json at all", "[]", "42"):
             with self.subTest(raw=raw[:30]):
                 with self.assertRaises(AppError) as caught:
                     parse_preview(raw)
@@ -106,9 +102,16 @@ class PreviewParsingTests(unittest.TestCase):
 
     def test_the_failure_points_at_the_preserved_raw_output(self) -> None:
         with self.assertRaises(AppError) as caught:
-            parse_preview("something entirely different\n")
+            parse_preview("something entirely different")
 
         self.assertIn("preserved verbatim in the session evidence", caught.exception.diagnostics[0].message)
+
+    def test_an_unverified_schema_version_is_refused(self) -> None:
+        with self.assertRaises(AppError) as caught:
+            parse_preview(_preview_json(schema_version="99"))
+
+        self.assertEqual(caught.exception.code, EXIT_ENGINE)
+        self.assertIn("schema_version", caught.exception.diagnostics[0].message)
 
     def test_a_path_escaping_the_repository_is_refused(self) -> None:
         # Doc "Contenido no confiable": scope paths are validated before they
@@ -117,23 +120,28 @@ class PreviewParsingTests(unittest.TestCase):
         for hostile in ("../../etc/passwd", "/etc/passwd"):
             with self.subTest(path=hostile):
                 with self.assertRaises(AppError) as caught:
-                    parse_preview(f"# Preview\n\n## Files\n\n- `{hostile}`\n")
+                    parse_preview(
+                        _preview_json(reviewable_files=[{"path": hostile, "status": "added"}], excluded_files=[])
+                    )
                 self.assertEqual(caught.exception.code, EXIT_ENGINE)
                 self.assertEqual(caught.exception.diagnostics[0].code, "engine_path_invalid")
 
-    def test_prose_inside_the_file_section_is_a_failure_not_a_phantom_entry(self) -> None:
-        # Conservation: every line of the file section produces exactly one
-        # entry, or the shape is not the one this adapter knows how to read.
-        # Guessing which lines are prose is how `"No files were excluded"`
-        # became a file called `No`.
+    def test_an_entry_with_no_path_is_a_failure(self) -> None:
         with self.assertRaises(AppError) as caught:
-            parse_preview("# Preview\n\n## Files\n\nThe engine considered the following entries.\n\n- `src/module.py`\n")
+            parse_preview(_preview_json(reviewable_files=[{"status": "added"}], excluded_files=[]))
 
         self.assertEqual(caught.exception.code, EXIT_ENGINE)
-        self.assertIn("neither a list item nor a table row", caught.exception.message if hasattr(caught.exception, "message") else str(caught.exception))
 
     def test_a_file_listed_twice_is_counted_once(self) -> None:
-        result = parse_preview("# Preview\n\n## Files\n\n- `src/module.py`\n- `src/module.py`\n")
+        result = parse_preview(
+            _preview_json(
+                reviewable_files=[
+                    {"path": "src/module.py", "status": "modified"},
+                    {"path": "src/module.py", "status": "modified"},
+                ],
+                excluded_files=[],
+            )
+        )
 
         self.assertEqual(result.included_paths, ("src/module.py",))
 
@@ -141,30 +149,23 @@ class PreviewParsingTests(unittest.TestCase):
 class AdversarialFileNameTests(unittest.TestCase):
     """File names a pull request chooses, and the parser must survive.
 
-    Every name below removed a file from the scope, corrupted it, or injected an
-    option in an earlier version of this parser. A pull request picks its own
-    file names, so each of these is a one-line attack.
+    A JSON string field carries any name verbatim -- there is no delimiter for
+    a candidate to break out of -- so what matters here is that validation
+    still runs, and that an exclusion keyword in a name is never confused with
+    the ``exclude_reason`` field that actually carries the state.
     """
 
     HOSTILE_NAMES = (
-        # Names containing an exclusion keyword: the state must come from the
-        # annotation, never from the path.
         "excluded.py",
         "src/excluded.py",
         "filtered.go",
         "skipped.rs",
         "ignored.py",
-        "src/ignored/module.py",
-        "tests/test_excluded_paths.py",
-        # Names Markdown unwrapping used to mangle.
         "__init__.py",
         "_private_.py",
-        "**odd**.py",
-        # Names with spaces and unicode.
         "src/my file.py",
         "docs/guía de estilo.md",
         "src/файл.py",
-        # Overlapping prefixes and suffixes.
         "a.py",
         "vendor/a.py",
         "README.md",
@@ -172,9 +173,9 @@ class AdversarialFileNameTests(unittest.TestCase):
     )
 
     def _preview_for(self, *paths: str) -> str:
-        lines = ["# Delegate preview", "", "## Files", ""]
-        lines.extend(f"- `{path}`" for path in paths)
-        return "\n".join(lines) + "\n"
+        return _preview_json(
+            reviewable_files=[{"path": path, "status": "modified"} for path in paths], excluded_files=[]
+        )
 
     def test_every_hostile_name_stays_in_the_scope_unchanged(self) -> None:
         for name in self.HOSTILE_NAMES:
@@ -193,8 +194,11 @@ class AdversarialFileNameTests(unittest.TestCase):
         self.assertEqual(result.included_paths, ("src/excluded.py", "filtered.go"))
         self.assertEqual(result.excluded, ())
 
-    def test_the_annotation_after_the_path_is_what_excludes(self) -> None:
-        raw = "# Preview\n\n## Files\n\n- `excluded.py` — excluded: vendored\n"
+    def test_only_the_excluded_files_array_excludes(self) -> None:
+        raw = _preview_json(
+            reviewable_files=[],
+            excluded_files=[{"path": "excluded.py", "status": "modified", "exclude_reason": "vendored"}],
+        )
 
         result = parse_preview(raw)
 
@@ -212,28 +216,21 @@ class AdversarialFileNameTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, EXIT_ENGINE)
                 self.assertEqual(caught.exception.diagnostics[0].code, "engine_path_invalid")
 
-    def test_a_name_that_cannot_be_delimited_is_refused_not_truncated(self) -> None:
-        # A backtick inside the name closes its own span, so the line could mean
-        # `a` or `a`b.py`. Truncating to the first would drop the file from the
-        # review silently; this fails loudly instead.
-        with self.assertRaises(AppError) as caught:
-            parse_preview(self._preview_for("a`b.py"))
-
-        self.assertEqual(caught.exception.code, EXIT_ENGINE)
-        self.assertEqual(caught.exception.diagnostics[0].code, "engine_entry_ambiguous")
-
     def test_a_path_with_a_space_is_not_truncated(self) -> None:
         result = parse_preview(self._preview_for("src/my file.py"))
 
         self.assertEqual(result.included_paths, ("src/my file.py",))
 
-    def test_underscored_names_are_not_renamed_by_unwrapping(self) -> None:
+    def test_underscored_names_are_unaffected(self) -> None:
         result = parse_preview(self._preview_for("__init__.py", "_private_.py"))
 
         self.assertEqual(result.included_paths, ("__init__.py", "_private_.py"))
 
     def test_a_contradictory_duplicate_is_a_failure_not_a_coin_toss(self) -> None:
-        raw = "# Preview\n\n## Files\n\n- `a.py` — excluded: vendored\n- `a.py`\n"
+        raw = _preview_json(
+            reviewable_files=[{"path": "a.py", "status": "modified"}],
+            excluded_files=[{"path": "a.py", "status": "modified", "exclude_reason": "vendored"}],
+        )
 
         with self.assertRaises(AppError) as caught:
             parse_preview(raw)
@@ -241,70 +238,14 @@ class AdversarialFileNameTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, EXIT_ENGINE)
         self.assertIn("both included and excluded", str(caught.exception))
 
-    def test_a_nested_heading_does_not_truncate_the_file_section(self) -> None:
-        # A sub-grouping by directory or language is plausible in a format that
-        # is still unverified; losing the files under it would be silent.
-        raw = """\
-# Delegate preview
-
-## Files
-
-### src
-
-- `src/module.py`
-
-### docs
-
-- `docs/guide.md` — excluded: documentation
-
-## Summary
-
-Two entries considered.
-"""
-
-        result = parse_preview(raw)
-
-        self.assertEqual(result.included_paths, ("src/module.py",))
-        self.assertEqual([entry.path for entry in result.excluded], ["docs/guide.md"])
-
-    def test_a_second_files_heading_re_opens_the_section(self) -> None:
-        raw = """\
-# Delegate preview
-
-## Selected files
-
-- `src/module.py`
-
-## Excluded files
-
-- `docs/guide.md` — excluded: documentation
-"""
-
-        result = parse_preview(raw)
-
-        self.assertEqual(result.included_paths, ("src/module.py",))
-        self.assertEqual([entry.path for entry in result.excluded], ["docs/guide.md"])
-
-    def test_an_entry_line_with_no_extractable_path_is_a_failure(self) -> None:
-        # Never a silent discard: that is how an entry disappeared entirely.
-        for raw in (
-            "# Preview\n\n## Files\n\n- \n",
-            "# Preview\n\n## Files\n\n- ``\n",
-            "# Preview\n\n## Files\n\n| | | |\n",
-        ):
-            with self.subTest(raw=raw[-12:]):
-                with self.assertRaises(AppError) as caught:
-                    parse_preview(raw)
-                self.assertEqual(caught.exception.code, EXIT_ENGINE)
-
 
 class ScopeCrossVerificationTests(unittest.TestCase):
     """The invariant that does not depend on the engine's output format."""
 
     def _preview(self, *paths: str) -> "PreviewResult":
-        lines = ["# Delegate preview", "", "## Files", ""]
-        lines.extend(f"- `{path}`" for path in paths)
-        return parse_preview("\n".join(lines) + "\n")
+        return parse_preview(
+            _preview_json(reviewable_files=[{"path": path, "status": "modified"} for path in paths], excluded_files=[])
+        )
 
     def test_an_exact_match_passes(self) -> None:
         verify_scope_against_git(self._preview("a.py", "b.py"), ["b.py", "a.py"])
@@ -325,12 +266,20 @@ class ScopeCrossVerificationTests(unittest.TestCase):
         self.assertIn("phantom.py", caught.exception.diagnostics[0].message)
 
     def test_excluded_files_count_as_reported(self) -> None:
-        preview = parse_preview("# P\n\n## Files\n\n- `a.py`\n- `b.py` — excluded: vendored\n")
+        preview = parse_preview(
+            _preview_json(
+                reviewable_files=[{"path": "a.py", "status": "modified"}],
+                excluded_files=[{"path": "b.py", "status": "modified", "exclude_reason": "vendored"}],
+            )
+        )
 
         verify_scope_against_git(preview, ["a.py", "b.py"])
 
     def test_an_empty_diff_and_an_empty_scope_agree(self) -> None:
-        verify_scope_against_git(parse_preview("# P\n\n## Files\n"), [])
+        verify_scope_against_git(
+            parse_preview(_preview_json(total_files=0, reviewable_count=0, excluded_count=0, reviewable_files=[], excluded_files=[])),
+            [],
+        )
 
     def test_the_message_says_what_to_do_about_a_mismatch(self) -> None:
         with self.assertRaises(AppError) as caught:
@@ -341,46 +290,58 @@ class ScopeCrossVerificationTests(unittest.TestCase):
         self.assertIn("re-verified against the pinned binary", remedy)
 
 
+def _rule_json(*groups: dict) -> str:
+    return json.dumps({"schema_version": SUPPORTED_SCHEMA_VERSION, "groups": list(groups)})
+
+
 class RuleParsingTests(unittest.TestCase):
-    """The rule cascade is read anchored on the paths we asked about."""
+    """The rule cascade is read from the engine's rule groups."""
 
-    RAW = """\
-# Resolved rules
-
-## src/module.py
-
-- Production code must validate its inputs.
-- Never interpolate repository content into a shell.
-
-## tests/test_module.py
-
-- Every behaviour change needs a failing test first.
-"""
+    def _raw(self) -> str:
+        return _rule_json(
+            {
+                "group_id": 1,
+                "source": "custom",
+                "pattern": "src/**",
+                "files": ["src/module.py"],
+                "rule": "Production code must validate its inputs.",
+            },
+            {
+                "group_id": 2,
+                "source": "custom",
+                "pattern": "tests/**",
+                "files": ["tests/test_module.py"],
+                "rule": "Every behaviour change needs a failing test first.",
+            },
+        )
 
     def test_each_requested_path_gets_its_rules(self) -> None:
-        result = parse_rules(self.RAW, expected_paths=["src/module.py", "tests/test_module.py"])
+        result = parse_rules(self._raw(), expected_paths=["src/module.py", "tests/test_module.py"])
 
         self.assertEqual([assignment.path for assignment in result.assignments], ["src/module.py", "tests/test_module.py"])
-        self.assertEqual(len(result.assignments[0].rules), 2)
-        self.assertIn("validate its inputs", result.assignments[0].rules[0])
-        self.assertEqual(len(result.assignments[1].rules), 1)
+        self.assertEqual(result.assignments[0].rules, ("Production code must validate its inputs.",))
+        self.assertEqual(result.assignments[1].rules, ("Every behaviour change needs a failing test first.",))
 
     def test_the_order_follows_the_request_not_the_output(self) -> None:
-        result = parse_rules(self.RAW, expected_paths=["tests/test_module.py", "src/module.py"])
+        result = parse_rules(self._raw(), expected_paths=["tests/test_module.py", "src/module.py"])
 
         self.assertEqual([assignment.path for assignment in result.assignments], ["tests/test_module.py", "src/module.py"])
 
-    def test_a_group_heading_style_change_does_not_lose_a_group(self) -> None:
-        # Anchoring on our own request is what makes this true.
-        restyled = self.RAW.replace("## ", "**").replace("\n\n- ", "**\n\n- ")
+    def test_a_file_in_two_groups_gets_both_rules(self) -> None:
+        raw = _rule_json(
+            {"group_id": 1, "source": "system", "pattern": "**/*.py", "files": ["src/module.py"], "rule": "System rule."},
+            {"group_id": 2, "source": "custom", "pattern": "src/**", "files": ["src/module.py"], "rule": "Custom rule."},
+        )
 
-        result = parse_rules(restyled, expected_paths=["src/module.py", "tests/test_module.py"])
+        result = parse_rules(raw, expected_paths=["src/module.py"])
 
-        self.assertEqual(len(result.assignments), 2)
+        self.assertEqual(result.assignments[0].rules, ("System rule.", "Custom rule."))
 
     def test_output_mentioning_none_of_the_requested_files_is_a_failure(self) -> None:
+        raw = _rule_json({"group_id": 1, "source": "custom", "pattern": "**", "files": ["other/file.py"], "rule": "x"})
+
         with self.assertRaises(AppError) as caught:
-            parse_rules("# Resolved rules\n\n## other/file.py\n\n- Something else.\n", expected_paths=["src/module.py"])
+            parse_rules(raw, expected_paths=["src/module.py"])
 
         self.assertEqual(caught.exception.code, EXIT_ENGINE)
         self.assertEqual(caught.exception.diagnostics[0].code, "engine_output_unparseable")
@@ -394,39 +355,36 @@ class RuleParsingTests(unittest.TestCase):
     def test_no_request_means_no_invocation_and_no_failure(self) -> None:
         self.assertEqual(parse_rules("", expected_paths=[]).assignments, ())
 
+    def test_an_unverified_schema_version_is_refused(self) -> None:
+        raw = json.dumps({"schema_version": "99", "groups": []})
+
+        with self.assertRaises(AppError) as caught:
+            parse_rules(raw, expected_paths=["src/module.py"])
+
+        self.assertEqual(caught.exception.code, EXIT_ENGINE)
+        self.assertIn("schema_version", caught.exception.diagnostics[0].message)
+
 
 class OverlappingPathTests(unittest.TestCase):
     """Rule groups anchored on paths that contain one another."""
 
-    RAW = """\
-# Resolved rules
-
-## vendor/a.py
-
-- Vendored code is reviewed for licence only.
-
-## a.py
-
-- Production code must validate its inputs.
-
-## docs/README.md
-
-- Documentation must match the code.
-
-## README.md
-
-- The front page must stay accurate.
-"""
+    def _raw(self) -> str:
+        return _rule_json(
+            {"group_id": 1, "source": "custom", "pattern": "vendor/**", "files": ["vendor/a.py"], "rule": "Vendored code is reviewed for licence only."},
+            {"group_id": 2, "source": "custom", "pattern": "*.py", "files": ["a.py"], "rule": "Production code must validate its inputs."},
+            {"group_id": 3, "source": "custom", "pattern": "docs/**", "files": ["docs/README.md"], "rule": "Documentation must match the code."},
+            {"group_id": 4, "source": "custom", "pattern": "README.md", "files": ["README.md"], "rule": "The front page must stay accurate."},
+        )
 
     def test_a_shorter_path_does_not_swallow_a_longer_one(self) -> None:
-        result = parse_rules(self.RAW, expected_paths=["a.py", "vendor/a.py"])
+        result = parse_rules(self._raw(), expected_paths=["a.py", "vendor/a.py"])
 
         assignments = {assignment.path: assignment.rules for assignment in result.assignments}
         self.assertEqual(assignments["a.py"], ("Production code must validate its inputs.",))
         self.assertEqual(assignments["vendor/a.py"], ("Vendored code is reviewed for licence only.",))
 
     def test_the_everyday_readme_case(self) -> None:
-        result = parse_rules(self.RAW, expected_paths=["README.md", "docs/README.md"])
+        result = parse_rules(self._raw(), expected_paths=["README.md", "docs/README.md"])
 
         assignments = {assignment.path: assignment.rules for assignment in result.assignments}
         self.assertEqual(assignments["README.md"], ("The front page must stay accurate.",))
@@ -436,13 +394,13 @@ class OverlappingPathTests(unittest.TestCase):
         # "this file has no rules" and "the engine never mentioned this file"
         # must stay distinguishable.
         with self.assertRaises(AppError) as caught:
-            parse_rules(self.RAW, expected_paths=["a.py", "never/mentioned.py"])
+            parse_rules(self._raw(), expected_paths=["a.py", "never/mentioned.py"])
 
         self.assertEqual(caught.exception.code, EXIT_ENGINE)
         self.assertIn("never/mentioned.py", str(caught.exception))
 
-    def test_a_substring_that_is_not_a_path_boundary_does_not_count(self) -> None:
-        raw = "# Rules\n\n## src/module.pyc\n\n- A rule for the compiled file.\n"
+    def test_a_compiled_variant_is_not_the_source_path(self) -> None:
+        raw = _rule_json({"group_id": 1, "source": "custom", "pattern": "*", "files": ["src/module.pyc"], "rule": "A rule for the compiled file."})
 
         with self.assertRaises(AppError) as caught:
             parse_rules(raw, expected_paths=["src/module.py"])
@@ -451,7 +409,7 @@ class OverlappingPathTests(unittest.TestCase):
 
 
 class EngineInvocationTests(unittest.TestCase):
-    """Argv, isolation, batching and failure mapping, against the fake engine."""
+    """Argv, isolation, and failure mapping, against the fake engine."""
 
     def setUp(self) -> None:
         self.temporary = TemporaryDirectory()
@@ -493,6 +451,8 @@ class EngineInvocationTests(unittest.TestCase):
         argv = self._invocations()[0]
         self.assertEqual(argv[:2], ["delegate", "preview"])
         self.assertIn("--repo", argv)
+        self.assertIn("--format", argv)
+        self.assertEqual(argv[argv.index("--format") + 1], "json")
         self.assertEqual(argv[argv.index("--from") + 1], "a" * 40)
         self.assertEqual(argv[argv.index("--to") + 1], "b" * 40)
         self.assertIn("--rule", argv)
@@ -524,30 +484,19 @@ class EngineInvocationTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.diagnostics[0].code, "engine_background")
 
-    def test_rule_paths_are_positional_and_batched_in_request_order(self) -> None:
+    def test_rule_paths_are_positional_after_the_flag_list(self) -> None:
         paths = [f"src/file{index}.py" for index in range(5)]
         engine = self._engine(rules={path: [f"rule for {path}"] for path in paths})
 
-        result = engine.delegate_rule(self.workspace, paths, rule_path=self.workspace / "rule.json", batch_size=2)
+        result = engine.delegate_rule(self.workspace, paths, rule_path=self.workspace / "rule.json")
 
         self.assertEqual([assignment.path for assignment in result.assignments], paths)
         rule_invocations = [argv for argv in self._invocations() if argv[:2] == ["delegate", "rule"]]
-        self.assertEqual(len(rule_invocations), 3)
-        for argv in rule_invocations:
-            # Paths come after every flag, so none can be read as an option.
-            self.assertLess(argv.index("--rule"), min(argv.index(path) for path in paths if path in argv))
-
-    def test_batching_does_not_change_the_answer(self) -> None:
-        paths = [f"src/file{index}.py" for index in range(5)]
-        engine = self._engine(rules={path: [f"rule for {path}"] for path in paths})
-
-        one_batch = engine.delegate_rule(self.workspace, paths, batch_size=100)
-        many_batches = engine.delegate_rule(self.workspace, paths, batch_size=1)
-
-        self.assertEqual(
-            [assignment.as_dict() for assignment in one_batch.assignments],
-            [assignment.as_dict() for assignment in many_batches.assignments],
-        )
+        self.assertEqual(len(rule_invocations), 1, "every selected path goes into one delegate rule call")
+        argv = rule_invocations[0]
+        self.assertIn("--format", argv)
+        # Paths come after `--`, so none can be read as an option.
+        self.assertLess(argv.index("--"), min(argv.index(path) for path in paths))
 
     def test_the_same_input_produces_the_same_scope_twice(self) -> None:
         engine = self._engine()
@@ -569,6 +518,14 @@ class EngineInvocationTests(unittest.TestCase):
 
     def test_an_unrecognizable_shape_is_an_engine_failure(self) -> None:
         engine = self._engine(preview_failure="unknown-format")
+
+        with self.assertRaises(AppError) as caught:
+            engine.delegate_preview(self.workspace, from_ref="a" * 40, to_ref="b" * 40)
+
+        self.assertEqual(caught.exception.code, EXIT_ENGINE)
+
+    def test_an_unverified_schema_version_from_the_engine_is_an_engine_failure(self) -> None:
+        engine = self._engine(preview_failure="bad-schema")
 
         with self.assertRaises(AppError) as caught:
             engine.delegate_preview(self.workspace, from_ref="a" * 40, to_ref="b" * 40)

@@ -617,6 +617,55 @@ class DoctorTests(CliTestCase):
         self.assertIn("lifecycle", codes)
         self.assertNotIn("lifecycle_disabled", codes)
 
+    def test_warns_when_the_review_state_is_missing_and_writes_nothing(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + '\nlifecycle:\n  completed_state_id: "77777777-7777-4777-8777-777777777777"\n'
+            '  open_state_id: "88888888-8888-4888-8888-888888888888"\n'
+            '  started_state_id: "99999999-9999-4999-8999-999999999999"\n',
+            encoding="utf-8",
+        )
+        before = self._files()
+
+        result, payload = self._invoke(["doctor", "--offline", "--root", str(self.fixture_root), "--json"])
+
+        self.assertEqual(result, 0)
+        warning = next(item for item in payload["diagnostics"] if item["code"] == "review_state_missing")
+        self.assertEqual(warning["severity"], "warning")
+        self.assertIn("onboard", warning["message"])
+        self.assertIn("projected onto started_state_id", warning["message"])
+        self.assertEqual(self._files(), before)
+
+    def test_warns_that_review_tasks_keep_their_state_when_no_fallback_is_configured(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + '\nlifecycle:\n  completed_state_id: "77777777-7777-4777-8777-777777777777"\n'
+            '  open_state_id: "88888888-8888-4888-8888-888888888888"\n',
+            encoding="utf-8",
+        )
+
+        _result, payload = self._invoke(["doctor", "--offline", "--root", str(self.fixture_root), "--json"])
+
+        warning = next(item for item in payload["diagnostics"] if item["code"] == "review_state_missing")
+        self.assertIn("left at their current state", warning["message"])
+        self.assertNotIn("projected onto started_state_id", warning["message"])
+
+    def test_does_not_warn_about_the_review_state_when_it_is_configured(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + '\nlifecycle:\n  completed_state_id: "77777777-7777-4777-8777-777777777777"\n'
+            '  open_state_id: "88888888-8888-4888-8888-888888888888"\n'
+            '  review_state_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"\n',
+            encoding="utf-8",
+        )
+
+        _result, payload = self._invoke(["doctor", "--offline", "--root", str(self.fixture_root), "--json"])
+
+        self.assertNotIn("review_state_missing", [item["code"] for item in payload["diagnostics"]])
+
     def test_warns_when_the_github_cli_is_missing(self) -> None:
         with _fake_gh(installed=False) as gh_calls:
             _result, payload = self._invoke(["doctor", "--offline", "--root", str(self.fixture_root), "--json"])
@@ -735,6 +784,23 @@ class WorkStateTests(CliTestCase):
         self.assertEqual(updates["task:001:T003"], COMPLETED_STATE_ID)
         self.assertEqual(updates["workitem:WOR-41"], REVIEW_STATE_ID)
         self.assertEqual(updates["workitem:WOR-42"], STARTED_STATE_ID)
+
+    def test_status_shows_the_started_fallback_for_a_ready_pr_without_a_review_state(self) -> None:
+        self._configure_lifecycle(review_state_id="")
+        self._init_branches()
+        project = _matching_remote_project(self._desired())
+        with _subprocess_fake_gh(Path(self.temporary.name), stdout=self._large_pr_payload()):
+            with patch("spec_kit_linear.cli._linear_client", return_value=_WorkItemClient((project,))):
+                code, payload = self._invoke(["status", "--root", str(self.fixture_root), "--feature", "001", "--json"])
+                text_code, text = self._invoke_text(["status", "--root", str(self.fixture_root), "--feature", "001"])
+                push_code, push_payload = self._invoke(["push", "--root", str(self.fixture_root), "--feature", "001", "--dry-run", "--json"])
+
+        self.assertEqual((code, text_code, push_code), (0, 0, 0))
+        tasks = {row["task"]: row for row in payload["status"]["task_rows"][0]["tasks"]}
+        self.assertEqual((tasks["T002"]["derived_state"], tasks["T002"]["projected_state"], tasks["T002"]["projection_reason"]), ("review", "started", "review_state_id not configured"))
+        self.assertEqual((tasks["T003"]["derived_state"], tasks["T003"]["projected_state"], tasks["T003"]["projection_reason"]), ("completed", "completed", None))
+        self.assertIn("started (review_state_id not configured)", text)
+        self.assertEqual(self._lifecycle_updates(push_payload)["task:001:T002"], STARTED_STATE_ID)
 
     def test_uncertain_subprocess_observation_preserves_existing_states_and_scope(self) -> None:
         self._configure_lifecycle()

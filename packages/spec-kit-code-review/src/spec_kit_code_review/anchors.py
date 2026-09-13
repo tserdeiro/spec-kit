@@ -142,6 +142,25 @@ def load_hunks(git: Git, *, merge_base: str, head_commit: str) -> HunkMap:
     return HunkMap(hunks=hunks, diagnostics=tuple(diagnostics))
 
 
+def load_working_tree_hunks(git: Git) -> HunkMap:
+    """Compute the operator's own uncommitted hunks, against ``HEAD``.
+
+    The advisory review has no immutable range to diff, so this reads the same
+    frame `compute_working_tree` reads its line counts from: `HEAD` versus the
+    tree on disk, refreshing nothing (`diff.autoRefreshIndex=false`) so reading
+    it never writes to the index.
+    """
+
+    result = git.run("-c", "diff.autoRefreshIndex=false", *_DIFF_ARGUMENTS, "--end-of-options", "HEAD")
+    if not result.ok:
+        raise AppError(
+            "could not compute the working tree's diff hunks against HEAD",
+            code=EXIT_CANDIDATE,
+            diagnostics=[Diagnostic("hunks_unreadable", result.stderr.strip() or "git diff --unified=0 failed")],
+        )
+    return HunkMap(hunks=parse_unified_zero(result.stdout))
+
+
 def file_line_counts(git: Git, ref: str, paths: Iterable[str]) -> dict[str, int | None]:
     """How many lines each path has at ``ref``, or ``None`` when it is absent.
 
