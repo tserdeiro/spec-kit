@@ -25,5 +25,16 @@ win**:
   that decision, invoke the feature variant of `/speckit.pr`; it stages only
   `specs/<feature-directory>/`, uses `git commit --only` so unrelated staged
   content remains outside the commit, and performs the authorized commit,
-  push, and canonical draft PR publication. An edit after approval requires
-  fresh analysis and approval.
+  push, and canonical draft PR publication. The PR command observes the local
+  head, remote head, and existing PR before each write, reuses only an OPEN
+  gate, and reads back an ambiguous commit, push, create, or body update before
+  retrying it. An edit after approval that changes material product scope, acceptance,
+  plan decisions, task definitions, or stable IDs requires fresh analysis and
+  approval; completion checkboxes and completion evidence alone preserve the
+  approved handoff.
+- **Handoff status remains honest.** After publication, use the existing Linear
+  preview/apply/status commands and report synchronization and native task
+  assignments as prerequisites. An incomplete projection or unassigned task
+  keeps development pending. Technical approval of the plan and tasks is
+  separate from permission to publish, and this close never assigns users or
+  invents readiness.

@@ -97,11 +97,148 @@ def test_pr_feature_variant_resolves_before_approval_commit() -> None:
     resolution = pr.split("## 2. Guarantee the branch invariant", 1)[0]
 
     assert re.search(
-        r"whether\s+its artifacts are still local drafts or already published",
+        r"whether\s+its artifacts are local\s+drafts or already published",
         resolution,
     )
     assert "with its artifacts committed" not in resolution
-    assert "Local drafts remain subject to the explicit" in resolution
+    assert "feature PR" in resolution
+
+
+def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None:
+    pr = (COMMANDS / "pr.md").read_text(encoding="utf-8")
+    observation = pr.index("## 3. Observe before every feature mutation")
+    first_commit = pr.index("git commit --only")
+
+    assert observation < first_commit
+    for command in (
+        "check-prerequisites.sh --paths-only",
+        "git remote get-url origin",
+        "git remote get-url --push --all origin",
+        'gh repo view "$push_url" --json url --jq .url',
+        "pr_create.py feature",
+        'gh repo view "$origin_url" --json nameWithOwner --jq .nameWithOwner',
+        "git rev-parse HEAD",
+        "git ls-remote --heads origin <branch>",
+        'gh pr view <branch> --repo "$origin_url" --json',
+        'gh pr create --repo "$origin_url" --draft',
+        'gh pr edit --repo "$origin_url" <number>',
+    ):
+        assert command in pr
+    assert "publication lookup failed" in pr
+    assert "confirmed absence" in pr
+    assert "Only `state: OPEN` is reusable" in pr
+    assert "CLOSED` or `MERGED`" in pr
+    assert "headRepository.nameWithOwner" in pr
+    assert "isCrossRepository" in pr
+    assert "expected_base" in pr
+    assert "expected_repo" in pr
+    assert "expected_head" in pr
+    assert "origin_url" in pr
+    assert "target_url" in pr
+    assert "push_target" in pr
+    assert "GitHub target URL is empty" in pr
+    assert "origin push URL targets another repository" in pr
+    assert "selected_feature" in pr
+    assert 'expected_segment="${expected_head##*/}"' in pr
+    assert "current branch segment does not match selected feature" in pr
+    assert "jdoe/web/008-guided-tour" in pr
+    assert "jdoe/web/009-guided-tour" in pr
+    assert "final path segment" in pr
+    assert 'expected_base="$base"' in pr
+    assert "GitHub repository identity is empty" in pr
+    assert "confirmed remote OID" in pr
+    assert "before reporting publication verified" in pr
+    assert "gate-consistency failure" in pr
+    assert "Never adopt an observed `baseRefName`" in pr
+    assert 'git add -- specs/<feature-directory>/' in pr
+    assert observation < pr.index("pr_create.py feature") < pr.index(
+        'gh pr view <branch> --repo "$origin_url" --json'
+    )
+    assert "--body-file \"$body_file\"" in pr
+    assert "--body \"<the body>\"" not in pr
+    assert pr.index("git commit --only") < pr.index("gh pr create")
+
+    preparation = pr.split("## 4. Prepare the canonical body", 1)[1].split(
+        "## 5. Publish the approved handoff", 1
+    )[0]
+    publication = pr.split("## 5. Publish the approved handoff", 1)[1].split(
+        "## 6. Open task or work-item delivery PRs", 1
+    )[0]
+    assert publication.index("git add -- specs/<feature-directory>/") < publication.index(
+        "git diff --cached --name-only"
+    )
+    assert "approved feature diff" in preparation
+    assert "effective committed diff" in preparation
+    assert 'git diff "$base"...HEAD --stat' in publication
+    assert publication.index('git diff "$base"...HEAD --stat') < publication.index(
+        "gh pr create"
+    )
+    assert publication.index("gh pr view <branch> --repo \"$origin_url\" --json number,state,isCrossRepository,headRepository,headRepositoryOwner,headRefName,baseRefName,headRefOid") < publication.index(
+        "git push -u origin"
+    )
+    assert re.search(r"known\s+push\s+failure\s+stops before PR or Linear writes", publication)
+    assert re.search(
+        r"same\s+number, state, head branch, base branch, and remote head\s+OID",
+        publication,
+    )
+    assert publication.index("status --current") < publication.index("gh pr create")
+    assert "reuse its body verbatim" in publication
+    assert re.search(r"stable\s+Linear IDs, states, assignees", preparation)
+    assert "historical successful publication evidence" in preparation
+    assert re.search(r"retry with zero operations", publication)
+    assert "retry counters" in preparation
+    assert 'gh pr create --repo "$origin_url" --draft --base "$base" --title "feat(<area>): <feature outcome>" --body-file "$body_file"' in publication
+    assert 'gh pr edit --repo "$origin_url" <number> --body-file "$body_file"' in publication
+    assert re.search(
+        r"Preserve the Git and PR publication\s+when Linear requirements\s+fail",
+        publication,
+    )
+    assert "expected_base" in publication
+    assert "never adopt its observed `baseRefName`" in publication
+    assert "Run exactly one delivery route" in pr
+
+
+def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() -> None:
+    pr = (COMMANDS / "pr.md").read_text(encoding="utf-8")
+    phase = (COMMANDS / "phase-close-append.md").read_text(encoding="utf-8")
+
+    for text in (pr, phase):
+        assert re.search(r"explicit\s+human\s+approval", text)
+        assert "material" in text
+        assert "ambiguous" in text
+    assert "Only `state: OPEN` is reusable" in pr
+    assert "reuses only an OPEN" in phase
+    assert "unassigned" in phase
+    for phrase in (
+        "lost push",
+        "lost or ambiguous response",
+        "ambiguous response",
+        "known commit or push failure",
+        "lost response or timeout",
+        "Two unchanged retries",
+        "zero duplicate",
+        "push --current --apply",
+        "status --current",
+        "technical approval",
+    ):
+        assert phrase in pr
+    assert re.search(r"assignment allowlist\s+remains unchanged", pr)
+    assert re.search(r"completion\s+checkboxes and completion\s+evidence alone", pr, re.I)
+
+    task_flow = pr.split("## 6. Open task or work-item delivery PRs", 1)[1]
+    assert task_flow.index("1. Observe") < task_flow.index("2. Immediately before pushing") < task_flow.index("3. Observe")
+    assert task_flow.index("2. Immediately before pushing") < task_flow.index("git push -u origin")
+    assert "Fixes WOR-123" in task_flow
+    assert "N/A" in task_flow
+    assert "(chore)" in task_flow
+    assert "isCrossRepository: false" in task_flow
+    assert "headRepository.nameWithOwner == expected_repo" in task_flow
+    assert "headRefName == expected_head" in task_flow
+    assert 'gh pr view <branch> --repo "$origin_url" --json number,url,state,isDraft,isCrossRepository,headRepository,headRepositoryOwner,headRefName,baseRefName,headRefOid,body' in task_flow
+    assert task_flow.index("1. Observe") < task_flow.index('base_line="$(GH_REPO=')
+    assert "do not invoke `pr_create.py`" in task_flow
+    assert 'gh pr create --repo "$origin_url" --draft --base "$base" --title "<type(scope): subject>" --body-file "$body_file"' in task_flow
+    assert 'gh pr edit --repo "$origin_url" <number> --body-file "$body_file"' in task_flow
 
 
 def test_approved_close_commit_only_preserves_pre_staged_unrelated_files(
