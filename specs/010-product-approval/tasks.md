@@ -52,13 +52,13 @@ record the exact Git/GitHub/Linear operations and remaining prerequisites.
 **Independent evidence**: Real temporary Git histories and structured provider
 fixtures demonstrate valid fresh-session start and rejected stale/missing gates.
 
-- [ ] T003 [US3] Validate published product content before implement in presets/default/scripts/python/product_gate.py
+- [x] T003 [US3] Validate published product content before implement in presets/default/scripts/python/product_gate.py
   - **Traces**: FR-006, FR-007, FR-008, FR-009, C-001, C-003, C-004, SC-003, SC-004; outcome: a valid open gate permits continuation while unpublished product changes return product close pending.
   - **Depends on**: T002
   - **Boundaries**: Add `presets/default/scripts/python/product_gate.py`, register its script in `preset.yml`, and invoke it in `commands/implement.md` before hooks. Add `tests/test_product_gate.py` with existing `conftest.py` fixtures; reuse `_common.py` prerequisites, Git/gh wrappers, and fence helpers. Implement plan D3: exact repository/head/base/OPEN observation, fetch/OID verification, final PR reread, required artifact inventory, and remote/HEAD/index/worktree comparison. Normalize only real task checkbox/completion-evidence values and their indented continuations; preserve all product definitions. Remove automatic gate creation from implement and require plan D4/D5 handoff checks before task work.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest presets/default/tests/test_product_gate.py presets/default/tests/test_product_commands.py -q` -> valid gate/fresh session, missing/closed/merged/mismatched gate, failed fetch, dirty/staged/committed-unpublished scope, and legitimate completion-only progress pass their expected allow/stop outcomes. Every denial preserves branch, index, worktree, and remote write counts.
   - **Delivery**: single PR (~390 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: Implementation 2feafc8. Focused gate/command tests: 22 passed; full preset suite: 93 passed; installed bundle conformance passed with synthetic providers; native helper observation against feature PR #147 passed. Budget: 483/400 authored executable lines under the user-authorized T003 exception; diff check clean. Independent review and CI gate readiness pending.
 
 - [ ] T004 [US3] Enforce the product gate at task entrypoints and verify adversarial drift in presets/default/scripts/python/task_base.py
   - **Traces**: FR-006, FR-007, FR-008, FR-009, C-002, C-004, SC-003, SC-004; outcome: direct task-start/publication helpers cannot bypass product consistency, and completion normalization cannot hide product edits.
