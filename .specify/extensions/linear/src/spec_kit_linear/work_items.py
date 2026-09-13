@@ -18,9 +18,10 @@ The map is Stage 3's, minus the checkbox -- a bug has no `tasks.md` row:
 
 | observation                   | state       |
 | ----------------------------- | ----------- |
-| a merged PR                   | `completed` |
+| an open draft PR              | `started`   |
 | an open, ready-for-review PR  | `review`    |
-| an open draft PR, or a branch | `started`   |
+| a merged PR                   | `completed` |
+| a branch (without live PR)    | `started`   |
 | nothing at all                | *not touched* |
 
 The last row is the one difference that matters: an Issue with neither a
@@ -34,7 +35,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .github import PullRequest
+from .github import PullRequest, PullRequestScan
 from .work_state import (
     SOURCE_BRANCH,
     SOURCE_PULL_REQUEST,
@@ -73,7 +74,7 @@ class WorkItemState:
     """One bug or chore's derived state, with the observation that produced it."""
 
     identifier: str
-    state: str
+    state: str | None
     source: str
     detail: str
     # The observed pull request's own number; see TaskWorkState.pr_number
@@ -92,7 +93,7 @@ def derive_work_items(
     team_key: str,
     *,
     branches: Sequence[str] = (),
-    pull_requests: Sequence[PullRequest] = (),
+    scan: PullRequestScan,
 ) -> tuple[WorkItemState, ...]:
     """Derive every Issue key observed in ``branches`` or ``pull_requests``.
 
@@ -103,6 +104,7 @@ def derive_work_items(
     """
 
     pattern = issue_key_pattern(team_key)
+    pull_requests = scan.pull_requests
     canonical = team_key.upper()
     branches_by_key: dict[str, str] = {}
     for name in branches:
@@ -117,6 +119,9 @@ def derive_work_items(
 
     derived: list[WorkItemState] = []
     for identifier in set(branches_by_key) | set(pull_requests_by_key):
+        if scan.outcome != "complete":
+            derived.append(WorkItemState(identifier, None, "unknown", branches_by_key.get(identifier, "pull-request scan")))
+            continue
         # A closed-but-unmerged PR is not an observation about the work at all
         # (`strongest_pull_request` drops it), so the branch decides -- exactly
         # as it does for a task.
