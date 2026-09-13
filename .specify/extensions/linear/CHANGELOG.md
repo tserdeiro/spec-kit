@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.14.0
+
+- `status` names disabled lifecycle sync as `lifecycle sync disabled`, not a
+  misleading "id not configured", and agrees between `--json` and the text
+  table.
+- `doctor`'s `review_state_missing` warning says review tasks are "left at
+  their current state" rather than falsely claiming a `started_state_id`
+  projection when that fallback id is also unconfigured.
+- `status` shows the state each task's projection will write next to the
+  derived state, with the reason when they differ (`review_state_id not
+  configured`); `doctor` warns `review_state_missing` when lifecycle sync is
+  enabled without that id.
+- `push` and `status` require a complete paginated pull-request observation
+  before deriving lifecycle state. Failed and incomplete reads preserve
+  existing states; verified empty reads remain usable evidence.
+- Complete observations apply open draft → open ready → merged precedence,
+  with the lowest PR number as the stable witness. Closed unmerged PRs are
+  ignored, and local rules apply only when no open or merged PR exists.
+- Task creation during uncertainty omits `stateId` and reports Linear's
+  configured default separately from derived state. Recovery uses a fresh
+  complete scan and unchanged reconciliations remain mutation-free.
+- Configured runtime handlers keep exit `0` and emit sanitized stderr warnings
+  for observation and partial reconciliation failures; missing or disabled
+  hooks remain quiet.
+
 ## 0.13.0
 
 - A `session_start` handler reconciles Linear and prints one context

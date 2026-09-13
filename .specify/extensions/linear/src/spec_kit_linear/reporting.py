@@ -9,7 +9,8 @@ from .domain import DesiredState
 from .linear_client import RemoteWorkItem
 from .remote_discovery import RemoteDiscovery
 from .work_items import WorkItemState
-from .work_state import SOURCE_NONE, TaskWorkState, next_action
+from .work_state import SOURCE_NONE, TaskWorkState, next_action, projected_state
+from .github import PullRequestScan
 
 
 def _task_code(identity: str) -> str:
@@ -23,6 +24,7 @@ def build_task_rows(
     discovery: RemoteDiscovery,
     desired_states: tuple[DesiredState, ...],
     work_states: Mapping[str, TaskWorkState] | None = None,
+    lifecycle: Mapping[str, object] | None = None,
 ) -> list[dict[str, object]]:
     """Combine the local `tasks.md` checkbox state with the adopted remote Issue, per feature.
 
@@ -35,7 +37,9 @@ def build_task_rows(
 
     ``work_states`` adds each task's derived state and the observation that
     produced it (checkbox, branch, or pull request), so `status` shows what
-    the next `push` would reconcile and why.
+    the next `push` would reconcile and why. ``lifecycle`` (the configured
+    section) adds the state the projection will actually write and, when
+    it is not the derived one, the unconfigured id that causes the fallback.
     """
 
     adoption_by_feature = {feature.feature: feature for feature in discovery.features}
@@ -47,12 +51,15 @@ def build_task_rows(
         for task in desired.feature.tasks:
             adopted = adoption.tasks.get(task.identity) if adoption is not None else None
             derived = (work_states or {}).get(task.identity)
+            projected, reason = projected_state(lifecycle, derived.state) if derived is not None else (None, None)
             tasks.append(
                 {
                     "task": _task_code(task.identity),
                     "local_complete": task.completed,
                     "derived_state": derived.state if derived is not None else None,
                     "state_source": derived.source if derived is not None else None,
+                    "projected_state": projected,
+                    "projection_reason": reason,
                     "pr_number": derived.pr_number if derived is not None else None,
                     "next": next_action(
                         derived.state,
@@ -151,7 +158,7 @@ def render_work_item_table(work_item_rows: list[dict[str, object]]) -> str:
     rows = [
         (
             str(row["identifier"]),
-            str(row["derived_state"]),
+            "UNKNOWN (unverified)" if row["state_source"] == "unknown" else str(row["derived_state"] or "—"),
             str(row["state_source"]),
             str(row["detail"]),
             str(row["title"] or ("not found in Linear" if not row["known_remotely"] else "—")),
@@ -191,7 +198,7 @@ def render_status_table(task_rows: list[dict[str, object]], remote_only_rows: li
         return "No local features were selected.\n"
 
     remote_only_by_feature = {row["feature"]: row["issues"] for row in (remote_only_rows or [])}
-    headers = ("TASK", "DONE", "DERIVED", "FROM", "ISSUE", "STATE", "ASSIGNEE", "NEXT")
+    headers = ("TASK", "DONE", "DERIVED", "FROM", "PROJECTED", "ISSUE", "STATE", "ASSIGNEE", "NEXT")
     lines: list[str] = []
     for feature in task_rows:
         # project_title is already "<identifier>: <title>" (projection.py),
@@ -205,8 +212,9 @@ def render_status_table(task_rows: list[dict[str, object]], remote_only_rows: li
             (
                 str(task["task"]),
                 "[x]" if task["local_complete"] else "[ ]",
-                str(task.get("derived_state") or "—"),
+                "UNKNOWN (unverified)" if task.get("state_source") == "unknown" else str(task.get("derived_state") or "—"),
                 str(_source_label(task.get("state_source"))),
+                _projected_label(task.get("projected_state"), task.get("projection_reason")),
                 str(task["remote_identifier"] or "—"),
                 str(task["remote_state"] or "—"),
                 str(task["assignee"] or "—"),
@@ -256,6 +264,13 @@ def render_status_table(task_rows: list[dict[str, object]], remote_only_rows: li
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _projected_label(projected: object, reason: object) -> str:
+    """The state the next push writes; the fallback reason rides along."""
+
+    label = projected if isinstance(projected, str) else "—"
+    return f"{label} ({reason})" if isinstance(reason, str) else label
+
+
 def _source_label(source: object) -> str:
     """`none` is an absence, not an observation, so it prints as a dash."""
 
@@ -268,6 +283,8 @@ def status_report(
     work_states: Mapping[str, TaskWorkState] | None = None,
     work_items: Sequence[WorkItemState] = (),
     remote_work_items: Mapping[str, RemoteWorkItem] | None = None,
+    observation: Mapping[str, object] | None = None,
+    lifecycle: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Summarize configured bindings, adoption, and bridge-owned drift."""
 
@@ -277,8 +294,33 @@ def status_report(
         "remote_project_count": len(discovery.projects),
         "features": [feature.as_dict() for feature in discovery.features],
         "drift": drift,
-        "task_rows": build_task_rows(discovery, desired_states, work_states),
+        "task_rows": build_task_rows(discovery, desired_states, work_states, lifecycle),
         "remote_only_issues": build_remote_only_rows(discovery, desired_states),
         "work_items": build_work_item_rows(work_items, remote_work_items),
+        "observation": dict(observation or {}),
         "remote_operations": {"mode": "query-only", "writes": 0},
     }
+
+
+def observation_report(
+    scan: PullRequestScan,
+    desired_states: Sequence[DesiredState],
+    work_items: Sequence[WorkItemState],
+) -> dict[str, object]:
+    """Describe the scan boundary so unknown means unavailable evidence."""
+
+    features = [desired.feature.identifier for desired in desired_states]
+    report: dict[str, object] = {
+        "outcome": scan.outcome,
+        "selected_features": features,
+        "work_item_scope": "repository-wide",
+        "observed_work_items": [item.identifier for item in work_items],
+    }
+    if scan.diagnostics:
+        report["reasons"] = [item.message for item in scan.diagnostics]
+    if scan.outcome != "complete":
+        report["affected_scope"] = {
+            "features": features,
+            "work_items": "all repository work items, including items absent from the partial output",
+        }
+    return report
