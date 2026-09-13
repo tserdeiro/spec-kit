@@ -87,13 +87,13 @@ They extend the open stack after T005, one task per PR. Keep the original
 implementation and its evidence; human review and root-first merges remain
 pending. Each task preserves consumer configuration and upstream assets.
 
-- [ ] T006 Revalidate the selected configuration immediately before replacement per FR-009 and SC-003 (partial)
+- [x] T006 Revalidate the selected configuration immediately before replacement per FR-009 and SC-003 (partial)
   - **Traces**: FR-009, SC-003, plan D4; outcome: direct edits during temporary configuration preparation are preserved and reported as stale observations.
   - **Depends on**: T005
   - **Boundaries**: Update `packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py` and `tests/unit/test_commit_hook.py`; compare the selected destination and effective observation again immediately before replacement, refuse detected changes, and preserve bytes/mode. Keep Git's native exclusive lock. Document the distinction between cooperative Git writers and external writers ignoring that lock in package doctor guidance/README; describe restoration attempts truthfully without promising an impossible atomic compare-and-swap against arbitrary writers.
   - **Evidence**: Focused hook tests on real Git 2.54/2.55 reproduce a direct edit after temporary preparation, confirm it survives, and retain first-install/idempotency/readback behavior; `git diff --check` passes.
   - **Delivery**: single PR (~150 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #168; focused Git 2.54/2.55 hook suite: 27 passed; `git diff --check` clean; five required GitHub checks passed; fresh independent review of `ad4b02f` returned `no-blocking-findings`; 296/300 authored executable lines.
 
 - [ ] T007 Detect manual validator invocation behind the Husky dispatcher per FR-007 and FR-008 (partial)
   - **Traces**: FR-006, FR-007, FR-008, FR-009, SC-002, SC-003; outcome: an existing Husky user hook invoking the validator is diagnosed before another registration is added.

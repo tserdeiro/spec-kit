@@ -100,9 +100,9 @@ categories.
   report-only category names.
 - If the native diagnostic is `git_hooks_write_failed` (`native registration was
   not completed ...; retry doctor`), carry that text verbatim and tell the user
-  to inspect the reported config path before retrying: it can mean replacement
-  occurred and restoration failed, so the message does not identify the final
-  state.
+  to inspect the reported config path before retrying. If it is
+  `git_hooks_readback_failed`, carry its restoration outcome verbatim and
+  require manual inspection when restoration was not applied.
 - **Nothing failed but GitHub could not be verified** → say the checks that
   ran passed, but do not call the setup healthy.
 
@@ -110,9 +110,9 @@ categories.
 through 6, where the doctor offers one. The native-hook repair is the
 code-review doctor's `doctor --fix`: it may register the named hook in the
 Git config selected by that doctor, while preserving existing hooks and
-managers. Its cooperative lock, snapshot, atomic replacement, readback, and
-best-effort restoration limits remain the extension doctor's exact diagnostics;
-do not strengthen them in the aggregate. Do not implement a second aggregator
+managers. Its cooperative lock, early and late snapshot checks, atomic
+replacement, readback, and conditional restoration limits remain the extension
+doctor's exact diagnostics; do not strengthen them in the aggregate. Do not implement a second aggregator
 or edit Git configuration here.
 Categories 1 and 7 stay
 report-only even with `--fix`: installing or activating an interpreter,

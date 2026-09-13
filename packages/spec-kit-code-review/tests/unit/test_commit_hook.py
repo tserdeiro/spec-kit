@@ -110,6 +110,27 @@ class NativeHookTests(unittest.TestCase):
         hook.chmod(0o751)
         return hook.read_bytes(), stat.S_IMODE(hook.stat().st_mode)
 
+    def _assert_late_dispatcher_edit_is_stale(self, target: Path) -> None:
+        original = (config := self.root / ".git/config").read_bytes()
+        real_run = self.git.run
+        injected = False
+
+        def edit(*arguments: str, **kwargs):
+            nonlocal injected
+            result = real_run(*arguments, **kwargs)
+            if not injected and arguments[:2] == ("config", "set") and "--file" in arguments:
+                injected = True
+                target.write_text(f"#!/bin/sh\n{HOOK_COMMAND} \"$1\"\n", encoding="utf-8")
+                target.chmod(0o755)
+            return result
+
+        with mock.patch.object(self.git, "run", side_effect=edit):
+            repair = install_native_hook(self.root, self.git)
+        self.assertTrue(injected and repair.applied is None)
+        self.assertIn("git_hooks_stale_snapshot", {item.code for item in repair.diagnostics})
+        self.assertEqual(config.read_bytes(), original)
+        self.assertIn(HOOK_COMMAND, target.read_text(encoding="utf-8"))
+
     def test_real_git_composes_default_custom_absolute_relative_and_symlink_paths(self) -> None:
         target = Path(self.tmp.name) / "absolute hooks with spaces"
         link = self.root / "hooks-link"
@@ -372,6 +393,106 @@ class NativeHookTests(unittest.TestCase):
             self.assertIn("git_hooks_stale_snapshot", {item.code for item in install_native_hook(self.root, self.git).diagnostics})
         self.assertNotIn(HOOK_COMMAND.encode(), config.read_bytes())
         self.assertEqual(calls, 2)
+
+    def test_late_direct_config_edit_is_preserved_before_replacement(self) -> None:
+        config = self.root / ".git/config"
+        original = config.read_bytes()
+        marker = b"\n[consumer]\n\tconcurrent = keep-me\n"
+        real_run = self.git.run
+        injected = False
+
+        def edit_during_temp_preparation(*arguments: str, **kwargs):
+            nonlocal injected
+            if not injected and arguments[:2] == ("config", "set") and "--file" in arguments:
+                injected = True
+                config.write_bytes(config.read_bytes() + marker)
+            return real_run(*arguments, **kwargs)
+
+        with mock.patch.object(self.git, "run", side_effect=edit_during_temp_preparation):
+            repair = install_native_hook(self.root, self.git)
+        self.assertTrue(injected)
+        self.assertIn("git_hooks_stale_snapshot", {item.code for item in repair.diagnostics})
+        self.assertEqual(config.read_bytes(), original + marker)
+        self.assertNotIn(HOOK_COMMAND.encode(), config.read_bytes())
+
+    def test_parent_swap_during_temporary_edit_preserves_replacement_temporary(self) -> None:
+        config = self.root / ".git/config"
+        parent = config.parent
+        displaced_parent = self.root / ".git-diagnosed-temp"
+        real_run = self.git.run
+        temporary_name = ""
+        swapped = False
+
+        def swap_during_temporary_edit(*arguments: str, **kwargs):
+            nonlocal swapped, temporary_name
+            if not swapped and arguments[:2] == ("config", "set") and "--file" in arguments:
+                temporary_name = Path(arguments[arguments.index("--file") + 1]).name
+                swapped = True
+                parent.rename(displaced_parent)
+                shutil.copytree(displaced_parent, parent)
+                (parent / "config.lock").unlink()
+                os.link(displaced_parent / "config.lock", parent / "config.lock")
+            return real_run(*arguments, **kwargs)
+
+        try:
+            with mock.patch.object(self.git, "run", side_effect=swap_during_temporary_edit):
+                repair = install_native_hook(self.root, self.git)
+            self.assertTrue((parent / temporary_name).exists())
+        finally:
+            if displaced_parent.exists():
+                shutil.rmtree(parent)
+                displaced_parent.rename(parent)
+                (parent / "config.lock").unlink(missing_ok=True)
+                (parent / temporary_name).unlink(missing_ok=True)
+        self.assertTrue(swapped)
+        self.assertIn("git_hooks_stale_snapshot", {item.code for item in repair.diagnostics})
+        self.assertIsNone(repair.applied)
+
+    def test_recovery_preserves_byte_identical_replacement_config(self) -> None:
+        from spec_kit_code_review import commit_hook
+
+        config = self.root / ".git/config"
+        observed = commit_hook.observe_native_hook
+        calls = 0
+        replacement_identity: tuple[int, int] | None = None
+
+        def replace_before_recovery(root: Path, git: Git):
+            nonlocal calls, replacement_identity
+            calls += 1
+            observation = observed(root, git)
+            if calls == 4:
+                replacement = config.with_name("config.consumer-replacement")
+                replacement.write_bytes(config.read_bytes())
+                replacement.chmod(stat.S_IMODE(config.lstat().st_mode))
+                os.replace(replacement, config)
+                status = config.lstat()
+                replacement_identity = (status.st_dev, status.st_ino)
+                observation.list_ok = False
+                observation.list_error = "synthetic readback failure"
+            return observation
+
+        with mock.patch.object(commit_hook, "observe_native_hook", side_effect=replace_before_recovery):
+            repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_readback_failed", {item.code for item in repair.diagnostics})
+        self.assertIn("restoration was not applied", repair.diagnostics[0].message)
+        self.assertEqual((config.lstat().st_dev, config.lstat().st_ino), replacement_identity)
+        self.assertIn(HOOK_COMMAND.encode(), config.read_bytes())
+
+    def test_late_traditional_dispatcher_edit_refuses_before_replacement(self) -> None:
+        hook = self.root / ".git/hooks/commit-msg"
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        hook.chmod(0o755)
+        self._assert_late_dispatcher_edit_is_stale(hook)
+
+    def test_late_symlinked_dispatcher_target_edit_refuses_before_replacement(self) -> None:
+        target = Path(self.tmp.name) / "traditional-commit-msg"
+        target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        target.chmod(0o755)
+        hook = self.root / ".git/hooks/commit-msg"
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.symlink_to(target)
+        self._assert_late_dispatcher_edit_is_stale(target)
 
     def test_partial_owned_entry_is_normalized_to_one_event(self) -> None:
         self.repo.git("config", "set", f"hook.{HOOK_NAME}.command", HOOK_COMMAND)

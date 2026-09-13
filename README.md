@@ -141,19 +141,21 @@ modos y efecto de rechazo.
 Los estados `missing`, `installed`, `disabled` y `unverifiable` (más fallas
 parciales, duplicadas, ajenas o de payload, lock, permisos, concurrencia,
 escritura y lectura posterior) se muestran con la ruta y el mensaje y la acción
-disponibles. Un diagnóstico genérico `git_hooks_write_failed` (`native
-registration was not completed ...; retry doctor`) puede significar un fallo al
-escribir antes del reemplazo o un reemplazo seguido de un fallo al restaurar.
-Inspecciona manualmente la ruta antes de reintentar; el diagnóstico no siempre
-puede distinguir ambos resultados.
-La reparación usa el lock cooperativo de Git y compara bytes, modo y estado
-efectivo antes de preparar el archivo temporal. Los escritores que respetan el
-lock no pueden editar a la vez; un escritor directo que lo ignore puede correr
-después de esa comparación, sin garantía de comparación e intercambio atómico.
-Luego edita con Git, reemplaza atómicamente y relee la configuración y la lista
-de hooks. Si la lectura posterior falla, intenta restaurar los bytes y el modo
-diagnosticados; si esa restauración falla, inspecciona manualmente la ruta y
-usa el rollback de la sección propia. Para revertirla, usa solo el alcance que
+disponibles. `git_hooks_write_failed` (`native registration was not completed
+...; retry doctor`) corresponde a un fallo antes del reemplazo: inspecciona la
+ruta antes de reintentar. `git_hooks_readback_failed` informa si la restauración
+del diagnóstico se aplicó; si no se aplicó, inspecciona manualmente la ruta y
+usa el rollback de la sección propia.
+La reparación usa el lock cooperativo de Git y compara bytes, modo, existencia,
+enlace simbólico, disposición del padre y estado efectivo antes de preparar el
+archivo temporal. Repite esas comprobaciones justo antes de reemplazarlo. Los
+escritores que respetan el lock no pueden editar a la vez; un escritor directo
+que lo ignore puede correr después de cualquiera de las comparaciones o durante
+el reemplazo, sin garantía de comparación e intercambio atómico. Luego edita
+con Git, reemplaza atómicamente y relee la configuración y la lista de hooks. Si
+la lectura posterior falla, solo intenta restaurar mientras el reemplazo
+esperado siga presente; si cambió, lo deja intacto y requiere inspección manual.
+Para revertirla, usa solo el alcance que
 el doctor informó: `git config --local --remove-section
 hook.speckit-commit-message` o `git config --worktree --remove-section
 hook.speckit-commit-message`; eso no toca los hooks de la aplicación.
