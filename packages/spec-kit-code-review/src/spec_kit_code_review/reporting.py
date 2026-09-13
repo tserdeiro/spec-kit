@@ -14,7 +14,7 @@ from typing import Any, Mapping, Sequence
 
 from .errors import EXIT_CATEGORIES, Diagnostic
 from .findings import FindingSet
-from .verdict import Verdict, describe
+from .verdict import Verdict, delivery as derive_delivery, describe, describe_delivery
 
 
 SCHEMA_VERSION = "1.0"
@@ -59,6 +59,7 @@ def review_document(
         "findings": [finding.as_dict() for finding in findings.findings],
         "discarded_findings": list(findings.discarded),
         "verdict": verdict.as_dict(),
+        "delivery": derive_delivery(findings.findings, verdict),
         **({"coverage": dict(coverage)} if coverage is not None else {}),
         "warnings": warnings,
         "diagnostics": [item.as_dict() for item in diagnostics],
@@ -106,7 +107,7 @@ def render_human(
                 f"(version {item.get('version')}; retrieve with {item.get('command', 'the recorded source command')})"
             )
 
-    lines.extend(["", f"VERDICT: {describe(verdict)}"])
+    lines.extend(["", f"VERDICT: {describe(verdict)}", f"DELIVERY: {describe_delivery(derive_delivery(findings.findings, verdict))}"])
     if verdict.inconclusive:
         # Never a quiet success: the parts that were not covered are named.
         lines.append("The review did NOT cover its intended scope:")
@@ -126,3 +127,91 @@ def render_human(
     if evidence_path:
         lines.extend(["", f"evidence: {evidence_path}"])
     return "\n".join(lines) + "\n"
+
+
+# -- compact documents ------------------------------------------------------
+#
+# What `--json` prints. The full document is written into the session directory
+# (`result-open.json`, `result-close.json`) and printed by `--json --verbose`;
+# these are derived from it, so there is one assembly and no second shape to
+# keep in step. Everything the loop needs to act is here; everything else has a
+# path.
+
+CANDIDATE_KEYS = ("candidate_id", "head_commit", "merge_base", "base_branch", "pr_number", "repository")
+
+
+def _pick(mapping: Mapping[str, Any] | None, keys: Sequence[str]) -> dict[str, Any]:
+    source = mapping or {}
+    return {key: source.get(key) for key in keys}
+
+
+def _head(payload: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "code": payload["code"],
+        "category": payload["category"],
+        "message": payload["message"],
+        "candidate": _pick(payload.get("candidate"), CANDIDATE_KEYS),
+        "warnings": [item for item in payload.get("diagnostics", []) if item.get("severity") != "info"],
+    }
+
+
+def compact_open(payload: Mapping[str, Any], *, extension_version: str) -> dict[str, Any]:
+    """The compact document of an opened review."""
+
+    packet = payload.get("packet") or {}
+    session = payload.get("session") or {}
+    findings_path = f"{session.get('path')}/findings.json"
+    return {
+        **_head(payload),
+        "session": _pick(session, ("path", "phase", "opened_at")),
+        "packet": {
+            **_pick(packet, ("path", "inventory_path", "bytes", "packet_sha256", "inventory_sha256")),
+            "truncations": len(packet.get("truncations") or ()),
+        },
+        "budget": _pick(payload.get("budget"), ("counted", "limit", "over_budget")),
+        "scope": {"files": len((payload.get("scope") or {}).get("files") or ())},
+        "runtime": {"extension_version": extension_version},
+        "next": {
+            "findings_path": findings_path,
+            "close": f"review --findings {findings_path} --session {session.get('path')}",
+        },
+    }
+
+
+def compact_close(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """The compact document of a closed review."""
+
+    verdict = payload["verdict"]
+    record = payload["delivery"]
+    coverage = payload.get("coverage")
+    session = payload.get("session") or {}
+    return {
+        **_head(payload),
+        "session": _pick(session, ("path", "phase")),
+        "verdict": {
+            "value": verdict["value"],
+            "blocking": verdict["blocking"],
+            "inconclusive_causes": len(verdict.get("causes") or ()),
+        },
+        "delivery": dict(record),
+        "coverage": {
+            "complete": bool(coverage.get("complete")) if coverage is not None else False,
+            "uncovered": len(coverage.get("uncovered") or ()) if coverage is not None else 0,
+        },
+        "findings": {
+            "count": len(payload.get("findings") or ()),
+            "discarded": len(payload.get("discarded_findings") or ()),
+            "path": f"{session.get('path')}/findings.md",
+        },
+        "next": _next_sentence(verdict, record),
+    }
+
+
+def _next_sentence(verdict: Mapping[str, Any], record: Mapping[str, Any]) -> str:
+    if record["decision"] == "proceed":
+        return "Mark the pull request ready; the review is complete with no blocking or major finding."
+    if record["reason"] == "inconclusive":
+        causes = "; ".join(f"[{cause['kind']}] {cause['detail']}" for cause in verdict.get("causes") or ())
+        return f"Resolve the inconclusive causes and review the new candidate: {causes}"
+    return f"Fix {', '.join(record['pending'])} on the task branch and review the new candidate."

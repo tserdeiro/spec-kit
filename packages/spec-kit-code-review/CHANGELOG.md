@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- `review --json` prints a compact operational document; the full one is
+  written to the session directory (`result-open.json`,
+  `result-close.json`) and printed by `--json --verbose`. The close carries
+  `delivery` — `proceed` only for a complete review with no `blocking` and no
+  `major` finding, else `hold` with the pending identifiers — and the human
+  render a `DELIVERY:` line. Verdicts, exit codes and publication are
+  unchanged.
+
 ## 0.5.0
 
 - A `pre_tool_use` guard blocks, before it takes effect — even behind a

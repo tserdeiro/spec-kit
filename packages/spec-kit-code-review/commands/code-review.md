@@ -93,12 +93,51 @@ bash "$CR" review 128 --json
 bash "$CR" review --findings <session-path>/findings.json --session <session-path>
 ```
 
-Step 1 prints `session.path` and `packet` in its JSON. Read the packet at
-`<session-path>/review-packet.md`, write
+Step 1 prints a compact JSON document:
+
+```json
+{
+  "schema_version": "1.0",
+  "code": 0,
+  "category": "ok",
+  "message": "review packet ready at <session-path>/review-packet.md",
+  "candidate": {"candidate_id": "…", "head_commit": "…", "merge_base": "…", "base_branch": "main", "pr_number": 128, "repository": "owner/repo"},
+  "session": {"path": "<session-path>", "phase": "open", "opened_at": "…"},
+  "packet": {"path": "<session-path>/review-packet.md", "inventory_path": "…", "bytes": 41208, "packet_sha256": "…", "inventory_sha256": "…", "truncations": 0},
+  "budget": {"counted": 41208, "limit": 400000, "over_budget": false},
+  "scope": {"files": 3},
+  "runtime": {"extension_version": "0.5.0"},
+  "warnings": [],
+  "next": {"findings_path": "<session-path>/findings.json", "close": "review --findings <session-path>/findings.json --session <session-path>"}
+}
+```
+
+Read the packet at `<session-path>/review-packet.md`, write
 `<session-path>/findings.json`, then run step 2. Findings outside that session
 are refused because they cannot belong to this review.
 **Always run step 2**, including when you found nothing: it is what withdraws
 the temporary worktree and closes the session.
+
+Step 2 prints the compact close: `candidate`, `session` (`path`, `phase`),
+`verdict` (`value`, `blocking`, `inconclusive_causes` as a count), `delivery`,
+`coverage` (`complete`, `uncovered` as a count), `findings` (`count`,
+`discarded`, `path` of `findings.md`), `warnings`, and `next` — one sentence
+saying what to do. `delivery` is the loop's contract:
+
+```json
+{"decision": "hold", "reason": "major", "pending": ["F002"],
+ "counts": {"blocking": 0, "major": 1, "minor": 2, "nit": 0, "info": 0}, "is_approval": false}
+```
+
+`decision` is `proceed` only when the verdict is `no-blocking-findings` and no
+`major` finding remains; otherwise `hold`, with `reason` `blocking`, `major`
+or `inconclusive` and the pending identifiers. It is never an approval.
+
+Nothing is lost: both full documents — every finding, coverage receipt,
+publication operation and diagnostic — are written into the session directory
+as `result-open.json` and `result-close.json`, and `--json --verbose` prints
+the full document instead of the compact one. The human render adds one
+`DELIVERY:` line after `VERDICT:`.
 
 The candidate is materialized in a temporary worktree under the evidence root,
 so the user's branch, index and untracked files are never touched. If step 2
