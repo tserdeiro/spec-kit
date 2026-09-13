@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
 import github_delivery
 import github_delivery_rules as rules
 import _common
@@ -19,6 +20,17 @@ def _active(kind: str = "non_fast_forward", ident: int = 7) -> dict[str, object]
     }
 
 
+def _classic(allow: bool = False, admins: bool = True) -> dict[str, object]:
+    return {"allow_force_pushes": {"enabled": allow}, "enforce_admins": {"enabled": admins}}
+
+
+def _detail(actors: object = None, include: bool = True) -> dict[str, object]:
+    payload = {"id": 7, "source_type": "Organization", "source": "acme", "enforcement": "active"}
+    if include:
+        payload["bypass_actors"] = actors if actors is not None else []
+    return payload
+
+
 def test_active_rules_parse_pages_and_dedupe_rule_identity() -> None:
     payload = [[_active(), _active(), _active("required_signatures")]]
     parsed = rules.parse_active_rules(payload)
@@ -29,6 +41,12 @@ def test_active_rules_parse_pages_and_dedupe_rule_identity() -> None:
     ]
 
 
+def test_ruleset_detail_preserves_bypass_actor_identity() -> None:
+    detail = rules.parse_ruleset_detail(_detail([{"actor_type": "Team", "actor_id": 42, "bypass_mode": "always"}]))
+    assert detail is not None and detail.bypass_actors is not None
+    assert detail.bypass_actors[0] == rules.BypassActor("Team", "always", 42)
+
+
 def test_non_fast_forward_keeps_source_while_classic_layer_is_pending() -> None:
     parsed = rules.parse_active_rules([[_active()]])
     assert parsed is not None
@@ -36,6 +54,65 @@ def test_non_fast_forward_keeps_source_while_classic_layer_is_pending() -> None:
     assert result.state == rules.UNVERIFIED
     assert "Organization acme ruleset 7" in result.evidence
     assert "classic protection" in result.evidence
+
+
+@pytest.mark.parametrize(
+    ("classic", "detail", "state", "evidence"),
+    [
+        (_classic(), None, rules.COMPATIBLE, "classic protection allow_force_pushes.enabled=false"),
+        (rules.ClassicProtection(True, True, allow_force_pushes=False, enforce_admins=False), None, rules.COMPATIBLE, "does not enforce administrators"),
+        (rules.ClassicProtection(True, False), None, rules.INCOMPATIBLE, "Branch not protected"),
+        (rules.ClassicProtection(False, None, evidence="HTTP 404: Not Found"), None, rules.UNVERIFIED, "HTTP 404"),
+        (rules.ClassicProtection(True, True, allow_force_pushes=True), _detail(), rules.COMPATIBLE, "force-push blocked"),
+    ],
+)
+def test_force_push_combines_classic_and_ruleset_layers(classic, detail, state, evidence) -> None:
+    parsed = rules.parse_active_rules([[_active()]])
+    assert parsed is not None
+    protection = rules.parse_classic_protection(classic) if isinstance(classic, dict) else classic
+    details = (rules.parse_ruleset_detail(detail),) if detail else ()
+    result = rules.evaluate_force_push("main", rules.RuleRead(True, parsed if detail else (), classic=protection, details=details))
+    assert result.state == state
+    assert evidence in result.evidence
+
+
+@pytest.mark.parametrize(
+    ("actors", "needle"),
+    [
+        ([], "force-push blocked"),
+        ([{"actor_type": "RepositoryRole", "bypass_mode": "pull_request"}], "no direct force-push"),
+        ([{"actor_type": "OrganizationAdmin", "actor_id": 42, "bypass_mode": "always"}], "#42 always bypass"),
+        ([{"actor_type": "RepositoryRole", "bypass_mode": "exempt"}], "exempt bypass"),
+    ],
+)
+def test_bypass_modes_are_visible_without_becoming_authorization(actors, needle) -> None:
+    parsed = rules.parse_active_rules([[_active()]])
+    detail = rules.parse_ruleset_detail(_detail(actors))
+    assert parsed is not None and detail is not None
+    result = rules.evaluate_force_push("main", rules.RuleRead(True, parsed, details=(detail,), classic=rules.ClassicProtection(True, False)))
+    assert result.state == rules.COMPATIBLE
+    assert needle in result.evidence
+
+
+def test_omitted_bypass_actors_remains_unknown() -> None:
+    parsed = rules.parse_active_rules([[_active()]])
+    detail = rules.parse_ruleset_detail(_detail(include=False))
+    assert parsed is not None and detail is not None
+    result = rules.evaluate_force_push("main", rules.RuleRead(True, parsed, details=(detail,), classic=rules.ClassicProtection(True, False)))
+    assert result.state == rules.UNVERIFIED
+    assert result.cause == "bypass-coverage-unobserved"
+
+
+def test_classic_404_only_documents_absence_for_exact_message(tmp_path, monkeypatch) -> None:
+    responses = iter((
+        SimpleNamespace(returncode=1, stdout='{"message":"Branch not protected"}', stderr="HTTP 404"),
+        SimpleNamespace(returncode=1, stdout='{"message":"Not Found"}', stderr="HTTP 404"),
+    ))
+    monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))
+    assert github_delivery._read_classic_protection(tmp_path, "main").protected is False
+    assert github_delivery._read_classic_protection(tmp_path, "main").complete is False
+    result = rules.evaluate_force_push("main", rules.RuleRead(True, classic=rules.ClassicProtection(False, None, cause="read-failure", evidence="forbidden")))
+    assert result.cause == "read-failure"
 
 
 def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, monkeypatch) -> None:
@@ -50,19 +127,27 @@ def test_report_reads_paginated_inventory_and_effective_rules_as_gets(tmp_path, 
         if args[-1] == "repos/{owner}/{repo}/branches?per_page=100":
             return SimpleNamespace(returncode=0, stdout=json.dumps([[{"name": "main"}, {"name": "001-feature"}, {"name": "001-feature"}], [{"name": "001-T001-task"}, {"name": "unrelated"}]]), stderr="")
         if "%24%28touch%20pwned%29" in args[-1]:
-            assert "/rules/branches/" in args[-1]
             return SimpleNamespace(returncode=0, stdout=active, stderr="")
+        if "/rulesets/" in args[-1]:
+            return SimpleNamespace(returncode=0, stdout=json.dumps(_detail()), stderr="")
+        if "/protection" in args[-1]:
+            return SimpleNamespace(returncode=1, stdout='{"message":"Branch not protected"}', stderr="HTTP 404")
         return SimpleNamespace(returncode=0, stdout=active if any(marker in args[-1] for marker in ("/main?", "/001-T001-task?")) else "[[]]", stderr="")
 
     monkeypatch.setattr(github_delivery, "run_gh", fake_gh)
     monkeypatch.setattr(github_delivery, "delivery_base", lambda _root: "main")
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
     _settings, findings = github_delivery.diagnose(tmp_path)
+    detail_calls = [call[-1] for call in calls if "/rulesets/" in call[-1]]
+    assert detail_calls.count("repos/{owner}/{repo}/rulesets/7?includes_parents=true") == 1
+    assert "repos/{owner}/{repo}/rulesets/8?includes_parents=true" in detail_calls
     github_delivery._read_branch_rules(tmp_path, "001-$(touch pwned)")
-    assert [(name, result.state) for name, result in findings if name.startswith("force-push")] == [("force-push protection [main (trunk)]", rules.UNVERIFIED), ("force-push protection [001-feature (feature)]", rules.UNVERIFIED), ("force-push protection [001-T001-task (task)]", rules.UNVERIFIED)]
+    detail_calls = [call[-1] for call in calls if "/rulesets/" in call[-1]]
+    assert detail_calls.count("repos/{owner}/{repo}/rulesets/7?includes_parents=true") == 2
+    assert [(name, result.state) for name, result in findings if name.startswith("force-push")] == [("force-push protection [main (trunk)]", rules.COMPATIBLE), ("force-push protection [001-feature (feature)]", rules.INCOMPATIBLE), ("force-push protection [001-T001-task (task)]", rules.COMPATIBLE)]
     assert github_delivery._read_branch_rules(tmp_path, "001-feature").complete
-    assert rules.evaluate_force_push("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature")).cause == "classic-protection-unobserved"
-    assert "cause=bypass-coverage-unobserved" in github_delivery.render(_settings, findings)
+    assert rules.evaluate_force_push("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature")).cause == "missing-configuration"
+    assert "Organization acme ruleset 7" in github_delivery.render(_settings, findings)
     assert all(call[1:3] == ("--method", "GET") for call in calls[1:])
 
 
@@ -70,7 +155,9 @@ def test_transport_failures_keep_distinct_causes_and_malformed_pages_unknown(tmp
     responses = iter((
         SimpleNamespace(returncode=1, stdout="", stderr="transport failed on page 2"),
         SimpleNamespace(returncode=1, stdout="", stderr="HTTP 404: Not Found"),
+        SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""),
         SimpleNamespace(returncode=1, stdout="", stderr="branch not found"),
+        SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""),
         SimpleNamespace(returncode=0, stdout='[[{"name":"main"}], {}]', stderr=""),
     ))
     monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))

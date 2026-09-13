@@ -19,12 +19,16 @@ from github_delivery_rules import (
     COMPATIBLE,
     INCOMPATIBLE,
     UNVERIFIED,
+    ClassicProtection,
     Result,
     RuleRead,
+    RulesetDetail,
     evaluate_force_push,
     parse_active_rules,
     parse_branch_page_items,
+    parse_classic_protection,
     parse_page_collection,
+    parse_ruleset_detail,
     shared_branches,
     unknown_branch_result,
 )
@@ -45,6 +49,34 @@ def _safe_detail(value: str) -> str:
 
 def _unknown(cause: str, evidence: str, action: str) -> Result:
     return Result(UNVERIFIED, cause, evidence, action)
+
+
+def _remote_error(result: object) -> str:
+    """Keep only bounded stderr and a JSON error message, never an error payload."""
+    parts = [_safe_detail(getattr(result, "stderr", ""))]
+    try:
+        payload = json.loads(getattr(result, "stdout", ""))
+    except (json.JSONDecodeError, TypeError):
+        payload = None
+    if isinstance(payload, dict) and isinstance(payload.get("message"), str):
+        parts.append(_safe_detail(payload["message"]))
+    return "; ".join(part for part in parts if part and part != "no diagnostic detail") or "GitHub returned an unsuccessful response"
+
+
+def _is_branch_not_protected(result: object) -> bool:
+    """Recognize GitHub's documented absence response without trusting arbitrary 404s."""
+    candidates = [getattr(result, "stderr", "")]
+    try:
+        payload = json.loads(getattr(result, "stdout", ""))
+    except (json.JSONDecodeError, TypeError):
+        payload = None
+    if isinstance(payload, dict) and isinstance(payload.get("message"), str):
+        candidates.append(payload["message"])
+    for candidate in candidates:
+        value = re.sub(r"^gh:\s*", "", candidate.strip(), flags=re.I)
+        if re.fullmatch(r"(?:HTTP 404:\s*)?Branch not protected(?:\s*\(HTTP 404\))?", value, re.I):
+            return True
+    return False
 
 
 def _read_settings(repo_root: Path) -> dict[str, Result]:
@@ -108,6 +140,7 @@ class _RemoteRead:
     payload: object = None
     cause: str = ""
     evidence: str = ""
+    documented_absence: bool = False
 
 
 def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
@@ -117,7 +150,7 @@ def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
     except OSError as error:
         return _RemoteRead(False, cause="read-failure", evidence=_safe_detail(str(error)))
     if result.returncode != 0:
-        detail = _safe_detail(result.stderr or result.stdout)
+        detail = _remote_error(result)
         cause = "branch-disappeared" if re.search(r"branch\s+(?:was\s+)?not found|branch disappeared", detail, re.I) else "read-failure"
         return _RemoteRead(False, cause=cause, evidence=detail or "GitHub returned an unsuccessful response")
     try:
@@ -126,6 +159,24 @@ def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
         return _RemoteRead(False, cause="malformed-response", evidence="GitHub returned invalid JSON")
     if parse_page_collection(payload) is None:
         return _RemoteRead(False, cause="malformed-response", evidence="GitHub returned an invalid page collection")
+    return _RemoteRead(True, payload=payload)
+
+
+def _api_object_read(repo_root: Path, endpoint: str) -> _RemoteRead:
+    """Read one REST object with an explicit GET, without pagination wrapping."""
+    try:
+        result = run_gh("api", "--method", "GET", endpoint, cwd=repo_root)
+    except OSError as error:
+        return _RemoteRead(False, cause="read-failure", evidence=_safe_detail(str(error)))
+    if result.returncode != 0:
+        detail = _remote_error(result)
+        return _RemoteRead(False, cause="read-failure", evidence=detail, documented_absence=_is_branch_not_protected(result))
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return _RemoteRead(False, cause="malformed-response", evidence="GitHub returned invalid JSON")
+    if not isinstance(payload, dict):
+        return _RemoteRead(False, cause="malformed-response", evidence="GitHub returned a non-object response")
     return _RemoteRead(True, payload=payload)
 
 
@@ -138,17 +189,77 @@ def _read_inventory(repo_root: Path) -> _RemoteRead:
     return read
 
 
-def _read_branch_rules(repo_root: Path, branch: str) -> RuleRead:
+def _read_classic_protection(repo_root: Path, branch: str) -> ClassicProtection:
+    endpoint = "repos/{owner}/{repo}/branches/" + quote(branch, safe="") + "/protection"
+    read = _api_object_read(repo_root, endpoint)
+    if not read.complete:
+        if read.documented_absence:
+            return ClassicProtection(True, False, evidence="GitHub reported Branch not protected")
+        return ClassicProtection(False, None, cause=read.cause, evidence=read.evidence)
+    parsed = parse_classic_protection(read.payload)
+    if parsed is None:
+        return ClassicProtection(False, None, cause="malformed-response", evidence="classic protection had invalid fields")
+    return parsed
+
+
+def _read_ruleset_detail(
+    repo_root: Path,
+    rule: object,
+    cache: dict[tuple[str, str, int], tuple[RulesetDetail | None, str, str]],
+) -> tuple[RulesetDetail | None, str, str]:
+    identity = rule.identity
+    if identity in cache:
+        return cache[identity]
+    endpoint = "repos/{owner}/{repo}/rulesets/" + str(rule.ruleset_id) + "?includes_parents=true"
+    read = _api_object_read(repo_root, endpoint)
+    if not read.complete:
+        value = (None, read.cause, read.evidence)
+    else:
+        detail = parse_ruleset_detail(read.payload)
+        if detail is None:
+            value = (None, "malformed-response", "ruleset detail had invalid fields")
+        elif detail.identity != identity:
+            value = (None, "malformed-response", "ruleset detail identity did not match active rules")
+        else:
+            value = (detail, "", "")
+    cache[identity] = value
+    return value
+
+
+def _read_branch_rules(
+    repo_root: Path,
+    branch: str,
+    detail_cache: dict[tuple[str, str, int], tuple[RulesetDetail | None, str, str]] | None = None,
+) -> RuleRead:
     endpoint = "repos/{owner}/{repo}/rules/branches/" + quote(branch, safe="") + "?per_page=100"
     read = _api_read(repo_root, endpoint)
+    classic = _read_classic_protection(repo_root, branch)
     if not read.complete:
         if read.cause == "read-failure" and "page" in read.evidence.lower():
-            return RuleRead(False, cause="partial-rules", evidence=read.evidence)
-        return RuleRead(False, cause=read.cause, evidence=read.evidence)
+            return RuleRead(False, cause="partial-rules", evidence=read.evidence, classic=classic)
+        return RuleRead(False, cause=read.cause, evidence=read.evidence, classic=classic)
     rules = parse_active_rules(read.payload)
     if rules is None:
-        return RuleRead(False, cause="malformed-response", evidence="effective branch rules had invalid fields")
-    return RuleRead(True, rules=rules)
+        return RuleRead(False, cause="malformed-response", evidence="effective branch rules had invalid fields", classic=classic)
+    cache = detail_cache if detail_cache is not None else {}
+    details: list[RulesetDetail] = []
+    detail_errors: list[tuple[str, str]] = []
+    for rule in rules:
+        detail, cause, evidence = _read_ruleset_detail(repo_root, rule, cache)
+        if detail is not None:
+            details.append(detail)
+        else:
+            detail_errors.append((cause, evidence))
+    first_error = detail_errors[0] if detail_errors else ("", "")
+    return RuleRead(
+        True,
+        rules=rules,
+        classic=classic,
+        details=tuple(details),
+        details_complete=not detail_errors,
+        details_cause=first_error[0],
+        details_evidence=first_error[1],
+    )
 
 
 def _branch_findings(repo_root: Path) -> tuple[tuple[str, Result], ...]:
@@ -182,11 +293,12 @@ def _branch_findings(repo_root: Path) -> tuple[tuple[str, Result], ...]:
 
     branches = shared_branches(names, trunk)
     results: list[tuple[str, Result]] = []
+    detail_cache: dict[tuple[str, str, int], tuple[RulesetDetail | None, str, str]] = {}
     for name, role in branches:
         if name not in names:
             rules = RuleRead(False, cause="branch-missing", evidence="the delivery base was absent from the remote inventory")
         else:
-            rules = _read_branch_rules(repo_root, name)
+            rules = _read_branch_rules(repo_root, name, detail_cache)
         force = evaluate_force_push(name, rules)
         label = f"force-push protection [{name} ({role})]"
         results.append((label, force))
