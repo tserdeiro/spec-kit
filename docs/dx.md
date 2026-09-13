@@ -18,8 +18,7 @@ espera el plan Business.
 
 ## Problema
 
-La capa de política está completa: un stack, presupuestos, gates, estados
-derivados. La de mecanismo no. Vive en prosa que el agente tiene que
+La capa de política está completa: un stack, gates, estados derivados. La de mecanismo no. Vive en prosa que el agente tiene que
 recordar y en bloques de shell que tiene que copiar y editar. Las
 secciones D y G del dogfooding y el bump a v1.0.4 (cuatro reparaciones a
 mano: el preset dev-instalado, viejo, re-renderizó `speckit-doctor`;
@@ -67,7 +66,7 @@ sigue siendo la regla y el doctor lo dice.
   nueva.** Los presets pueden shippear scripts (`provides` acepta `type:
   script`, en `scripts/`) y el payload del preset se commitea en el
   consumidor, así que el preset `default` shippea como scripts Python lo
-  que hoy es shell inline en sus comandos: `task-base`, `budget-stop`,
+  que hoy es shell inline en sus comandos: `task-base`,
   `stack-propagate`, `pr-create`, el merge a pedido raíz-primero, el
   check del ledger (checkbox más evidencia de completitud) y los dos
   bloques del doctor, `skill-mirror` e `ignore-entries`, que con 110 y
@@ -129,7 +128,7 @@ sigue siendo la regla y el doctor lo dice.
 
 Preset `default`:
 
-- `scripts/python/`: `task_base.py`, `budget_stop.py`,
+- `scripts/python/`: `task_base.py`,
   `stack_propagate.py`, `pr_create.py`, `merge_root_first.py`,
   `ledger_check.py`, `skill_mirror.py`, `ignore_entries.py`, declarados
   como `type: script` en `preset.yml`; `task_base.py` termina con

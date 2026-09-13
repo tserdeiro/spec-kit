@@ -100,5 +100,5 @@ but insufficient: the audit found 23 additional failures outside that selection.
 The new full-suite evidence supersedes that result for this revision.
 
 No commit, push, release, merge, upstream PR or installed-CLI upgrade was made.
-Live Codex/Linear acceptance and PR-budget work remain deferred. FR-016 retains
+Live Codex/Linear acceptance remains deferred. FR-016 retains
 the agreed integration-preservation scope and active-only native registration.
