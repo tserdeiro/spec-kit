@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,19 +37,259 @@ class NativeHookTests(unittest.TestCase):
         self.repo.commit("file", "content\n", "feat(x): init")
         executable = os.environ.get("SPECKIT_TEST_GIT254") or shutil.which("git")
         if executable is None:
-            self.skipTest("unmet prerequisite: Git >= 2.54 is required for native hook tests")
+            self.skipTest("unmet acceptance prerequisite: select a Git >= 2.54 executable with SPECKIT_TEST_GIT254")
         self.git = Git(executable, root=self.root)
         if self.git.version().parts < (2, 54):
-            self.skipTest(f"unmet prerequisite: native hook tests require Git >= 2.54, found {self.git.version().text}")
-        payload = self.root / ".specify/extensions/code-review"
-        (payload / "scripts/bash").mkdir(parents=True)
-        (payload / "src/spec_kit_code_review").mkdir(parents=True)
-        for source, destination in (
-            (PACKAGE / "scripts/bash/commit-msg.sh", payload / "scripts/bash/commit-msg.sh"),
-            (PACKAGE / "src/spec_kit_code_review/commit_msg.py", payload / "src/spec_kit_code_review/commit_msg.py"),
-            (PACKAGE / "src/spec_kit_code_review/commit_policy.py", payload / "src/spec_kit_code_review/commit_policy.py"),
+            self.skipTest(f"unmet acceptance prerequisite: selected Git must be >= 2.54, found {self.git.version().text}")
+        self.native_env = os.environ.copy()
+        self.native_env.update({"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"})
+        self.invocations = Path(self.tmp.name) / "python invocations.log"
+        self._install_payload(self.root)
+
+    def _install_payload(self, root: Path) -> None:
+        payload = root / ".specify/extensions/code-review"
+        (payload / "scripts/bash").mkdir(parents=True, exist_ok=True)
+        (payload / "src/spec_kit_code_review").mkdir(parents=True, exist_ok=True)
+        for relative in (
+            "scripts/bash/commit-msg.sh",
+            "src/spec_kit_code_review/__init__.py",
+            "src/spec_kit_code_review/commit_msg.py",
+            "src/spec_kit_code_review/commit_policy.py",
         ):
-            destination.write_bytes(source.read_bytes())
+            (payload / relative).write_bytes((PACKAGE / relative).read_bytes())
+        python = root / ".venv/bin/python"
+        python.parent.mkdir(parents=True, exist_ok=True)
+        python.write_text(
+            "#!/bin/sh\n"
+            f"printf '%s\\n' \"$*\" >> {shlex.quote(str(self.invocations))}\n"
+            f"exec {shlex.quote(sys.executable)} \"$@\"\n",
+            encoding="utf-8",
+        )
+        python.chmod(0o755)
+
+    def _native(self, *arguments: str, cwd: Path | None = None, check: bool = True):
+        result = self.git.run(*arguments, cwd=cwd, env=self.native_env)
+        if check and not result.ok:
+            self.fail(f"native Git failed: {' '.join(arguments)}\n{result.stderr}")
+        return result
+
+    def _commit(self, message: str, *, cwd: Path | None = None, check: bool = True):
+        root = cwd or self.root
+        self._native("add", "--all", cwd=root)
+        return self._native("commit", "-m", message, cwd=root, check=check)
+
+    def _validator_invocations(self) -> list[str]:
+        return [
+            line
+            for line in self.invocations.read_text(encoding="utf-8").splitlines()
+            if "spec_kit_code_review.commit_msg" in line
+        ]
+
+    def _payload_module_origin(self, root: Path) -> Path:
+        source = root / ".specify/extensions/code-review/src"
+        environment = {**self.native_env, "PYTHONPATH": str(source)}
+        result = subprocess.run(
+            [sys.executable, "-c", "import spec_kit_code_review.commit_msg as module; print(module.__file__)"],
+            cwd=root,
+            env=environment,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        return Path(result.stdout.strip()).resolve()
+
+    def _traditional_hook(self, hooks: Path, action: str, trace: Path) -> tuple[bytes, int]:
+        hooks.mkdir(parents=True, exist_ok=True)
+        hook = hooks / "commit-msg"
+        hook.write_text(
+            "#!/bin/sh\n"
+            f"printf '%s|%s\\n' \"$#\" \"$1\" >> {shlex.quote(str(trace))}\n"
+            f"{action}\n",
+            encoding="utf-8",
+        )
+        hook.chmod(0o751)
+        return hook.read_bytes(), stat.S_IMODE(hook.stat().st_mode)
+
+    def test_real_git_composes_default_custom_absolute_relative_and_symlink_paths(self) -> None:
+        target = Path(self.tmp.name) / "absolute hooks with spaces"
+        link = self.root / "hooks-link"
+        link.symlink_to(target, target_is_directory=True)
+        arrangements = (
+            (None, self.root / ".git/hooks"),
+            ("hooks with spaces", self.root / "hooks with spaces"),
+            (str(target), target),
+            (str(link.relative_to(self.root)), target),
+        )
+        for index, (configured, hooks) in enumerate(arrangements):
+            if configured is not None:
+                self._native("config", "core.hooksPath", configured)
+            trace = Path(self.tmp.name) / f"traditional-{index}.log"
+            original, mode = self._traditional_hook(hooks, ":", trace)
+            self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
+            observed = observe_native_hook(self.root, self.git)
+            self.assertEqual(observed.hooks_path, (hooks / "commit-msg").resolve())
+            self.repo.write("file", f"matrix-{index}\n")
+            result = self._commit(f"feat(matrix-{index}): native path")
+            self.assertTrue(result.ok, result.stderr)
+            hook = hooks / "commit-msg"
+            self.assertEqual(hook.read_bytes(), original)
+            self.assertEqual(stat.S_IMODE(hook.stat().st_mode), mode)
+            self.assertEqual(trace.read_text(encoding="utf-8").count("|"), 1)
+            self.assertEqual(len(self._validator_invocations()), index + 1)
+
+    def test_native_payload_imports_commit_validator_from_the_consumer_fixture(self) -> None:
+        expected = self.root / ".specify/extensions/code-review/src/spec_kit_code_review/commit_msg.py"
+        self.assertEqual(self._payload_module_origin(self.root), expected.resolve())
+
+    def test_native_named_hook_runs_before_traditional_hook_and_preserves_arguments(self) -> None:
+        trace = Path(self.tmp.name) / "native order.log"
+        traditional, mode = self._traditional_hook(self.root / ".git/hooks", ":", trace)
+        self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
+        probe = Path(self.tmp.name) / "native probe with spaces.sh"
+        probe.write_text(
+            "#!/bin/sh\n"
+            f"printf 'named\\n' >> {shlex.quote(str(trace))}\n",
+            encoding="utf-8",
+        )
+        probe.chmod(0o755)
+        self._native("config", "set", "hook.probe.command", f"sh {shlex.quote(str(probe))}")
+        self._native("config", "set", "hook.probe.event", HOOK_EVENT)
+        self.repo.write("file", "ordered\n")
+        self.assertTrue(self._commit("feat(order): native first").ok)
+        entries = trace.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(entries[0], "named")
+        self.assertEqual(entries[1].split("|", 1)[0], "1")
+        self.assertEqual((self.root / ".git/hooks/commit-msg").read_bytes(), traditional)
+        self.assertEqual(stat.S_IMODE((self.root / ".git/hooks/commit-msg").stat().st_mode), mode)
+
+    def test_previous_rejection_blocks_commit_after_one_native_invocation(self) -> None:
+        trace = Path(self.tmp.name) / "reject.log"
+        original, mode = self._traditional_hook(self.root / ".git/hooks", "exit 17", trace)
+        self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
+        before = self.repo.head()
+        self.repo.write("file", "rejected\n")
+        result = self._commit("feat(reject): previous hook", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.repo.head(), before)
+        self.assertEqual(len(self._validator_invocations()), 1)
+        hook = self.root / ".git/hooks/commit-msg"
+        self.assertEqual(hook.read_bytes(), original)
+        self.assertEqual(stat.S_IMODE(hook.stat().st_mode), mode)
+        self.assertIn("1|", trace.read_text(encoding="utf-8"))
+
+    def test_later_traditional_rewrite_is_reported_as_a_native_limit(self) -> None:
+        trace = Path(self.tmp.name) / "rewrite.log"
+        original, mode = self._traditional_hook(self.root / ".git/hooks", 'printf "rewritten\\n" > "$1"', trace)
+        self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
+        self.repo.write("file", "rewritten\n")
+        result = self._commit("feat(rewrite): accepted before later rewrite")
+        self.assertTrue(result.ok, result.stderr)
+        self.assertEqual(self._native("log", "-1", "--format=%s").stdout.strip(), "rewritten")
+        self.assertEqual(len(self._validator_invocations()), 1)
+        hook = self.root / ".git/hooks/commit-msg"
+        self.assertEqual(hook.read_bytes(), original)
+        self.assertEqual(stat.S_IMODE(hook.stat().st_mode), mode)
+
+    def test_message_file_is_preserved_and_invalid_subject_creates_no_commit(self) -> None:
+        self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
+        message = Path(self.tmp.name) / "message file.txt"
+        message.write_bytes("feat(file): valid\nbody\n".encode())
+        before = message.read_bytes()
+        self.repo.write("file", "file message\n")
+        result = self._native("add", "--all")
+        self.assertTrue(result.ok)
+        result = self._native("commit", "-F", str(message))
+        self.assertTrue(result.ok, result.stderr)
+        self.assertEqual(message.read_bytes(), before)
+        self.repo.write("file", "invalid message\n")
+        invalid = Path(self.tmp.name) / "invalid message.txt"
+        invalid.write_text("invalid subject\n", encoding="utf-8")
+        self._native("add", "--all")
+        before = self.repo.head()
+        result = self._native("commit", "-F", str(invalid), check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.repo.head(), before)
+
+    def test_shared_registration_requires_every_linked_worktree_payload(self) -> None:
+        sibling = Path(self.tmp.name) / "linked worktree"
+        self._native("worktree", "add", "--detach", str(sibling))
+        self.addCleanup(lambda: self._native("worktree", "remove", "--force", str(sibling), check=False))
+        config = self.root / ".git/config"
+        original = config.read_bytes()
+        missing = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_payload_missing", {item.code for item in missing.diagnostics})
+        self.assertEqual(config.read_bytes(), original)
+        self._install_payload(sibling)
+        self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
+        sibling_git = Git(self.git.executable, root=sibling)
+        self.assertEqual(observe_native_hook(sibling, sibling_git).state, "installed")
+        self.repo.write("file", "main worktree\n")
+        self.assertTrue(self._commit("feat(worktree): main").ok)
+        (sibling / "sibling.txt").write_text("linked\n", encoding="utf-8")
+        sibling_git.run("add", "--all", env=self.native_env)
+        result = sibling_git.run("commit", "-m", "feat(worktree): linked", env=self.native_env)
+        self.assertTrue(result.ok, result.stderr)
+        self.assertEqual(len(self._validator_invocations()), 2)
+
+    def test_git255_per_event_disabling_is_observed_without_repair(self) -> None:
+        executable = os.environ.get("SPECKIT_TEST_GIT255")
+        if executable is None:
+            self.skipTest("unmet optional acceptance prerequisite: set SPECKIT_TEST_GIT255 for Git 2.55 disabling evidence")
+        git = Git(executable, root=self.root)
+        if git.version().parts < (2, 55):
+            self.skipTest(f"unmet optional acceptance prerequisite: selected Git 2.55 required, found {git.version().text}")
+        self.assertEqual(install_native_hook(self.root, git).diagnostics, ())
+        config = self.root / ".git/config"
+        result = git.run("config", "set", "hook.commit-msg.enabled", "false", env=self.native_env)
+        self.assertTrue(result.ok, result.stderr)
+        after_disable = config.read_bytes()
+        observation = observe_native_hook(self.root, git)
+        self.assertEqual(observation.state, "disabled")
+        self.assertTrue(any(name == HOOK_NAME and is_disabled for name, is_disabled in observation.listed))
+        self.assertIn("git_hooks_disabled", {item.code for item in hook_diagnostics(self.root, git)})
+        self.assertTrue(install_native_hook(self.root, git).diagnostics)
+        self.assertEqual(config.read_bytes(), after_disable)
+
+    def test_linked_worktree_with_existing_worktree_config_keeps_registration_local(self) -> None:
+        self._native("config", "set", "extensions.worktreeConfig", "true")
+        sibling = Path(self.tmp.name) / "worktree-config sibling"
+        self._native("worktree", "add", "--detach", str(sibling))
+        self.addCleanup(lambda: self._native("worktree", "remove", "--force", str(sibling), check=False))
+        worktree_config = self.root / ".git/config.worktree"
+        self._native("config", "set", "--worktree", f"hook.{HOOK_NAME}.event", HOOK_EVENT)
+        shared = self.root / ".git/config"
+        shared_before = shared.read_bytes()
+        self.assertEqual(observe_native_hook(self.root, self.git).config_scope, "worktree")
+        self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
+        self.assertEqual(shared.read_bytes(), shared_before)
+        self.assertIn(HOOK_COMMAND.encode(), worktree_config.read_bytes())
+        self.assertEqual(observe_native_hook(self.root, self.git).state, "installed")
+        self.repo.write("file", "worktree config\n")
+        self.assertTrue(self._commit("feat(worktree): config scope").ok)
+
+    def test_symlinked_config_destination_is_left_untouched(self) -> None:
+        config = self.root / ".git/config"
+        target = Path(self.tmp.name) / "config target"
+        target.write_bytes(config.read_bytes())
+        config.unlink()
+        config.symlink_to(target)
+        before = target.read_bytes()
+        repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_unsafe_config", {item.code for item in repair.diagnostics})
+        self.assertEqual(target.read_bytes(), before)
+
+    def test_installed_symlinked_config_is_reported_and_left_untouched(self) -> None:
+        config = self.root / ".git/config"
+        self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
+        target = Path(self.tmp.name) / "installed config target"
+        target.write_bytes(config.read_bytes())
+        config.unlink()
+        config.symlink_to(target)
+        before = target.read_bytes()
+        self.assertIn("git_hooks_unsafe_config", {item.code for item in hook_diagnostics(self.root, self.git)})
+        repair = install_native_hook(self.root, self.git)
+        self.assertIn("git_hooks_unsafe_config", {item.code for item in repair.diagnostics})
+        self.assertEqual(target.read_bytes(), before)
 
     def test_first_repair_is_native_and_second_repair_is_a_noop(self) -> None:
         before = observe_native_hook(self.root, self.git)
