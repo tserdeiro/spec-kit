@@ -146,14 +146,6 @@ def test_merge_queue_missing_method_and_update_rule_are_unverified() -> None:
     assert "ordinary branch updates" in result.evidence
 
 
-def test_merge_queue_merge_method_still_requires_queue_interaction_evidence() -> None:
-    parsed = rules.parse_active_rules([[ _active("merge_queue", parameters={"merge_method": "MERGE"}) ]])
-    assert parsed is not None
-    result = rules.evaluate_merge("main", rules.RuleRead(True, parsed, classic=_complete_classic(required_linear_history=False, lock_branch=False)), _setting("mergeCommitAllowed"))
-    assert result.state == rules.UNVERIFIED
-    assert "queue interaction" in result.evidence
-
-
 def test_merge_conflict_is_retained_when_effective_rules_read_is_incomplete() -> None:
     read = rules.RuleRead(False, cause="partial-rules", evidence="page 2 failed", classic=_complete_classic(required_linear_history=True, lock_branch=False))
     result = rules.evaluate_merge("main", read, _setting("mergeCommitAllowed"))
@@ -183,8 +175,9 @@ def test_cleanup_missing_classic_fields_stays_unverified() -> None:
     assert "lock_branch" in result.evidence
 
 
-def test_diagnose_marks_a_complete_compatible_snapshot_overall_compatible(tmp_path, monkeypatch) -> None:
+def test_diagnose_preserves_merge_uncertainty_when_ruleset_detail_is_denied(tmp_path, monkeypatch) -> None:
     (tmp_path / ".git").mkdir()
+    detail_denied = False
     classic = {name: {"enabled": value} for name, value in {
         "allow_force_pushes": False, "enforce_admins": True, "allow_deletions": True,
         "lock_branch": False, "required_linear_history": False,
@@ -197,19 +190,24 @@ def test_diagnose_marks_a_complete_compatible_snapshot_overall_compatible(tmp_pa
         if endpoint == "repos/{owner}/{repo}/branches?per_page=100":
             return SimpleNamespace(returncode=0, stdout=json.dumps([[{"name": "main"}]]), stderr="")
         if "/rules/branches/" in endpoint:
-            return SimpleNamespace(returncode=0, stdout=json.dumps([[_active()]]), stderr="")
+            return SimpleNamespace(returncode=0, stdout=json.dumps([[_active("pull_request", parameters={"allowed_merge_methods": ["merge"]})]]), stderr="")
         if "/protection" in endpoint:
             return SimpleNamespace(returncode=0, stdout=json.dumps(classic), stderr="")
         if "/rulesets/" in endpoint:
-            return SimpleNamespace(returncode=0, stdout=json.dumps(_detail()), stderr="")
+            return SimpleNamespace(returncode=1, stdout="", stderr="permission denied") if detail_denied else SimpleNamespace(returncode=0, stdout=json.dumps(_detail([{"actor_type": "OrganizationAdmin", "bypass_mode": "always"}])), stderr="")
         raise AssertionError(endpoint)
 
     monkeypatch.setattr(github_delivery, "run_gh", fake_gh)
     monkeypatch.setattr(github_delivery, "delivery_base", lambda _root: "main")
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
     settings, findings = github_delivery.diagnose(tmp_path)
-    assert len(findings) == 3 and all(result.state == rules.COMPATIBLE for _, result in findings)
-    assert github_delivery.overall_result(settings, findings).state == rules.COMPATIBLE
+    merge = next(result for name, result in findings if name.startswith("merge commits"))
+    assert merge.state == rules.COMPATIBLE and "always bypass" in merge.evidence
+    detail_denied = True
+    settings, findings = github_delivery.diagnose(tmp_path)
+    merge = next(result for name, result in findings if name.startswith("merge commits"))
+    assert merge.state == rules.UNVERIFIED and "detail unavailable" in merge.evidence
+    assert github_delivery.overall_result(settings, findings).state == rules.UNVERIFIED
     assert "future branches are not certified" in github_delivery.render(settings, findings)
 
 

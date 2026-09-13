@@ -366,6 +366,19 @@ def _bypass_notes(rule: ActiveRule, details: dict[tuple[str, str, int], RulesetD
     return tuple(notes)
 
 
+def _detail_gap(rule: ActiveRule, read: RuleRead, details: dict[tuple[str, str, int], RulesetDetail], operation: str) -> tuple[str, str]:
+    detail = details.get(rule.identity)
+    if not read.details_complete or detail is None:
+        return f"{rule.label()} {operation} detail unavailable: {read.details_evidence or 'ruleset detail was not observed'}", read.details_cause or "bypass-coverage-unobserved"
+    if detail.enforcement != "active":
+        return f"{detail.label()} enforcement changed to {detail.enforcement}", "ruleset-detail-mismatch"
+    if detail.bypass_actors is None:
+        return f"{detail.label()} bypass_actors omitted", "bypass-coverage-unobserved"
+    if any(actor.bypass_mode not in {"always", "pull_request", "exempt"} for actor in detail.bypass_actors):
+        return f"{detail.label()} has an unsupported bypass mode", "unsupported-bypass-mode"
+    return "", ""
+
+
 def _finish(
     conflicts: list[str],
     unknown: list[str],
@@ -373,8 +386,9 @@ def _finish(
     actions: list[str],
     unknown_cause: str,
     unknown_action: str,
+    notes: list[str] | None = None,
 ) -> Result:
-    evidence = "; ".join(conflicts + unknown) or "all required delivery constraints were observed"
+    evidence = "; ".join(conflicts + (notes or []) + unknown) or "all required delivery constraints were observed"
     action = "; ".join(dict.fromkeys(actions))
     if conflicts:
         return Result(INCOMPATIBLE, "conflicting-configuration", evidence, action or unknown_action)
@@ -392,6 +406,7 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
     unknown: list[str] = []
     unavailable: list[tuple[str, str, str]] = []
     actions: list[str] = []
+    notes: list[str] = []
     unknown_cause = ""
 
     if repository_setting is None:
@@ -412,6 +427,13 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
     rules = read.rules if read.complete else ()
     for rule in rules:
         label = rule.label()
+        if rule.type in {"required_linear_history", "pull_request", "merge_queue", "update"}:
+            gap, cause = _detail_gap(rule, read, details, "merge")
+            if gap:
+                unknown.append(gap)
+                unknown_cause = unknown_cause or cause
+            else:
+                notes.extend(_bypass_notes(rule, details, "ordinary merge updates"))
         if rule.type == "required_linear_history":
             conflicts.append(f"{label} required_linear_history prevents merge commits on {branch}")
             actions.append(f"Adjust {label} scope to allow merge commits on {branch}, preserving checks, reviews, and bypass policy")
@@ -448,7 +470,6 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
                 actions.append(f"Verify {label} queue interaction for ordinary stack delivery on {branch}")
         elif rule.type == "update":
             unknown.append(f"{label} update restricts ordinary branch updates to bypass actors; merge interaction is unverified")
-            unknown.extend(_bypass_notes(rule, details, "ordinary merge updates"))
             unknown_cause = unknown_cause or "unsupported-rule-semantics"
             actions.append(f"Review {label} update scope and bypass policy for ordinary merge delivery on {branch}")
         elif rule.type not in _NEUTRAL_RULES:
@@ -484,6 +505,7 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
         actions,
         unknown_cause or "missing-field",
         "Retry the GitHub merge rules and classic protection reads after confirming access",
+        notes,
     )
 
 
@@ -522,10 +544,10 @@ def evaluate_cleanup(
         if rule.type == "deletion":
             conflicts.append(f"{label} deletion restricts {branch} to bypass actors")
             actions.append(f"Adjust {label} deletion scope to permit cleanup of integrated feature/task branches while retaining trunk and preserving checks, reviews, and bypass policy")
-            if rule.identity not in details:
-                detail_evidence = read.details_evidence or "ruleset bypass detail was not completely observed"
-                unknown.append(f"{label} bypass detail was not observed: {detail_evidence}")
-                unknown_cause = unknown_cause or read.details_cause or "bypass-coverage-unobserved"
+            gap, cause = _detail_gap(rule, read, details, "cleanup")
+            if gap:
+                unknown.append(gap)
+                unknown_cause = unknown_cause or cause
             else:
                 unknown.extend(_bypass_notes(rule, details, "ordinary branch deletion"))
         elif rule.type not in _NEUTRAL_RULES | {"required_linear_history", "pull_request", "merge_queue", "update"}:
