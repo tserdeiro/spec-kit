@@ -10,21 +10,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
-DEFAULT_FORECAST = 400  # no "~N" on the Delivery line: today's shell default
-
 _TASK_RE = re.compile(r"^\s*-\s+\[([ xX])\]\s+(T[0-9]{3})\b")
-_DELIVERY_RE = re.compile(r"\*\*Delivery\*\*:\s*(.*)$")
-_FORECAST_RE = re.compile(r"~([0-9]+)")
 _EVIDENCE_RE = re.compile(r"\*\*Completion evidence\*\*:\s*(.*)$")
 _TRUNK_RE = re.compile(r"""^trunk:\s*["']?([^"'#\s]*)""")
 
 @dataclass(frozen=True)
 class Task:
-    """One ledger task: id, checkbox, Delivery forecast, Completion evidence."""
+    """One ledger task: id, checkbox, Completion evidence."""
 
     id: str
     checked: bool
-    forecast: int
     completion_evidence: str
 
 # _fence_start/_fence_end equal spec_kit_linear.parser's; a test enforces it.
@@ -54,7 +49,7 @@ def parse_ledger(text: str) -> list[Task]:
     tasks: list[Task] = []
     fence: tuple[str, int] | None = None
     task_id: str | None = None
-    checked, forecast, evidence = False, DEFAULT_FORECAST, ""
+    checked, evidence = False, ""
     for line in text.splitlines():
         if fence is not None:
             if _fence_end(line, *fence):
@@ -67,22 +62,17 @@ def parse_ledger(text: str) -> list[Task]:
         header = _TASK_RE.match(line)
         if header:
             if task_id is not None:
-                tasks.append(Task(task_id, checked, forecast, evidence))
+                tasks.append(Task(task_id, checked, evidence))
             task_id, checked = header.group(2), header.group(1) in "xX"
-            forecast, evidence = DEFAULT_FORECAST, ""
+            evidence = ""
             continue
         if task_id is None:
-            continue
-        delivery = _DELIVERY_RE.search(line)
-        if delivery:
-            found = _FORECAST_RE.search(delivery.group(1))
-            forecast = int(found.group(1)) if found else forecast
             continue
         completion = _EVIDENCE_RE.search(line)
         if completion:
             evidence = completion.group(1).strip()
     if task_id is not None:
-        tasks.append(Task(task_id, checked, forecast, evidence))
+        tasks.append(Task(task_id, checked, evidence))
     return tasks
 
 def first_unchecked(tasks: list[Task]) -> Task | None:
