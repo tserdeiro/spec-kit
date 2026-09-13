@@ -203,6 +203,18 @@ in the packet's generated catalog; any other value refuses the whole file. Cite
 the exact lines that support each finding; anything that does not exist in
 the candidate is discarded.
 
+### Follow-up review of a corrected candidate
+
+A corrected candidate is a new head, so it gets a new session and a new
+`findings.json`; nothing is copied from the previous session. Receipts are
+validated against the new head's bytes, so a receipt for a range whose bytes
+did not change may reuse its digest with the new head as `version`; every
+range the correction touched is read again. Read the delta with
+`git diff <previous head>..<head>` in the materialized worktree, and take the
+previous session's `findings.md` as the list to verify: each earlier finding
+is fixed, or still open with the reason. The verdict is derived again from
+this session alone.
+
 ## Publishing
 
 ```bash

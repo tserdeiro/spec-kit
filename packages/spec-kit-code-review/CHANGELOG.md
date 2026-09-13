@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `code-review.md` states how a corrected candidate is reviewed as a
+  follow-up: new session and findings per head, digests reused only for
+  unchanged bytes, the delta and the previous findings as the checklist.
+
 ## 0.5.0
 
 - A `pre_tool_use` guard blocks, before it takes effect — even behind a

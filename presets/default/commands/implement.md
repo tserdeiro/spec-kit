@@ -108,10 +108,31 @@ It exits 2 naming exactly what's missing — the checkbox, the evidence, or both
 > when there is one; otherwise, return the findings directly to the
 > orchestrator.
 
-- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to a **fresh sub-agent** with no implementation residue, which reads the packet in full, reviews the candidate, writes `findings.json` **inside the review session directory**, and returns the one line the Orchestration section fixes; close the review with that file and act on its `delivery` decision. Without sub-agents, run the review yourself — findings still written inside the session directory, fresh per review, never copied from an earlier one. After the close, record the review in the PR — the row `Independent review | session <path>, head <sha> | <verdict>, delivery <decision>` added to the body with `gh pr edit <n> --body`, or one comment — **never a commit**.
+- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to the **task's reviewer** (below) — a sub-agent with no implementation residue — which reads the packet in full, reviews the candidate, writes `findings.json` **inside the review session directory**, and returns the one line the Orchestration section fixes; close the review with that file and act on its `delivery` decision. Without sub-agents, run the review yourself — findings still written inside the session directory, one file per session, never copied from an earlier one. After the close, record the review in the PR — the row `Independent review | session <path>, head <sha> | <verdict>, delivery <decision>` added to the body with `gh pr edit <n> --body`, or one comment — **never a commit**.
 - **Without `code-review`**, hand a fresh sub-agent (or, without one, a fresh context) the PR's diff and body — `gh pr diff <n>` and `gh pr view <n>` — and the brief, nothing else carried over. It returns its findings; post them as one PR comment (`gh pr comment <n>`) — no session, no verdict, the degraded mode. The ledger never names that comment.
 
-That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it: the fix commit carries its evidence update, push, run the budget stop again — the branch may have grown — and the new candidate is reviewed. Editing the PR body or commenting never creates a candidate: the session compares head and merge base only, so a PR-body correction — a count, a wording — is free and never triggers a review.
+That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it: the fix commit carries its evidence update, push, run the budget stop again — the branch may have grown — and the new candidate is reviewed as the review rounds below say. Editing the PR body or commenting never creates a candidate: the session compares head and merge base only, so a PR-body correction — a count, a wording — is free and never triggers a review.
+
+### Review rounds
+
+- **One reviewer per task**, independent of the implementer, kept for the task's whole life. Its first review covers the whole candidate, groups findings by mechanism and checks every path of that mechanism — normal, error, recovery, cleanup — before answering, so variants of one defect surface once.
+- **Follow-up by the same reviewer.** After a fix commit, when the host can continue a sub-agent (Claude Code: message the same agent), open the new session and send the fixed follow-up brief:
+
+  > The candidate advanced from <reviewed sha> to <head sha>; previous
+  > findings: <previous session>/findings.md. Verify each previous
+  > finding is fixed or say why it is still open; review the delta
+  > (`git diff <reviewed sha>..<head sha>`) and its effects on the rest
+  > of the candidate; write `findings.json` in <new session> with
+  > coverage receipts for the new head. A range whose bytes did not
+  > change keeps the digest you already computed, with the new head as
+  > its version; re-read every range the delta touched.
+
+  When the host cannot continue an agent, a fresh reviewer gets the same brief and the packet path, and reads the full packet as in the first round.
+- **Every head has its own session, findings and receipts.** Reusing a digest for unchanged bytes is not reusing a finding: the close command validates every receipt against the new head's bytes. A `findings.json` is never copied between sessions, and a verdict never carries over to a new head.
+- **Full review again** when the merge base moved, the file scope grew, or the reviewer's context was lost.
+- **Two correction rounds at most** after the initial review. When the close after the second correction still returns `delivery.decision` `hold` with `blocking` or `major` findings, stop patching: write a short diagnosis as one PR comment and in the completion report — the pending findings and their common cause; which layer fails (implementation, task definition, review); one proposal (consolidate the fix, re-plan the task, request a bounded exception) — and hand the task to the human. Never mark ready with pending findings; never continue automatically.
+- **Each round leaves one PR comment**: session path, head, verdict, `delivery.decision` — the durable record of the rounds and their duration.
+- **The final feature audit** (the feature PR) keeps a fresh, independent context; reviewer continuity is per task only.
 
 **Carrying a fix through the stack.** Whenever a commit lands on a task branch that has open task PRs stacked on it — a review fix on an earlier task, a reviewer's comment fixed later:
 
