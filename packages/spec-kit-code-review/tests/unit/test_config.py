@@ -37,9 +37,9 @@ class YamlSubsetTests(unittest.TestCase):
     def test_nested_mappings_scalars_and_scalar_lists(self) -> None:
         path = self._write(
             'schema_version: "1.0"\n'
-            "budget:\n"
+            "protected_paths_meta:\n"
             "  limit: 400\n"
-            "  executable_globs:\n"
+            "  globs:\n"
             '    - "src/**"\n'
             '    - "tests/**"\n'
             "packet:\n"
@@ -50,8 +50,8 @@ class YamlSubsetTests(unittest.TestCase):
         document = load_yaml_subset(path)
 
         self.assertEqual(document["schema_version"], "1.0")
-        self.assertEqual(document["budget"]["limit"], 400)
-        self.assertEqual(document["budget"]["executable_globs"], ["src/**", "tests/**"])
+        self.assertEqual(document["protected_paths_meta"]["limit"], 400)
+        self.assertEqual(document["protected_paths_meta"]["globs"], ["src/**", "tests/**"])
         self.assertIs(document["packet"]["include_pr_body"], True)
         self.assertIsNone(document["packet"]["missing"])
 
@@ -70,7 +70,7 @@ class YamlSubsetTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, EXIT_CONFIGURATION)
 
     def test_dump_round_trips_through_the_loader(self) -> None:
-        document = {"engine": {"mode": "delegate", "timeout_seconds": 300}, "budget": {"executable_globs": ["src/**"]}}
+        document = {"engine": {"mode": "delegate", "timeout_seconds": 300}, "protected_paths_meta": {"globs": ["src/**"]}}
         path = self._write(dump_yaml_subset(document))
 
         self.assertEqual(load_yaml_subset(path), document)
@@ -99,7 +99,6 @@ class ConfigResolutionTests(unittest.TestCase):
 
         self.assertEqual(config.shared_path, self.root / ROOT_CONFIG_FILENAME)
         self.assertEqual(config.get("engine", "mode"), "delegate")
-        self.assertEqual(config.get("budget", "limit"), 400)
         self.assertEqual(config.get("publish", "event"), "request-changes")
         self.assertEqual(config.get("repository", "github"), "tserdeiro/consumer")
         self.assertEqual(len(config.sha256), 64)
@@ -208,7 +207,7 @@ class ConfigValidationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, EXIT_CONFIGURATION)
 
     def test_numeric_fields_must_be_positive_integers(self) -> None:
-        for text in ('schema_version: "1.0"\nbudget:\n  limit: 0\n', 'schema_version: "1.0"\nbudget:\n  limit: "many"\n'):
+        for text in ('schema_version: "1.0"\npublish:\n  batch_size: 0\n', 'schema_version: "1.0"\npublish:\n  batch_size: "many"\n'):
             with self.subTest(text=text):
                 self._shared(text)
                 with self.assertRaises(AppError) as caught:
@@ -233,7 +232,7 @@ class SharedDocumentTests(unittest.TestCase):
         document = shared_config_document(repository="tserdeiro/spec-kit", remote="upstream", slug=None)
 
         self.assertEqual(document["repository"], {"slug": "spec-kit", "github": "tserdeiro/spec-kit", "remote": "upstream"})
-        self.assertEqual(document["engine"]["ocr_version"], "v1.8.3")
+        self.assertEqual(document["engine"]["ocr_version"], "v1.12.0")
         self.assertNotIn("root", document["evidence"])
         self.assertEqual(document["protected_paths"], ["specs/*/spec.md", ".specify/memory/constitution.md"])
 
