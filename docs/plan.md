@@ -102,7 +102,7 @@ command exposes only what its step needs.
 - The review engine scopes every changed file; each in-scope file's changed
   hunks are required reads with receipts. The review dispatches by groups
   of at most 10 related files. Size is recorded from the engine's own
-  `insertions`/`deletions` counts, never gated or forecast.
+  `insertions`/`deletions` counts.
 - The developer self-reviews with `speckit.code-review` before
   `ready for review`; the reviewer runs the same command plus human review
   before approving.
@@ -139,8 +139,7 @@ specified — and every stage below is done:
 - Code review: collapse `run` + `local` into `speckit.code-review`; delete
   `--engine`, `upgrade`, `rules`, `status`, and the ceremony flags
   (`--yes-i-reviewed-this`, `--require-sdd-context`, `--allow-candidate-rules`,
-  `--republish`, `--allow-closed`); reduce the budget subsystem to the
-  warning above.
+  `--republish`, `--allow-closed`).
 - Linear: delete `seed`, `propose`, `upgrade`, `install`, the git-hook
   machinery, the `reconcile.*` config block, phase milestones, and the
   persisted-plan protocol.
@@ -298,8 +297,8 @@ changed shipped content, released:
 
 [`003-delivery-automation`](../specs/003-delivery-automation/): the
 workflow acts instead of reminding. Delivered through its own loop in task
-PRs #44–#62 (#54 closed as misnamed; #58 reverted by #59 and redone within
-budget as #62), feature PR #43. Released as linear 0.11.0, code-review
+PRs #44–#62 (#54 closed as misnamed; #58 reverted by #59 and redone as
+#62), feature PR #43. Released as linear 0.11.0, code-review
 0.3.0, preset 0.8.0, bundles 0.14.0; T014 records the consumer upgrade.
 
 - **Flow** — silent hooks and scoped phase commits (#45); the loop
@@ -319,8 +318,7 @@ budget as #62), feature PR #43. Released as linear 0.11.0, code-review
   manifests by default and catalog parity in `--published` mode (#62).
 - **Process record** — `docs/dogfooding.md` keeps the frictions this round
   found in the workflow itself: sixteen PRs merged without the human gate,
-  budgets amended in the PR that breached them, reviews pushing complexity,
-  a task editing the product contract. Their rules are the next round.
+  reviews pushing complexity, a task editing the product contract. Their rules are the next round.
 
 ### Delivery discipline (2026-09-03 → 2026-09-04)
 
@@ -335,22 +333,15 @@ code-review 0.4.0, preset 0.9.0, bundles 0.15.0; the consumer upgrade is
   the base derived from open PRs, fix propagation, branch identity, and
   a closure that never merges — root-first, with a revert path
   (#65–#69).
-- **Process** — the budget stop at twice the forecast, the engineering
-  principles in the base rule set, `CLAUDE.md` importing `AGENTS.md`
-  (#70, #71).
+- **Process** — the engineering principles in the base rule set,
+  `CLAUDE.md` importing `AGENTS.md` (#70, #71).
 - **Contract** — a deterministic `protected_paths` blocking finding
   (#72).
 - **Tooling** — worktree-aware Linear configuration, the Project
   projected at plan, published digests re-verified (#73–#75).
 - **Installation** — a safe skill mirror and the installer's ignore
   entries (#76).
-- **Process record** — the 2× rule reached its stop line twice in its
-  own round, by different paths: in T009 the `budget-stop` block ran and
-  stopped the task at 231/180, returning it to the human; in T011 the
-  implementer measured 213/180 and stopped before the PR under the same
-  rule, and the orchestrator applied the T009 precedent — consolidate —
-  before the block ever ran. Both fit after consolidating duplicated
-  test scaffolding, never by widening the budget; the plan's assumption
+- **Process record** — the plan's assumption
   that `publish.sh` re-runs published mode after publication was wrong
   — it runs before pushing, so the digest check reports a missing zip as
   pending; the orchestrator's first skill mirror reproduced the very bug
@@ -367,17 +358,17 @@ code-review 0.4.0, preset 0.9.0, bundles 0.15.0; the consumer upgrade is
 ### Developer experience (published 2026-09-10; acceptance follow-ups open)
 
 [`005-developer-experience`](../specs/005-developer-experience/)
-(feature PR #86): the policy layer — stack, budgets, gates, derived
-states — was complete; the mechanism still lived in prose an agent had
+(feature PR #86): the policy layer — stack, gates, derived states — was
+complete; the mechanism still lived in prose an agent had
 to remember and shell blocks it had to copy-edit by hand. Task PRs
 #87–#114 merged root-first into the feature, then #86 merged into `main`.
 Follow-up #115 handles GitHub's automatic PR retargeting during that merge.
 Published as linear 0.13.0, code-review 0.5.0, preset 0.10.0, and bundles
 0.16.0; release pins are recorded in `7c6371a`.
 
-- **Scripts** — the default preset's eight repeatable procedures
-  (`task-base`, `pr-create`, `budget-stop`, `stack-propagate`,
-  `merge-root-first`, `ledger-check`, `skill-mirror`, `ignore-entries`)
+- **Scripts** — the default preset's repeatable procedures
+  (`task-base`, `pr-create`, `stack-propagate`, `merge-root-first`,
+  `ledger-check`, `skill-mirror`, `ignore-entries`)
   ship as Python 3.11+ scripts with their own pytest suite; conformance
   invokes the installed scripts directly instead of extracting prose
   blocks; `implement` and `tasks` become authored replacements of the
