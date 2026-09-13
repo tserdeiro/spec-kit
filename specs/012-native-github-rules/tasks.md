@@ -30,13 +30,13 @@
   - **Delivery**: single PR (~280 authored lines)
   - **Completion evidence**: PR #151; 8 focused tests and 79 preset tests passed; budget 282/400; diff check clean. Independent native review of 1a215c1 returned no-blocking-findings. Current-head review and CI gate readiness.
 
-- [ ] T002 [US1] Diagnose active rules on the complete shared-branch inventory in presets/default/scripts/python/github_delivery_rules.py
+- [x] T002 [US1] Diagnose active rules on the complete shared-branch inventory in presets/default/scripts/python/github_delivery_rules.py
   - **Traces**: FR-001, FR-003, FR-004, FR-008, FR-009, C-004, SC-001, SC-002; outcome: trunk and remote canonical feature/task branches have explicit active-rules evidence and honest scope coverage.
   - **Depends on**: T001
   - **Boundaries**: Extend `github_delivery.py`, add the pure evaluator and `presets/default/tests/test_github_delivery_rules.py`, and register the evaluator in the preset manifest. Use `_common.delivery_base()` for trunk; fully paginate branch inventory and effective branch rules with explicit GET and validated page shapes. Encode path segments and deduplicate branch/ruleset identities. Render force-push evidence from `non_fast_forward`; mark classic-protection and exception coverage unverified until T003. GitHub performs pattern matching and inherited enforcement; the helper preserves its sources.
   - **Evidence**: `uv run --frozen --offline pytest presets/default/tests/test_github_delivery.py presets/default/tests/test_github_delivery_rules.py -q` -> configured/default trunk, canonical versus unrelated branches, inherited active rules, disabled/evaluation absence, successful empty reads, malformed pages, second-page failure, and missing/disappearing branches are distinguished. Shell-shaped branch names remain literal argv. `git diff --check` -> clean.
   - **Delivery**: single PR (~370 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #153; 13 focused and 84 preset tests passed; budget 397/400; diff check clean. Trunk stderr leakage fixed and covered by a regression test. Independent native review of 6c9e400 returned no-blocking-findings. Current-head review and CI gate readiness.
 
 - [ ] T003 [US1] Combine classic protection and bypass visibility in presets/default/scripts/python/github_delivery_rules.py
   - **Traces**: FR-003, FR-004, FR-006, FR-008, FR-009, C-002, SC-001, SC-002; outcome: force-push protection reflects all observed layers and names exceptions without relying on privilege.

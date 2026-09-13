@@ -20,6 +20,7 @@ def _fake_gh(tmp_path: Path, monkeypatch, response: str = "{}", fail: bool = Fal
         "#!/bin/sh\n"
         "printf '%s\\n' \"$*\" >> \"$GH_CALLS_LOG\"\n"
         "if [ \"$GH_FAIL\" = 1 ]; then echo 'fake read failed' >&2; exit 1; fi\n"
+        "if [ \"$*\" = 'api --method GET --paginate --slurp repos/{owner}/{repo}/branches?per_page=100' ]; then printf '[[]]'; exit 0; fi\n"
         "if [ \"$*\" != 'repo view --json deleteBranchOnMerge,mergeCommitAllowed' ]; then\n"
         "  echo 'write or unexpected argv rejected' >&2; exit 9\n"
         "fi\n"
@@ -37,6 +38,9 @@ def _fake_gh(tmp_path: Path, monkeypatch, response: str = "{}", fail: bool = Fal
 
 
 def _run(repo: Path) -> subprocess.CompletedProcess[str]:
+    (repo / ".git").mkdir()
+    (repo / ".specify/extensions/git").mkdir(parents=True)
+    (repo / ".specify/extensions/git/git-config.yml").write_text("trunk: main\n", encoding="utf-8")
     return subprocess.run([sys.executable, str(SCRIPT)], cwd=repo, text=True, capture_output=True)
 
 
@@ -46,11 +50,14 @@ def test_true_settings_are_reported_but_scope_stays_unverified(tmp_path: Path, m
     assert result.returncode == 1
     assert "deleteBranchOnMerge: compatible (observed true)" in result.stdout
     assert "mergeCommitAllowed: compatible (observed true)" in result.stdout
-    assert "force-push protection: unverified" in result.stdout
+    assert "force-push protection [main (trunk)]: unverified" in result.stdout
     assert "Overall: unverified" in result.stdout
-    assert "Inspect GitHub Settings → Rules → Rulesets" in result.stdout
+    assert "classic protection" in result.stdout
     assert "T001" not in result.stdout
-    assert log.read_text(encoding="utf-8") == "repo view --json deleteBranchOnMerge,mergeCommitAllowed\n"
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "repo view --json deleteBranchOnMerge,mergeCommitAllowed",
+        "api --method GET --paginate --slurp repos/{owner}/{repo}/branches?per_page=100",
+    ]
 
 
 def test_false_setting_has_configuration_remediation(tmp_path: Path, monkeypatch) -> None:
@@ -81,7 +88,10 @@ def test_failed_read_keeps_both_settings_unverified(tmp_path: Path, monkeypatch)
     assert result.stdout.count("unverified") >= 4
     assert "cause=read-failure" in result.stdout
     assert "fake read failed" in result.stdout
-    assert log.read_text(encoding="utf-8") == "repo view --json deleteBranchOnMerge,mergeCommitAllowed\n"
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "repo view --json deleteBranchOnMerge,mergeCommitAllowed",
+        "api --method GET --paginate --slurp repos/{owner}/{repo}/branches?per_page=100",
+    ]
 
 
 def test_absent_gh_is_capability_unavailable_without_a_call(tmp_path: Path, monkeypatch) -> None:
