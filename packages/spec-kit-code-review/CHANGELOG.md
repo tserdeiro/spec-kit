@@ -13,6 +13,11 @@
   point at `raw/*.stdout` with its sha256 and byte count — and §3.2 is a rule
   catalog (`R1`, `R2`, … in first-appearance order) that §3.3 references per
   file instead of repeating every rule under every file.
+- `.opencodereview/rule.json` (and the template `doctor --fix` writes) now
+  `include`s the distribution's behaviour-defining Markdown (agent commands,
+  skills, templates) and test fixtures, so the engine's `unsupported_ext` and
+  `default_path` gates no longer drop them from scope; a new `**/*.md` rule
+  reviews Markdown as the executable procedure it is.
 
 ## 0.5.0
 

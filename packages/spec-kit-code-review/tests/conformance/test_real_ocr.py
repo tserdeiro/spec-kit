@@ -294,6 +294,37 @@ class RealEngineConformanceTests(unittest.TestCase):
 
         self.assertEqual(parse_preview(preview.raw).as_dict(), preview.as_dict())
 
+    # `include` bypasses `unsupported_ext`/`default_path` --------------------
+
+    def test_an_included_markdown_glob_reaches_scope_and_its_project_rule(self) -> None:
+        # Gate 3 (the rule file's `include`) must beat gate 4 (`unsupported_ext`:
+        # `.md` is outside ocr's extension allowlist) and gate 5
+        # (`default_path`), and `**/*.md` must be the rule that resolves for it.
+        self.repository.commit(
+            ".opencodereview/rule.json",
+            json.dumps(
+                {
+                    "include": ["presets/**/*.md"],
+                    "rules": [{"path": "**/*.md", "rule": "Review the procedure.", "merge_system_rule": False}],
+                }
+            ),
+            "include markdown commands",
+        )
+        head = self.repository.commit("presets/x/commands/y.md", "# y\n", "add a markdown command")
+
+        preview = self.engine.delegate_preview(
+            self.repository.path, from_ref=self.base, to_ref=head, rule_path=self.rule_path,
+        )
+        self.assertIn("presets/x/commands/y.md", preview.included_paths)
+
+        result = self.engine.run(
+            "rules", "check", "--repo", str(self.repository.path), "--rule", str(self.rule_path),
+            "presets/x/commands/y.md",
+        )
+        self._capture("rules-check-markdown-include", result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("**/*.md", result.stdout)
+
     # 4-5. delegate rule ------------------------------------------------------
 
     def test_delegate_rule_accepts_positional_paths(self) -> None:

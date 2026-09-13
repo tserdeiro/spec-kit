@@ -100,7 +100,23 @@ SPECKIT_VERSION_RANGE, SPECKIT_SUPPORTED_MAJOR_MINOR = _speckit_requirement()
 # The default rule set written by `--fix` when the repository has none.
 RULE_TEMPLATE = """\
 {
+  "include": [
+    "presets/**/*.md",
+    "packages/*/commands/**/*.md",
+    "packages/*/skills/**/*.md",
+    ".claude/skills/**/*.md",
+    ".agents/skills/**/*.md",
+    ".specify/templates/**/*.md",
+    ".specify/extensions/*/commands/**/*.md",
+    "**/tests/fixtures/**",
+    "**/testdata/**"
+  ],
   "rules": [
+    {
+      "path": "**/*.md",
+      "rule": "Review the Markdown as the executable procedure it is (agent commands, skills and templates): steps must be unambiguous, no instruction may contradict another, every command it tells the agent to run must exist with those exact flags, and no instruction may grant approval or merge authority.",
+      "merge_system_rule": false
+    },
     {
       "path": "**/*",
       "rule": "Review against the repository's engineering principles: the simplest implementation that fully meets the current requirement; no compatibility layers, fallbacks or migrations; no speculative abstraction or configuration; reuse what is already installed. Before asking for an edge case, ask whether the mechanism is needed at all. Report over-engineering and speculative abstraction as major findings and any new runtime dependency as a blocking finding. Cite the exact lines that support each finding.",

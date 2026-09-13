@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import stat
 import unittest
@@ -556,8 +557,21 @@ class FixTests(DoctorCase):
         self.assertEqual(written, RULE_TEMPLATE)
 
         document = parse_rule_document(written, ref=None, origin=str(rule_path))
-        self.assertEqual(len(document.rules), 2)
-        principles, python_rule = document.rules
+        self.assertEqual(json.loads(written)["include"], [
+            "presets/**/*.md",
+            "packages/*/commands/**/*.md",
+            "packages/*/skills/**/*.md",
+            ".claude/skills/**/*.md",
+            ".agents/skills/**/*.md",
+            ".specify/templates/**/*.md",
+            ".specify/extensions/*/commands/**/*.md",
+            "**/tests/fixtures/**",
+            "**/testdata/**",
+        ])
+        self.assertEqual(len(document.rules), 3)
+        markdown_rule, principles, python_rule = document.rules
+        self.assertEqual(markdown_rule["path"], "**/*.md")
+        self.assertIs(markdown_rule["merge_system_rule"], False)
         self.assertEqual(principles["path"], "**/*")
         self.assertIn("blocking", principles["rule"])
         self.assertIn("major", principles["rule"])

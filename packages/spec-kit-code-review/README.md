@@ -156,10 +156,15 @@ Resolution order for the shared configuration: `--config PATH`, then
 `SPECKIT_CODE_REVIEW_CONFIG`, then `<repo>/speckit-code-review.yml`.
 `doctor --fix` creates the first three when they are absent. For a
 repository with no rule file, it also writes `.opencodereview/rule.json`
-with a starting `**/*` rule stating the engineering principles —
-over-engineering and speculative abstraction are `major` findings, a new
-runtime dependency is `blocking` — ahead of the shipped `**/*.py` rule; a
-repository with an existing rule file merges the `**/*` rule in by hand.
+with an `include` list that bypasses the engine's `unsupported_ext` and
+`default_path` gates for this distribution's behaviour-defining Markdown
+(`.specify/templates`, `.specify/extensions/*/commands`, `.claude/skills`,
+`.agents/skills`, `presets/**` when present) and test fixtures, a `**/*.md`
+rule reviewing that Markdown as the executable procedure it is, ahead of a
+starting `**/*` rule stating the engineering principles — over-engineering
+and speculative abstraction are `major` findings, a new runtime dependency
+is `blocking` — and the shipped `**/*.py` rule; a repository with an
+existing rule file merges these rules in by hand.
 
 `protected_paths` (default `specs/*/spec.md` and `.specify/memory/constitution.md`)
 names the paths a task pull request may not touch; see Invariants above.
