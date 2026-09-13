@@ -92,6 +92,12 @@ provides:
       strategy: "replace"
 
     - type: "script"
+      name: "product-gate"
+      file: "scripts/python/product_gate.py"
+      description: "Validate the active feature's published product handoff"
+      strategy: "replace"
+
+    - type: "script"
       name: "budget-stop"
       file: "scripts/python/budget_stop.py"
       description: "Stop a task before its authored lines pass the review budget"
