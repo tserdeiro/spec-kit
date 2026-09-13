@@ -18,6 +18,7 @@ HOOK_COMMAND = "sh .specify/extensions/code-review/scripts/bash/commit-msg.sh"
 MIN_NATIVE_GIT = (2, 54)
 PAYLOAD = (
     Path(".specify/extensions/code-review/scripts/bash/commit-msg.sh"),
+    Path(".specify/extensions/code-review/src/spec_kit_code_review/__init__.py"),
     Path(".specify/extensions/code-review/src/spec_kit_code_review/commit_msg.py"),
     Path(".specify/extensions/code-review/src/spec_kit_code_review/commit_policy.py"),
 )
@@ -161,7 +162,9 @@ def observe_native_hook(root: Path, git: Git) -> HookObservation:
             Diagnostic("git_hooks_config_unreadable", f"could not resolve Git's {config_name} path", str(root))
         )
     else:
-        observation.config_path = _absolute_path(config_result.stdout.strip())
+        resolved_config = _absolute_path(config_result.stdout.strip())
+        lexical_config = _lexical_config_path(git, observation.config_scope, config_name)
+        observation.config_path = lexical_config if lexical_config is not None and lexical_config.is_symlink() else resolved_config
         try:
             mode = observation.config_path.lstat()
         except FileNotFoundError:
@@ -210,6 +213,9 @@ def hook_diagnostics(root: Path, git: Git) -> list[Diagnostic]:
         diagnostics.append(Diagnostic("git_hooks_path", f"effective commit-msg hooks path: {observation.hooks_path}", str(observation.hooks_path), severity="info"))
     if observation.config_path is not None:
         diagnostics.append(Diagnostic("git_hooks_config_scope", f"native registration scope: {observation.config_scope} ({observation.config_path})", str(observation.config_path), severity="info"))
+        if observation.config_path.is_symlink():
+            diagnostics.append(Diagnostic("git_hooks_unsafe_config", "native registration uses a symlinked Git configuration destination; preserve it and integrate the hook manually", str(observation.config_path), severity="error"))
+            return diagnostics
     if observation.git_version < MIN_NATIVE_GIT:
         diagnostics.append(
             Diagnostic(
@@ -256,7 +262,7 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
     observation = observe_native_hook(root, git)
     if observation.git_version < MIN_NATIVE_GIT:
         return HookRepair(diagnostics=(Diagnostic("git_hooks_upgrade", "upgrade Git to >= 2.54, then run `doctor --fix`", str(root)),))
-    if observation.diagnostics or observation.config_path is None or observation.state in {"disabled", "foreign", "conflict", "duplicate", "unverifiable"}:
+    if observation.diagnostics or observation.config_path is None or observation.config_path.is_symlink() or observation.state in {"disabled", "foreign", "conflict", "duplicate", "unverifiable"}:
         return HookRepair(diagnostics=tuple(hook_diagnostics(root, git)))
     payloads = _payload_roots(observation)
     if payloads is None:
@@ -366,6 +372,16 @@ def _absolute_path(value: str) -> Path:
     """Make Git's absolute path usable without resolving symlink targets."""
 
     return Path(os.path.abspath(value))
+
+
+def _lexical_config_path(git: Git, scope: str, name: str) -> Path | None:
+    """Recover a config path without Git's ``--git-path`` symlink resolution."""
+
+    directory = "--git-dir" if scope == "worktree" else "--git-common-dir"
+    result = git.run("rev-parse", "--path-format=absolute", directory)
+    if not result.ok:
+        return None
+    return Path(os.path.abspath(result.stdout.strip())) / name
 
 
 def _origin_matches(origin: str, target: Path | None, root: Path) -> bool:

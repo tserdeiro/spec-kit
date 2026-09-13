@@ -46,13 +46,13 @@ valid subjects and reject invalid editor/file subjects without creating commits.
 **Independent evidence**: Existing hooks/managers retain content, arguments,
 relative order and rejection effect, with one Spec Kit invocation per commit.
 
-- [ ] T003 [US2] Prove native hook composition and worktree safety in packages/spec-kit-code-review/tests/unit/test_commit_hook.py
+- [x] T003 [US2] Prove native hook composition and worktree safety in packages/spec-kit-code-review/tests/unit/test_commit_hook.py
   - **Traces**: FR-005, FR-006, FR-007, FR-008, FR-009, FR-010, C-002, SC-001, SC-002, SC-003; outcome: real Git composition preserves previous hooks and refuses ambiguous ownership or disabled validation.
   - **Depends on**: T002
   - **Boundaries**: Extend `test_commit_hook.py` using existing temporary-repository helpers; keep required contract fixes in `commit_hook.py`/`doctor.py`. On real Git 2.54+ cover default/custom/absolute/relative hooks paths, spaces, linked worktrees with shared config and existing worktreeConfig, missing sibling payload, foreign-scope includes, duplicate manual invocation, symlink targets, and disabled entries. Exercise prior hooks that succeed, reject, or rewrite the message, preserving original bytes/modes and arguments and documenting actual native order. Add Git 2.55 per-event disabling evidence when that runtime is used. Record native bypass and later-rewrite limits explicitly.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_commit_hook.py -q` -> real-Git matrix passes; two repairs produce one validator call; previous rejection blocks a valid subject; unsafe cases preserve bytes/modes/configuration. Git below 2.54 yields a named unmet acceptance prerequisite, never a passing native test.
   - **Delivery**: single PR (~290 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #159; native Git 2.54/2.55 matrix: 22 passed; doctor/CLI regression: 15 passed; consumer module origin verified; `git diff --check` clean; independent review of `0b48311` returned `no-blocking-findings`; committed budget 273/400.
 
 - [ ] T004 [US2] Verify consumer installation and manager coexistence in packages/spec-kit-code-review/scripts/conformance/commit-msg.sh
   - **Traces**: FR-002, FR-003, FR-004, FR-006, FR-007, FR-008, C-003, C-004, SC-001, SC-002, SC-003, SC-004; outcome: independently installed payloads validate real commits while Husky and Lefthook continue running unchanged.
