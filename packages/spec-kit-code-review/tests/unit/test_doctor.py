@@ -57,7 +57,7 @@ class DoctorCase(unittest.TestCase):
         (extension / "scripts/bash").mkdir(parents=True)
         (extension / "src/spec_kit_code_review").mkdir(parents=True)
         package = Path(__file__).resolve().parents[2]
-        for relative in ("scripts/bash/commit-msg.sh", "src/spec_kit_code_review/commit_msg.py", "src/spec_kit_code_review/commit_policy.py"):
+        for relative in ("scripts/bash/commit-msg.sh", "src/spec_kit_code_review/__init__.py", "src/spec_kit_code_review/commit_msg.py", "src/spec_kit_code_review/commit_policy.py"):
             shutil.copy2(package / relative, extension / relative)
         self.repository.git("add", "--all")
         self.repository.git("commit", "-m", "consumer fixture")

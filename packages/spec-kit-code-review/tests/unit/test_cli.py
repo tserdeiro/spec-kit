@@ -67,7 +67,7 @@ class CliCase(unittest.TestCase):
         copy_consumer_fixture(self.repository.path)
         extension = self.repository.path / ".specify/extensions/code-review"
         package = Path(__file__).resolve().parents[2]
-        for relative in ("scripts/bash/commit-msg.sh", "src/spec_kit_code_review/commit_msg.py", "src/spec_kit_code_review/commit_policy.py"):
+        for relative in ("scripts/bash/commit-msg.sh", "src/spec_kit_code_review/__init__.py", "src/spec_kit_code_review/commit_msg.py", "src/spec_kit_code_review/commit_policy.py"):
             destination = extension / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(package / relative, destination)
