@@ -72,7 +72,7 @@ def _check_push_destinations(repo: Path, expected_url: str) -> None:
     result = run_git("remote", "get-url", "--push", "--all", "origin", cwd=repo)
     push_urls = [url for url in result.stdout.splitlines() if url]
     if result.returncode or not push_urls:
-        _pending("cannot read origin push URLs")
+        _pending("cannot read origin push URLs; configure and verify every origin push destination, then rerun the product gate")
     for push_url in push_urls:
         if _repository_url(repo, push_url) != expected_url:
             _pending("origin push URL targets another repository")

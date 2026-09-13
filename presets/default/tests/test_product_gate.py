@@ -194,6 +194,17 @@ def test_mismatched_origin_push_destination_stops(published: tuple[Path, dict[st
     _reject(repo, state)
 
 
+def test_unreadable_push_destinations_name_recovery(monkeypatch: pytest.MonkeyPatch,
+                                                     tmp_path: Path,
+                                                     capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(product_gate, "run_git", lambda *args, **kwargs: subprocess.CompletedProcess(
+        args, 1, "", "push URLs unavailable"))
+    with pytest.raises(SystemExit) as error:
+        product_gate._check_push_destinations(tmp_path, "https://github.com/org/repo")
+    assert error.value.code == 2
+    assert "configure and verify every origin push destination" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("scope", ["published", "HEAD", "index", "worktree"])
 def test_required_product_artifact_symlink_stops(published: tuple[Path, dict[str, object]],
                                                  scope: str) -> None:
