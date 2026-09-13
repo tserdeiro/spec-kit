@@ -84,9 +84,11 @@ the first vertical task's evidence.
 
 ## Verification strategy
 
-| Requirement or risk | Evidence | Command or review |
-| --- | --- | --- |
-| [FR/SC/risk] | [test, inspection, or artifact] | `[reproducible command]` |
+| Surface | Suite or command | Verifies (FR/SC) | When (change / candidate close / CI) |
+| --- | --- | --- | --- |
+| [changed surface] | `[reproducible command]` | [FR/SC IDs] | [change / candidate close / CI] |
+
+Each task's Evidence line points at rows of this table.
 
 **Behavior families**: a cross-cutting requirement gets one row per path;
 a defect in one row means the whole family is reviewed before the next

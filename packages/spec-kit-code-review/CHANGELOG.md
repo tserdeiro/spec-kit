@@ -14,6 +14,9 @@
   point at `raw/*.stdout` with its sha256 and byte count — and §3.2 is a rule
   catalog (`R1`, `R2`, … in first-appearance order) that §3.3 references per
   file instead of repeating every rule under every file.
+- `code-review.md` states how a corrected candidate is reviewed as a
+  follow-up: new session and findings per head, digests reused only for
+  unchanged bytes, the delta and the previous findings as the checklist.
 
 ## 0.5.0
 
