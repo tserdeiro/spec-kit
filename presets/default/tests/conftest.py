@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "python"))
 
 _FAKE_GH = '''#!/usr/bin/env python3
-import json, os, sys
+import json, os, subprocess, sys
 from pathlib import Path
 
 argv = sys.argv[1:]
@@ -29,7 +29,17 @@ elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "hea
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
 elif argv == ["pr", "list", "--state", "open", "--limit", "1000", "--json", "number,headRefName,baseRefName,isDraft"]:
     sys.stdout.write(os.environ.get("GH_PR_LIST_JSON", "[]"))
-elif len(argv) >= 3 and argv[0:3] == ["api", "repos/{owner}/{repo}/pulls", "--paginate"]: sys.stdout.write(os.environ.get("GH_PR_API_JSON", "[]"))
+elif len(argv) >= 3 and argv[0:3] == ["api", "repos/{owner}/{repo}/pulls", "--paginate"]:
+    payload = json.loads(os.environ.get("GH_PR_API_JSON", "[]"))
+    pages = [item for page in payload for item in page] if payload and all(isinstance(page, list) for page in payload) else payload
+    for item in pages:
+        head = item.get("head", {}) if isinstance(item, dict) else {}
+        if isinstance(head, dict) and "sha" not in head:
+            try:
+                head["sha"] = subprocess.check_output(["git", "rev-parse", head["ref"]], text=True).strip()
+            except (KeyError, subprocess.CalledProcessError):
+                head["sha"] = "0" * 40
+    sys.stdout.write(json.dumps(payload))
 elif len(argv) == 6 and argv[0:3] == ["api", "-X", "PATCH"] and argv[3].startswith("repos/") and argv[4] == "-f":
     number = argv[3].rsplit("/", 1)[-1]
     if os.environ.get("GH_PATCH_FAIL") == number:

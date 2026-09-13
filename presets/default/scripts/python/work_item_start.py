@@ -40,6 +40,7 @@ class StartPlan:
 @dataclass(frozen=True)
 class PullRequestObservation:
     head_branch: str
+    head_sha: str
     body: str
     state: str
     same_repo: bool
@@ -269,23 +270,28 @@ def _local_tracker_keys(body: str) -> tuple[list[str], bool]:
     return keys, malformed
 
 
-def branch_refs(repo_root: Path) -> dict[str, tuple[bool, str | None]]:
-    result = run_git("for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes", cwd=repo_root)
+def branch_refs(repo_root: Path) -> dict[str, tuple[bool, str | None, str | None, str | None]]:
+    result = run_git("for-each-ref", "--format=%(refname)%00%(objectname)", "refs/heads", "refs/remotes", cwd=repo_root)
     if result.returncode != 0:
         die(result.stderr.strip() or "cannot observe local and remote branches")
-    refs: dict[str, tuple[bool, str | None]] = {}
-    for ref in result.stdout.splitlines():
+    refs: dict[str, tuple[bool, str | None, str | None, str | None]] = {}
+    for raw in result.stdout.splitlines():
+        ref, separator, oid = raw.partition("\0")
+        if not separator or not oid:
+            die("cannot observe branch commit")
         if ref.startswith("refs/heads/"):
-            refs[ref.removeprefix("refs/heads/")] = (True, refs.get(ref.removeprefix("refs/heads/"), (False, None))[1])
+            branch = ref.removeprefix("refs/heads/")
+            existing = refs.get(branch, (False, None, None, None))
+            refs[branch] = (True, existing[1], oid, existing[3])
         elif ref.startswith("refs/remotes/"):
             value = ref.removeprefix("refs/remotes/")
             remote, separator, branch = value.partition("/")
             if separator and branch and branch != "HEAD":
                 remote_ref = f"{remote}/{branch}"
-                existing = refs.get(branch)
+                existing = refs.get(branch, (False, None, None, None))
                 if existing is not None and existing[1] is not None and existing[1] != remote_ref:
                     die(f"multiple remote heads share the existing branch name: {branch}")
-                refs[branch] = (existing[0] if existing else False, remote_ref)
+                refs[branch] = (existing[0], remote_ref, existing[2], oid)
     return refs
 
 
@@ -333,8 +339,9 @@ def pull_requests(repo_root: Path) -> tuple[PullRequestObservation, ...]:
             die("GitHub pull-request observation returned malformed data")
         head, base = item["head"], item["base"]
         branch = head.get("ref")
+        head_sha = head.get("sha")
         state = item.get("state")
-        if not isinstance(branch, str) or not branch or not isinstance(state, str):
+        if not isinstance(branch, str) or not branch or not isinstance(head_sha, str) or not head_sha or not isinstance(state, str):
             die("GitHub pull-request observation returned malformed data")
         head_repo = head.get("repo") if isinstance(head.get("repo"), dict) else {}
         base_repo = base.get("repo") if isinstance(base.get("repo"), dict) else {}
@@ -344,7 +351,7 @@ def pull_requests(repo_root: Path) -> tuple[PullRequestObservation, ...]:
             body = ""
         if not isinstance(body, str):
             die("GitHub pull-request observation returned malformed body")
-        observations.append(PullRequestObservation(branch, body, state.upper(), same_repo))
+        observations.append(PullRequestObservation(branch, head_sha, body, state.upper(), same_repo))
     return tuple(observations)
 
 
@@ -382,20 +389,21 @@ def _bridge_observations(
 
 def _adopt(
     issue_key: str,
-    refs: dict[str, tuple[bool, str | None]],
+    refs: dict[str, tuple[bool, str | None, str | None, str | None]],
     prs: tuple[PullRequestObservation, ...],
     observations: list[dict[str, Any]] | None,
     observed_branches: list[str] | None = None,
 ) -> str | None:
     branch_candidates: set[str] = set()
     open_candidates: set[str] = set()
+    open_head_shas: dict[str, set[str]] = {}
     blockers: list[str] = []
     ambiguous_branches: set[str] = set()
     originally_ambiguous: set[str] = set()
     local_tracker_keys: dict[str, set[str]] = {}
     local_tracker_malformed: set[str] = set()
     local_tracker_missing: set[str] = set()
-    branches = observed_branches if observations is not None and observed_branches is not None else sorted(refs)
+    branches = observed_branches if observed_branches is not None else sorted(refs)
     branch_count = len(branches)
     for index, branch in enumerate(branches):
         evidence = observations[index] if observations is not None else None
@@ -455,6 +463,7 @@ def _adopt(
             if observations is None:
                 ambiguous_branches.discard(item.head_branch)
             open_candidates.add(item.head_branch)
+            open_head_shas.setdefault(item.head_branch, set()).add(item.head_sha)
 
     if observations is None:
         for branch in sorted(ambiguous_branches):
@@ -470,8 +479,18 @@ def _adopt(
     if blockers:
         die(blockers[0])
     for branch in sorted(open_candidates):
-        if branch not in refs:
+        reference = refs.get(branch)
+        if reference is None:
             die(f"pull-request head is unavailable locally or remotely: {branch}")
+        if len(open_head_shas.get(branch, set())) > 1:
+            die(f"multiple open pull-request commits identify the same head: {branch}")
+        head_shas = open_head_shas[branch]
+        if reference[3] is not None and reference[3] not in head_shas:
+            die(f"remote pull-request head differs from the observed branch: {branch}")
+        if reference[3] is None and reference[2] not in head_shas:
+            die(f"pull-request head commit is unavailable locally or remotely: {branch}")
+        if reference[0] and reference[2] not in open_head_shas[branch]:
+            die(f"local pull-request head differs from the observed branch: {branch}")
     if len(open_candidates) > 1:
         die("multiple open pull-request heads identify the Issue: " + ", ".join(sorted(open_candidates)))
     if open_candidates:

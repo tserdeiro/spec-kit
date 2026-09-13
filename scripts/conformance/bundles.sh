@@ -848,8 +848,8 @@ reset_command_logs
 run_work_item_branch main >/dev/null || fail "trunk: work-item branch create failed"
 [ ! -s "$gh_calls" ] || fail "trunk: work-item branch queried GitHub although trunk was configured"
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch unused)
-$(json_argv fetch --all)
-$(json_argv for-each-ref '--format=%(refname)' refs/heads refs/remotes)
+$(json_argv fetch --all --prune)
+$(json_argv for-each-ref '--format=%(refname)%00%(objectname)' refs/heads refs/remotes)
 $(json_argv remote get-url origin)
 $(json_argv check-ref-format --branch wor-123-short-slug)
 $(json_argv check-ref-format refs/heads/wor-123-short-slug)
@@ -864,8 +864,8 @@ run_work_item_branch 'default$(safe)' >/dev/null || fail "trunk: work-item branc
 [ "$(cat "$gh_calls")" = "$repo_view" ] ||
   fail "trunk: work-item branch did not resolve the GitHub default at runtime"
 [ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')
-$(json_argv fetch --all)
-$(json_argv for-each-ref '--format=%(refname)' refs/heads refs/remotes)
+$(json_argv fetch --all --prune)
+$(json_argv for-each-ref '--format=%(refname)%00%(objectname)' refs/heads refs/remotes)
 $(json_argv remote get-url origin)
 $(json_argv check-ref-format --branch wor-123-short-slug)
 $(json_argv check-ref-format refs/heads/wor-123-short-slug)

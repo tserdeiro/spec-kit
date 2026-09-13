@@ -58,7 +58,7 @@ def task(repo_root: Path, task_branch: str) -> None:
 def work_item(repo_root: Path, issue_key: str, title: str | None = None) -> WorkItemContext:
     base = delivery_base(repo_root)
     _git(repo_root, "check-ref-format", "--branch", base)
-    _git(repo_root, "fetch", "--all")
+    _git(repo_root, "fetch", "--all", "--prune")
     plan = prepare_work_item(repo_root, issue_key, title, exclude_branches={base})
     if plan.existing:
         _adopt_existing(repo_root, plan)

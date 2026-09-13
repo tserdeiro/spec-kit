@@ -69,11 +69,14 @@ def _batch_resolver(
     )
 
 
-def _pr(branch: str, *, state: str = "OPEN", body: str = "", fork: bool = False) -> dict[str, object]:
+def _pr(branch: str, *, state: str = "OPEN", body: str = "", fork: bool = False, sha: str | None = None) -> dict[str, object]:
     repo_name = "other/repo" if fork else "acme/spec-kit"
+    head = {"ref": branch, "repo": {"full_name": repo_name}}
+    if sha is not None:
+        head["sha"] = sha
     return {
         "number": 7, "state": state, "body": body,
-        "head": {"ref": branch, "repo": {"full_name": repo_name}},
+        "head": head,
         "base": {"ref": "main", "repo": {"full_name": "acme/spec-kit"}},
     }
 
@@ -88,10 +91,10 @@ def _branch(repo: Path) -> str:
     ).stdout.strip()
 
 
-def _set_trunk(repo: Path) -> None:
+def _set_trunk(repo: Path, branch: str = "main") -> None:
     config = repo / ".specify/extensions/git/git-config.yml"
     config.parent.mkdir(parents=True)
-    config.write_text('trunk: "main"\n', encoding="utf-8")
+    config.write_text(f'trunk: "{branch}"\n', encoding="utf-8")
 
 
 def _push_branch(repo: Path, name: str) -> None:
@@ -354,6 +357,45 @@ def test_open_pr_with_unavailable_head_stops_before_creation(feature_repo: Path,
     with pytest.raises(SystemExit):
         task_base.work_item(feature_repo, "WOR-123", "New title")
     assert _branch(feature_repo) == "003-feature"
+
+
+def test_stale_remote_pr_head_is_rejected_after_prune(feature_repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_trunk(feature_repo)
+    _push_branch(feature_repo, "users/alice/stale")
+    remote = subprocess.run(["git", "remote", "get-url", "origin"], cwd=feature_repo, text=True, capture_output=True, check=True).stdout.strip()
+    subprocess.run(["git", "branch", "-D", "users/alice/stale"], cwd=feature_repo, check=True, capture_output=True)
+    subprocess.run(["git", "--git-dir", remote, "update-ref", "-d", "refs/heads/users/alice/stale"], check=True, capture_output=True)
+    _set_prs(monkeypatch, [_pr("users/alice/stale", body="## Work item\n\n- Tracker: Fixes WOR-123\n")])
+    with pytest.raises(SystemExit):
+        task_base.work_item(feature_repo, "WOR-123", "New title")
+    assert _branch(feature_repo) == "003-feature"
+
+
+def test_divergent_local_pr_head_is_rejected(feature_repo: Path, tmp_path: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_trunk(feature_repo)
+    _push_branch(feature_repo, "users/alice/divergent")
+    remote = subprocess.run(["git", "remote", "get-url", "origin"], cwd=feature_repo, text=True, capture_output=True, check=True).stdout.strip()
+    clone = tmp_path / "remote-clone"
+    subprocess.run(["git", "clone", "-q", remote, str(clone)], check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "remote@example.invalid"], cwd=clone, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "remote"], cwd=clone, check=True, capture_output=True)
+    subprocess.run(["git", "switch", "-q", "users/alice/divergent"], cwd=clone, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-q", "-m", "remote head"], cwd=clone, check=True, capture_output=True)
+    subprocess.run(["git", "push", "-q", "origin", "users/alice/divergent"], cwd=clone, check=True, capture_output=True)
+    remote_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=clone, text=True, capture_output=True, check=True).stdout.strip()
+    _set_prs(monkeypatch, [_pr("users/alice/divergent", body="## Work item\n\n- Tracker: Fixes WOR-123\n", sha=remote_sha)])
+    with pytest.raises(SystemExit):
+        task_base.work_item(feature_repo, "WOR-123", "New title")
+    assert _branch(feature_repo) == "003-feature"
+
+
+def test_unconfigured_delivery_base_is_excluded_from_adoption(feature_repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _push_branch(feature_repo, "WOR-123-main")
+    _set_trunk(feature_repo, "WOR-123-main")
+    _set_prs(monkeypatch, [])
+    context = task_base.work_item(feature_repo, "WOR-123", "New title")
+    assert context.branch_name == "wor-123-new-title"
+    assert _branch(feature_repo) == "wor-123-new-title"
 
 
 def test_title_only_tracker_conflict_blocks_selected_issue(feature_repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch) -> None:
