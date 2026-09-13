@@ -60,7 +60,6 @@ class ReviewScope:
         }
         if self.work_item_key is not None:
             result["work_item_key"] = self.work_item_key
-            result["work_item"] = self.work_item_key
         return result
 
 
@@ -426,7 +425,6 @@ def resolve_scope(
         ("path_matches", {key: list(value) for key, value in path_matches.items() if value}),
         ("changed_task_blocks", sorted(block_changes)),
         ("resolution", sdd.resolution.as_dict()),
-        ("work_item", sdd.resolution.work_item_key),
     )
     return ReviewScope(
         kind=kind,

@@ -80,6 +80,8 @@ def test_native_work_item_resolution_wins_over_stale_feature_selection() -> None
     assert scope.feature is None
     assert scope.task_ids == ()
     assert scope.gaps == ()
+    assert scope.as_dict()["work_item_key"] == "OPS-42"
+    assert "work_item" not in scope.as_dict()
 
 def test_unsupported_native_title_is_explicit_advisory_and_drops_stale_feature() -> None:
     scope = resolve_scope(

@@ -129,6 +129,31 @@ class DiscoveryOrderTests(SddCase):
         self.assertTrue(resolution.identity_conflict)
         self.assertEqual(set(resolution.work_item_candidates), {"OPS-42", "OPS-43"})
 
+    def test_multiple_branch_keys_remain_conflicting_when_tracker_matches_one(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-OPS-43-fix-timeout",
+            pr_body="## Work item\n\n- Tracker: Fixes OPS-43\n",
+        )
+
+        self.assertTrue(resolution.ambiguous)
+        self.assertTrue(resolution.identity_conflict)
+        self.assertEqual(set(resolution.work_item_candidates), {"OPS-42", "OPS-43"})
+        self.assertIsNone(resolution.work_item_key)
+
+    def test_feature_resolution_serializes_only_the_canonical_work_item_key(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-fix-timeout",
+        )
+
+        serialized = resolution.as_dict()
+        self.assertEqual(serialized["work_item_key"], "OPS-42")
+        self.assertNotIn("work_item", serialized)
+        self.assertFalse(hasattr(resolution, "work_item"))
+
     def test_complete_feature_ref_keeps_sdd_behavior_even_with_tracker(self) -> None:
         resolution = resolve_feature(
             CommitReader(self.git, self.head),

@@ -230,12 +230,6 @@ class FeatureResolution:
     identity_conflict: bool = False
     diagnostics: tuple[Diagnostic, ...] = ()
 
-    @property
-    def work_item(self) -> str | None:
-        """Compatibility name for the canonical Issue identity."""
-
-        return self.work_item_key
-
     def as_dict(self) -> dict[str, Any]:
         result = {
             "feature": self.feature,
@@ -246,7 +240,6 @@ class FeatureResolution:
         }
         if self.work_item_key is not None:
             result["work_item_key"] = self.work_item_key
-            result["work_item"] = self.work_item_key
         if self.work_item_candidates:
             result["work_item_candidates"] = list(self.work_item_candidates)
         if self.identity_conflict:
@@ -362,7 +355,7 @@ def resolve_feature(
     # title-only branch whose canonical Tracker field carries the identity.
     if not reserved_sdd_branch:
         identity_candidates = tuple(dict.fromkeys((*branch_keys, *tracker_keys)))
-        if tracker_conflict or len(tracker_keys) > 1 or len(branch_keys) > 1 and not tracker_keys:
+        if tracker_conflict or len(tracker_keys) > 1 or len(branch_keys) > 1:
             diagnostics.append(
                 Diagnostic(
                     "work_item_identity_conflict",
