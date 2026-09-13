@@ -46,6 +46,9 @@ class HookObservation:
     config_mode: int | None = None
     config_is_regular: bool = True
     config_is_symlink: bool = False
+    config_parent_device: int = 0
+    config_parent_inode: int = 0
+    config_parent_is_directory: bool = False
     config_parent_mode: int = 0
     config_parent_is_symlink: bool = False
     traditional_hook_snapshot: tuple[object, ...] = ()
@@ -129,6 +132,9 @@ class HookObservation:
             self.config_bytes,
             self.config_is_regular,
             self.config_is_symlink,
+            self.config_parent_device,
+            self.config_parent_inode,
+            self.config_parent_is_directory,
             self.config_parent_mode,
             self.config_parent_is_symlink,
             self.hooks_path,
@@ -152,6 +158,9 @@ class _ConfigSnapshot:
     bytes: bytes
     is_regular: bool
     is_symlink: bool
+    parent_device: int
+    parent_inode: int
+    parent_is_directory: bool
     parent_mode: int
     parent_is_symlink: bool
 
@@ -190,6 +199,9 @@ def observe_native_hook(root: Path, git: Git) -> HookObservation:
         observation.config_path = lexical_config if lexical_config is not None and lexical_config.is_symlink() else resolved_config
         try:
             parent = observation.config_path.parent.lstat()
+            observation.config_parent_device = parent.st_dev
+            observation.config_parent_inode = parent.st_ino
+            observation.config_parent_is_directory = stat.S_ISDIR(parent.st_mode)
             observation.config_parent_mode = stat.S_IMODE(parent.st_mode)
             observation.config_parent_is_symlink = stat.S_ISLNK(parent.st_mode)
         except OSError as error:
@@ -337,6 +349,9 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
             observation.config_bytes,
             observation.config_is_regular,
             observation.config_is_symlink,
+            observation.config_parent_device,
+            observation.config_parent_inode,
+            observation.config_parent_is_directory,
             observation.config_parent_mode,
             observation.config_parent_is_symlink,
         )
@@ -384,6 +399,9 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
             replacement_bytes,
             True,
             False,
+            diagnosed_snapshot.parent_device,
+            diagnosed_snapshot.parent_inode,
+            diagnosed_snapshot.parent_is_directory,
             diagnosed_snapshot.parent_mode,
             diagnosed_snapshot.parent_is_symlink,
         )
@@ -525,6 +543,9 @@ def _config_snapshot(path: Path) -> _ConfigSnapshot:
             b"",
             True,
             False,
+            parent.st_dev,
+            parent.st_ino,
+            stat.S_ISDIR(parent.st_mode),
             stat.S_IMODE(parent.st_mode),
             stat.S_ISLNK(parent.st_mode),
         )
@@ -536,6 +557,9 @@ def _config_snapshot(path: Path) -> _ConfigSnapshot:
         path.read_bytes() if is_regular else b"",
         is_regular,
         is_symlink,
+        parent.st_dev,
+        parent.st_ino,
+        stat.S_ISDIR(parent.st_mode),
         stat.S_IMODE(parent.st_mode),
         stat.S_ISLNK(parent.st_mode),
     )

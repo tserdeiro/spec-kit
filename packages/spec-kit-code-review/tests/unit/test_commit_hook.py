@@ -425,6 +425,39 @@ class NativeHookTests(unittest.TestCase):
         self.assertEqual(config.read_bytes(), original_config)
         self.assertNotIn(HOOK_COMMAND.encode(), config.read_bytes())
 
+    def test_same_mode_parent_swap_after_diagnosis_refuses_before_temporary_edit(self) -> None:
+        from spec_kit_code_review import commit_hook
+
+        config = self.root / ".git/config"
+        parent = config.parent
+        original_config = config.read_bytes()
+        displaced_parent = self.root / ".git-diagnosed"
+        real_open = commit_hook.os.open
+        swapped = False
+
+        def swap_parent_after_lock(path: str | bytes | os.PathLike[str], flags: int, mode: int = 0o777) -> int:
+            nonlocal swapped
+            descriptor = real_open(path, flags, mode)
+            if not swapped:
+                swapped = True
+                parent.rename(displaced_parent)
+                shutil.copytree(displaced_parent, parent)
+            return descriptor
+
+        try:
+            with mock.patch.object(commit_hook.os, "open", side_effect=swap_parent_after_lock):
+                repair = install_native_hook(self.root, self.git)
+        finally:
+            if displaced_parent.exists():
+                shutil.rmtree(parent)
+                displaced_parent.rename(parent)
+                (parent / "config.lock").unlink(missing_ok=True)
+        self.assertTrue(swapped)
+        self.assertIn("git_hooks_stale_snapshot", {item.code for item in repair.diagnostics})
+        self.assertIsNone(repair.applied)
+        self.assertEqual(config.read_bytes(), original_config)
+        self.assertNotIn(HOOK_COMMAND.encode(), config.read_bytes())
+
     def test_late_traditional_dispatcher_edit_refuses_before_replacement(self) -> None:
         config = self.root / ".git/config"
         original = config.read_bytes()
