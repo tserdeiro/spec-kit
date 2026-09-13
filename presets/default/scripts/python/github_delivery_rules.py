@@ -141,7 +141,7 @@ def parse_branch_page_items(pages: Iterable[Iterable[Any]]) -> tuple[str, ...] |
     return tuple(dict.fromkeys(names))
 
 
-def parse_active_rules(payload: Any) -> tuple[ActiveRule, ...] | None:
+def parse_active_rules(payload: Any, *, partial: bool = False) -> tuple[ActiveRule, ...] | None:
     pages = parse_page_collection(payload)
     if pages is None:
         return None
@@ -150,7 +150,7 @@ def parse_active_rules(payload: Any) -> tuple[ActiveRule, ...] | None:
     for page in pages:
         for item in page:
             if not isinstance(item, dict):
-                return None
+                return tuple(parsed) if partial else None
             rule_type = item.get("type")
             source_type = item.get("ruleset_source_type")
             source = item.get("ruleset_source")
@@ -164,10 +164,10 @@ def parse_active_rules(payload: Any) -> tuple[ActiveRule, ...] | None:
                 or not source
                 or type(ruleset_id) is not int
             ):
-                return None
+                return tuple(parsed) if partial else None
             parameters = item.get("parameters")
             if parameters is not None and not isinstance(parameters, dict):
-                return None
+                return tuple(parsed) if partial else None
             rule = ActiveRule(rule_type, source_type, source, ruleset_id, parameters)
             identity = (*rule.identity, rule.type)
             if identity not in seen:
@@ -239,7 +239,8 @@ def parse_ruleset_detail(payload: Any) -> RulesetDetail | None:
             if not isinstance(actor_type, str) or not actor_type or not isinstance(bypass_mode, str) or not bypass_mode:
                 return None
             actor_id = actor.get("actor_id")
-            if actor_id is not None and type(actor_id) is not int:
+            requires_actor_id = actor_type in {"Team", "Integration", "RepositoryRole", "User"}
+            if type(actor_id) is not int and (actor_id is not None or requires_actor_id):
                 return None
             parsed.append(BypassActor(actor_type, bypass_mode, actor_id))
         actors_value: tuple[BypassActor, ...] | None = tuple(parsed)

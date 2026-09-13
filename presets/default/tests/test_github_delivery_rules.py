@@ -56,6 +56,7 @@ def test_ruleset_detail_preserves_bypass_actor_identity() -> None:
     detail = rules.parse_ruleset_detail(_detail([{"actor_type": "Team", "actor_id": 42, "bypass_mode": "always"}]))
     assert detail is not None and detail.bypass_actors is not None
     assert detail.bypass_actors[0] == rules.BypassActor("Team", "always", 42)
+    assert rules.parse_ruleset_detail(_detail([{"actor_type": "Team", "bypass_mode": "always"}])) is None
 
 
 def test_non_fast_forward_keeps_source_while_classic_layer_is_pending() -> None:
@@ -91,9 +92,9 @@ def test_force_push_combines_classic_and_ruleset_layers(classic, detail, state, 
     ("actors", "needle"),
     [
         ([], "force-push blocked"),
-        ([{"actor_type": "RepositoryRole", "bypass_mode": "pull_request"}], "no direct force-push"),
+        ([{"actor_type": "RepositoryRole", "actor_id": 1, "bypass_mode": "pull_request"}], "no direct force-push"),
         ([{"actor_type": "OrganizationAdmin", "actor_id": 42, "bypass_mode": "always"}], "#42 always bypass"),
-        ([{"actor_type": "RepositoryRole", "bypass_mode": "exempt"}], "exempt bypass"),
+        ([{"actor_type": "RepositoryRole", "actor_id": 1, "bypass_mode": "exempt"}], "exempt bypass"),
     ],
 )
 def test_bypass_modes_are_visible_without_becoming_authorization(actors, needle) -> None:
@@ -171,6 +172,16 @@ def test_detail_errors_keep_identity_and_plan_priority() -> None:
     assert result.state == rules.CAPABILITY_UNAVAILABLE
     assert result.cause == "plan-limitation"
     assert "Organization acme ruleset 7" in result.evidence and "rate page" in result.evidence
+
+
+@pytest.mark.parametrize(("malformed", "evidence"), [(False, "HTTP 429"), (True, "malformed page")])
+def test_partial_rule_pages_keep_prior_merge_and_cleanup_conflicts(tmp_path, monkeypatch, malformed: bool, evidence: str) -> None:
+    responses = iter((SimpleNamespace(returncode=0 if malformed else 1, stdout=json.dumps([[_active("required_linear_history")], [{"bad": True}] if malformed else {"message": "HTTP 429: Too Many Requests"}]), stderr="" if malformed else "HTTP 429"), SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr=""), SimpleNamespace(returncode=0 if malformed else 1, stdout=json.dumps([[_active("deletion")], [{"bad": True}] if malformed else {"message": "HTTP 429: Too Many Requests"}]), stderr="" if malformed else "HTTP 429"), SimpleNamespace(returncode=0, stdout=json.dumps(_classic()), stderr="")))
+    monkeypatch.setattr(github_delivery, "run_gh", lambda *args, **kwargs: next(responses))
+    merge = rules.evaluate_merge("main", github_delivery._read_branch_rules(tmp_path, "main"), _setting("mergeCommitAllowed"))
+    assert merge.state == rules.INCOMPATIBLE and "required_linear_history" in merge.evidence and evidence in merge.evidence
+    cleanup = rules.evaluate_cleanup("001-feature", github_delivery._read_branch_rules(tmp_path, "001-feature"), _setting("deleteBranchOnMerge"))
+    assert cleanup.state == rules.INCOMPATIBLE and "deletion restricts" in cleanup.evidence and evidence in cleanup.evidence
 
 
 @pytest.mark.parametrize("evaluate", [rules.evaluate_force_push, rules.evaluate_merge, rules.evaluate_cleanup])

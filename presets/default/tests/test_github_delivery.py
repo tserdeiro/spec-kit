@@ -134,27 +134,6 @@ def test_report_does_not_modify_consumer_files(tmp_path: Path, monkeypatch) -> N
     assert marker.read_text(encoding="utf-8") == "consumer state\n"
 
 
-@pytest.mark.parametrize(
-    ("stderr", "cause", "state"),
-    [
-        ("HTTP 403: endpoint unavailable on your current plan", "plan-limitation", github_delivery.CAPABILITY_UNAVAILABLE),
-        ("Upgrade to GitHub Pro or make this repository public to enable this feature", "plan-limitation", github_delivery.CAPABILITY_UNAVAILABLE),
-        ("HTTP 403: Resource not accessible by personal access token", "insufficient-permissions", github_delivery.UNVERIFIED),
-        ("HTTP 401: Bad credentials", "authentication-failure", github_delivery.UNVERIFIED),
-        ("HTTP 429: Too Many Requests", "rate-limited", github_delivery.UNVERIFIED),
-        ("HTTP 403: Forbidden", "ambiguous-read", github_delivery.UNVERIFIED),
-        ("HTTP 404: Not Found", "ambiguous-read", github_delivery.UNVERIFIED),
-    ],
-)
-def test_failure_matrix_uses_positive_evidence_only(stderr: str, cause: str, state: str) -> None:
-    response = SimpleNamespace(stderr=stderr, stdout="")
-    result = github_delivery._failure_result(response, "ruleset detail")
-    assert result.cause == cause
-    assert result.state == state
-    assert result.next_action
-    assert github_delivery._failure_result(response, "ruleset detail") == result
-
-
 def test_plan_detection_does_not_infer_from_permission_wording() -> None:
     response = SimpleNamespace(stderr="requires organization permission from enterprise administrators", stdout="")
     assert github_delivery._failure_cause(response) == "insufficient-permissions"
@@ -169,13 +148,6 @@ def test_read_failure_can_be_resolved_by_a_fresh_successful_retry(tmp_path: Path
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
     assert github_delivery._read_inventory(tmp_path).cause == "ambiguous-read"
     assert github_delivery._read_inventory(tmp_path).complete
-
-
-def test_safe_detail_redacts_hostile_auth_material_and_control_sequences() -> None:
-    value = 'Authorization: Bearer synthetic-token {"token":"opaque value"}\x1b[31m'
-    detail = github_delivery._safe_detail(value)
-    assert "synthetic-token" not in detail and "opaque value" not in detail
-    assert "\\x1b" not in detail and "\x1b" not in detail
 
 
 @pytest.mark.parametrize(
@@ -193,6 +165,7 @@ def test_hostile_failure_is_sanitized_in_real_helper_output(tmp_path: Path, monk
     assert result.returncode == 1
     assert "shell-secret" not in result.stdout + result.stderr
     assert "json-secret" not in result.stdout + result.stderr
+    assert "\x1b" not in result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(
@@ -235,6 +208,7 @@ def test_diagnose_and_render_preserve_endpoint_causes(tmp_path: Path, monkeypatc
     monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
     settings, findings = github_delivery.diagnose(tmp_path)
     report = github_delivery.render(settings, findings)
+    assert github_delivery.render(*github_delivery.diagnose(tmp_path)) == report
     assert f"cause={cause}" in report
     assert any(result.state == state and result.cause == cause for result in (*settings.values(), *(result for _, result in findings)))
     assert all(call[0] == "repo" or call[1:3] == ("--method", "GET") for call in calls)

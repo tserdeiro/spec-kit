@@ -10,6 +10,7 @@ import sys
 from contextlib import redirect_stderr
 from dataclasses import dataclass
 from io import StringIO
+from itertools import takewhile
 from pathlib import Path
 from urllib.parse import quote
 
@@ -210,6 +211,8 @@ def _api_read(repo_root: Path, endpoint: str) -> _RemoteRead:
             partial_payload = json.loads(result.stdout)
         except (json.JSONDecodeError, TypeError):
             partial_payload = None
+        if isinstance(partial_payload, list):
+            partial_payload = list(takewhile(lambda page: isinstance(page, list), partial_payload))
         return _RemoteRead(False, payload=partial_payload, cause=cause, evidence=detail, next_action=cause_action(cause, "GitHub API"))
     try:
         payload = json.loads(result.stdout)
@@ -311,11 +314,14 @@ def _read_branch_rules(
     read = _api_read(repo_root, endpoint)
     classic = _read_classic_protection(repo_root, branch)
     if not read.complete:
-        rules = parse_active_rules(read.payload) if read.payload is not None else ()
+        rules = parse_active_rules(read.payload, partial=True) if read.payload is not None else ()
         cause = "partial-rules" if read.cause == "read-failure" else read.cause
         return RuleRead(False, rules=rules or (), cause=cause, evidence=read.evidence, classic=classic)
     rules = parse_active_rules(read.payload)
     if rules is None:
+        prefix = parse_active_rules(list(takewhile(lambda page: isinstance(page, list), read.payload)), partial=True) if isinstance(read.payload, list) else ()
+        if prefix:
+            return RuleRead(False, rules=prefix, cause="malformed-response", evidence="effective branch rules had a malformed page", classic=classic)
         pages = parse_page_collection(read.payload)
         missing = any(
             isinstance(item, dict) and any(name not in item for name in ("type", "ruleset_source_type", "ruleset_source", "ruleset_id"))
