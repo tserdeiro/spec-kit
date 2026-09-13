@@ -14,17 +14,17 @@ The map, highest priority first -- the first rule that applies wins:
 
 | observation                        | state       |
 | ---------------------------------- | ----------- |
-| a merged PR                        | `completed` |
-| an open, ready-for-review PR       | `review`    |
 | an open draft PR                   | `started`   |
+| an open, ready-for-review PR       | `review`    |
+| a merged PR                        | `completed` |
 | `[x]` checkbox (no live PR)        | `completed` |
 | a branch                           | `started`   |
 | nothing at all                     | `unstarted` |
 
-The pull request, when one is observable, is the fresher witness: the box
-is checked inside the task PR before `ready for review`, so while that PR
-is open the checkbox is a delivery in flight, not a completion. Merged --
-or with no live PR left -- the checkbox is the durable truth.
+The pull request, when one is observable, is the fresher witness: any open
+PR outranks merged history and a draft outranks ready PRs. Within one rank,
+the lowest PR number is the witness. Merged -- or with no live PR left -- the
+checkbox is the durable truth.
 
 Which Linear workflow state each of those four names writes to is
 configuration (`lifecycle` in `speckit-linear.yml`), resolved by `onboard`;
@@ -34,11 +34,11 @@ this module names the state, never the id.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from .domain import DesiredState
-from .github import PullRequest
+from .github import PullRequest, PullRequestScan
 
 
 STATE_COMPLETED = "completed"
@@ -50,6 +50,43 @@ SOURCE_CHECKBOX = "checkbox"
 SOURCE_PULL_REQUEST = "pr"
 SOURCE_BRANCH = "branch"
 SOURCE_NONE = "none"
+SOURCE_UNKNOWN = "unknown"
+
+# Which `lifecycle` id each derived state writes to, in fallback order. The
+# `review` fallback is the documented degradation: a Team with no "In Review"
+# workflow state projects a ready-for-review task onto its "In Progress" one
+# rather than leaving the Issue stale. `planner` writes the id; `status`
+# names the state the fallback lands on so the developer sees it.
+LIFECYCLE_FIELDS_BY_STATE: dict[str, tuple[str, ...]] = {
+    STATE_COMPLETED: ("completed_state_id",),
+    STATE_REVIEW: ("review_state_id", "started_state_id"),
+    STATE_STARTED: ("started_state_id",),
+    STATE_UNSTARTED: ("open_state_id",),
+}
+_STATE_BY_LIFECYCLE_FIELD = {fields[0]: state for state, fields in LIFECYCLE_FIELDS_BY_STATE.items()}
+
+
+def projected_state(lifecycle: Mapping[str, object] | None, state: str | None) -> tuple[str | None, str | None]:
+    """The state the projection will write for ``state``, and why it differs.
+
+    Returns ``(projected, reason)``: ``projected`` is the derived state
+    itself when its id is configured, the fallback state when only that one
+    is, or ``None`` when nothing will be written. ``reason`` names the
+    unconfigured id whenever ``projected`` is not ``state``, unless the
+    consumer has no ``lifecycle`` section at all -- sync is off, so the
+    reason says that instead of naming a field that was never meant to
+    exist.
+    """
+
+    if lifecycle is None:
+        fields = LIFECYCLE_FIELDS_BY_STATE.get(state, ())
+        return (None, None) if not fields else (None, "lifecycle sync disabled")
+    configured = lifecycle if isinstance(lifecycle, Mapping) else {}
+    fields = LIFECYCLE_FIELDS_BY_STATE.get(state, ())
+    projected = next((_STATE_BY_LIFECYCLE_FIELD[field] for field in fields if isinstance(configured.get(field), str) and configured.get(field)), None)
+    if not fields or projected == state:
+        return projected, None
+    return projected, f"{fields[0]} not configured"
 
 
 def branch_pattern(feature: str, task: str) -> re.Pattern[str]:
@@ -67,7 +104,7 @@ def branch_pattern(feature: str, task: str) -> re.Pattern[str]:
 class TaskWorkState:
     """One task's derived state, with the observation that produced it."""
 
-    state: str
+    state: str | None
     source: str
     detail: str | None = None
     # The observed pull request's own number (D6, T013): the one extra fact
@@ -85,12 +122,14 @@ def derive_task_state(
     *,
     completed: bool,
     branches: Sequence[str] = (),
-    pull_requests: Sequence[PullRequest] = (),
+    scan: PullRequestScan,
 ) -> TaskWorkState:
     """Apply the priority map above to one task."""
 
+    if scan.outcome != "complete":
+        return TaskWorkState(None, SOURCE_UNKNOWN, "pull-request observation is incomplete")
     pattern = branch_pattern(feature, task)
-    pull_request = _strongest_pull_request(pattern, pull_requests)
+    pull_request = _strongest_pull_request(pattern, scan.pull_requests)
     if pull_request is not None:
         return TaskWorkState(pull_request_state(pull_request), SOURCE_PULL_REQUEST, pull_request.head_branch, pull_request.number)
     if completed:
@@ -105,7 +144,7 @@ def derive_task_states(
     desired_states: Sequence[DesiredState],
     *,
     branches: Sequence[str] = (),
-    pull_requests: Sequence[PullRequest] = (),
+    scan: PullRequestScan,
 ) -> dict[str, TaskWorkState]:
     """Derive every selected feature's tasks, keyed by `DesiredTask.identity`."""
 
@@ -118,17 +157,16 @@ def derive_task_states(
                 task.identity.rsplit(":", 1)[-1],
                 completed=task.completed,
                 branches=branches,
-                pull_requests=pull_requests,
+                scan=scan,
             )
     return derived
 
 
 # A closed-but-unmerged pull request is not an observation about the task's
 # state at all -- the work was abandoned or superseded -- so it is ignored and
-# the branch (or the checkbox) decides. Among the rest the strongest signal
-# wins, which is also what makes stacked PRs behave: several PRs on one task
-# report the furthest that task has actually got.
-_PULL_REQUEST_RANK = {"merged": 3, "ready": 2, "draft": 1}
+# the branch (or the checkbox) decides. Among the rest open work outranks old
+# merges. A deterministic witness makes reports stable for same-rank PRs.
+_PULL_REQUEST_RANK = {"draft": 3, "ready": 2, "merged": 1}
 
 
 def strongest_pull_request(matches: Sequence[PullRequest]) -> PullRequest | None:
@@ -141,7 +179,14 @@ def strongest_pull_request(matches: Sequence[PullRequest]) -> PullRequest | None
     relevant = [item for item in matches if item.is_merged or item.is_open]
     if not relevant:
         return None
-    return max(relevant, key=lambda item: _PULL_REQUEST_RANK[_rank_key(item)])
+    return min(
+        relevant,
+        key=lambda item: (
+            -_PULL_REQUEST_RANK[_rank_key(item)],
+            item.number if item.number is not None else float("inf"),
+            item.head_branch,
+        ),
+    )
 
 
 def pull_request_state(pull_request: PullRequest) -> str:
