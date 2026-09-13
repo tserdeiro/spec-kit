@@ -447,6 +447,7 @@ class NativeHookTests(unittest.TestCase):
         try:
             with mock.patch.object(commit_hook.os, "open", side_effect=swap_parent_after_lock):
                 repair = install_native_hook(self.root, self.git)
+            self.assertTrue((parent / "config.lock").exists())
         finally:
             if displaced_parent.exists():
                 shutil.rmtree(parent)
@@ -484,6 +485,35 @@ class NativeHookTests(unittest.TestCase):
         self.assertIsNone(repair.applied)
         self.assertEqual(config.read_bytes(), original)
         self.assertIn(HOOK_COMMAND, hook.read_text(encoding="utf-8"))
+
+    def test_late_symlinked_dispatcher_target_edit_refuses_before_replacement(self) -> None:
+        config = self.root / ".git/config"
+        original = config.read_bytes()
+        target = Path(self.tmp.name) / "traditional-commit-msg"
+        target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        target.chmod(0o755)
+        hook = self.root / ".git/hooks/commit-msg"
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.symlink_to(target)
+        real_run = self.git.run
+        injected = False
+
+        def edit_during_temp_preparation(*arguments: str, **kwargs):
+            nonlocal injected
+            result = real_run(*arguments, **kwargs)
+            if not injected and arguments[:2] == ("config", "set") and "--file" in arguments:
+                injected = True
+                target.write_text(f"#!/bin/sh\n{HOOK_COMMAND} \"$1\"\n", encoding="utf-8")
+                target.chmod(0o755)
+            return result
+
+        with mock.patch.object(self.git, "run", side_effect=edit_during_temp_preparation):
+            repair = install_native_hook(self.root, self.git)
+        self.assertTrue(injected)
+        self.assertIn("git_hooks_stale_snapshot", {item.code for item in repair.diagnostics})
+        self.assertIsNone(repair.applied)
+        self.assertEqual(config.read_bytes(), original)
+        self.assertIn(HOOK_COMMAND, target.read_text(encoding="utf-8"))
 
     def test_readback_recovery_does_not_overwrite_a_new_config_edit(self) -> None:
         from spec_kit_code_review import commit_hook

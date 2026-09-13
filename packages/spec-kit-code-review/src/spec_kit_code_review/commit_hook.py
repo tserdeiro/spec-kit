@@ -332,10 +332,13 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
         return HookRepair(diagnostics=(Diagnostic("git_hooks_config_directory_read_only", "Git configuration directory is read-only; restore its owner write bit and retry doctor", str(observation.config_path.parent)),))
 
     lock = observation.config_path.with_name(observation.config_path.name + ".lock")
+    lock_identity: tuple[int, int] | None = None
     try:
         descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except OSError as error:
         return HookRepair(diagnostics=(Diagnostic("git_hooks_config_locked", f"could not acquire the exclusive Git config lock: {error}; retry after the lock is gone", str(lock)),))
+    lock_status = os.fstat(descriptor)
+    lock_identity = (lock_status.st_dev, lock_status.st_ino)
     os.close(descriptor)
     temporary: Path | None = None
     try:
@@ -424,10 +427,13 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
                 temporary.unlink()
             except OSError:
                 pass
-        try:
-            lock.unlink()
-        except OSError:
-            pass
+        if lock_identity is not None:
+            try:
+                current_lock = lock.lstat()
+                if (current_lock.st_dev, current_lock.st_ino) == lock_identity:
+                    lock.unlink()
+            except OSError:
+                pass
 
 
 def _parse_records(text: str) -> list[HookRecord]:
@@ -502,6 +508,35 @@ def _traditional_hook_snapshot(hooks_path: Path | None) -> tuple[object, ...]:
         return ("absent",)
     except OSError as error:
         return ("unreadable", type(error).__name__, str(error))
+    if stat.S_ISLNK(mode):
+        try:
+            link = os.readlink(hooks_path)
+            target = hooks_path.resolve(strict=True)
+            target_status = target.lstat()
+        except OSError as error:
+            return ("symlink-unreadable", stat.S_IMODE(mode), type(error).__name__, str(error))
+        if not stat.S_ISREG(target_status.st_mode):
+            return (
+                "symlink-not-regular",
+                stat.S_IMODE(mode),
+                link,
+                str(target),
+                stat.S_IFMT(target_status.st_mode),
+                stat.S_IMODE(target_status.st_mode),
+            )
+        try:
+            return (
+                "symlink-regular",
+                stat.S_IMODE(mode),
+                link,
+                str(target),
+                target_status.st_dev,
+                target_status.st_ino,
+                stat.S_IMODE(target_status.st_mode),
+                target.read_bytes(),
+            )
+        except OSError as error:
+            return ("symlink-unreadable", stat.S_IMODE(mode), link, type(error).__name__, str(error))
     if not stat.S_ISREG(mode):
         return ("not-regular", stat.S_IFMT(mode), stat.S_IMODE(mode))
     try:
