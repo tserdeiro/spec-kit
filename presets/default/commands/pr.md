@@ -94,34 +94,36 @@ the observed branch/head/PR is unchanged:
 - If an edit has a lost or ambiguous response, reread the OPEN PR body. Update
   only when the body still differs; stop if the reread is ambiguous.
 
-## 4. Prepare the canonical body and compare the feature PR
+## 4. Prepare the canonical body from the final publication snapshot
 
 Use `.github/PULL_REQUEST_TEMPLATE.md` in its exact section order:
 
-1. **Work item** — the Linear Project and Issue range from
-   `/speckit.linear.status`, or `N/A` when not projected; `specs/<feature>/`;
-   all feature requirements; and all task IDs.
+1. **Work item** — the Linear Project and Issue range from the final
+   `/speckit.linear.status` result, or `N/A` when that result confirms no
+   projection; `specs/<feature>/`; all feature requirements; and all task IDs.
 2. **Outcome** — state that this is the spec-review gate for the exact
    artifacts presented and explicitly product-approved before publication.
 3. **Changes** — the approved feature diff, including its local draft, index,
    and worktree paths, against the delivery base. The effective committed diff
    is recalculated after publication before any PR mutation.
-4. **Verification evidence** — clean analysis and actual Linear projection
-   evidence.
+4. **Verification evidence** — clean analysis and the actual final Linear
+   preview, apply, and status results, including any failed or incomplete
+   prerequisite.
 5. **Risk and delivery** — honest risks, human merge ownership, and
    `feature PR; task PRs stack into this branch`.
 6. **Review focus** — whether the tasks cover the approved spec completely.
 
-Write the candidate canonical body to a temporary body file with its real
-newlines. Do not inline a body string or use an alternate template. Before the
-first publication commit, the candidate's Changes section comes from the
-approved local diff; do not create or edit a PR from that provisional body.
-After publication, replace only that section with the effective
-`git diff <base>...HEAD --stat` result, then compare the complete body with the
-freshly observed OPEN PR. An exact match schedules no body write. When it
-differs, schedule one body update for step 5, then reread `state`,
-`baseRefName`, `headRefName`, and `body`. A body update never changes draft
-status, technical approval, or feature scope.
+Write the candidate body to a temporary file with its real newlines. Do not
+inline a body string or use an alternate template. Prepare the approved scope
+and effective `git diff <base>...HEAD` while keeping the body local; create or
+edit a PR only after the final Linear snapshot in step 5. Compare an OPEN PR
+only by approved scope, effective head/base, and semantic evidence: stable
+Linear IDs, states, assignees, synchronization result, and prerequisite set.
+When those values are unchanged, reuse its body **verbatim**, including
+historical successful publication evidence. Do not recompose it for style or
+replace it with retry counters, timestamps, or zero-operation text. Update it
+only when a stable value changed, then reread `state`, `baseRefName`,
+`headRefName`, and `body`. An exact body match schedules no write.
 
 ## 5. Publish the approved handoff once
 
@@ -145,24 +147,16 @@ success:
    Read back the remote OID after a successful or ambiguous push.
 4. Observe the PR again. If it is absent, resolve the base with `pr_create.py`
    without creating the PR; if it is OPEN, use its observed `baseRefName`.
-   Recompute the Changes section from the effective commit and refresh the
-   candidate body:
+   Recompute the Changes section from the effective commit and keep the
+   candidate body local:
 
    ```bash
    git diff "$base"...HEAD --stat
    ```
 
-   If absence is confirmed, create one draft PR with `--body-file`, and reread
-   it. If an OPEN PR exists, reuse its number and update the body only when the
-   complete body differs. If it is CLOSED or MERGED, stop for a human decision.
-   Use the canonical body file for either mutation:
-
-   ```bash
-   gh pr create --draft --base "$base" --title "feat(<area>): <feature outcome>" --body-file "$body_file"
-   gh pr edit <number> --body-file "$body_file"
-   ```
-5. Run the existing Linear projection in preview mode, review its output, and
-   apply it only through its existing command and authorization:
+5. Run the existing Linear projection and capture one final snapshot for the
+   body. Review the preview, apply it through its existing authorization, and
+   read status after either success or failure:
 
    ```bash
    bash .specify/extensions/linear/scripts/bash/run.sh push --current
@@ -170,11 +164,28 @@ success:
    bash .specify/extensions/linear/scripts/bash/run.sh status --current
    ```
 
-   Read the post-apply result and status. A failed or incomplete observation,
-   unsynchronized projection, or unassigned executable task remains a visible
-   handoff prerequisite; it never becomes readiness by inference. Linear's
-   assignment allowlist remains unchanged: this command does not assign users,
-   rewrite ownership, or add mutations.
+   The final snapshot is the preview result, the apply result when attempted,
+   and the post-apply status. Compare only stable IDs, states, assignees,
+   synchronization result, and prerequisite set when deciding whether the body
+   changed. A retry with zero operations, new counters, timestamps, or retry
+   text does not replace historical successful publication evidence. A failed
+   or incomplete preview/apply/status, unsynchronized projection, or
+   unassigned executable task is recorded as a visible handoff prerequisite;
+   it never becomes readiness by inference. Preserve the Git and PR publication
+   when Linear requirements fail, and report the exact remaining action.
+   Linear's assignment allowlist remains unchanged: this command does not
+   assign users, rewrite ownership, or add mutations.
+6. Observe the PR after the final Linear snapshot. Compose the body once from
+   that snapshot. If absence is confirmed, create one draft PR and reread it.
+   If an OPEN PR exists, reuse its body verbatim when scope, stable Linear
+   evidence, and prerequisites are unchanged; update it only when a stable
+   value differs, then reread it. If it is CLOSED or MERGED, stop for a human
+   decision. Use the canonical body file for either mutation:
+
+   ```bash
+   gh pr create --draft --base "$base" --title "feat(<area>): <feature outcome>" --body-file "$body_file"
+   gh pr edit <number> --body-file "$body_file"
+   ```
 
 Two unchanged retries run the same observations and perform zero duplicate
 commits, pushes, PR creates, PR body updates, Projects, or Issues. Report the
@@ -219,6 +230,12 @@ not create or edit the PR while preparing this body.
    Read back the remote OID after a successful or ambiguous push.
 3. Observe the PR again. If absence is confirmed, create the draft with the
    canonical body file and reread it. If an OPEN PR exists, update its body
-   only when the body differs, then reread it. Use `gh pr create --body-file`
-   and `gh pr edit --body-file`; never inline the body. Report the PR URL, then
-   continue with `/speckit.code-review` and the normal ready-for-review flow.
+   only when the body differs, then reread it. Never inline the body:
+
+   ```bash
+   gh pr create --draft --base "$base" --title "<type(scope): subject>" --body-file "$body_file"
+   gh pr edit <number> --body-file "$body_file"
+   ```
+
+   Report the PR URL, then continue with `/speckit.code-review` and the normal
+   ready-for-review flow.

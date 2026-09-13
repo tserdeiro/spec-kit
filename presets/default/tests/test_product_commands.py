@@ -138,6 +138,18 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     assert publication.index('git diff "$base"...HEAD --stat') < publication.index(
         "gh pr create"
     )
+    assert publication.index("status --current") < publication.index("gh pr create")
+    assert "reuse its body verbatim" in publication
+    assert re.search(r"stable\s+Linear IDs, states, assignees", preparation)
+    assert "historical successful publication evidence" in preparation
+    assert re.search(r"retry with zero operations", publication)
+    assert "retry counters" in preparation
+    assert 'gh pr create --draft --base "$base" --title "feat(<area>): <feature outcome>" --body-file "$body_file"' in publication
+    assert 'gh pr edit <number> --body-file "$body_file"' in publication
+    assert re.search(
+        r"Preserve the Git and PR publication\s+when Linear requirements\s+fail",
+        publication,
+    )
     assert "Run exactly one delivery route" in pr
 
 
@@ -160,10 +172,10 @@ def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() ->
         "zero duplicate",
         "push --current --apply",
         "status --current",
-        "assignment allowlist remains unchanged",
         "technical approval",
     ):
         assert phrase in pr
+    assert re.search(r"assignment allowlist\s+remains unchanged", pr)
     assert re.search(r"completion\s+checkboxes and completion\s+evidence alone", pr, re.I)
 
     task_flow = pr.split("## 6. Open task or work-item delivery PRs", 1)[1]
@@ -171,6 +183,8 @@ def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() ->
     assert "Fixes WOR-123" in task_flow
     assert "N/A" in task_flow
     assert "(chore)" in task_flow
+    assert 'gh pr create --draft --base "$base" --title "<type(scope): subject>" --body-file "$body_file"' in task_flow
+    assert 'gh pr edit <number> --body-file "$body_file"' in task_flow
 
 
 def test_approved_close_commit_only_preserves_pre_staged_unrelated_files(
