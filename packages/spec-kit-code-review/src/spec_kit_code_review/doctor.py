@@ -64,6 +64,7 @@ from .lockfile import (
     version_matches_pin,
 )
 from .process import run_command, sha256_file
+from .commit_hook import hook_diagnostics, install_native_hook
 
 
 CHECK_GROUPS: tuple[str, ...] = ("runtime", "speckit", "git", "ocr", "gh", "config", "rules", "evidence", "hooks")
@@ -168,6 +169,7 @@ class FixOutcome:
 
     applied: list[str] = field(default_factory=list)
     diagnostics: list[Diagnostic] = field(default_factory=list)
+    hook_diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
 @dataclass
@@ -214,7 +216,7 @@ def run_doctor(options: DoctorOptions) -> DoctorReport:
     report.groups.append(_check_config(options, config, config_error))
     report.groups.append(_check_rules(options))
     report.groups.append(_check_evidence(options, config))
-    report.groups.append(_check_hooks(options))
+    report.groups.append(_check_hooks(options, fixes.hook_diagnostics))
     return report
 
 
@@ -658,27 +660,22 @@ def _check_evidence(options: DoctorOptions, config: ResolvedConfig | None) -> Gr
     return result
 
 
-def git_hook_diagnostics(root: Path) -> list[Diagnostic]:
-    """Report any Git hook referencing this extension; it installs none by design."""
-
-    hooks_directory = root / ".git" / "hooks"
-    installed = _installed_git_hooks(hooks_directory)
-    if installed:
-        return [
-            Diagnostic(
-                "git_hooks_present",
-                f"this extension installs no Git hooks, yet {', '.join(installed)} reference it",
-                str(hooks_directory),
-            )
-        ]
-    return [Diagnostic("git_hooks_absent", "no Git hook references this extension, as designed", severity="info")]
-
-
-def _check_hooks(options: DoctorOptions) -> GroupResult:
+def _check_hooks(options: DoctorOptions, fix_diagnostics: list[Diagnostic] | None = None) -> GroupResult:
     result = GroupResult("hooks")
-    for diagnostic in git_hook_diagnostics(options.root):
+    diagnostics = list(fix_diagnostics or ())
+    if not diagnostics:
+        try:
+            diagnostics = hook_diagnostics(options.root, _git(options))
+        except AppError as error:
+            diagnostics = error.diagnostics or [Diagnostic("git_hooks_unverifiable", str(error), str(options.root))]
+    for diagnostic in diagnostics:
         if diagnostic.severity == "error":
-            result.error(EXIT_CONFIGURATION, diagnostic)
+            code = EXIT_PREREQUISITE if diagnostic.code in {
+                "git_hooks_upgrade", "git_hooks_capability_unavailable", "git_hooks_path_unreadable",
+                "git_hooks_config_unreadable", "git_hooks_config_unverifiable", "git_hooks_payload_missing",
+                "git_hooks_payload_unreadable", "git_hooks_readback_failed", "git_hooks_write_failed",
+            } else EXIT_CONFIGURATION
+            result.error(code, diagnostic)
         else:
             result.diagnostics.append(diagnostic)
     return result
@@ -727,6 +724,14 @@ def _apply_fixes(options: DoctorOptions) -> FixOutcome:
         applied.append(f"created {RULE_RELATIVE_PATH} from the template")
 
     _install_engine_if_absent(options, outcome)
+    try:
+        hook_repair = install_native_hook(options.root, _git(options))
+    except AppError as error:
+        outcome.hook_diagnostics.extend(error.diagnostics or [Diagnostic("git_hooks_unverifiable", str(error), str(options.root))])
+    else:
+        if hook_repair.applied:
+            applied.append(hook_repair.applied)
+        outcome.hook_diagnostics.extend(hook_repair.diagnostics)
 
     try:
         evidence_root = resolve_evidence_root(
@@ -829,22 +834,6 @@ def _repo_env_tracked_in_head(options: DoctorOptions) -> bool:
         return git.path_tracked_at("HEAD", REPO_ENV_FILENAME)
     except AppError:
         return False
-
-
-def _installed_git_hooks(hooks_directory: Path) -> list[str]:
-    if not hooks_directory.is_dir():
-        return []
-    found: list[str] = []
-    for candidate in sorted(hooks_directory.iterdir()):
-        if not candidate.is_file() or candidate.suffix == ".sample":
-            continue
-        try:
-            text = candidate.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        if "spec-kit-code-review" in text or "speckit.code-review" in text:
-            found.append(candidate.name)
-    return found
 
 
 def _worse(current: int, candidate: int) -> int:

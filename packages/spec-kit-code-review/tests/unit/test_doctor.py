@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import unittest
 from pathlib import Path
@@ -17,6 +18,7 @@ from spec_kit_code_review.errors import (
     EXIT_SUCCESS,
     EXIT_USAGE,
 )
+from spec_kit_code_review.git import Git
 from spec_kit_code_review.lockfile import lock_path, platform_key
 from spec_kit_code_review.paths import OCR_TOOL_NAME, tool_executable, tool_root
 from spec_kit_code_review.process import sha256_file
@@ -50,10 +52,17 @@ class DoctorCase(unittest.TestCase):
         self.repository = TemporaryRepository(self.workspace / "consumer")
         self.addCleanup(self.repository.cleanup)
         copy_consumer_fixture(self.repository.path)
+        extension = self.repository.path / ".specify/extensions/code-review"
+        (extension / "scripts/bash").mkdir(parents=True)
+        (extension / "src/spec_kit_code_review").mkdir(parents=True)
+        package = Path(__file__).resolve().parents[2]
+        for relative in ("scripts/bash/commit-msg.sh", "src/spec_kit_code_review/commit_msg.py", "src/spec_kit_code_review/commit_policy.py"):
+            shutil.copy2(package / relative, extension / relative)
         self.repository.git("add", "--all")
         self.repository.git("commit", "-m", "consumer fixture")
         self.repository.add_remote("origin", "git@github.com:tserdeiro/consumer.git")
         self.root = self.repository.path
+        self.doctor_git: Git | None = None
 
         self.environment_overrides: dict[str, str] = {}
         self.ocr_state: dict | None = {"version": DEFAULT_OCR_VERSION}
@@ -110,7 +119,7 @@ class DoctorCase(unittest.TestCase):
             npm_package=self.lock_npm_package,
         )
 
-    def run_doctor(self, *, fix: bool = False, evidence_dir: Path | None = None):
+    def run_doctor(self, *, fix: bool = False, evidence_dir: Path | None = None, include_hooks: bool = False):
         overrides = self._install_tools()
         self._write_lock()
         environment = {key: value for key, value in os.environ.items() if not key.startswith("SPECKIT_CODE_REVIEW_")}
@@ -120,7 +129,10 @@ class DoctorCase(unittest.TestCase):
         environment.setdefault("SPECKIT_CODE_REVIEW_EVIDENCE_DIR", str(evidence_dir or self.evidence))
         with mock.patch.dict(os.environ, environment, clear=True):
             snapshot = load_env_files(self.root, dict(os.environ))
-            return run_doctor(DoctorOptions(root=self.root, environment=snapshot, fix=fix))
+            report = run_doctor(DoctorOptions(root=self.root, environment=snapshot, git=self.doctor_git, fix=fix))
+            if not include_hooks:
+                report.groups = [group for group in report.groups if group.group != "hooks"]
+            return report
 
     def codes(self, report) -> set[str]:
         return {diagnostic.code for diagnostic in report.diagnostics}
@@ -131,7 +143,7 @@ class HealthyDoctorTests(DoctorCase):
         report = self.run_doctor()
 
         self.assertEqual(report.code, EXIT_SUCCESS, [d.message for d in report.diagnostics if d.severity != "info"])
-        self.assertEqual(set(report.as_dict()["checks"]), set(CHECK_GROUPS))
+        self.assertEqual(set(report.as_dict()["checks"]), set(CHECK_GROUPS) - {"hooks"})
         self.assertEqual(set(report.as_dict()["checks"].values()), {"pass"})
 
     def test_the_ocr_group_reports_path_version_and_digest(self) -> None:
@@ -164,7 +176,7 @@ class GitGroupTests(DoctorCase):
     def test_git_below_the_engine_minimum_is_a_prerequisite_failure(self) -> None:
         self._shim_git("2.39.5")
 
-        report = self.run_doctor()
+        report = self.run_doctor(include_hooks=True)
 
         self.assertEqual(report.code, EXIT_PREREQUISITE)
         self.assertIn("git_version_unsupported", self.codes(report))
@@ -172,9 +184,10 @@ class GitGroupTests(DoctorCase):
     def test_a_recent_git_passes_and_reports_the_worktree_state(self) -> None:
         self._shim_git("2.50.1")
 
-        report = self.run_doctor()
+        report = self.run_doctor(include_hooks=True)
 
-        self.assertEqual(report.code, EXIT_SUCCESS)
+        self.assertEqual(report.code, EXIT_PREREQUISITE)
+        self.assertIn("git_hooks_upgrade", self.codes(report))
         self.assertIn("git_worktree_state", self.codes(report))
 
 
@@ -513,21 +526,31 @@ class EvidenceGroupTests(DoctorCase):
 
 
 class HooksGroupTests(DoctorCase):
+    def setUp(self) -> None:
+        super().setUp()
+        executable = os.environ.get("SPECKIT_TEST_GIT254") or shutil.which("git")
+        if executable is None:
+            self.skipTest("unmet prerequisite: native hook tests need Git >= 2.54")
+        self.doctor_git = Git(executable, root=self.root)
+        version = self.doctor_git.version()
+        if version.parts < (2, 54):
+            self.skipTest(f"unmet prerequisite: native hook tests require Git >= 2.54, found {version.text}")
+
     def test_no_git_hook_references_this_extension(self) -> None:
-        report = self.run_doctor()
+        report = self.run_doctor(include_hooks=True)
 
         self.assertEqual(report.code, EXIT_SUCCESS)
-        self.assertIn("git_hooks_absent", self.codes(report))
+        self.assertIn("git_hooks_missing", self.codes(report))
 
     def test_a_git_hook_referencing_this_extension_is_a_configuration_failure(self) -> None:
         hooks = self.root / ".git" / "hooks"
         hooks.mkdir(parents=True, exist_ok=True)
-        (hooks / "post-commit").write_text("#!/bin/sh\n# speckit.code-review run\n", encoding="utf-8")
+        (hooks / "commit-msg").write_text("#!/bin/sh\n# commit-msg.sh\n", encoding="utf-8")
 
-        report = self.run_doctor()
+        report = self.run_doctor(include_hooks=True)
 
         self.assertEqual(report.code, EXIT_CONFIGURATION)
-        self.assertIn("git_hooks_present", self.codes(report))
+        self.assertIn("git_hooks_duplicate", self.codes(report))
 
 
 class FixTests(DoctorCase):
