@@ -198,17 +198,8 @@ def _usage(message: str, code: str, detail: str) -> AppError:
     return AppError(message, code=EXIT_USAGE, diagnostics=[Diagnostic(code, detail)])
 
 
-def load_document(path: Path) -> tuple[list[Any], str]:
-    """Read the findings file, refusing anything that is not the agreed shape."""
-
-    try:
-        raw = path.read_bytes()
-    except OSError as error:
-        raise _usage(
-            f"the findings file could not be read: {path}",
-            "findings_unreadable",
-            str(error),
-        ) from error
+def load_document_bytes(raw: bytes) -> tuple[list[Any], str, dict[str, Any]]:
+    """Load a document from one already-read byte sequence."""
     digest = hashlib.sha256(raw).hexdigest()
     try:
         text = raw.decode("utf-8")
@@ -260,7 +251,7 @@ def load_document(path: Path) -> tuple[list[Any], str]:
             "findings_too_many",
             "a review with more findings than this is not a review a human can act on; split the candidate instead",
         )
-    return entries, digest
+    return entries, digest, document
 
 
 def _require_string(
@@ -291,9 +282,28 @@ def _require_string(
     return value
 
 
+_MISSING = object()
+
+
 def _require_enum(entry: Mapping[str, Any], name: str, allowed: Sequence[str], *, index: int) -> str:
     value = entry.get(name)
     if value not in allowed:
+        if name == "category":
+            if value is _MISSING:
+                detail = "missing value"
+                summary = "is missing"
+            elif isinstance(value, str):
+                detail = f"invalid value {value!r}"
+                summary = f"has invalid value {value!r}"
+            else:
+                detail = f"invalid value {type(value).__name__} {value!r}"
+                summary = f"must be a string; found {type(value).__name__} {value!r}"
+            choices = ", ".join(allowed)
+            raise _usage(
+                f"finding #{index}: `category` {summary}; accepted values: {choices}",
+                "findings_category_invalid",
+                f"finding #{index}: {detail}; accepted values: {choices}",
+            )
         raise _usage(
             f"finding #{index}: `{name}` is not one of {', '.join(allowed)}",
             "findings_field_enum",
@@ -344,6 +354,8 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
             "case the rest of it cannot be trusted either, or something is trying to reach a field this version does "
             "not validate",
         )
+    if "category" not in entry:
+        _require_enum({"category": _MISSING}, "category", CATEGORIES, index=index)
     missing = [name for name in REQUIRED_FIELDS if name not in entry]
     if missing:
         raise _usage(
@@ -352,7 +364,7 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
             "every required field of the packet's schema must be present",
         )
 
-    path = _require_string(entry, "path", index=index, limit=4096)
+    path = _require_string(entry, "path", index=index, limit=4096, truncated=truncated)
     try:
         validate_repository_relative_path(path)
     except AppError as error:
@@ -408,12 +420,12 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
         content=_require_string(entry, "content", index=index, limit=MAX_CONTENT_CHARS, truncated=truncated),
         side=side,
         existing_code=(
-            _require_string(entry, "existing_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True)
+            _require_string(entry, "existing_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True, truncated=truncated)
             if entry.get("existing_code") is not None
             else None
         ),
         suggestion_code=(
-            _require_string(entry, "suggestion_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True)
+            _require_string(entry, "suggestion_code", index=index, limit=MAX_CODE_CHARS, allow_empty=True, truncated=truncated)
             if entry.get("suggestion_code") is not None
             else None
         ),
@@ -421,7 +433,7 @@ def validate_entry(entry: Any, *, index: int, truncated: list[str] | None = None
         sdd_reference=(
             " ".join(
                 visible(
-                    _require_string(entry, "sdd_reference", index=index, limit=MAX_REFERENCE_CHARS, allow_empty=True)
+                    _require_string(entry, "sdd_reference", index=index, limit=MAX_REFERENCE_CHARS, allow_empty=True, truncated=truncated)
                 ).split()
             )
             or None
@@ -461,8 +473,7 @@ def normalize(
             diagnostics.append(
                 Diagnostic(
                     "findings_truncated_field",
-                    f"{finding.path}:{finding.start_line}: {', '.join(sorted(set(cut)))} exceeded the limit and was "
-                    f"cut ({MAX_TITLE_CHARS} characters for a title, {MAX_CONTENT_CHARS} for content)",
+                    f"{finding.path}:{finding.start_line}: {', '.join(sorted(set(cut)))} exceeded its configured limit and was cut",
                     finding.path,
                     severity="warning",
                 )
@@ -526,6 +537,14 @@ def normalize(
             )
         )
 
+    content_cache: dict[str, tuple[str, ...] | None] = {}
+
+    def _head_lines(path: str) -> tuple[str, ...] | None:
+        if path not in content_cache:
+            text = git.show(head_commit, path)
+            content_cache[path] = tuple(text.splitlines()) if text is not None else None
+        return content_cache[path]
+
     for finding in kept:
         if finding.side == "LEFT":
             # Doc "Modelo de finding": a finding about a deleted line is
@@ -536,6 +555,26 @@ def normalize(
             finding.degraded_reason = "side: LEFT is never anchored inline; it is reported in the summary"
             continue
         hunk = hunks.anchor(finding.path, finding.start_line, finding.end_line)
+        if hunk is None and finding.existing_code:
+            # The declared range missed every hunk, but the reviewer also quoted
+            # the code it is about. If that snippet locates uniquely inside one
+            # of this file's new-side hunks, that is stronger evidence than the
+            # declared line numbers, and re-anchoring there beats discarding a
+            # finding that is otherwise legitimate.
+            relocated = _reanchor_by_snippet(finding.existing_code, hunks.for_path(finding.path), _head_lines(finding.path))
+            if relocated is not None:
+                new_start, new_end = relocated
+                diagnostics.append(
+                    Diagnostic(
+                        "finding_reanchored",
+                        f"{finding.path}: {finding.start_line}-{finding.end_line} did not fall inside a hunk; "
+                        f"re-anchored to {new_start}-{new_end} by matching `existing_code`",
+                        finding.path,
+                        severity="info",
+                    )
+                )
+                finding.start_line, finding.end_line = new_start, new_end
+                hunk = hunks.anchor(finding.path, new_start, new_end)
         finding.anchorable = hunk is not None
         if hunk is None:
             finding.degraded_reason = "the range is not inside a hunk of the candidate's diff"
@@ -559,6 +598,39 @@ def normalize(
         diagnostics=diagnostics,
         source_sha256=source_sha256,
     )
+
+
+def _reanchor_by_snippet(
+    existing_code: str, hunks: Sequence[Any], lines: tuple[str, ...] | None
+) -> tuple[int, int] | None:
+    """Locate ``existing_code`` inside this path's new-side hunks, whitespace-insensitive.
+
+    Comparison strips each line and drops blank lines on both sides, so
+    indentation drift and blank-line padding never block a match. A snippet
+    that locates in exactly one place is strong enough evidence to move the
+    finding there; zero or several candidate locations are not, and the
+    finding degrades to the summary exactly as it would without this pass.
+    """
+
+    if not lines:
+        return None
+    snippet = [line.strip() for line in existing_code.splitlines() if line.strip()]
+    if not snippet:
+        return None
+    matches: list[tuple[int, int]] = []
+    for hunk in hunks:
+        indexed = [
+            (hunk.start + offset, line.strip())
+            for offset, line in enumerate(lines[hunk.start - 1 : hunk.end])
+            if line.strip()
+        ]
+        stripped = [item[1] for item in indexed]
+        for start in range(0, len(stripped) - len(snippet) + 1):
+            if stripped[start : start + len(snippet)] == snippet:
+                matches.append((indexed[start][0], indexed[start + len(snippet) - 1][0]))
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _discard(finding: Finding, reason: str) -> dict[str, Any]:

@@ -13,8 +13,10 @@ from spec_kit_code_review.verdict import (
     INCONCLUSIVE,
     NO_BLOCKING_FINDINGS,
     InconclusiveCause,
+    delivery,
     derive,
     describe,
+    describe_delivery,
 )
 
 
@@ -133,3 +135,71 @@ class DescriptionTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs
     unittest.main()
+
+
+class DeliveryTests(unittest.TestCase):
+    def identified(self, *severities: str) -> list[Finding]:
+        findings = [finding(severity) for severity in severities]
+        for position, item in enumerate(findings, start=1):
+            item.identifier = f"F{position:03d}"
+        return findings
+
+    def test_no_findings_proceed_without_being_an_approval(self) -> None:
+        record = delivery([], derive([]))
+
+        self.assertEqual(record["decision"], "proceed")
+        self.assertIsNone(record["reason"])
+        self.assertEqual(record["pending"], [])
+        self.assertEqual(record["counts"], {"blocking": 0, "major": 0, "minor": 0, "nit": 0, "info": 0})
+        self.assertFalse(record["is_approval"])
+        self.assertIn("not an approval", describe_delivery(record))
+
+    def test_minor_only_proceeds(self) -> None:
+        findings = self.identified("minor", "nit", "info")
+
+        record = delivery(findings, derive(findings))
+
+        self.assertEqual(record["decision"], "proceed")
+        self.assertEqual(record["counts"]["minor"], 1)
+
+    def test_major_only_holds_although_the_verdict_has_no_blocking(self) -> None:
+        findings = self.identified("major", "minor")
+        verdict = derive(findings)
+
+        record = delivery(findings, verdict)
+
+        self.assertEqual(verdict.value, NO_BLOCKING_FINDINGS)
+        self.assertEqual(verdict.exit_code(), 0)
+        self.assertEqual(record["decision"], "hold")
+        self.assertEqual(record["reason"], "major")
+        self.assertEqual(record["pending"], ["F001"])
+        self.assertIn("fix F001 (major)", describe_delivery(record))
+
+    def test_blocking_holds_and_lists_major_as_pending_too(self) -> None:
+        findings = self.identified("major", "blocking")
+
+        record = delivery(findings, derive(findings))
+
+        self.assertEqual(record["decision"], "hold")
+        self.assertEqual(record["reason"], "blocking")
+        self.assertEqual(record["pending"], ["F001", "F002"])
+
+    def test_inconclusive_holds_without_findings(self) -> None:
+        verdict = derive([], causes=[InconclusiveCause(CAUSE_CONTEXT, "coverage_missing")])
+
+        record = delivery([], verdict)
+
+        self.assertEqual(record["decision"], "hold")
+        self.assertEqual(record["reason"], "inconclusive")
+        self.assertEqual(record["pending"], [])
+        self.assertIn("inconclusive", describe_delivery(record))
+
+    def test_inconclusive_wins_over_blocking_findings(self) -> None:
+        findings = self.identified("blocking")
+        verdict = derive(findings, causes=[InconclusiveCause(CAUSE_ENGINE, "engine failed")])
+
+        record = delivery(findings, verdict)
+
+        self.assertEqual(record["reason"], "inconclusive")
+        self.assertEqual(record["pending"], ["F001"])
+        self.assertEqual(record["counts"]["blocking"], 1)

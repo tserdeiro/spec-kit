@@ -506,7 +506,7 @@ done
 echo "ok: update"
 
 # --------------------------------------------------------------------------
-# 4. The product bundle installs the preset's eight scripts and the
+# 4. The product bundle installs the preset's seven scripts and the
 #    commands invoke them directly (plan D1, D2); the delivery base and
 #    every resolved branch reach git and gh only as inert argv.
 # --------------------------------------------------------------------------
@@ -548,29 +548,28 @@ cat > "$task_tasks_file" <<'MD'
 
 - [x] T001 Sample outcome one
   - **Depends on**: none
-  - **Delivery**: single PR (~20 authored lines)
+  - **Delivery**: single PR
   - **Completion evidence**: merged as PR #1
 - [ ] T002 Sample outcome two
   - **Depends on**: T001
-  - **Delivery**: single PR (~50 authored lines)
+  - **Delivery**: single PR
 - [ ] T003 Sample outcome three
   - **Depends on**: T002
 - [ ] T004 Sample outcome four
   - **Depends on**: T003
-  - **Delivery**: single PR (~300 authored lines)
+  - **Delivery**: single PR
 - [x] T005 Sample outcome five
   - **Depends on**: T004
   - **Completion evidence**: Pending
 MD
 
 scripts_dir="$consumer_root/.specify/presets/default/scripts/python"
-for script in task_base pr_create budget_stop stack_propagate merge_root_first ledger_check skill_mirror ignore_entries; do
+for script in task_base pr_create stack_propagate merge_root_first ledger_check skill_mirror ignore_entries; do
   [ -e "$scripts_dir/$script.py" ] || fail "trunk: $script.py is not installed"
 done
 [ -e "$scripts_dir/_common.py" ] || fail "trunk: _common.py is not installed"
 task_base_script="$scripts_dir/task_base.py"
 pr_create_script="$scripts_dir/pr_create.py"
-budget_stop_script="$scripts_dir/budget_stop.py"
 stack_propagate_script="$scripts_dir/stack_propagate.py"
 merge_root_first_script="$scripts_dir/merge_root_first.py"
 ledger_check_script="$scripts_dir/ledger_check.py"
@@ -1068,68 +1067,7 @@ run_stack_propagate 003-T001-a "" >/dev/null || fail "propagate: empty chain fai
 echo "ok: propagate"
 
 # --------------------------------------------------------------------------
-# 7. Budget stop at twice the forecast (plan D9): budget_stop.py measures
-#    added lines the review budget counts against the task's forecast and
-#    stops at the smaller of 2x and 400.
-# --------------------------------------------------------------------------
-
-run_budget_stop() {
-  local task="$1" base="$2" numstat="$3"
-  (cd "$consumer_root" && GIT_CALLS="$git_calls" GIT_NUMSTAT="$numstat" REAL_GIT="$real_git" \
-    PATH="$fake_bin:$PATH" SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
-    "$PYTHON" "$budget_stop_script" "$task" "$base")
-}
-
-# T001's forecast must skip the template's fenced sample block, whose own
-# unchecked "T001" header and forecast-less Delivery line precede the real,
-# checked T001 in file order.
-reset_command_logs
-budget_status=0
-run_budget_stop T001 003-feature $'41\t0\tsrc/a.py\n' >/dev/null 2>&1 || budget_status=$?
-[ "$budget_status" -eq 2 ] || fail "budget: fenced-sample T001 exited $budget_status, expected 2"
-budget_out=$(run_budget_stop T001 003-feature $'40\t0\tsrc/a.py\n')
-[ "$budget_out" = "budget: 40/40 (forecast ~20)" ] ||
-  fail "budget: fenced-sample T001 output was '$budget_out'"
-
-# Under budget: binary and excluded files (docs, uv.lock) contribute
-# nothing; a tab-separated path containing a space is still counted whole.
-reset_command_logs
-budget_out=$(run_budget_stop T002 003-feature \
-  $'30\t0\tsrc/a.py\n500\t0\tdocs/guide.md\n9\t0\tuv.lock\n-\t-\tassets/logo.png\n12\t0\tsrc/with space.py\n')
-[ "$budget_out" = "budget: 42/100 (forecast ~50)" ] ||
-  fail "budget: under-budget output was '$budget_out'"
-[ "$(cat "$git_calls")" = "$(json_argv diff --numstat --no-renames '003-feature...HEAD')" ] ||
-  fail "budget: under-budget used incorrect git argv"
-
-# Over budget: stops naming the task, the added count, and the stop line.
-reset_command_logs
-budget_err="$consumer_root/.conformance/budget.err"
-budget_status=0
-run_budget_stop T002 003-feature $'101\t0\tsrc/a.py\n' >/dev/null 2>"$budget_err" || budget_status=$?
-[ "$budget_status" -eq 2 ] || fail "budget: over-budget exited $budget_status, expected 2"
-grep -Fq T002 "$budget_err" && grep -Fq 101 "$budget_err" && grep -Fq 100 "$budget_err" ||
-  fail "budget: over-budget diagnosis did not name the task, count, and stop"
-
-# No forecast on the ledger (T003): the 400-line default is the stop line.
-reset_command_logs
-budget_out=$(run_budget_stop T003 003-feature $'350\t0\tsrc/a.py\n')
-[ "$budget_out" = "budget: 350/400 (forecast ~400)" ] ||
-  fail "budget: no-forecast output was '$budget_out'"
-budget_status=0
-run_budget_stop T003 003-feature $'401\t0\tsrc/a.py\n' >/dev/null 2>"$budget_err" || budget_status=$?
-[ "$budget_status" -eq 2 ] || fail "budget: no-forecast over exited $budget_status, expected 2"
-
-# A forecast whose double exceeds 400 (T004, ~300) still stops at 400.
-reset_command_logs
-budget_status=0
-run_budget_stop T004 003-feature $'401\t0\tsrc/a.py\n' >/dev/null 2>"$budget_err" || budget_status=$?
-[ "$budget_status" -eq 2 ] || fail "budget: capped stop exited $budget_status, expected 2"
-grep -Fq 400 "$budget_err" || fail "budget: capped stop diagnosis did not name the 400 cap"
-
-echo "ok: budget"
-
-# --------------------------------------------------------------------------
-# 8. Doctor: safe skill mirror and ignore entries (plan D11). The mirror
+# 7. Doctor: safe skill mirror and ignore entries (plan D11). The mirror
 #    step copies extension/preset skills, and every core command the
 #    preset replaces, whole from the default integration; appends each
 #    remaining core command's own layer to that integration's render,
@@ -1361,7 +1299,7 @@ second=$(cd "$ignore_root" && "$PYTHON" "$ignore_entries_script" true) ||
 echo "ok: ignore"
 
 # --------------------------------------------------------------------------
-# 9. Root-first merge on explicit human request (plan D1, D5;
+# 8. Root-first merge on explicit human request (plan D1, D5;
 #    merge_root_first.py): retarget-then-merge walks the open task-PR
 #    stack root first regardless of listing order, never requests
 #    --delete-branch (the guard T014 will build), and a mid-stack failure
@@ -1445,7 +1383,7 @@ $(json_argv pr merge 3 --merge)" ] ||
 echo "ok: merge-root-first"
 
 # --------------------------------------------------------------------------
-# 10. Ledger completeness gate before ready-for-review (plan D1;
+# 9. Ledger completeness gate before ready-for-review (plan D1;
 #     ledger_check.py): a checked task with real completion evidence
 #     passes; an unchecked task or one whose evidence is still "Pending"
 #     names exactly what is missing.

@@ -12,10 +12,13 @@ bash .specify/extensions/linear/scripts/bash/run.sh status --current
 `status` uses GraphQL queries plus the same fresh paginated GitHub observation
 as `push`. It renders one row per `Txxx` with its
 local checkbox, the state derived from observable reality and what produced
-it (`checkbox`, `branch`, or `pr`), the remote Issue identifier, workflow
-state, and assignee (`—` where not applicable), plus any Issue living in the
-Feature Project that was created directly in Linear and carries no bridge
-marker. A feature with no Feature Project yet still lists its local tasks.
+it (`checkbox`, `branch`, or `pr`), the state the next `push` would project
+onto the configured `lifecycle` id — with the reason in parentheses when it
+falls back or is skipped, such as `lifecycle sync disabled` or an
+unconfigured id — the remote Issue identifier, workflow state, and assignee
+(`—` where not applicable), plus any Issue living in the Feature Project that
+was created directly in Linear and carries no bridge marker. A feature with
+no Feature Project yet still lists its local tasks.
 A **Work items** block follows when any branch or pull request is named after
 a Linear Issue key (`<team key>-<number>`, optionally `-suffix`): one row per
 bug or chore with its derived state, the observation and branch it came from,
