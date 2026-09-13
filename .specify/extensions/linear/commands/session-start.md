@@ -13,7 +13,9 @@ its name is deliberately undotted and equal to this file's stem. Never invoke
 it directly.
 
 It reconciles Linear (`push --hook`, with `--current` added on a feature/task
-branch only -- a work item is feature-independent) and then prints one
-context line naming the current branch's Linear state and the next command
-to run — or nothing at all when the branch matches no recognized shape, or
-the extension is unconfigured.
+branch only — a work item is feature-independent) and then prints one context
+line naming the current branch's verified state and next command. Failed or
+incomplete observations emit sanitized stderr warnings and no progress-based
+next action. Missing or disabled configuration stays silent. Unrecognized
+branches omit the context line but may still emit reconciliation warnings.
+The handler always exits `0`.

@@ -6,20 +6,16 @@ repository:
   remote: "origin"
 
 engine:
-  ocr_version: "v1.8.3"
-  rule_batch_size: 100
+  ocr_version: "v1.12.0"
   timeout_seconds: 300
 
 packet:
+  # UTF-8 source bytes are shared across every excerpt from one artifact.
   max_bytes_per_artifact: 60000
+  # Final rendered packet bytes, including metadata, escaping and instructions.
   max_total_bytes: 400000
   include_checklists: true
   include_pr_body: true
-
-budget:
-  # Authored executable lines added. Over this, the review warns and suggests
-  # stacked pull requests; it never fails.
-  limit: 400
 
 protected_paths:
   # Task pull requests (base branch NNN-...) that touch any of these get an

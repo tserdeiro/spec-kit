@@ -29,7 +29,60 @@ bash "$CR" review
 
 It prints the path of an advisory **review packet**. Read that packet in full,
 review the code it describes, and report the findings to the user. Nothing is
-written inside the repository and no session is opened.
+written inside the repository and no session is opened. The command also reports
+the expected `coverage.json` path beside the packet.
+
+After reading, create that file with the host's file tools. It records evidence
+from this working-tree snapshot and remains explicitly advisory:
+
+```json
+{
+  "mode": "advisory",
+  "packet_sha256": "<packet_sha256>",
+  "inventory_sha256": "<inventory_sha256>",
+  "sources": [
+    {"path": "specs/003-example/spec.md", "version": "working-tree", "sha256": "<source-sha256>"},
+    {"path": ".specify/extensions/code-review/src/module.py", "version": "working-tree", "kind": "code", "status": "present", "available": true, "sha256": "<source-sha256>"},
+    {"path": ".specify/extensions/code-review/src/deleted.py", "version": "working-tree", "kind": "code", "status": "deleted", "available": true, "sha256": null}
+  ],
+  "reads": [
+    {
+      "path": "specs/003-example/spec.md",
+      "version": "working-tree",
+      "start_line": 1,
+      "end_line": 20,
+      "sha256": "<exact-range-sha256>",
+      "assessment": "How this range affects the reviewed scope",
+      "scope": "FR-014"
+    }
+  ]
+}
+```
+
+Copy source entries and required ranges from `context-inventory.json`. The
+inventory's `scope.changed_paths` is the baseline set of reviewed paths; its
+`sources` entries describe each path, including `present`, `deleted`, or
+`unavailable` status. Read each
+exact inclusive UTF-8 range with a host file tool, preserving line endings, and
+hash those bytes. Before reporting, compare current source hashes and the
+complete set of reviewed paths with the inventory. If any source changed,
+was added, or was removed, discard the record and make a fresh advisory packet.
+A deleted tracked path is valid when it remains absent; an unavailable or
+symlinked path is an explicit coverage gap. Recompute membership with the same
+read-only Git path set used by the command:
+
+```bash
+git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only --end-of-options HEAD
+git ls-files --others --exclude-standard -z
+```
+
+The two NUL-delimited results are a union: the first covers staged and
+unstaged tracked changes against `HEAD`, and the second adds untracked paths.
+SDD source entries keep the three fields shown for `spec.md`; working code
+entries add `kind`, `status`, and `available`.
+
+This record is host-reported, is not CLI-validated or
+publishable, and cannot be reused as coverage for a pull-request review.
 
 ## Reviewing a pull request
 
@@ -44,12 +97,52 @@ bash "$CR" review 128 --json
 bash "$CR" review --findings <session-path>/findings.json --session <session-path>
 ```
 
-Step 1 prints `session.path` and `packet` in its JSON. Read the packet at
-`<session-path>/review-packet.md`, write
+Step 1 prints a compact JSON document:
+
+```json
+{
+  "schema_version": "1.0",
+  "code": 0,
+  "category": "ok",
+  "message": "review packet ready at <session-path>/review-packet.md",
+  "candidate": {"candidate_id": "…", "head_commit": "…", "merge_base": "…", "base_branch": "main", "pr_number": 128, "repository": "owner/repo"},
+  "session": {"path": "<session-path>", "phase": "open", "opened_at": "…"},
+  "packet": {"path": "<session-path>/review-packet.md", "inventory_path": "…", "bytes": 41208, "packet_sha256": "…", "inventory_sha256": "…", "truncations": 0},
+  "scope": {"files": 3},
+  "runtime": {"extension_version": "0.5.0"},
+  "warnings": [],
+  "next": {"findings_path": "<session-path>/findings.json", "close": "review --findings <session-path>/findings.json --session <session-path>"}
+}
+```
+
+Read the packet at `<session-path>/review-packet.md`, write
 `<session-path>/findings.json`, then run step 2. Findings outside that session
 are refused because they cannot belong to this review.
 **Always run step 2**, including when you found nothing: it is what withdraws
 the temporary worktree and closes the session.
+
+Step 2 prints the compact close: `candidate`, `session` (`path`, `phase`),
+`verdict` (`value`, `blocking`, `inconclusive_causes` as a count), `delivery`,
+`coverage` (`complete`, `uncovered` as a count), `findings` (`count`,
+`discarded`, `path` of `findings.md`), `warnings`, and `next` — one sentence
+saying what to do. `delivery` is the loop's contract:
+
+```json
+{"decision": "hold", "reason": "major", "pending": ["F002"],
+ "counts": {"blocking": 0, "major": 1, "minor": 2, "nit": 0, "info": 0}, "is_approval": false}
+```
+
+`decision` is `proceed` only when the verdict is `no-blocking-findings` and no
+`major` finding remains; otherwise `hold`, with `reason` `blocking`, `major`
+or `inconclusive` and the pending identifiers. It is never an approval.
+
+Nothing is lost: both full documents — every finding, coverage receipt,
+publication operation and diagnostic — are written into the session directory
+as `result-open.json` and `result-close.json`, and `--json --verbose` prints
+the full document instead of the compact one. The human render adds one
+`DELIVERY:` line after `VERDICT:`.
+With `--publish`, the compact close also carries `publication` (`executed`,
+`event`, `posted_inline`, the URLs) and the count of `operations`.
 
 The candidate is materialized in a temporary worktree under the evidence root,
 so the user's branch, index and untracked files are never touched. If step 2
@@ -63,6 +156,19 @@ is exit code 8 with nothing written. Then every finding is validated against the
 candidate — one whose path or range does not exist is discarded as a
 hallucination — anchorable findings become inline comments and the rest go to
 the summary, and the verdict is derived.
+
+If a category is rejected, edit only that finding's `category` in the same
+session and rerun the existing close command. The packet's generated category
+catalog is authoritative; choose the replacement from it rather than guessing
+an ambiguous meaning. The original bytes and every correction attempt are kept
+under `finding-corrections/<findings_attempt_id>/original.json` and its sibling
+attempt records. A partial correction remains rejected until every invalid
+category is corrected. The validated correction record is evidence of the
+category change, not approval or publication; the same command closes the
+session after the usual validation and environment checks. Blocking findings
+still produce `changes-requested`, and coverage or engine gaps remain
+`inconclusive`. If the finding's meaning requires a substantive edit, start a
+fresh review so the candidate is analyzed again.
 
 The verdict is `no-blocking-findings`, `changes-requested` or `inconclusive` —
 **never an approval**. `changes-requested` exits 1: the review ran correctly and
@@ -94,11 +200,71 @@ delivery trunk is exempt.
 }
 ```
 
-Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories:
-`correctness`, `security`, `contract`, `delivery`, `tests`,
-`maintainability`, `style` — any other value refuses the whole file. Cite
+Every candidate submission includes a source-validated
+reading report. Copying a path or reference alone earns no coverage credit;
+each receipt must hash the exact inclusive UTF-8 line range that was inspected
+and include a short assessment tied to the reviewed scope:
+
+```json
+{
+  "findings": [],
+  "coverage": {
+    "candidate_id": "<candidate_id>",
+    "packet_sha256": "<packet_sha256>",
+    "inventory_sha256": "<inventory_sha256>",
+    "reads": [
+      {
+        "path": "specs/003-example/spec.md",
+        "version": "<head_commit>",
+        "start_line": 1,
+        "end_line": 20,
+        "sha256": "<sha256-of-the-exact-lines>",
+        "assessment": "This range establishes the acceptance boundary.",
+        "scope": "FR-001"
+      }
+    ]
+  }
+}
+```
+
+This `coverage` envelope belongs to pull-request sessions only. Advisory
+reviews use the separate host-reported `coverage.json` record above.
+
+`context-inventory.json`'s `required` list is not only the SDD artifacts and
+the frozen pull-request intent: every in-scope file's changed hunks are
+required reads too, with the same receipt obligation. A code file without a
+receipt for its changed lines is a gap, exactly like an unread spec section.
+
+The session validates every receipt against the immutable candidate and frozen
+inventory. Duplicate receipts are deduplicated and overlapping receipts are
+unioned; they do not over-credit coverage. Missing, partial, or invalid
+receipts leave unresolved gaps and make the review inconclusive while valid
+findings remain available. A changed
+candidate, packet, inventory, or configuration refuses closure before any
+evidence is written. Reopen a completed session to submit corrected evidence.
+Assessments are reviewer-reported evidence of inspected ranges, not proof of
+comprehension. For pull requests, inspect the frozen intent source recorded in
+the inventory using its exact version and retrieval information; later edits to
+the live pull-request text do not replace that snapshot.
+
+Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories are listed
+in the packet's generated catalog; any other value refuses the whole file. Cite
 the exact lines that support each finding; anything that does not exist in
 the candidate is discarded.
+
+### Follow-up review of a corrected candidate
+
+A corrected candidate is a new head, so it gets a new session and a new
+`findings.json`; nothing is copied from the previous session. Receipts are
+validated against the new head's bytes, so a receipt for a range whose bytes
+did not change may reuse its digest with the new head as `version`; every
+range the correction touched is read again. The coverage envelope names the
+new session's `candidate_id`, `packet_sha256` and `inventory_sha256`; a
+reused envelope is a mismatch and leaves the review inconclusive. Read the delta with
+`git diff <previous head>..<head>` in the materialized worktree, and take the
+previous session's `findings.md` as the list to verify: each earlier finding
+is fixed, or still open with the reason. The verdict is derived again from
+this session alone.
 
 ## Publishing
 
