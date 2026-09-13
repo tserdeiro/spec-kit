@@ -36,7 +36,7 @@ missing configuration alone enables supplied key/title fallback.
   - **Delivery**: single PR (~340 authored lines)
   - **Completion evidence**: PR #144; package suite 513 passed / 286 subtests; `git diff --check` passed; budget 348/400. Fresh extension review of `a9c743ecba42290a035317bccbddd785f6b5e6d3` closed with `no-blocking-findings`, 0 findings and no coverage gaps. Native context batching uses the schema-correct team/number connection; read-only live existing/missing/duplicate-key probe returned the expected Issue, None for the missing key, and two distinct results. Exact Git-valid native branch and literal configured prefix observed separately; no viewer-prefix inference.
 
-- [ ] T002 [US1] Expose configured Issue lookup through packages/spec-kit-linear/scripts/python/resolve_work_item.py
+- [x] T002 [US1] Expose configured Issue lookup through packages/spec-kit-linear/scripts/python/resolve_work_item.py
   - **Traces**: FR-001, FR-004, FR-006, C-001, C-002, SC-001, SC-003; outcome: installed consumers resolve one explicit Issue key with exact native context and distinct absent/error outcomes.
   - **Depends on**: T001
   - **Boundaries**: Add the single-Issue path in `work_item_resolution.py`, the internal JSON launcher, and focused tests. Reuse existing config/credential/client loaders; verify canonical key and returned team/identity. Expose the exact suggested branch without validating a future creation before existing work can be adopted. Keep feature/task input excluded, preserve secrets, and add no public command or persistent mapping. T009 adds independent observation batches.
