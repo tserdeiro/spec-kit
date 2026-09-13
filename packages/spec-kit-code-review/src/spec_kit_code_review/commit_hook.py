@@ -97,9 +97,8 @@ class HookObservation:
 
     @property
     def duplicate(self) -> bool:
-        marker = "commit-msg.sh"
         return any(
-            marker in record.value and not record.key.startswith(f"hook.{HOOK_NAME}.")
+            str(PAYLOAD[0]) in record.value and not record.key.startswith(f"hook.{HOOK_NAME}.")
             for record in self.records
         ) or _manual_hook_invocation(self.hooks_path)
 
@@ -107,8 +106,8 @@ class HookObservation:
     def _disabled(self) -> bool:
         values = [record.value.lower() for record in self.records if record.key == f"hook.{HOOK_NAME}.enabled"]
         event_values = [record.value.lower() for record in self.records if record.key == f"hook.{HOOK_EVENT}.enabled"]
-        return (values and values[-1] in {"false", "no", "off", "0"}) or (
-            event_values and event_values[-1] in {"false", "no", "off", "0"}
+        return (values and values[-1] in {"", "false", "no", "off", "0"}) or (
+            event_values and event_values[-1] in {"", "false", "no", "off", "0"}
         ) or any(name == HOOK_NAME and disabled for name, disabled in self.listed)
 
     def _values(self, field_name: str) -> list[str]:
@@ -178,7 +177,7 @@ def observe_native_hook(root: Path, git: Git) -> HookObservation:
                     Diagnostic("git_hooks_config_unreadable", f"could not read Git configuration: {error}", str(observation.config_path))
                 )
 
-    config_result = git.run("config", "--show-origin", "--show-scope", "--get-regexp", r"^hook\.")
+    config_result = git.run("config", "--null", "--show-origin", "--show-scope", "--get-regexp", r"^hook\.")
     if config_result.ok or config_result.returncode == 1:
         observation.records = _parse_records(config_result.stdout)
     else:
@@ -235,7 +234,7 @@ def hook_diagnostics(root: Path, git: Git) -> list[Diagnostic]:
     elif state == "partial":
         diagnostics.append(Diagnostic("git_hooks_partial", f"{HOOK_NAME} is incomplete; run `doctor --fix` to normalize its local entry", str(observation.config_path), severity="warning"))
     elif state == "disabled":
-        disabled = next((record for record in observation.records if record.key in {f"hook.{HOOK_NAME}.enabled", f"hook.{HOOK_EVENT}.enabled"} and record.value.lower() in {"false", "no", "off", "0"}), None)
+        disabled = next((record for record in observation.records if record.key in {f"hook.{HOOK_NAME}.enabled", f"hook.{HOOK_EVENT}.enabled"} and record.value.lower() in {"", "false", "no", "off", "0"}), None)
         origin = f" at {disabled.origin} ({disabled.scope} scope)" if disabled else ""
         diagnostics.append(Diagnostic("git_hooks_disabled", f"{HOOK_NAME} or the commit-msg event is disabled{origin}; enable it explicitly before running `doctor --fix`", str(observation.config_path), severity="error"))
     elif state == "foreign":
@@ -339,14 +338,14 @@ def install_native_hook(root: Path, git: Git) -> HookRepair:
 
 def _parse_records(text: str) -> list[HookRecord]:
     records: list[HookRecord] = []
-    for line in text.splitlines():
-        parts = line.split("\t", 2)
-        if len(parts) != 3:
+    fields = text.split("\0")
+    for index in range(0, len(fields) - 2, 3):
+        scope, origin, key_value = fields[index : index + 3]
+        key, separator, value = key_value.partition("\n")
+        if not separator:
             continue
-        scope, origin, key_value = parts
-        key, _, value = key_value.partition(" ")
         if key.startswith("hook."):
-            records.append(HookRecord(scope, origin, key.lower(), value))
+            records.append(HookRecord(scope, origin, key, value))
     return records
 
 
@@ -383,7 +382,7 @@ def _manual_hook_invocation(hooks_path: Path | None) -> bool:
         hook = hooks_path
         if not hook.is_file():
             return False
-        return "commit-msg.sh" in hook.read_text(encoding="utf-8", errors="ignore")
+        return any(str(PAYLOAD[0]) in line.split("#", 1)[0] for line in hook.read_text(encoding="utf-8", errors="ignore").splitlines())
     except OSError:
         return False
 

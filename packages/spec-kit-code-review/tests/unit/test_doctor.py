@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 
 from spec_kit_code_review.config import LOCAL_CONFIG_FILENAME, RULE_RELATIVE_PATH
+from spec_kit_code_review.commit_hook import HOOK_COMMAND
 from spec_kit_code_review.doctor import CHECK_GROUPS, DoctorOptions, RULE_TEMPLATE, run_doctor
 from spec_kit_code_review.env_files import REPO_ENV_FILENAME, load_env_files
 from spec_kit_code_review.errors import (
@@ -545,7 +546,7 @@ class HooksGroupTests(DoctorCase):
     def test_a_git_hook_referencing_this_extension_is_a_configuration_failure(self) -> None:
         hooks = self.root / ".git" / "hooks"
         hooks.mkdir(parents=True, exist_ok=True)
-        (hooks / "commit-msg").write_text("#!/bin/sh\n# commit-msg.sh\n", encoding="utf-8")
+        (hooks / "commit-msg").write_text(f"#!/bin/sh\n{HOOK_COMMAND}\n", encoding="utf-8")
 
         report = self.run_doctor(include_hooks=True)
 
@@ -566,7 +567,8 @@ class FixTests(DoctorCase):
         self.assertIn(REPO_ENV_FILENAME, gitignore)
         self.assertTrue((self.root / LOCAL_CONFIG_FILENAME).is_file())
         self.assertEqual(oct(self.evidence.stat().st_mode)[-3:], "700")
-        self.assertEqual(len(report.fixes), 3)
+        expected_fixes = 4 if Git("git", root=self.root).version().parts >= (2, 54) else 3
+        self.assertEqual(len(report.fixes), expected_fixes)
 
     def test_fix_writes_a_starting_rule_set_when_the_repository_has_none(self) -> None:
         (self.root / RULE_RELATIVE_PATH).unlink()

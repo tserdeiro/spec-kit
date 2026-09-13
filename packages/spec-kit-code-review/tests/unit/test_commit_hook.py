@@ -64,7 +64,7 @@ class NativeHookTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(config.stat().st_mode), mode)
 
     def test_disabled_event_and_manual_dispatcher_are_preserved(self) -> None:
-        self.repo.git("config", "set", "hook.commit-msg.enabled", "false")
+        self.repo.git("config", "set", "hook.commit-msg.enabled", "")
         config = self.root / ".git/config"
         original = config.read_bytes()
         self.assertIn("git_hooks_disabled", {item.code for item in hook_diagnostics(self.root, self.git)})
@@ -72,8 +72,10 @@ class NativeHookTests(unittest.TestCase):
         self.assertTrue(repair.diagnostics)
         self.assertEqual(config.read_bytes(), original)
         hook = self.root / ".git/hooks/commit-msg"
-        hook.write_text("#!/bin/sh\n# call commit-msg.sh manually\n", encoding="utf-8")
+        hook.write_text("#!/bin/sh\nsh scripts/commit-msg.sh\n", encoding="utf-8")
         self.repo.git("config", "unset", "hook.commit-msg.enabled")
+        self.assertNotIn("git_hooks_duplicate", {item.code for item in hook_diagnostics(self.root, self.git)})
+        hook.write_text(f"#!/bin/sh\n{HOOK_COMMAND.replace('sh ', 'bash ', 1)}\n", encoding="utf-8")
         self.assertIn("git_hooks_duplicate", {item.code for item in hook_diagnostics(self.root, self.git)})
 
     def test_read_only_config_and_missing_sibling_payload_refuse_repair(self) -> None:
@@ -100,7 +102,7 @@ class NativeHookTests(unittest.TestCase):
         self.assertIn("git_hooks_foreign_scope", {item.code for item in hook_diagnostics(self.root, self.git)})
         self.assertTrue(install_native_hook(self.root, self.git).diagnostics)
         self.assertEqual(config.read_bytes(), original)
-        config.write_text(config.read_text(encoding="utf-8") + '[hook "other"]\ncommand = sh .specify/extensions/code-review/scripts/bash/commit-msg.sh\nevent = commit-msg\n', encoding="utf-8")
+        config.write_text(config.read_text(encoding="utf-8") + '[hook "Other"]\ncommand = sh .specify/extensions/code-review/scripts/bash/commit-msg.sh\nevent = commit-msg\n', encoding="utf-8")
         self.assertIn("git_hooks_duplicate", {item.code for item in hook_diagnostics(self.root, self.git)})
 
     def test_lock_and_stale_snapshot_refuse_without_touching_config(self) -> None:
@@ -149,6 +151,12 @@ class NativeHookTests(unittest.TestCase):
         self.assertEqual(install_native_hook(self.root, self.git).diagnostics, ())
         self.assertEqual(self.repo.git("config", "--get-all", f"hook.{HOOK_NAME}.command"), HOOK_COMMAND)
         self.assertEqual(self.repo.git("config", "--get-all", f"hook.{HOOK_NAME}.event"), HOOK_EVENT)
+
+    def test_multiline_owned_command_is_a_conflict(self) -> None:
+        self.repo.git("config", "set", f"hook.{HOOK_NAME}.command", f"{HOOK_COMMAND}\ntrue")
+        self.repo.git("config", "set", f"hook.{HOOK_NAME}.event", HOOK_EVENT)
+        self.assertEqual(observe_native_hook(self.root, self.git).state, "conflict")
+        self.assertIn("git_hooks_name_conflict", {item.code for item in hook_diagnostics(self.root, self.git)})
 
     def test_valueless_worktree_config_uses_worktree_file_and_preserves_shared_config(self) -> None:
         config = self.root / ".git/config"
