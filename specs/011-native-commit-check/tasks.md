@@ -32,13 +32,13 @@ valid subjects and reject invalid editor/file subjects without creating commits.
   - **Delivery**: single PR (~210 authored lines)
   - **Completion evidence**: PR #150; focused suite: 75 passed, 69 subtests passed; `git diff --check` clean; independent review of `6693072` returned `no-blocking-findings`; committed budget 259/400.
 
-- [ ] T002 [US1] Diagnose and install one native registration in packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py
+- [x] T002 [US1] Diagnose and install one native registration in packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py
   - **Traces**: FR-001, FR-002, FR-005, FR-008, FR-009, FR-010, C-001, SC-002, SC-003; outcome: doctor observes Git's effective arrangement and repairs one safely owned entry idempotently.
   - **Depends on**: T001
   - **Boundaries**: Add `commit_hook.py` and `tests/unit/test_commit_hook.py`; replace the obsolete absence-is-healthy hooks logic in `doctor.py` and its `test_doctor.py` assertions. Implement D1/D3/D4 together: Git 2.54 capability, exact owned name/command/event, origin/scope and hook-path reads, shared-worktree payload checks, disabled/foreign/ambiguous classification, exclusive config lock, fresh snapshot comparison, Git-edited temporary content, atomic replacement and effective readback. Preserve unrelated config bytes/order/modes, consumer hook files, `core.hooksPath`, manager dispatchers, and the existing review Git minimum. Expose hooks findings and repair failures through the existing doctor reports even when other groups fail.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_doctor.py packages/spec-kit-code-review/tests/unit/test_commit_hook.py -q` -> missing/active/disabled/unverifiable states, older-Git upgrade action, first install, no-op retry, partial owned recovery, duplicate owned normalization, name/scope conflict, read-only preservation, lock/write failures and stale snapshot refusal pass. Real native behavior is verified in T003/T004; mocked capability alone is not acceptance.
   - **Delivery**: single PR (~380 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #156; full package: 996 passed, 635 subtests passed with Git 2.55 and explicit Git 2.54 native tests; `git diff --check` clean; independent PR review of `53c293b` returned `no-blocking-findings`; 693 authored lines under the user-authorized T002 exception of 700 (default stop: 400).
 
 ## Phase 2: User Story 2 - Preserve the consumer's hook workflow (P1)
 
