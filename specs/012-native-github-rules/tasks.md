@@ -88,13 +88,13 @@
 The accumulated review of `fda38cc` found three partial requirements. Complete
 T007 → T008 → T009, then repeat the accumulated review before human handoff.
 
-- [ ] T007 Resolve one GitHub repository identity for every diagnostic read in presets/default/scripts/python/github_delivery.py per FR-001, FR-003, FR-009 (partial)
+- [x] T007 Resolve one GitHub repository identity for every diagnostic read in presets/default/scripts/python/github_delivery.py per FR-001, FR-003, FR-009 (partial)
   - **Traces**: FR-001, FR-003, FR-006, FR-009, C-004, SC-001, SC-002; outcome: settings, inventory, protections, and details refer to the same verified host/owner/repository.
   - **Depends on**: T006
   - **Boundaries**: Extend the observer and focused/installed fixtures. Resolve and validate the selected repository identity using native `gh`; pass its explicit hostname and encoded owner/repository to every REST read. Preserve consumer repository selection and configured trunk semantics. Failed identity resolution leaves affected scope unverified and never falls back to another host. Keep GET-only execution, safe diagnostics, and unchanged consumer configuration.
   - **Evidence**: Reproduce an enterprise remote with a different default API host; assert every diagnostic request uses the resolved repository host and identity. Cover malformed/missing identity, `GH_REPO` selection, and unchanged standard-host behavior. Run focused and installed tests, full preset tests, and `git diff --check`.
   - **Delivery**: single PR (~260 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #166; 64 focused and 135 preset tests passed; budget 299/400; diff check clean. Independent native review of 21e0080 returned no-blocking-findings. Current-head review and CI gate readiness pending.
 
 - [ ] T008 Observe classic merge queues before certifying merge compatibility in presets/default/scripts/python/github_delivery.py and github_delivery_rules.py per FR-003, FR-005, FR-009 (partial)
   - **Traces**: FR-003, FR-005, FR-006, FR-007, FR-009, C-002, C-004, SC-001, SC-002; outcome: a queue configured through classic protection cannot produce a false compatible merge result.
