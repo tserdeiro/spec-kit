@@ -11,17 +11,28 @@ import github_delivery_rules as rules
 import _common
 
 
-def _active(kind: str = "non_fast_forward", ident: int = 7) -> dict[str, object]:
-    return {
+def _active(kind: str = "non_fast_forward", ident: int = 7, parameters: dict[str, object] | None = None) -> dict[str, object]:
+    value = {
         "type": kind,
         "ruleset_source_type": "Organization",
         "ruleset_source": "acme",
         "ruleset_id": ident,
     }
+    if parameters is not None:
+        value["parameters"] = parameters
+    return value
 
 
 def _classic(allow: bool = False, admins: bool = True) -> dict[str, object]:
     return {"allow_force_pushes": {"enabled": allow}, "enforce_admins": {"enabled": admins}}
+
+
+def _complete_classic(**values: bool) -> rules.ClassicProtection:
+    return rules.ClassicProtection(True, True, allow_force_pushes=False, enforce_admins=True, **values)
+
+
+def _setting(name: str, state: str = rules.COMPATIBLE) -> rules.Result:
+    return rules.Result(state, "", f"{name} observed true", "")
 
 
 def _detail(actors: object = None, include: bool = True) -> dict[str, object]:
@@ -101,6 +112,103 @@ def test_omitted_bypass_actors_remains_unknown() -> None:
     result = rules.evaluate_force_push("main", rules.RuleRead(True, parsed, details=(detail,), classic=rules.ClassicProtection(True, False)))
     assert result.state == rules.UNVERIFIED
     assert result.cause == "bypass-coverage-unobserved"
+
+
+def test_rule_parameters_are_preserved_for_merge_evaluation() -> None:
+    parsed = rules.parse_active_rules([[_active("pull_request", parameters={"allowed_merge_methods": ["squash"]})]])
+    assert parsed is not None
+    assert parsed[0].parameters == {"allowed_merge_methods": ["squash"]}
+
+
+@pytest.mark.parametrize(
+    ("rule", "needle"),
+    [
+        (_active("required_linear_history"), "required_linear_history"),
+        (_active("pull_request", parameters={"allowed_merge_methods": ["squash", "rebase"]}), "allowed_merge_methods excludes merge"),
+        (_active("merge_queue", parameters={"merge_method": "SQUASH"}), "merge_method=SQUASH"),
+    ],
+)
+def test_merge_conflicts_keep_rule_owner_and_remediation(rule, needle) -> None:
+    parsed = rules.parse_active_rules([[rule]])
+    assert parsed is not None
+    result = rules.evaluate_merge("001-feature", rules.RuleRead(True, parsed, classic=_complete_classic(required_linear_history=False, lock_branch=False)), _setting("mergeCommitAllowed"))
+    assert result.state == rules.INCOMPATIBLE
+    assert needle in result.evidence
+    assert "Organization acme ruleset 7" in result.next_action
+
+
+def test_merge_queue_missing_method_and_update_rule_are_unverified() -> None:
+    parsed = rules.parse_active_rules([[_active("merge_queue"), _active("update", 8)]])
+    assert parsed is not None
+    result = rules.evaluate_merge("main", rules.RuleRead(True, parsed, classic=_complete_classic(required_linear_history=False, lock_branch=False)), _setting("mergeCommitAllowed"))
+    assert result.state == rules.UNVERIFIED
+    assert "merge_method" in result.evidence
+    assert "ordinary branch updates" in result.evidence
+
+
+def test_merge_conflict_is_retained_when_effective_rules_read_is_incomplete() -> None:
+    read = rules.RuleRead(False, cause="partial-rules", evidence="page 2 failed", classic=_complete_classic(required_linear_history=True, lock_branch=False))
+    result = rules.evaluate_merge("main", read, _setting("mergeCommitAllowed"))
+    assert result.state == rules.INCOMPATIBLE
+    assert "required_linear_history" in result.evidence
+    assert "page 2 failed" in result.evidence
+
+
+def test_cleanup_distinguishes_feature_conflicts_from_retained_trunk() -> None:
+    parsed = rules.parse_active_rules([[_active("deletion")]])
+    assert parsed is not None
+    read = rules.RuleRead(True, parsed, classic=_complete_classic(allow_deletions=False, lock_branch=True, required_linear_history=False))
+    result = rules.evaluate_cleanup("001-feature", read, _setting("deleteBranchOnMerge"), role="feature")
+    assert result.state == rules.INCOMPATIBLE
+    assert "deletion restricts" in result.evidence
+    assert "allow_deletions" in result.evidence
+    trunk = rules.evaluate_cleanup("main", read, _setting("deleteBranchOnMerge"), role="trunk")
+    assert trunk.state == rules.COMPATIBLE
+    assert "trunk is retained" in trunk.evidence
+
+
+def test_cleanup_missing_classic_fields_stays_unverified() -> None:
+    read = rules.RuleRead(True, (), classic=_complete_classic())
+    result = rules.evaluate_cleanup("001-feature", read, _setting("deleteBranchOnMerge"))
+    assert result.state == rules.UNVERIFIED
+    assert "allow_deletions" in result.evidence
+    assert "lock_branch" in result.evidence
+
+
+def test_diagnose_preserves_merge_uncertainty_when_ruleset_detail_is_denied(tmp_path, monkeypatch) -> None:
+    (tmp_path / ".git").mkdir()
+    detail_denied = False
+    classic = {name: {"enabled": value} for name, value in {
+        "allow_force_pushes": False, "enforce_admins": True, "allow_deletions": True,
+        "lock_branch": False, "required_linear_history": False,
+    }.items()}
+
+    def fake_gh(*args: str, cwd=None):
+        endpoint = args[-1]
+        if args[:3] == ("repo", "view", "--json"):
+            return SimpleNamespace(returncode=0, stdout=json.dumps({"deleteBranchOnMerge": True, "mergeCommitAllowed": True}), stderr="")
+        if endpoint == "repos/{owner}/{repo}/branches?per_page=100":
+            return SimpleNamespace(returncode=0, stdout=json.dumps([[{"name": "main"}]]), stderr="")
+        if "/rules/branches/" in endpoint:
+            return SimpleNamespace(returncode=0, stdout=json.dumps([[_active("pull_request", parameters={"allowed_merge_methods": ["merge"]})]]), stderr="")
+        if "/protection" in endpoint:
+            return SimpleNamespace(returncode=0, stdout=json.dumps(classic), stderr="")
+        if "/rulesets/" in endpoint:
+            return SimpleNamespace(returncode=1, stdout="", stderr="permission denied") if detail_denied else SimpleNamespace(returncode=0, stdout=json.dumps(_detail([{"actor_type": "OrganizationAdmin", "bypass_mode": "always"}])), stderr="")
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(github_delivery, "run_gh", fake_gh)
+    monkeypatch.setattr(github_delivery, "delivery_base", lambda _root: "main")
+    monkeypatch.setattr(github_delivery.shutil, "which", lambda _name: "/bin/gh")
+    settings, findings = github_delivery.diagnose(tmp_path)
+    merge = next(result for name, result in findings if name.startswith("merge commits"))
+    assert merge.state == rules.COMPATIBLE and "always bypass" in merge.evidence
+    detail_denied = True
+    settings, findings = github_delivery.diagnose(tmp_path)
+    merge = next(result for name, result in findings if name.startswith("merge commits"))
+    assert merge.state == rules.UNVERIFIED and "detail unavailable" in merge.evidence
+    assert github_delivery.overall_result(settings, findings).state == rules.UNVERIFIED
+    assert "future branches are not certified" in github_delivery.render(settings, findings)
 
 
 def test_classic_404_only_documents_absence_for_exact_message(tmp_path, monkeypatch) -> None:

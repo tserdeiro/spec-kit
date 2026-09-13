@@ -46,13 +46,13 @@
   - **Delivery**: single PR (~340 authored lines)
   - **Completion evidence**: PR #155; 25 focused and 96 preset tests passed; budget 389/400; diff check clean. Independent native review of eba6fa4 returned no-blocking-findings. Current-head review and CI gate readiness.
 
-- [ ] T004 [US1] Expose merge and cleanup conflicts in presets/default/scripts/python/github_delivery_rules.py
+- [x] T004 [US1] Expose merge and cleanup conflicts in presets/default/scripts/python/github_delivery_rules.py
   - **Traces**: FR-002, FR-003, FR-005, FR-007, FR-008, FR-009, C-002, SC-001, SC-003; outcome: repository booleans cannot hide a rule that blocks stack integration or branch cleanup.
   - **Depends on**: T003
   - **Boundaries**: Extend the evaluator, report, and focused fixtures. Combine merge settings with linear history, allowed merge methods, locks, and merge-queue method/uncertainty. Combine automatic deletion with effective deletion restrictions, classic allow-deletions, locks, branch role, and known exceptions. Retain trunk while diagnosing feature/task cleanup. Add source/owner/rule-specific native remediation, concrete setting values or scope adjustments, and explicit uncertainty for unsupported semantics. Preserve confirmed conflicts alongside incomplete observations.
   - **Evidence**: `uv run --frozen --offline pytest presets/default/tests/test_github_delivery.py presets/default/tests/test_github_delivery_rules.py -q` -> globally allowed but branch-blocked merge, linear history, method restrictions, queue uncertainty, auto-delete with deletion/lock conflicts, and retained-trunk fixtures match expected results. Proposed changes preserve team checks/reviews/bypass; no writes occur. `git diff --check` -> clean.
   - **Delivery**: single PR (~300 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #157; 34 focused and 105 preset tests passed; budget 397/400; diff check clean. Missing ruleset exception coverage fixed with a regression through diagnose. Independent native review of 6aec283 returned no-blocking-findings. Current-head review and CI gate readiness.
 
 ## Phase 2: User Story 2 - Act on an honest diagnosis (P2)
 

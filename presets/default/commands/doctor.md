@@ -54,15 +54,18 @@ else `python3` on PATH:
 python3 .specify/presets/default/scripts/python/github_delivery.py
 ```
 
-The helper observes `deleteBranchOnMerge` and `mergeCommitAllowed` with one
-read-only GitHub CLI query, reports each as `compatible`, `incompatible`,
-`capability-unavailable`, or `unverified`, and names the manual remediation
-for a conflicting value. It also states the observed settings scope and keeps
-branch guarantees unverified until the later branch-rules diagnosis exists.
-Its exit status is `0` only for a fully compatible observed scope and `1` for
-any gap or uncertainty. Continue collecting the other categories after a
-nonzero result, including under `--fix`; never pass `--fix` to this helper.
-Never change repository settings.
+The helper observes `deleteBranchOnMerge` and `mergeCommitAllowed`, then reads
+the existing remote trunk and canonical feature/task branches with read-only
+GitHub CLI calls. It evaluates effective rulesets and classic protection for
+force pushes, merge commits, and cleanup, including rule parameters, source,
+owner, bypass exceptions, and uncertainty. Each result is `compatible`,
+`incompatible`, `capability-unavailable`, or `unverified`, with a concrete
+manual remediation when a setting or rule conflicts. The scope is the current
+snapshot of existing branches and does not certify future branches. Its exit
+status is `0` only when every required result in that snapshot is compatible;
+it is `1` for any gap or uncertainty. Continue collecting the other categories
+after a nonzero result, including under `--fix`; never pass `--fix` to this
+helper. Never change repository settings.
 
 ## 5. Summarize one result
 
