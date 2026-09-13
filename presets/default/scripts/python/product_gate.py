@@ -81,10 +81,39 @@ def _feature_branch(repo: Path, feature: str, origin: str) -> str:
 
 
 def _pr(repo: Path, origin: str, branch: str) -> dict[str, Any]:
-    value = _gh_json(repo, "pr", "view", branch, "--repo", origin, "--json", FIELDS)
+    result = run_gh("pr", "view", branch, "--repo", origin, "--json", FIELDS, cwd=repo)
+    if result.returncode:
+        detail = result.stderr.strip() or f"gh pr view {branch} failed"
+        if "no pull requests found for branch" in detail:
+            _pending("feature gate is missing; publish the approved product handoff with /speckit.pr")
+        _pending(f"cannot observe published gate: {detail}")
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        _pending(f"cannot observe published gate: invalid JSON ({error})")
     if not isinstance(value, dict):
         _pending("published gate returned a non-object response")
     return value
+
+
+def _feature_paths(repo: Path, feature_path: Path) -> tuple[Path, str]:
+    repo_path = Path(os.path.abspath(repo))
+    candidate = Path(os.path.abspath(feature_path))
+    try:
+        relative = candidate.relative_to(repo_path)
+    except ValueError:
+        _pending("the active feature directory is outside the repository")
+    component = repo_path
+    for part in relative.parts:
+        component /= part
+        if component.is_symlink():
+            _pending("the active feature directory contains a symlinked path")
+    try:
+        if not candidate.resolve().is_relative_to(repo_path.resolve()):
+            _pending("the active feature directory resolves outside the repository")
+    except OSError as error:
+        _pending(f"cannot resolve the active feature directory: {error}")
+    return candidate, relative.as_posix()
 
 
 def _check_identity(pr: dict[str, Any], expected_repo: str, expected_branch: str,
@@ -265,10 +294,7 @@ def check(repo: Path | None = None) -> None:
     feature_path = Path(paths["FEATURE_DIR"])
     if not feature_path.is_absolute():
         feature_path = repo / feature_path
-    try:
-        feature_rel = Path(os.path.abspath(feature_path)).relative_to(Path(os.path.abspath(repo))).as_posix()
-    except ValueError:
-        _pending("the active feature directory is outside the repository")
+    feature_path, feature_rel = _feature_paths(repo, feature_path)
     feature = feature_rel.rsplit("/", 1)[-1]
     origin = _origin(repo)
     expected_repo = _repository(repo, origin)

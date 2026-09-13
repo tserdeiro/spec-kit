@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -26,6 +28,17 @@ def test_unclosed_tasks_fence_fails_closed() -> None:
     with pytest.raises(SystemExit) as error:
         product_gate._normalise_tasks(b"- [ ] T001 Work\n```md\n- [ ] T002 Sample\n")
     assert error.value.code == 2
+
+
+def test_missing_pr_names_the_product_close_action(monkeypatch: pytest.MonkeyPatch,
+                                                   tmp_path: Path,
+                                                   capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(product_gate, "run_gh", lambda *args, **kwargs: subprocess.CompletedProcess(
+        args, 1, "", "no pull requests found for branch \"003-feature\""))
+    with pytest.raises(SystemExit) as error:
+        product_gate._pr(tmp_path, "origin", "003-feature")
+    assert error.value.code == 2
+    assert "publish the approved product handoff" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("refs,current,expected", [
@@ -87,6 +100,12 @@ def published(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
                 "headRepositoryOwner": {"login": "org"}, "headRefName": "003-feature",
                 "baseRefName": state["base"], "headRefOid": state["oid"]}
     monkeypatch.setattr(product_gate, "_gh_json", lambda _repo, *args: gh(*args))
+    original_gh = product_gate.run_gh
+    def run_gh(*args, **kwargs):
+        if args[0:2] == ("pr", "view"):
+            return subprocess.CompletedProcess(args, 0, json.dumps(gh(*args)), "")
+        return original_gh(*args, **kwargs)
+    monkeypatch.setattr(product_gate, "run_gh", run_gh)
     return feature_repo, state
 
 
@@ -173,3 +192,11 @@ def test_unpublished_scope_drift_stops_and_keeps_state(published: tuple[Path, di
     if scope == "HEAD":
         _git(repo, "commit", "-q", "-m", "docs: drift")
     _reject(repo, published[1])
+
+
+def test_symlinked_feature_parent_stops(published: tuple[Path, dict[str, object]]) -> None:
+    repo, state = published
+    external = repo.parent / "external-specs"
+    (repo / "specs").rename(external)
+    os.symlink(external, repo / "specs", target_is_directory=True)
+    _reject(repo, state)
