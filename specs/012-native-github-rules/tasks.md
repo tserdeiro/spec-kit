@@ -82,3 +82,32 @@
 - **Critical path**: T001 → T002 → T003 → T004 → T005 → T006.
 - **Stack order**: One PR per task in that order; each targets the preceding
   ready, unmerged task PR or the feature branch when none is open.
+
+## Phase 3: Convergence
+
+The accumulated review of `fda38cc` found three partial requirements. Complete
+T007 → T008 → T009, then repeat the accumulated review before human handoff.
+
+- [ ] T007 Resolve one GitHub repository identity for every diagnostic read in presets/default/scripts/python/github_delivery.py per FR-001, FR-003, FR-009 (partial)
+  - **Traces**: FR-001, FR-003, FR-006, FR-009, C-004, SC-001, SC-002; outcome: settings, inventory, protections, and details refer to the same verified host/owner/repository.
+  - **Depends on**: T006
+  - **Boundaries**: Extend the observer and focused/installed fixtures. Resolve and validate the selected repository identity using native `gh`; pass its explicit hostname and encoded owner/repository to every REST read. Preserve consumer repository selection and configured trunk semantics. Failed identity resolution leaves affected scope unverified and never falls back to another host. Keep GET-only execution, safe diagnostics, and unchanged consumer configuration.
+  - **Evidence**: Reproduce an enterprise remote with a different default API host; assert every diagnostic request uses the resolved repository host and identity. Cover malformed/missing identity, `GH_REPO` selection, and unchanged standard-host behavior. Run focused and installed tests, full preset tests, and `git diff --check`.
+  - **Delivery**: single PR (~260 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T008 Observe classic merge queues before certifying merge compatibility in presets/default/scripts/python/github_delivery.py and github_delivery_rules.py per FR-003, FR-005, FR-009 (partial)
+  - **Traces**: FR-003, FR-005, FR-006, FR-007, FR-009, C-002, C-004, SC-001, SC-002; outcome: a queue configured through classic protection cannot produce a false compatible merge result.
+  - **Depends on**: T007
+  - **Boundaries**: Read the native branch merge queue and configuration using a GraphQL query over explicit GET on the resolved host. Combine this observation with existing rules/classic merge constraints. Distinguish successful null queue from omitted, malformed, denied, partial, and unsupported responses. SQUASH/REBASE conflicts retain owner/branch remediation; MERGE retains the unproven interaction required by plan D3. Preserve confirmed conflicts and safe cause-specific diagnostics. Extend focused/installed fixtures and necessary README guidance.
+  - **Evidence**: Cover classic-only SQUASH, REBASE, MERGE, absent queue, hidden fields, GraphQL errors with partial data, and failed reads; assert no false pass, zero writes, and installed independent execution. Run focused/full preset tests and `git diff --check`.
+  - **Delivery**: single PR (~280 authored lines)
+  - **Completion evidence**: Pending
+
+- [ ] T009 Retain validated complete pages when a later JSON page is truncated in presets/default/scripts/python/github_delivery.py per FR-006, FR-009 (partial)
+  - **Traces**: FR-006, FR-009, C-004, SC-002, SC-003; outcome: a later transport truncation cannot erase an already observed merge or cleanup conflict.
+  - **Depends on**: T008
+  - **Boundaries**: Use the standard JSON decoder to retain only fully decoded and validated prefix pages from a failed paginated response. Keep the read incomplete with its original cause; reject incomplete records and never infer an empty successful collection. Reuse the existing rule validation and preserve bounded sanitized evidence. Extend focused regression fixtures without introducing a custom JSON parser or new dependency.
+  - **Evidence**: Reproduce gh paginated slurp output containing one valid conflict page followed by truncated JSON, with both transport failure and malformed successful output. Verify preserved conflicts, explicit uncertainty, and safe output; run focused/full preset tests, installed tests, existing bundle conformance, and `git diff --check`.
+  - **Delivery**: single PR (~180 authored lines)
+  - **Completion evidence**: Pending
