@@ -111,17 +111,37 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
 
     assert observation < first_commit
     for command in (
+        "check-prerequisites.sh --paths-only",
+        "git remote get-url origin",
+        "pr_create.py feature",
+        'gh repo view "$origin_url" --json nameWithOwner --jq .nameWithOwner',
         "git rev-parse HEAD",
         "git ls-remote --heads origin <branch>",
-        "gh pr view <branch> --json",
-        "gh pr create --draft",
-        "gh pr edit <number>",
+        'gh pr view <branch> --repo "$origin_url" --json',
+        'gh pr create --repo "$origin_url" --draft',
+        'gh pr edit --repo "$origin_url" <number>',
     ):
         assert command in pr
     assert "publication lookup failed" in pr
     assert "confirmed absence" in pr
     assert "Only `state: OPEN` is reusable" in pr
     assert "CLOSED` or `MERGED`" in pr
+    assert "headRepository.nameWithOwner" in pr
+    assert "isCrossRepository" in pr
+    assert "expected_base" in pr
+    assert "expected_repo" in pr
+    assert "expected_head" in pr
+    assert "origin_url" in pr
+    assert "current branch does not match selected feature" in pr
+    assert 'expected_base="$base"' in pr
+    assert "GitHub target repository is empty" in pr
+    assert "confirmed remote OID" in pr
+    assert "before reporting publication verified" in pr
+    assert "gate-consistency failure" in pr
+    assert "Never adopt an observed `baseRefName`" in pr
+    assert observation < pr.index("pr_create.py feature") < pr.index(
+        'gh pr view <branch> --repo "$origin_url" --json'
+    )
     assert "--body-file \"$body_file\"" in pr
     assert "--body \"<the body>\"" not in pr
     assert pr.index("git commit --only") < pr.index("gh pr create")
@@ -138,7 +158,7 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     assert publication.index('git diff "$base"...HEAD --stat') < publication.index(
         "gh pr create"
     )
-    assert publication.index("gh pr view <branch> --json number,state,headRefName,baseRefName,headRefOid") < publication.index(
+    assert publication.index("gh pr view <branch> --repo \"$origin_url\" --json number,state,isCrossRepository,headRepository,headRepositoryOwner,headRefName,baseRefName,headRefOid") < publication.index(
         "git push -u origin"
     )
     assert re.search(r"known\s+push\s+failure\s+stops before PR or Linear writes", publication)
@@ -152,12 +172,14 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     assert "historical successful publication evidence" in preparation
     assert re.search(r"retry with zero operations", publication)
     assert "retry counters" in preparation
-    assert 'gh pr create --draft --base "$base" --title "feat(<area>): <feature outcome>" --body-file "$body_file"' in publication
-    assert 'gh pr edit <number> --body-file "$body_file"' in publication
+    assert 'gh pr create --repo "$origin_url" --draft --base "$base" --title "feat(<area>): <feature outcome>" --body-file "$body_file"' in publication
+    assert 'gh pr edit --repo "$origin_url" <number> --body-file "$body_file"' in publication
     assert re.search(
         r"Preserve the Git and PR publication\s+when Linear requirements\s+fail",
         publication,
     )
+    assert "expected_base" in publication
+    assert "never adopt its observed `baseRefName`" in publication
     assert "Run exactly one delivery route" in pr
 
 
@@ -194,8 +216,10 @@ def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() ->
     assert "Fixes WOR-123" in task_flow
     assert "N/A" in task_flow
     assert "(chore)" in task_flow
-    assert 'gh pr create --draft --base "$base" --title "<type(scope): subject>" --body-file "$body_file"' in task_flow
-    assert 'gh pr edit <number> --body-file "$body_file"' in task_flow
+    assert task_flow.index("1. Observe") < task_flow.index('base_line="$(GH_REPO=')
+    assert "do not invoke `pr_create.py`" in task_flow
+    assert 'gh pr create --repo "$origin_url" --draft --base "$base" --title "<type(scope): subject>" --body-file "$body_file"' in task_flow
+    assert 'gh pr edit --repo "$origin_url" <number> --body-file "$body_file"' in task_flow
 
 
 def test_approved_close_commit_only_preserves_pre_staged_unrelated_files(
