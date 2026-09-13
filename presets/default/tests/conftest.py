@@ -81,7 +81,7 @@ def install_fake_linear(repo: Path) -> Path:
 @pytest.fixture
 def product_gate_pass(monkeypatch: pytest.MonkeyPatch):
     """Keep base-resolution fixtures focused on the post-gate behavior."""
-    def allow(_repo: Path) -> None:
+    def allow(_repo: Path, _selected_ref: str | None = None) -> None:
         return None
 
     monkeypatch.setattr("task_base.product_gate.check", allow, raising=False)

@@ -692,6 +692,8 @@ if args == ["branch", "--show-current"]:
     print(os.environ.get("GIT_CURRENT_BRANCH", "003-feature"))
 elif args == ["rev-parse", "FETCH_HEAD"] and os.environ.get("GATE_OID"):
     print(os.environ["GATE_OID"])
+elif len(args) == 2 and args[0] == "rev-parse" and args[1].startswith("origin/") and os.environ.get("GATE_OID"):
+    print(os.environ["GATE_OID"])
 elif args and args[0] == "check-ref-format":
     if os.environ.get("FAIL_COMMAND") == "git":
         print("forced git failure", file=sys.stderr)
@@ -1005,7 +1007,8 @@ output=$(run_task_base 003-T002-slug "") || fail "stack: task-base with no open 
 [ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: task-base with no open PR used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
-$(json_argv switch -c 003-T002-slug origin/003-feature)" ] ||
+$(json_argv branch --show-current)
+$(json_argv switch -c 003-T002-slug "$gate_oid")" ] ||
   fail "stack: task-base with no open PR used incorrect git argv"
 
 # A slashed feature branch (branch_template repositories): the feature
@@ -1018,7 +1021,8 @@ output=$(run_task_base 003-T002-slug "" 'team/web/003-feature$(safe)') ||
 [ "$(cat "$gh_calls")" = "$(pr_list_json_call)" ] ||
   fail "stack: task-base with a slashed feature branch used incorrect gh argv"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
-$(json_argv switch -c 003-T002-slug 'origin/team/web/003-feature$(safe)')" ] ||
+$(json_argv branch --show-current)
+$(json_argv switch -c 003-T002-slug "$gate_oid")" ] ||
   fail "stack: task-base with a slashed feature branch used incorrect git argv"
 
 # One ready task PR: branch from its head, not the feature branch.
@@ -1028,7 +1032,8 @@ output=$(run_task_base 003-T002-slug '003-T001-x 003-feature false') ||
 [ "$output" = "base=003-T001-x" ] ||
   fail "stack: task-base with one ready PR printed the wrong base"
 [ "$(cat "$git_calls")" = "$(json_argv fetch origin)
-$(json_argv switch -c 003-T002-slug origin/003-T001-x)" ] ||
+$(json_argv branch --show-current)
+$(json_argv switch -c 003-T002-slug "$gate_oid")" ] ||
   fail "stack: task-base with one ready PR used incorrect git argv"
 
 # Two open tops: two stacks, refuse before touching Git.
@@ -1459,7 +1464,7 @@ echo "ok: merge-root-first"
 # --------------------------------------------------------------------------
 
 run_ledger_check() {
-  (cd "$consumer_root" && SPECIFY_FEATURE_DIRECTORY='specs/003-directory-different' \
+  (cd "$consumer_root" && SPECIFY_FEATURE_DIRECTORY='specs/003-feature' \
     "$PYTHON" "$ledger_check_script" "$1")
 }
 

@@ -20,11 +20,14 @@ import product_gate
 from _common import check_prerequisites, delivery_base, die, open_task_prs, reconcile_linear, run_git
 
 
-def _check_product_gate(repo_root: Path) -> None:
+def _check_product_gate(repo_root: Path, selected_ref: str | None = None) -> None:
     # Keep task-base's machine-readable ``base=`` output stable while the
     # shared gate remains verbose when invoked as its own entrypoint.
     with contextlib.redirect_stdout(io.StringIO()):
-        product_gate.check(repo_root)
+        if selected_ref is None:
+            product_gate.check(repo_root)
+        else:
+            product_gate.check(repo_root, selected_ref)
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = run_git(*args, cwd=repo_root)
@@ -61,7 +64,9 @@ def task(repo_root: Path, task_branch: str) -> None:
         die("two open task stacks: " + "\n".join(tops))
     base = tops[0] if tops else feature_branch
     _git(repo_root, "fetch", "origin")
-    _git(repo_root, "switch", "-c", task_branch, f"origin/{base}")
+    selected_ref = _git(repo_root, "rev-parse", f"origin/{base}").stdout.strip()
+    _check_product_gate(repo_root, selected_ref)
+    _git(repo_root, "switch", "-c", task_branch, selected_ref)
     print(f"base={base}")
     reconcile_linear(repo_root)
 

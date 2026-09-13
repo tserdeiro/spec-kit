@@ -145,8 +145,9 @@ def _feature_paths(repo: Path, feature_path: Path) -> tuple[Path, str]:
             break
         cursor = cursor.parent
     if lexical_repo is not None:
-        for index in range(1, len(relative.parts) + 1):
-            component = lexical_repo.joinpath(*relative.parts[:index])
+        lexical_relative = raw_candidate.relative_to(lexical_repo)
+        for index in range(1, len(lexical_relative.parts) + 1):
+            component = lexical_repo.joinpath(*lexical_relative.parts[:index])
             if component.is_symlink():
                 _pending("the active feature directory contains a symlinked path")
     try:
@@ -327,12 +328,21 @@ def _compare(remote: dict[str, tuple[str, str, bytes]], sources: list[tuple[str,
                 reason = "committed product changes are unpublished"
             elif name == "index":
                 reason = "staged product changes are unpublished"
+            elif name == "selected task base":
+                reason = "selected task base product changes are unpublished"
             else:
                 reason = "working-tree product changes are unpublished"
             _pending(f"{reason}; rerun product analysis and obtain approval before publication")
 
 
-def check(repo: Path | None = None) -> None:
+def check(repo: Path | None = None, selected_ref: str | None = None) -> None:
+    """Validate the published gate and, optionally, a fetched task-base tree.
+
+    A normal check compares the selected feature's HEAD, index, and worktree.
+    A task-base check compares only the exact fetched commit that will be
+    checked out, allowing task setup to validate a moving stack without
+    mutating the current checkout first.
+    """
     repo = repo or Path.cwd()
     paths = check_prerequisites(repo)
     feature_path = Path(paths["FEATURE_DIR"])
@@ -356,10 +366,14 @@ def check(repo: Path | None = None) -> None:
     _check_identity(first, expected_repo, branch, expected_base)
     remote_oid = _remote_oid(repo, origin, branch, first["headRefOid"])
     remote = _tree(repo, remote_oid, feature_rel)
-    head = _tree(repo, "HEAD", feature_rel)
-    index = _index(repo, feature_rel)
-    worktree = _worktree(repo, feature_path)
-    _compare(remote, [("HEAD", head), ("index", index), ("worktree", worktree)])
+    if selected_ref is None:
+        head = _tree(repo, "HEAD", feature_rel)
+        index = _index(repo, feature_rel)
+        worktree = _worktree(repo, feature_path)
+        _compare(remote, [("HEAD", head), ("index", index), ("worktree", worktree)])
+    else:
+        selected = _tree(repo, selected_ref, feature_rel)
+        _compare(remote, [("selected task base", selected)])
     final = _pr(repo, origin, branch)
     if any(final.get(field) != first.get(field) for field in FIELDS.split(",")):
         _pending("feature gate changed while its published artifacts were being checked; re-observe and reconcile the feature PR, rerun product analysis, and obtain fresh approval/publication before implementation")

@@ -97,7 +97,7 @@ def test_reconcile_is_a_silent_no_op_without_the_extension(feature_repo: Path) -
 def test_task_gate_runs_before_stack_observation_or_branch_creation(feature_repo: Path, fake_gh: Path,
                                                                       monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
-    monkeypatch.setattr(task_base.product_gate, "check", lambda _repo: events.append("gate"))
+    monkeypatch.setattr(task_base.product_gate, "check", lambda _repo, _selected_ref=None: events.append("gate"))
     original = task_base._git
 
     def record(repo: Path, *args: str):
@@ -123,3 +123,37 @@ def test_task_gate_failure_preserves_checkout_and_skips_mutation(feature_repo: P
                           capture_output=True, check=True).stdout.strip() == "003-feature"
     assert subprocess.run(["git", "rev-parse", "HEAD"], cwd=feature_repo, text=True,
                           capture_output=True, check=True).stdout == before
+
+
+def test_task_validates_the_fetched_stack_commit_before_switch(feature_repo: Path,
+                                                               fake_gh: Path,
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    subprocess.run(["git", "switch", "-q", "-c", "003-T001-prior"], cwd=feature_repo,
+                   check=True, capture_output=True)
+    stack_file = feature_repo / "specs/003-feature/plan.md"
+    stack_file.parent.mkdir(parents=True)
+    stack_file.write_text("unapproved stack\n", encoding="utf-8")
+    subprocess.run(["git", "add", "specs/003-feature/plan.md"], cwd=feature_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", "stack"], cwd=feature_repo, check=True, capture_output=True)
+    subprocess.run(["git", "switch", "-q", "003-feature"], cwd=feature_repo, check=True, capture_output=True)
+    subprocess.run(["git", "push", "-q", "origin", "HEAD:refs/heads/003-T001-prior"],
+                   cwd=feature_repo, check=True, capture_output=True)
+    stack_oid = subprocess.run(["git", "rev-parse", "origin/003-T001-prior"], cwd=feature_repo,
+                               text=True, capture_output=True, check=True).stdout.strip()
+    monkeypatch.setenv("GH_PR_LIST_JSON", json.dumps([
+        {"headRefName": "003-T001-prior", "baseRefName": "003-feature", "isDraft": False},
+    ]))
+    seen: list[str | None] = []
+
+    def gate(_repo: Path, selected_ref: str | None = None) -> None:
+        seen.append(selected_ref)
+        if selected_ref is not None:
+            raise SystemExit(2)
+
+    monkeypatch.setattr(task_base.product_gate, "check", gate)
+    with pytest.raises(SystemExit) as excinfo:
+        task_base.task(feature_repo, "003-T002-next")
+    assert excinfo.value.code == 2
+    assert seen == [None, stack_oid]
+    assert subprocess.run(["git", "branch", "--show-current"], cwd=feature_repo, text=True,
+                          capture_output=True, check=True).stdout.strip() == "003-feature"
