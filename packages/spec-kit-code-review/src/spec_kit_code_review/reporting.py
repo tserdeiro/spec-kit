@@ -186,7 +186,7 @@ def compact_open(payload: Mapping[str, Any], *, extension_version: str) -> dict[
     }
 
 
-def compact_close(payload: Mapping[str, Any]) -> dict[str, Any]:
+def compact_close(payload: Mapping[str, Any], *, extension_version: str) -> dict[str, Any]:
     """The compact document of a closed review."""
 
     verdict = payload["verdict"]
@@ -211,6 +211,7 @@ def compact_close(payload: Mapping[str, Any]) -> dict[str, Any]:
             "discarded": len(payload.get("discarded_findings") or ()),
             "path": f"{session.get('path')}/{FINDINGS_MARKDOWN_FILENAME}",
         },
+        "runtime": {"extension_version": extension_version},
         "next": _next_sentence(verdict, record),
     }
     if "publication" in payload:
