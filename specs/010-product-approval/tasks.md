@@ -24,13 +24,13 @@
 **Independent evidence**: Rendered phase/hook matrix plus an approval/no-approval
 scenario proves the new command precedence; live evidence follows in T006.
 
-- [ ] T001 [US1] Deliver coordinated local refinement and approved close in presets/default/commands/phase-close-append.md
+- [x] T001 [US1] Deliver coordinated local refinement and approved close in presets/default/commands/phase-close-append.md
   - **Traces**: FR-001, FR-002, FR-003, FR-005, FR-007, FR-010, C-001, C-002, C-004, SC-001, SC-005; outcome: product phases preserve drafts until a human approves concrete analyzed artifacts, then the existing feature PR path can publish them.
   - **Depends on**: none
   - **Boundaries**: Update `presets/default/commands/{phase-close-append,tasks,pr}.md`, `preset.yml`, and `templates/{plan-template,tasks-template}.md`; add `presets/default/tests/test_product_commands.py`. Deliver plan D1 and the initial D2 close together: preserve the mirror marker, register clarify, suppress phase Git commits/hooks for every eligibility combination, retain mandatory Linear hooks, scope approved commits including unrelated staged-file protection, and make analysis read-only before separate approved closure. Move stable-ID timing to approved publication. Preserve existing delivery-base template assertions; adapt their fixtures in `scripts/conformance/bundles.sh` in this same task if wording changes require it. Keep the current CLI and upstream/Git payload untouched. Required PR idempotency/error paths are completed and exercised in T002.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest presets/default/tests/test_product_commands.py presets/default/tests/test_skill_mirror.py -q` -> all five phases use one approval boundary, enabled optional/mandatory commit hooks cannot override it, Linear hooks remain, templates agree, and scoped closure preserves unrelated staged content. `bash scripts/conformance/bundles.sh` remains passing. Rendered-command evidence is identified as such.
   - **Delivery**: single PR (~300 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: Implementation 4e6d5ed, including the independent review fix for local feature resolution. Focused product/mirror tests: 12 passed; full preset suite: 77 passed; installed bundle conformance passed with synthetic providers. Budget: 151/400 authored executable lines; diff check clean. PR candidate review and CI gate readiness.
 
 ## Phase 2: User Story 2 - Publish the approved handoff once (P1)
 

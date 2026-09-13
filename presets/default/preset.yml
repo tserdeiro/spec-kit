@@ -46,19 +46,25 @@ provides:
     - type: "command"
       name: "speckit.specify"
       file: "commands/phase-close-append.md"
-      description: "Appends the phase-close rules (silent hooks, scoped artifact commit) to the core specify command"
+      description: "Appends the local-draft and approved-close rules to the core specify command"
+      strategy: "append"
+
+    - type: "command"
+      name: "speckit.clarify"
+      file: "commands/phase-close-append.md"
+      description: "Appends the local-draft and approved-close rules to the core clarify command"
       strategy: "append"
 
     - type: "command"
       name: "speckit.plan"
       file: "commands/phase-close-append.md"
-      description: "Appends the phase-close rules (silent hooks, scoped artifact commit) to the core plan command"
+      description: "Appends the local-draft and approved-close rules to the core plan command"
       strategy: "append"
 
     - type: "command"
       name: "speckit.analyze"
       file: "commands/phase-close-append.md"
-      description: "Appends the phase-close rules (silent hooks, scoped artifact commit) to the core analyze command"
+      description: "Appends the local-draft and approved-close rules to the core analyze command"
       strategy: "append"
 
     - type: "command"
