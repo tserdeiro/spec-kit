@@ -106,20 +106,49 @@ specify bundle install developer   # o: product | reviewer
 
 ### 4. Cierra el setup con el doctor
 
-Con el bundle instalado, un solo comando termina de conectar Linear y el
-motor de revisión: `/speckit.doctor`. Reporta lo que falta siempre en el
+Con el bundle instalado, un solo comando termina de conectar Linear, el motor
+de revisión y la validación nativa de commits: `/speckit.doctor`. Reporta lo que falta siempre en el
 mismo orden — el intérprete de Python (el `.venv` del repo si existe, si
 no `python3` en PATH), `gh auth`, la API key de Linear
 (`.speckit-linear.env`, gitignoreada; `--fix` crea el template para
 pegarla), el binding de `/speckit.linear.onboard`, la instalación del
-motor de revisión, y los settings de entrega de GitHub — nombrando el
-comando exacto que resuelve cada uno. `/speckit.doctor --fix` aplica la
-parte mecánica; dos huecos quedan siempre solo reportados: el intérprete
-(instalarlo o activarlo es decisión tuya) y los settings de GitHub
+motor de revisión, la validación nativa de commits, y los settings de entrega
+de GitHub — nombrando el comando exacto que resuelve cada uno. `/speckit.doctor
+--fix` aplica la parte mecánica; dos huecos quedan siempre solo reportados: el
+intérprete (instalarlo o activarlo es decisión tuya) y los settings de GitHub
 (aplicarlos es alcance de la ronda de releases).
 
 Listo. Ante cualquier falla futura, `/speckit.doctor --fix` es el primer
 auxilio.
+
+### Validación nativa del mensaje de commit
+
+La extensión `code-review` instala, con `/speckit.doctor --fix`, una única
+entrada nativa `speckit-commit-message` para el evento `commit-msg`. Requiere
+Git 2.54+ y `git hook list`; el mínimo de Git para el comando de revisión sigue
+siendo 2.41. En Git anterior, el doctor informa que hay que actualizar Git y
+volver a ejecutar `doctor --fix`, sin actualizarlo por su cuenta.
+
+El doctor informa el `core.hooksPath` efectivo y el alcance elegido: usa el
+archivo de configuración compartido que Git resuelve, que afecta a todos los
+worktrees enlazados, salvo que `extensions.worktreeConfig` ya esté habilitado,
+en cuyo caso usa el archivo `config.worktree` que Git resuelve para el worktree
+actual. En alcance compartido, el payload instalado de la extensión debe
+existir en cada worktree. Los hooks existentes y los
+dispatchers de Husky y Lefthook conservan sus archivos, argumentos, orden,
+modos y efecto de rechazo.
+
+Los estados `missing`, `installed`, `disabled` y `unverifiable` (más fallas
+parciales, duplicadas, ajenas o de payload, lock, permisos, concurrencia,
+escritura y lectura posterior) se muestran con la ruta y la remediación exacta.
+Una reparación insegura deja intacta la configuración. Para revertirla, usa
+solo el alcance que el doctor informó: `git config --local --remove-section
+hook.speckit-commit-message` o `git config --worktree --remove-section
+hook.speckit-commit-message`; eso no toca los hooks de la aplicación.
+
+El hook local se puede saltear con `git commit --no-verify` o una desactivación
+por evento. Un hook tradicional posterior puede reescribir el mensaje después
+de la validación; GitHub y CI siguen siendo controles separados.
 
 ## 👥 ¿Qué rol soy?
 
@@ -277,7 +306,7 @@ el trío `/speckit.bug.*`.
 
 | Origen | Comandos |
 | --- | --- |
-| preset `default` | `/speckit.pr`, `.bugfix`, `.chore`, `.doctor` (conduce el onboarding en seis categorías, verifica el cableado de eventos, espeja skills entre agentes y agrega al `.gitignore` las cachés del instalador) — más los reemplazos de `.implement` (el loop de entrega, sobre los scripts del preset) y `.tasks` (el ledger sin `[P]`), y los appends en `.specify`, `.plan` y `.analyze` (fases silenciosas y commiteadas) |
+| preset `default` | `/speckit.pr`, `.bugfix`, `.chore`, `.doctor` (conduce el onboarding en siete categorías, verifica el cableado de eventos, espeja skills entre agentes y agrega al `.gitignore` las cachés del instalador) — más los reemplazos de `.implement` (el loop de entrega, sobre los scripts del preset) y `.tasks` (el ledger sin `[P]`), y los appends en `.specify`, `.plan` y `.analyze` (fases silenciosas y commiteadas) |
 | extensión `linear` | `onboard`, `push` (`--dry-run` / `--apply`), `status`, `doctor --fix` |
 | extensión `code-review` | `speckit.code-review` (`--publish`), `doctor --fix` — bloquea con un finding automático el PR de tarea que toque `spec.md` o la constitución (`protected_paths`) |
 

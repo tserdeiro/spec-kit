@@ -9,6 +9,9 @@ One health check for the whole setup. You (the agent) run each installed
 extension's own doctor and reduce everything to a single answer: healthy,
 or exactly what to run to become healthy.
 
+The aggregator remains the agent command `/speckit.doctor`; it delegates repair
+to each extension and does not implement an executable hook aggregator.
+
 ## 1. The Python interpreter
 
 Every script this distribution installs, and every runtime event
@@ -41,9 +44,13 @@ README's Get Started.
 ## 3. Run each doctor
 
 Run them read-only first. If the user asked to fix (`--fix` or "arregla"),
-re-run each failing doctor with `--fix` and report what it repaired —
-`--fix` is each doctor's own, bounded repair; you never fix anything
-yourself.
+re-run each failing or repairable doctor with `--fix` and report what it
+repaired — a missing native hook is a repairable warning even when the
+extension exits successfully. `--fix` is each doctor's own, bounded repair;
+you never fix anything yourself. Preserve every diagnostic from the code-review doctor's `hooks`
+group: its effective path, selected scope, state, payload requirement, and
+exact repair or manual recovery action. The aggregate command must carry that
+text through even when another group also fails.
 
 ## 4. Verify the GitHub repository settings
 
@@ -70,31 +77,42 @@ the failure as a warning. Never change repository settings.
 
 ## 5. Summarize one result
 
-Group every reported gap into six fixed categories, in this order,
+Group every reported gap into seven fixed categories, in this order,
 regardless of which sub-doctor produced the underlying diagnostic: (1)
 the Python interpreter, (2) GitHub CLI authentication, (3) the Linear
 API key, (4) the Linear onboarding binding, (5) the review engine
-installation, (6) the repository's GitHub delivery settings.
+installation, (6) native commit-message validation, and (7) the repository's
+GitHub delivery settings. Native validation is the code-review doctor's full
+`hooks` group; do not discard a finding because it does not fit the other
+categories.
 
 - **Everything passed and both settings were verified** → one line: the
   setup is healthy, the installed extensions were checked (name them), with
   `deleteBranchOnMerge=true` and `mergeCommitAllowed=true`.
-- **Anything failed** → one short list, ordered by the six categories
+- **Anything failed** → one short list, ordered by the seven categories
   above and skipping any with nothing to report; one bullet per blocking
-  problem, carrying its doctor's own remediation **verbatim**, step 1's
-  interpreter fix, or the exact GitHub remediation from step 4. End with
+  problem, carrying its doctor's own remediation **verbatim**, including the
+  native-hook path, state, and exact `doctor --fix` or manual action, plus the
+  interpreter fix from step 1 or exact GitHub remediation from step 4 where
+  applicable. End with
   the single next action: usually
   re-running this command with `--fix`, or the one manual step a
   report-only category names.
 - **Nothing failed but GitHub could not be verified** → say the checks that
   ran passed, but do not call the setup healthy.
 
-`--fix` applies each doctor's own bounded repair for categories 2
-through 5, where the doctor offers one. Categories 1 and 6 stay
+`--fix` passes through each doctor's own bounded repair for categories 2
+through 6, where the doctor offers one. The native-hook repair is the
+code-review doctor's `doctor --fix`: it may register the named hook in the
+Git config selected by that doctor, while preserving existing hooks and
+managers. Do not implement a second aggregator or edit Git configuration here.
+Categories 1 and 7 stay
 report-only even with `--fix`: installing or activating an interpreter,
 and changing GitHub's delivery settings, are both human decisions.
 
-Warnings that block nothing go in one final line, not in the list.
+Warnings and informational hook diagnostics that block nothing stay visible in
+the final output with their original path and message, including when the
+healthy line is reported.
 
 ## 6. Check the runtime-events wiring
 
@@ -129,6 +147,10 @@ itself declares events, it is `specify integration upgrade <key>` — an
 upgrade reports locally modified files, which the mirrored appends are —
 followed by this doctor with `--fix`, so step 7 restores the preset layer
 the upgrade re-rendered.
+
+This runtime-events check covers agent wiring. Native Git commit-message state
+comes from the code-review doctor's `hooks` group in step 5 and remains in the
+aggregate result independently of agent-event support.
 
 ## 7. Mirror the skills across installed agents
 

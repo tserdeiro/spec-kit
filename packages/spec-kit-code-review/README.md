@@ -21,6 +21,54 @@ bash "$CR" doctor [--fix]
 Universal flags: `--help`, `--json`, `--quiet`, `--verbose`, `--config PATH`,
 `--root PATH`.
 
+### Native commit-message validation
+
+`doctor` reports Git's effective `commit-msg` hooks path, native registration
+scope, payload, and state. Automatic repair requires Git 2.54+ and
+`git hook list`; the review command's minimum remains Git 2.41. With
+`doctor --fix`, the extension registers one named native hook when the
+arrangement is safe:
+
+```ini
+[hook "speckit-commit-message"]
+    command = sh .specify/extensions/code-review/scripts/bash/commit-msg.sh
+    event = commit-msg
+```
+
+The local scope uses the repository-shared config path. When
+`extensions.worktreeConfig` is enabled, registration is local to the current
+worktree in Git's resolved `config.worktree` path. Otherwise it is in the
+shared config path and applies to every linked worktree; the installed
+payload must exist in each of them. The command resolves the installed
+checkout at runtime. The payload is `scripts/bash/commit-msg.sh` plus
+`__init__.py`, `commit_msg.py`, and `commit_policy.py` under
+`src/spec_kit_code_review/`.
+Custom `core.hooksPath`, traditional hooks, and Husky or Lefthook dispatchers
+remain untouched and keep their bytes, modes, arguments, order, and rejection
+behavior. A successful retry is idempotent and leaves one effective
+registration.
+
+States are `missing`, `installed`, `disabled`, and `unverifiable`, with
+partial, duplicate, foreign-scope, conflict, payload, lock, permission,
+concurrency, write, and readback diagnostics also reported. The doctor keeps
+the affected path and exact next action in every finding. A missing or
+unreadable payload requires reinstalling this extension and rerunning
+`doctor --fix`; a disabled or foreign entry requires explicit manual repair.
+Unsafe or concurrent repairs preserve the original configuration.
+
+To roll back, confirm the scope reported by `doctor` and remove only the owned
+section with the matching command:
+
+```bash
+git config --local --remove-section hook.speckit-commit-message
+git config --worktree --remove-section hook.speckit-commit-message
+```
+
+This does not edit consumer hook files or manager configuration. Local
+validation remains bypassable with `git commit --no-verify` or per-event
+disabling, and a later traditional hook may rewrite the message after the
+native validator observes it; GitHub and CI enforcement remain separate.
+
 `review` detects its context. With no candidate it reviews the working tree and
 is advisory: no immutable candidate, no session, no publishable verdict. With a
 pull request it reviews the anchored candidate `(merge_base, head_commit)`,
@@ -127,10 +175,11 @@ failure — is a silent no-op, exit 0.
 - **Fail closed on the engine.** The pinned digest is re-verified before every
   invocation, and an output shape the adapter does not recognize is exit code 9,
   never a guessed scope.
-- **One command installs, and only the pinned engine.** `doctor --fix` installs
-  `ocr` into this distribution's data root and verifies it against the lock
-  before leaving it on disk. Every other command, `review` included, installs,
-  downloads and updates nothing.
+- **Doctor performs only its bounded installs.** `doctor --fix` installs `ocr`
+  into this distribution's data root, verifies it against the lock, and can
+  register the named native commit hook in the consumer's Git configuration.
+  Every other command, `review` included, installs, downloads and updates
+  nothing.
 - **No new credential, zero runtime dependencies.** GitHub authentication is the
   operator's own `gh`; OCR runs in delegation mode, so no model provider is
   introduced. Standard library only.
@@ -154,7 +203,9 @@ request is a human decision. `budget.limit` sets the number.
 
 Resolution order for the shared configuration: `--config PATH`, then
 `SPECKIT_CODE_REVIEW_CONFIG`, then `<repo>/speckit-code-review.yml`.
-`doctor --fix` creates the first three when they are absent. For a
+`doctor --fix` creates the first three when they are absent. It also registers
+the named native commit hook described above when Git and the hook arrangement
+are safe. For a
 repository with no rule file, it also writes `.opencodereview/rule.json`
 with a starting `**/*` rule stating the engineering principles —
 over-engineering and speculative abstraction are `major` findings, a new
@@ -198,8 +249,8 @@ digest **before it is left on disk**: a mismatch removes the whole directory and
 fails. `doctor` also prints the equivalent command for a person who prefers to
 run it themselves.
 
-Everything else installs nothing, on any path. `review` resolves, re-verifies
-and refuses.
+The `review` command installs nothing on any path; it only resolves and
+re-verifies the engine.
 
 ### Which `ocr` runs
 
