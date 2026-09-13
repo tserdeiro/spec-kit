@@ -109,8 +109,35 @@ class LocationTests(unittest.TestCase):
     def test_the_platform_package_follows_the_machine(self) -> None:
         from spec_kit_code_review.paths import platform_package
 
-        self.assertEqual(platform_package("linux-amd64"), "ocr-linux-amd64")
+        # npm publishes the amd64 platform package as `x64`, not `amd64` -- the
+        # lock's own `binaries` keys stay `<os>-amd64`, so the two vocabularies
+        # only ever meet through this one mapping.
+        self.assertEqual(platform_package("linux-amd64"), "ocr-linux-x64")
+        self.assertEqual(platform_package("darwin-amd64"), "ocr-darwin-x64")
+        self.assertEqual(platform_package("linux-arm64"), "ocr-linux-arm64")
+        self.assertEqual(platform_package("darwin-arm64"), "ocr-darwin-arm64")
         self.assertRegex(platform_package(), r"^ocr-[a-z0-9]+-[a-z0-9]+$")
+
+    def test_an_x86_64_machine_resolves_the_x64_package_under_the_amd64_lock_key(self) -> None:
+        # `uname -m` on an x86_64 machine, and the lock's own digest key for it,
+        # are both `amd64` -- the npm platform package directory is `x64`. This
+        # is the exact case that was broken: an amd64 install used to look for
+        # `ocr-linux-amd64`, a package npm never published.
+        from spec_kit_code_review.lockfile import platform_key as lock_platform_key
+        from spec_kit_code_review.paths import platform_package
+
+        with mock.patch("platform.system", return_value="Linux"), mock.patch(
+            "platform.machine", return_value="x86_64"
+        ):
+            self.assertEqual(platform_package(), "ocr-linux-x64")
+
+        with mock.patch("sys.platform", "linux"), mock.patch("platform.machine", return_value="x86_64"):
+            self.assertEqual(lock_platform_key(), "linux-amd64")
+
+        self.assertEqual(
+            tool_executable("ocr", "v1.12.0", {"XDG_DATA_HOME": "/data"}, platform="linux-amd64"),
+            Path("/data/tserdeiro/spec-kit/tools/ocr/1.12.0/node_modules/@alibaba-group/ocr-linux-x64/bin/opencodereview"),
+        )
 
 
 class CommandTests(unittest.TestCase):

@@ -42,7 +42,7 @@ class LockfileTests(unittest.TestCase):
         tool = pin.external_tool()
         self.assertIsNotNone(tool)
         assert tool is not None
-        self.assertEqual(tool.release_tag, "v1.8.3")
+        self.assertEqual(tool.release_tag, "v1.12.0")
         self.assertEqual(tool.version_string, DEFAULT_OCR_VERSION)
         self.assertEqual(tool.npm_package, "@alibaba-group/open-code-review")
         self.assertEqual(tool.binary_digest("darwin-arm64"), "a" * 64)
@@ -90,7 +90,7 @@ class SelfPinTests(unittest.TestCase):
 
         self.assertIsNotNone(pin)
         assert pin is not None
-        self.assertEqual(pin.release_tag, "v1.8.3")
+        self.assertEqual(pin.release_tag, "v1.12.0")
         self.assertIsNotNone(pin.npm_package)
         self.assertIsNotNone(pin.version_string)
         for key in ("darwin-arm64", "darwin-amd64", "linux-amd64", "linux-arm64"):
@@ -124,4 +124,4 @@ class SelfPinTests(unittest.TestCase):
 
         pin = external_tool_pin(self.root)
         assert pin is not None
-        self.assertEqual(pin.release_tag, "v1.8.3")
+        self.assertEqual(pin.release_tag, "v1.12.0")
