@@ -17,8 +17,8 @@ from tempfile import TemporaryDirectory
 from tests.conformance.test_real_ocr import PINNED_TAG, resolve_pinned_engine
 
 
-PINNED_OUTPUT = "open-code-review v1.8.3 (80a579466) darwin/arm64"
-NEWER_OUTPUT = "open-code-review v1.8.5 (582953937) darwin/arm64"
+PINNED_OUTPUT = "open-code-review v1.12.0 (494bf1c8d) darwin/arm64"
+NEWER_OUTPUT = "open-code-review v1.12.1 (582953937) darwin/arm64"
 
 
 class ResolutionCase(unittest.TestCase):
@@ -97,7 +97,7 @@ class RefusalTests(ResolutionCase):
         self.assertFalse(resolution.usable)
         self.assertIsNone(resolution.path)
         # What was found, where, and what was expected -- all three.
-        self.assertIn("v1.8.5", resolution.problem)
+        self.assertIn("v1.12.1", resolution.problem)
         self.assertIn(str(on_path), resolution.problem)
         self.assertIn(PINNED_TAG, resolution.problem)
 
@@ -108,7 +108,7 @@ class RefusalTests(ResolutionCase):
 
         self.assertFalse(resolution.usable)
         self.assertIn("SPECKIT_CODE_REVIEW_OCR_BIN", resolution.problem)
-        self.assertIn("v1.8.5", resolution.problem)
+        self.assertIn("v1.12.1", resolution.problem)
 
     def test_an_override_pointing_nowhere_says_so(self) -> None:
         resolution = self._resolve(

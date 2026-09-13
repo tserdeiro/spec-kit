@@ -80,13 +80,7 @@ Before touching any code for `T###`:
 
 ## 2. Finishing a task
 
-**Close the candidate.** With the implementation done and the task's Evidence commands run on the branch, check the task's box and fill its **Completion evidence** — the commands run and their result lines — **in the same commit as the last code change** (a task split into stacked PRs checks it in the stack's last PR). The checked box means "implementation finished on this branch, with its evidence"; it never means "reviewed", and the evidence never names a review, a session or a SHA it cannot know yet. Every commit that changes the candidate carries its evidence update; evidence never travels alone. Push, then run the budget stop:
-
-```bash
-python3 .specify/presets/default/scripts/python/budget_stop.py <T###> <base>
-```
-
-(`base` is what step 1 printed.) It stops the task — no PR opens — when the authored executable lines pass the smaller of twice the task's `Delivery` forecast and 400, naming what does not fit. **A forecast or a budget is never amended in the PR that exceeds it**: a human changes it in the ledger, on the feature branch, outside that PR — or grants an explicit exception in the conversation, recorded in the PR's evidence, letting the PR open as is. Then the ledger gate:
+**Close the candidate.** With the implementation done and the task's Evidence commands run on the branch, check the task's box and fill its **Completion evidence** — the commands run and their result lines — **in the same commit as the last code change** (a task split into stacked PRs checks it in the stack's last PR). The checked box means "implementation finished on this branch, with its evidence"; it never means "reviewed", and the evidence never names a review, a session or a SHA it cannot know yet. Every commit that changes the candidate carries its evidence update; evidence never travels alone. Push, then the ledger gate:
 
 ```bash
 python3 .specify/presets/default/scripts/python/ledger_check.py <T###>
@@ -102,20 +96,19 @@ It exits 2 naming exactly what's missing — the checkbox, the evidence, or both
 > repeating its experiments. Before asking for an edge case, ask
 > whether the mechanism is needed at all — a simpler design that meets
 > the requirement is a `major` finding, a new runtime dependency is
-> `blocking`, per the repository's review rules. A packet over 100 KB
-> (`wc -c`) is reviewed one file at a time, findings consolidated at
-> the end. Write `findings.json` inside the review session directory
-> when there is one; otherwise, return the findings directly to the
-> orchestrator.
+> `blocking`, per the repository's review rules. Read every changed
+> range of your assigned files, and the contract ranges (spec, plan,
+> tasks, frozen intent) you need to judge them; return your findings and
+> the reading receipts for what you read.
 
-- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to the **task's reviewer** (below) — a sub-agent with no implementation residue — which reads the packet in full, reviews the candidate, writes `findings.json` **inside the review session directory**, and returns the one line the Orchestration section fixes; close the review with that file and act on its `delivery` decision. Without sub-agents, run the review yourself — findings still written inside the session directory, one file per session, never copied from an earlier one. After the close, record the review in the PR as one comment — session path, head, verdict, `delivery.decision` — **never a commit**.
+- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself. Group the packet's in-scope files into groups of at most 10 related files (same package or directory, following the packet's rule groups); a group whose changed lines exceed the packet's per-artifact byte cap splits into one group per file. Hand each group's file list, the packet path and the brief, nothing else, to that group's **reviewer** (below) — a sub-agent with no implementation residue — which reads its files' changed ranges and the contract ranges it needs, and returns its findings and receipts with the one line the Orchestration section fixes; merge every reviewer's findings and receipts into the session's single `findings.json` **inside the review session directory**, close the review with that file and act on its `delivery` decision. Without sub-agents, run the review yourself — findings still written inside the session directory, one file per session, never copied from an earlier one. After the close, record the review in the PR as one comment — session path, head, verdict, `delivery.decision` — **never a commit**.
 - **Without `code-review`**, hand the task's reviewer (or, without sub-agents, a fresh context) the PR's diff and body — `gh pr diff <n>` and `gh pr view <n>` — and the brief, nothing else carried over. It returns its findings; post them as one PR comment (`gh pr comment <n>`) — no session, no verdict, the degraded mode. The ledger never names that comment. The review rounds below apply with that comment as the previous findings and "no finding left" as `proceed`.
 
-That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it: the fix commit carries its evidence update, push, run the budget stop again — the branch may have grown — and the new candidate is reviewed as the review rounds below say. Editing the PR body or commenting never creates a candidate: the session compares head and merge base only, so a PR-body correction — a count, a wording — is free and never triggers a review.
+That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it: the fix commit carries its evidence update, push, and the new candidate is reviewed as the review rounds below say. Editing the PR body or commenting never creates a candidate: the session compares head and merge base only, so a PR-body correction — a count, a wording — is free and never triggers a review.
 
 ### Review rounds
 
-- **One reviewer per task**, independent of the implementer, kept for the task's whole life. Its first review covers the whole candidate, groups findings by mechanism and checks every path of that mechanism — normal, error, recovery, cleanup — before answering, so variants of one defect surface once.
+- **One reviewer per group of files**, independent of the implementer, kept for the task's whole life; a candidate that fits one group has one reviewer. Its first review covers the whole group, groups findings by mechanism and checks every path of that mechanism — normal, error, recovery, cleanup — before answering, so variants of one defect surface once.
 - **Follow-up by the same reviewer.** After a fix commit, when the host can continue a sub-agent (Claude Code: message the same agent), open the new session and send the fixed follow-up brief:
 
   > The candidate advanced from <reviewed sha> to <head sha>; previous
@@ -134,7 +127,7 @@ That independence is what makes the verdict worth anything: a reused findings fi
 - **Full review again** when the merge base moved, the file scope grew, or the reviewer's context was lost.
 - **Two correction rounds at most** after the initial review. When the close after the second correction still returns `delivery.decision` `hold` with `blocking` or `major` findings, stop patching: write a short diagnosis as one PR comment and in the completion report — the pending findings and their common cause; which layer fails (implementation, task definition, review); one proposal (consolidate the fix, re-plan the task, request a bounded exception) — and hand the task to the human. Never mark ready with pending findings; never continue automatically.
 - **Each round leaves one PR comment**: session path, head, verdict, `delivery.decision` — the durable record of the rounds and their duration.
-- **The final feature audit** (the feature PR) keeps a fresh, independent context; reviewer continuity is per task only.
+- **The final feature audit** (the feature PR) keeps a fresh, independent context; reviewer continuity is per task only. It runs a second fresh pass with the first pass's findings as context, and closes once that pass adds nothing.
 
 ### Verification
 

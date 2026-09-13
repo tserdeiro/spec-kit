@@ -114,8 +114,8 @@ extensions:
       open_code_review:
         source: https://github.com/alibaba/open-code-review
         license: Apache-2.0
-        release_tag: v1.8.3
-        version_string: "ocr version v1.8.3"
+        release_tag: v1.12.0
+        version_string: "open-code-review v1.12.0 (494bf1c8d)"
         npm_package: "@alibaba-group/open-code-review"
         binaries:
           ${platform_os}-${platform_arch}: "$engine_digest"
@@ -513,7 +513,7 @@ import sys
 path = Path(sys.argv[1])
 lines = [
     "# Tasks\n", "\n",
-    "- [x] T007 Prepare the review context (forecast: 80 lines, PR strategy: single)\n",
+    "- [x] T007 Prepare the review context (PR strategy: single)\n",
     "  - **Traces**: FR-007\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/prelude.py`.\n",
@@ -524,21 +524,21 @@ lines = [
 ]
 lines.extend(f"Unrelated history {index:04d}: Árbol 🙈 {'x' * 75} prose is outside the selected task.\n" for index in range(800))
 lines.extend([
-    "\n- [ ] T010 Complete the feature review (forecast: 100 lines, PR strategy: single)\n",
+    "\n- [ ] T010 Complete the feature review (PR strategy: single)\n",
     "  - **Traces**: FR-009\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/full.py`.\n",
     "  - **Evidence**: focused tests pass.\n",
     "  - **Delivery**: single PR.\n",
     "  - **Completion evidence**: focused tests pass.\n",
-    "\n- [ ] T009 Share the review requirement (forecast: 90 lines, PR strategy: single)\n",
+    "\n- [ ] T009 Share the review requirement (PR strategy: single)\n",
     "  - **Traces**: FR-008\n",
     "  - **Depends on**: none\n",
     "  - **Boundaries**: Change `src/shared.py`.\n",
     "  - **Evidence**: focused tests pass.\n",
     "  - **Delivery**: single PR.\n",
     "  - **Completion evidence**: focused tests pass.\n",
-    "\n- [ ] T008 Review a late task (forecast: 140 lines, PR strategy: single)\n",
+    "\n- [ ] T008 Review a late task (PR strategy: single)\n",
     "  - **Traces**: FR-008\n",
     "  - **Depends on**: T007\n",
     "  - **Boundaries**: Change `src/late.py`.\n",

@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- The review budget is retired: `budget.py`, its config key, its seeded
+  over-budget finding, its packet section, and its field in the session,
+  reporting and publication outputs are gone. Size is observable from the
+  engine's own `insertions`/`deletions`; nothing gates or estimates it. The
+  ledger's own per-task size estimate and its packet column are retired with
+  it: `TaskEntry` no longer parses or reports one.
+- `context-inventory.json`'s `required` list now covers every in-scope,
+  non-deletion file's changed hunks (the same ranges `anchors.py` anchors
+  findings against), not only the SDD artifacts and the frozen pull-request
+  intent — coverage of the diff itself is now mandatory. An advisory review
+  adds the equivalent requirement against `HEAD`, whole untracked files
+  included. The human report now names how many in-scope files were fully
+  covered versus left with a gap.
+- A finding whose declared range misses every hunk but carries
+  `existing_code` is located among the candidate's changed lines by
+  whitespace-insensitive text match before it degrades to the summary;
+  exactly one match re-anchors it there instead.
+- `presets/default/commands/implement.md`'s task-closing review step now
+  splits the packet's in-scope files into per-package/per-directory groups of
+  at most 10 files, one fresh sub-agent per group, instead of one sub-agent
+  reading the whole packet; a group over the packet's per-artifact byte cap
+  splits into one sub-agent per file. The feature pull request gets a second
+  fresh pass over the first pass's findings before closing.
+- The pinned engine moves from open-code-review v1.8.3 to v1.12.0. The
+  adapter now runs `delegate preview --format json` and
+  `delegate rule --format json` and reads the engine's JSON directly instead
+  of parsing its Markdown rendering; the Markdown parser is gone. Every
+  selected path goes into one `delegate rule` call, so `engine.rule_batch_size`
+  is gone from the config template, its defaults, and the README.
 - The session, `result-open.json`/`result-close.json` and the compact
   documents name the runtime (`runtime.extension_version`, and the
   extension root in `session.json`). `doctor` warns `runtime_source_drift`
@@ -19,6 +48,11 @@
   point at `raw/*.stdout` with its sha256 and byte count — and §3.2 is a rule
   catalog (`R1`, `R2`, … in first-appearance order) that §3.3 references per
   file instead of repeating every rule under every file.
+- `.opencodereview/rule.json` (and the template `doctor --fix` writes) now
+  `include`s the distribution's behaviour-defining Markdown (agent commands,
+  skills, templates) and test fixtures, so the engine's `unsupported_ext` and
+  `default_path` gates no longer drop them from scope; a new `**/*.md` rule
+  reviews Markdown as the executable procedure it is.
 - `code-review.md` states how a corrected candidate is reviewed as a
   follow-up: new session and findings per head, digests reused only for
   unchanged bytes, the delta and the previous findings as the checklist.

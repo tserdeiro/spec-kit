@@ -124,7 +124,6 @@ class HappyPathTests(PhaseTwoCase):
             "packet_sha256",
             "rules_sha256",
             "scope",
-            "budget",
             "findings",
             "verdict",
             "warnings",
@@ -349,7 +348,7 @@ class CorrespondenceTests(PhaseTwoCase):
     def test_a_configuration_changed_between_the_phases_is_refused(self) -> None:
         configuration = self.root / "speckit-code-review.yml"
         configuration.write_text(
-            configuration.read_text(encoding="utf-8").replace("limit: 400", "limit: 40"), encoding="utf-8"
+            configuration.read_text(encoding="utf-8").replace("max_total_bytes: 400000", "max_total_bytes: 40000"), encoding="utf-8"
         )
         before = self.findings_path.read_bytes()
 
@@ -687,7 +686,7 @@ class NormalizationThroughTheCommandTests(PhaseTwoCase):
                     payload["findings_attempt_id"] = "changed-attempt"
                 elif kind == "config":
                     config = self.root / "speckit-code-review.yml"
-                    config.write_text(config.read_text(encoding="utf-8").replace("limit: 400", "limit: 40"), encoding="utf-8")
+                    config.write_text(config.read_text(encoding="utf-8").replace("max_total_bytes: 400000", "max_total_bytes: 40000"), encoding="utf-8")
                 elif kind == "packet":
                     packet = Path(self.session) / "review-packet.md"
                     packet.write_text(packet.read_text(encoding="utf-8") + "drift", encoding="utf-8")
@@ -1040,7 +1039,7 @@ class RedactedSessionPathTests(PhaseTwoCase):
         self.assertEqual(payload["verdict"]["value"], "changes-requested")
 
 
-COMPACT_OPEN_KEYS = {"schema_version", "code", "category", "message", "candidate", "session", "packet", "budget",
+COMPACT_OPEN_KEYS = {"schema_version", "code", "category", "message", "candidate", "session", "packet",
                      "scope", "runtime", "warnings", "next"}
 COMPACT_CLOSE_KEYS = {"schema_version", "code", "category", "message", "candidate", "session", "verdict", "delivery",
                       "coverage", "findings", "runtime", "warnings", "next"}
@@ -1061,7 +1060,6 @@ class CompactOutputTests(PhaseTwoCase):
         self.assertIsInstance(payload["packet"]["truncations"], int)
         self.assertEqual(payload["packet"]["path"], f"{payload['session']['path']}/review-packet.md")
         self.assertEqual(payload["packet"]["inventory_path"], f"{payload['session']['path']}/context-inventory.json")
-        self.assertEqual(set(payload["budget"]), {"counted", "limit", "over_budget"})
         self.assertIsInstance(payload["scope"]["included_count"], int)
         self.assertTrue(payload["runtime"]["extension_version"])
         self.assertTrue(all(item["severity"] != "info" for item in payload["warnings"]))
@@ -1069,7 +1067,7 @@ class CompactOutputTests(PhaseTwoCase):
         self.assertIn("--session", payload["next"]["close"])
         self.assertLess(len(json.dumps(payload)), 4096)
         full = json.loads((Path(payload["session"]["path"]) / "result-open.json").read_text(encoding="utf-8"))
-        self.assertLessEqual({"environment", "engine", "scope", "review_scope", "rules", "sdd", "budget", "packet", "diagnostics"}, set(full))
+        self.assertLessEqual({"environment", "engine", "scope", "review_scope", "rules", "sdd", "packet", "diagnostics"}, set(full))
 
     def test_the_close_document_is_compact_and_the_full_one_is_written(self) -> None:
         self.write_findings(entry(severity="major"))

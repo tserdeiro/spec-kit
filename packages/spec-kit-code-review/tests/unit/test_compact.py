@@ -13,7 +13,6 @@ def _open_payload(session_path: str) -> dict:
         "candidate": {"candidate_id": "c", "head_commit": "h", "merge_base": "m", "base_branch": "main", "pr_number": 7, "repository": "o/r"},
         "session": {"path": session_path, "phase": "open", "opened_at": "2026-09-13T00:00:00Z"},
         "packet": {"packet_sha256": "p", "inventory_sha256": "i", "bytes": 10, "truncations": [{"path": "x"}]},
-        "budget": {"counted": 1, "limit": 400, "over_budget": False},
         "scope": {"files": [{"path": "a"}, {"path": "b"}], "included_count": 1},
         "diagnostics": [{"code": "x", "message": "m", "severity": "info"}, {"code": "y", "message": "n", "severity": "warning"}],
     }

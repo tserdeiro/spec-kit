@@ -515,7 +515,7 @@ class Drift:
         return Diagnostic(
             "candidate_merge_base_changed",
             f"the merge base changed from {self.previous} to {self.current}: the head did not move, but the base branch "
-            "advanced and the comparison range is another one, so the file scope and the budget no longer correspond; "
+            "advanced and the comparison range is another one, so the file scope no longer corresponds; "
             "redo the pass against the new range",
         )
 

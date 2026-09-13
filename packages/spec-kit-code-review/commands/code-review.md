@@ -104,7 +104,6 @@ Step 1 prints a compact JSON document:
   "candidate": {"candidate_id": "…", "head_commit": "…", "merge_base": "…", "base_branch": "main", "pr_number": 128, "repository": "owner/repo"},
   "session": {"path": "<session-path>", "phase": "open", "opened_at": "…"},
   "packet": {"path": "<session-path>/review-packet.md", "inventory_path": "…", "bytes": 41208, "packet_sha256": "…", "inventory_sha256": "…", "truncations": 0},
-  "budget": {"counted": 41208, "limit": 400000, "over_budget": false},
   "scope": {"files": 3},
   "runtime": {"extension_version": "0.5.0"},
   "warnings": [],
@@ -226,6 +225,11 @@ and include a short assessment tied to the reviewed scope:
 
 This `coverage` envelope belongs to pull-request sessions only. Advisory
 reviews use the separate host-reported `coverage.json` record above.
+
+`context-inventory.json`'s `required` list is not only the SDD artifacts and
+the frozen pull-request intent: every in-scope file's changed hunks are
+required reads too, with the same receipt obligation. A code file without a
+receipt for its changed lines is a gap, exactly like an unread spec section.
 
 The session validates every receipt against the immutable candidate and frozen
 inventory. Duplicate receipts are deduplicated and overlapping receipts are
