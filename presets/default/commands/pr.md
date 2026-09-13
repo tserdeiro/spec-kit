@@ -47,6 +47,33 @@ GitHub default). The feature PR resolves that same delivery base at creation.
 
 Task and work-item branches retain their existing commit flow.
 
+Before either route reads or mutates a PR, anchor GitHub to every push
+destination of `origin` with native repository resolution. Do not parse remote
+URLs or infer a target from an upstream alias:
+
+```bash
+origin_url="$(git remote get-url origin)"
+test -n "$origin_url" || { echo "gate-consistency: origin is unavailable" >&2; exit 1; }
+push_urls="$(git remote get-url --push --all origin)" || { echo "gate-consistency: cannot read origin push URLs" >&2; exit 1; }
+target_url="$(gh repo view "$origin_url" --json url --jq .url)" || { echo "gate-consistency: cannot resolve origin repository" >&2; exit 1; }
+test -n "$target_url" || { echo "gate-consistency: GitHub target URL is empty" >&2; exit 1; }
+while IFS= read -r push_url; do
+  test -n "$push_url" || continue
+  push_target="$(gh repo view "$push_url" --json url --jq .url)" || { echo "gate-consistency: cannot resolve an origin push URL" >&2; exit 1; }
+  test "$push_target" = "$target_url" || { echo "gate-consistency: origin push URL targets another repository" >&2; exit 1; }
+done <<<"$push_urls"
+expected_repo="$(gh repo view "$origin_url" --json nameWithOwner --jq .nameWithOwner)" || { echo "gate-consistency: cannot resolve GitHub repository identity" >&2; exit 1; }
+test -n "$expected_repo" || { echo "gate-consistency: GitHub repository identity is empty" >&2; exit 1; }
+expected_head="$(git branch --show-current)"
+```
+
+Every PR read must request `isCrossRepository`, `headRepository`,
+`headRepositoryOwner`, `headRefName`, and `baseRefName`. A reusable task or
+work-item PR requires `isCrossRepository: false`,
+`headRepository.nameWithOwner == expected_repo`, and
+`headRefName == expected_head`; its observed base is preserved. A mismatch is
+a gate-consistency failure before reuse or push.
+
 Run exactly one delivery route: a feature branch follows steps 3–5; a task or
 work-item branch follows step 6. Do not run both routes for one invocation.
 
@@ -63,8 +90,6 @@ feature_dir="$(printf '%s\n' "$paths" | sed -n 's/^FEATURE_DIR: //p')"
 expected_head="$(basename "$feature_dir")"
 current_head="$(git branch --show-current)"
 test "$current_head" = "$expected_head" || { echo "gate-consistency: current branch does not match selected feature" >&2; exit 1; }
-origin_url="$(git remote get-url origin)"
-test -n "$origin_url" || { echo "gate-consistency: cannot resolve origin repository" >&2; exit 1; }
 pr_python="python3"
 test -x .venv/bin/python && pr_python=".venv/bin/python"
 base_line="$(GH_REPO="$origin_url" "$pr_python" .specify/presets/default/scripts/python/pr_create.py feature)"
@@ -73,16 +98,11 @@ case "$base_line" in
   *) echo "gate-consistency: pr_create.py did not resolve a base" >&2; exit 1 ;;
 esac
 expected_base="$base"
-expected_repo="$(gh repo view "$origin_url" --json nameWithOwner --jq .nameWithOwner)"
-test -n "$expected_repo" || { echo "gate-consistency: GitHub target repository is empty" >&2; exit 1; }
 ```
 
-Derive `expected_head` from the selected feature directory's basename in the
+Derive `expected_head` from the selected feature directory basename in the
 paths output, and compare it with `git branch --show-current`; a mismatch is a
-gate-consistency failure and stops before any mutation. Pass `origin_url`
-explicitly to `gh repo view` and require
-its `nameWithOwner` as `expected_repo`; this anchors the GitHub target to the
-same repository that receives `git push origin`. Record `base=<name>` as
+gate-consistency failure and stops before any mutation. Record `base=<name>` as
 `expected_base`. The `gh pr view` query below is against `expected_repo`, the
 target repository for the delivery. Its `headRepository.nameWithOwner` must
 also equal `expected_repo`; a cross-repo head is never silently adopted as this
@@ -135,7 +155,8 @@ the observed branch/head/PR is unchanged:
 - If the remote branch OID equals `HEAD`, do not push. After a lost push
   response, reread `git ls-remote`; retry only when it confirms the old remote
   OID and the local head is unchanged.
-- If PR creation has a lost or ambiguous response, rerun `gh pr view` first.
+- If PR creation has a lost or ambiguous response, rerun the full-identity
+  `gh pr view` first.
   Reuse an observed OPEN PR; create only after confirmed absence. A failed
   lookup never authorizes a retry.
 - If an edit has a lost or ambiguous response, reread the OPEN PR body. Update
@@ -170,7 +191,8 @@ When those values are unchanged, reuse its body **verbatim**, including
 historical successful publication evidence. Do not recompose it for style or
 replace it with retry counters, timestamps, or zero-operation text. Update it
 only when a stable value changed, then reread `state`, `baseRefName`,
-`headRefName`, and `body`. An exact body match schedules no write.
+`headRepository`, `isCrossRepository`, `headRefName`, and `body`. An exact body
+match schedules no write.
 
 ## 5. Publish the approved handoff once
 
@@ -186,6 +208,7 @@ success:
    diff; unrelated staged content remains untouched:
 
    ```bash
+   git add -- specs/<feature-directory>/
    git diff --cached --name-only
    git commit --only -m "docs(specs): <feature>" -- specs/<feature-directory>/
    ```
@@ -276,22 +299,18 @@ a human merge commit.
 
 ## 6. Open task or work-item delivery PRs
 
-Capture the remote before the first PR observation; do not resolve a base with
-`pr_create.py` while an existing PR could already provide the approved base:
-
-```bash
-origin_url="$(git remote get-url origin)"
-test -n "$origin_url" || { echo "publication lookup failed: origin is unavailable" >&2; exit 1; }
-```
-
-Prepare the canonical body only after that observation. If an OPEN PR exists,
+Use the common remote identity gate above before the first PR observation. Do
+not resolve a base with `pr_create.py` while an existing PR could already
+provide the approved base. Prepare the canonical body only after that
+observation. If an OPEN PR exists,
 use its observed base and preserve its body when the stable evidence is
 unchanged; do not invoke `pr_create.py`. If absence is confirmed after the
 push, resolve the base in step 3 immediately before composing a new body. On
 that confirmed-absence path, the helper checks
 the branch task against the named task or the first unchecked ledger task and
-selects the open stack head, otherwise the feature branch. For feature and
-work-item delivery, it resolves and validates the delivery base. Prepare the
+selects the open stack head, otherwise the feature branch. For a confirmed
+absence on a feature or work-item route, it resolves and validates the
+delivery base. Prepare the
 canonical body in a temporary file, using every section of
 `.github/PULL_REQUEST_TEMPLATE.md` in its order. For a task, include the
 Linear identifier from `/speckit.linear.status`; when present, write it as
@@ -307,18 +326,24 @@ not create or edit the PR while preparing this body.
    create or push.
 
    ```bash
-   gh pr view <branch> --repo "$origin_url" --json number,url,state,isDraft,headRefName,baseRefName,headRefOid,body
+   gh pr view <branch> --repo "$origin_url" --json number,url,state,isDraft,isCrossRepository,headRepository,headRepositoryOwner,headRefName,baseRefName,headRefOid,body
    ```
 
-2. Immediately before pushing, reread the PR identity/state/head/base and
-   remote OID and compare them with step 1. A confirmed initial PR absence must
-   remain absent; an OPEN PR must retain the same number, head, base, and remote
-   OID. Any concurrent change or failed lookup stops before push. Then push the
-   branch before opening a new PR, using the same observed remote OID rule as
-   the feature flow:
+   Reuse an OPEN PR only when `isCrossRepository: false`,
+   `headRepository.nameWithOwner == expected_repo`, and
+   `headRefName == expected_head`; preserve its observed base and body. A fork,
+   wrong repository, wrong branch, or failed lookup is a gate-consistency
+   failure and stops before reuse or push.
+2. Immediately before pushing, reread the PR identity/state/repository/head/base
+   and remote OID and compare them with step 1 and the common expected
+   repository/head. A confirmed initial PR absence must remain absent; an OPEN
+   PR must retain the same number, repository, head, base, and remote OID. Any
+   concurrent change or failed lookup stops before push. Then push the branch
+   before opening a new PR, using the same observed remote OID rule as the
+   feature flow:
 
    ```bash
-   gh pr view <branch> --repo "$origin_url" --json number,state,headRefName,baseRefName,headRefOid
+   gh pr view <branch> --repo "$origin_url" --json number,state,isCrossRepository,headRepository,headRepositoryOwner,headRefName,baseRefName,headRefOid
    ```
 
    ```bash
@@ -330,9 +355,14 @@ not create or edit the PR while preparing this body.
    after readback proves the expected remote OID. If the PR is OPEN, its
    `headRefOid` must equal that confirmed remote OID before the delivery is
    treated as verified; a mismatch remains pending.
-3. Observe the PR again. If absence is confirmed, resolve the base now, then
-   compose the canonical body and create the draft. Use project
+3. Observe the PR again with the same full identity fields. If absence is
+   confirmed, resolve the base now, then compose the canonical body and create
+   the draft. Use project
    `.venv/bin/python` when it exists, otherwise `python3`:
+
+   ```bash
+   gh pr view <branch> --repo "$origin_url" --json number,state,isCrossRepository,headRepository,headRepositoryOwner,headRefName,baseRefName,headRefOid,body
+   ```
 
    ```bash
    pr_python="python3"
@@ -344,7 +374,8 @@ not create or edit the PR while preparing this body.
    esac
    ```
 
-   If an OPEN PR exists, use its observed base and update its body only when
+   If an OPEN PR exists, require the same repository/head comparison before
+   updating its body. Use its observed base and update its body only when
    stable evidence differs; do not invoke `pr_create.py` or replace its body
    merely to restyle it. After create or edit, reread `headRefOid` and require
    it to equal the confirmed remote OID before reporting publication verified;

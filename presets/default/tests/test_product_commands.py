@@ -113,6 +113,8 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     for command in (
         "check-prerequisites.sh --paths-only",
         "git remote get-url origin",
+        "git remote get-url --push --all origin",
+        'gh repo view "$push_url" --json url --jq .url',
         "pr_create.py feature",
         'gh repo view "$origin_url" --json nameWithOwner --jq .nameWithOwner',
         "git rev-parse HEAD",
@@ -132,13 +134,18 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     assert "expected_repo" in pr
     assert "expected_head" in pr
     assert "origin_url" in pr
+    assert "target_url" in pr
+    assert "push_target" in pr
+    assert "GitHub target URL is empty" in pr
+    assert "origin push URL targets another repository" in pr
     assert "current branch does not match selected feature" in pr
     assert 'expected_base="$base"' in pr
-    assert "GitHub target repository is empty" in pr
+    assert "GitHub repository identity is empty" in pr
     assert "confirmed remote OID" in pr
     assert "before reporting publication verified" in pr
     assert "gate-consistency failure" in pr
     assert "Never adopt an observed `baseRefName`" in pr
+    assert 'git add -- specs/<feature-directory>/' in pr
     assert observation < pr.index("pr_create.py feature") < pr.index(
         'gh pr view <branch> --repo "$origin_url" --json'
     )
@@ -152,6 +159,9 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     publication = pr.split("## 5. Publish the approved handoff", 1)[1].split(
         "## 6. Open task or work-item delivery PRs", 1
     )[0]
+    assert publication.index("git add -- specs/<feature-directory>/") < publication.index(
+        "git diff --cached --name-only"
+    )
     assert "approved feature diff" in preparation
     assert "effective committed diff" in preparation
     assert 'git diff "$base"...HEAD --stat' in publication
@@ -216,6 +226,10 @@ def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() ->
     assert "Fixes WOR-123" in task_flow
     assert "N/A" in task_flow
     assert "(chore)" in task_flow
+    assert "isCrossRepository: false" in task_flow
+    assert "headRepository.nameWithOwner == expected_repo" in task_flow
+    assert "headRefName == expected_head" in task_flow
+    assert 'gh pr view <branch> --repo "$origin_url" --json number,url,state,isDraft,isCrossRepository,headRepository,headRepositoryOwner,headRefName,baseRefName,headRefOid,body' in task_flow
     assert task_flow.index("1. Observe") < task_flow.index('base_line="$(GH_REPO=')
     assert "do not invoke `pr_create.py`" in task_flow
     assert 'gh pr create --repo "$origin_url" --draft --base "$base" --title "<type(scope): subject>" --body-file "$body_file"' in task_flow
