@@ -537,6 +537,14 @@ def normalize(
             )
         )
 
+    content_cache: dict[str, tuple[str, ...] | None] = {}
+
+    def _head_lines(path: str) -> tuple[str, ...] | None:
+        if path not in content_cache:
+            text = git.show(head_commit, path)
+            content_cache[path] = tuple(text.splitlines()) if text is not None else None
+        return content_cache[path]
+
     for finding in kept:
         if finding.side == "LEFT":
             # Doc "Modelo de finding": a finding about a deleted line is
@@ -547,6 +555,26 @@ def normalize(
             finding.degraded_reason = "side: LEFT is never anchored inline; it is reported in the summary"
             continue
         hunk = hunks.anchor(finding.path, finding.start_line, finding.end_line)
+        if hunk is None and finding.existing_code:
+            # The declared range missed every hunk, but the reviewer also quoted
+            # the code it is about. If that snippet locates uniquely inside one
+            # of this file's new-side hunks, that is stronger evidence than the
+            # declared line numbers, and re-anchoring there beats discarding a
+            # finding that is otherwise legitimate.
+            relocated = _reanchor_by_snippet(finding.existing_code, hunks.for_path(finding.path), _head_lines(finding.path))
+            if relocated is not None:
+                new_start, new_end = relocated
+                diagnostics.append(
+                    Diagnostic(
+                        "finding_reanchored",
+                        f"{finding.path}: {finding.start_line}-{finding.end_line} did not fall inside a hunk; "
+                        f"re-anchored to {new_start}-{new_end} by matching `existing_code`",
+                        finding.path,
+                        severity="info",
+                    )
+                )
+                finding.start_line, finding.end_line = new_start, new_end
+                hunk = hunks.anchor(finding.path, new_start, new_end)
         finding.anchorable = hunk is not None
         if hunk is None:
             finding.degraded_reason = "the range is not inside a hunk of the candidate's diff"
@@ -570,6 +598,39 @@ def normalize(
         diagnostics=diagnostics,
         source_sha256=source_sha256,
     )
+
+
+def _reanchor_by_snippet(
+    existing_code: str, hunks: Sequence[Any], lines: tuple[str, ...] | None
+) -> tuple[int, int] | None:
+    """Locate ``existing_code`` inside this path's new-side hunks, whitespace-insensitive.
+
+    Comparison strips each line and drops blank lines on both sides, so
+    indentation drift and blank-line padding never block a match. A snippet
+    that locates in exactly one place is strong enough evidence to move the
+    finding there; zero or several candidate locations are not, and the
+    finding degrades to the summary exactly as it would without this pass.
+    """
+
+    if not lines:
+        return None
+    snippet = [line.strip() for line in existing_code.splitlines() if line.strip()]
+    if not snippet:
+        return None
+    matches: list[tuple[int, int]] = []
+    for hunk in hunks:
+        indexed = [
+            (hunk.start + offset, line.strip())
+            for offset, line in enumerate(lines[hunk.start - 1 : hunk.end])
+            if line.strip()
+        ]
+        stripped = [item[1] for item in indexed]
+        for start in range(0, len(stripped) - len(snippet) + 1):
+            if stripped[start : start + len(snippet)] == snippet:
+                matches.append((indexed[start][0], indexed[start + len(snippet) - 1][0]))
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _discard(finding: Finding, reason: str) -> dict[str, Any]:

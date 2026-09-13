@@ -34,11 +34,6 @@ description: "Dependency-ordered, traceable delivery units for feature implement
   up-to-date feature branch. If you are the implementing agent, do this as
   the first action of the task — the branch is what projects the task to
   *In Progress*.
-- A reviewed PR stays under ~400 authored executable lines. A task that
-  exceeds it splits into
-  [stacked PRs](https://docs.github.com/en/pull-requests/get-started/stacked-prs-quickstart),
-  each under the budget and each naming the PR it stacks on. The review
-  command warns when a diff exceeds the budget.
 - Task states project to Linear from observable reality: the checkbox, the
   task branch, and the PR's draft/ready/merged state.
 
@@ -51,9 +46,9 @@ Every task is one resumable delivery unit. Replace all sample values. Use `[US#]
   - **Traces**: FR-001, SC-001; outcome: [observable result]
   - **Depends on**: none | T###
   - **Boundaries**: [files or system surfaces changed and protected]
-  - **Evidence**: `[command]` -> [expected result or required review]
+  - **Evidence**: `[command]` -> [expected result or required review; the tests that prove this task's own contract]
   - **Delivery**: single PR | stacked PR [N] on [T###'s PR]
-  - **Completion evidence**: [filled in the task PR's final commit, before ready for review; the merge lands it on the feature branch]
+  - **Completion evidence**: [filled with the final commit, before the review opens; the merge lands it on the feature branch]
 ```
 
 ## Phase 1: Setup
