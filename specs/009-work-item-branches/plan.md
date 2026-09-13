@@ -77,6 +77,14 @@ suggested branch. Separate absent configuration from invalid configuration,
 missing runtime/credentials, denied access, transport failure, null lookup,
 wrong-team response, and conflicting evidence. Add no public command or flags.
 
+T004 extends observation results with `affected_issue_keys`, the union per exact
+head of the leading strict identity, valid canonical Tracker identities, and
+validated native identity. Retain valid identities when other Tracker evidence
+is malformed. Exclude prefix/slug tokens and feature/task refs. Adoption and
+projection consume this evidence to protect affected Issues without reparsing
+identity. The user waived the 400-line limit and rejected T010; retain existing
+forecasts, task order, actual size reporting, and independent reviews.
+
 The native lookup returns one nullable Issue, not a candidate list. Accept its
 native resolution only when team and explicit Issue/PR evidence agree; reject
 multiple distinct explicit keys or contradictory results. Do not claim to detect
