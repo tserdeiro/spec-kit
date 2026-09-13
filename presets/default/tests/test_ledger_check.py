@@ -14,7 +14,7 @@ import ledger_check
 def _write_task(repo: Path, checkbox: str, evidence_line: str = "") -> None:
     path = repo / "specs/003-feature/tasks.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = f"- [{checkbox}] T001 Sample\n  - **Delivery**: single PR (~50 authored lines)\n"
+    text = f"- [{checkbox}] T001 Sample\n  - **Delivery**: single PR\n"
     if evidence_line:
         text += f"  - **Completion evidence**: {evidence_line}\n"
     path.write_text(text, encoding="utf-8")

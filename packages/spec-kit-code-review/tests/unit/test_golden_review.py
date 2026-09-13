@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from spec_kit_code_review.anchors import Hunk, HunkMap
-from spec_kit_code_review.budget import BudgetReport, FileBudget
 from spec_kit_code_review.findings import normalize
 from spec_kit_code_review.publish import build_plan
 from spec_kit_code_review.verdict import derive
@@ -192,9 +191,6 @@ class GoldenReviewTests(unittest.TestCase):
             findings=normalized.findings,
             packet_sha256="p" * 64,
             suffix=SUFFIX,
-            budget=BudgetReport(
-                entries=(FileBudget("src/module.py", 2, 2),), limit=400
-            ),
             event_ceiling="request-changes",
             request_changes=True,
             authenticated_user="reviewer",
@@ -302,6 +298,8 @@ _VARIABLE_KEYS = {
     "duration_ms",
     "bytes",
     "version",
+    "extension_version",
+    "extension_root",
 }
 
 
