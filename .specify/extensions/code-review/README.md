@@ -26,6 +26,27 @@ is advisory: no immutable candidate, no session, no publishable verdict. With a
 pull request it reviews the anchored candidate `(merge_base, head_commit)`,
 identified by `candidate_id = sha256("<merge_base>\n<head_commit>\n")`.
 
+An advisory response reports `advisory_evidence.coverage_path` beside the
+packet. After reading the packet, the host may write `coverage.json` there with
+the packet and inventory digests, working-tree source hashes, exact inclusive
+line-range receipts, and scope-linked assessments. Compare those source hashes
+before reporting; compare the complete reviewed-path set in
+`context-inventory.json` as well, including new, deleted, and unavailable
+paths. A tracked deletion remains valid while the path stays absent; an
+unavailable or symlinked path is an explicit gap. Recompute membership with
+`git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only
+--end-of-options HEAD` plus `git ls-files --others --exclude-standard -z`.
+The NUL-delimited results are unioned: the first covers staged and unstaged
+tracked changes against `HEAD`, and the second adds untracked paths. Any changed, added, or removed
+source requires a fresh packet. This evidence is host-reported and advisory only. It is never reusable for pull-request
+coverage, which uses the session findings envelope below.
+
+`context-inventory.json`'s `required` list is not only the Spec Kit artifacts
+and the frozen pull-request intent: every in-scope file's changed hunks — the
+same ranges `git diff --unified=0` anchors findings against — are required
+reads too, with the same receipt obligation. A code file without a receipt for
+its changed lines is a gap, exactly like an unread spec section.
+
 An anchored review runs in two internal invocations — a CLI cannot wait for the
 agent to read a packet, because the agent is what invokes it. The agent-facing
 command file (`commands/code-review.md`) drives both, so a person runs one
@@ -48,13 +69,35 @@ findings path outside that session is a usage error.
       "title": "…",
       "content": "…"
     }
-  ]
+  ],
+  "coverage": {
+    "candidate_id": "<candidate_id>",
+    "packet_sha256": "<packet_sha256>",
+    "inventory_sha256": "<inventory_sha256>",
+    "reads": [{"path": "specs/003-example/spec.md", "version": "<head_commit>", "start_line": 1, "end_line": 20, "sha256": "<exact-range-sha256>", "assessment": "How this range affects the reviewed scope", "scope": "FR-014"}]
+  }
 }
 ```
 
-Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories:
-`correctness`, `security`, `contract`, `delivery`, `tests`,
-`maintainability`, `style` — any other value refuses the whole file.
+When a category is invalid, edit only that field and rerun the same close
+command. Use the generated category catalog in the packet; an ambiguous
+meaning remains unresolved until the reviewer selects a meaningful supported
+category. The original submission is preserved byte-for-byte at
+`finding-corrections/<findings_attempt_id>/original.json`, with each attempted
+correction recorded beside it. Partial corrections stay open. A validated
+correction record is evidence of the category change, not approval, closure, or
+publication; the normal verdict still applies. A blocking finding remains
+`changes-requested`, and coverage or engine gaps remain `inconclusive`.
+Substantive edits require a fresh review and new analysis.
+
+Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories are listed
+in the packet's generated catalog; any other value refuses the whole file.
+
+A finding whose range misses every hunk is not discarded outright when it
+carries `existing_code`: the close command looks for that exact text,
+whitespace-insensitively, among the candidate's changed lines for that path.
+Exactly one match re-anchors the finding there; zero or several matches leave
+it reported in the summary, the same place a `side: LEFT` finding is reported.
 
 ## Guards
 
@@ -104,18 +147,11 @@ failure — is a silent no-op, exit 0.
   operator's own `gh`; OCR runs in delegation mode, so no model provider is
   introduced. Standard library only.
 
-## Review budget
-
-A reviewed pull request stays under ~400 authored executable lines. Over that,
-the review emits a warning and suggests stacked pull requests. It is a
-convention with a warning attached, never a failure: accepting a larger pull
-request is a human decision. `budget.limit` sets the number.
-
 ## Configuration
 
 | File | Committed? | Purpose |
 | --- | --- | --- |
-| `speckit-code-review.yml` | yes | shared policy: engine, packet, budget, publish ceiling, protected paths |
+| `speckit-code-review.yml` | yes | shared policy: engine, packet, publish ceiling, protected paths |
 | `speckit-code-review.local.yml` | no (gitignored) | machine preferences: evidence root, verbosity |
 | `.speckit-code-review.env` | no (gitignored) | `SPECKIT_CODE_REVIEW_*` values for this repository |
 | `${XDG_CONFIG_HOME:-~/.config}/tserdeiro/spec-kit/env` | n/a | the operator's own, trusted values |
@@ -125,10 +161,15 @@ Resolution order for the shared configuration: `--config PATH`, then
 `SPECKIT_CODE_REVIEW_CONFIG`, then `<repo>/speckit-code-review.yml`.
 `doctor --fix` creates the first three when they are absent. For a
 repository with no rule file, it also writes `.opencodereview/rule.json`
-with a starting `**/*` rule stating the engineering principles —
-over-engineering and speculative abstraction are `major` findings, a new
-runtime dependency is `blocking` — ahead of the shipped `**/*.py` rule; a
-repository with an existing rule file merges the `**/*` rule in by hand.
+with an `include` list that bypasses the engine's `unsupported_ext` and
+`default_path` gates for this distribution's behaviour-defining Markdown
+(`.specify/templates`, `.specify/extensions/*/commands`, `.claude/skills`,
+`.agents/skills`, `presets/**` when present) and test fixtures, a `**/*.md`
+rule reviewing that Markdown as the executable procedure it is, ahead of a
+starting `**/*` rule stating the engineering principles — over-engineering
+and speculative abstraction are `major` findings, a new runtime dependency
+is `blocking` — and the shipped `**/*.py` rule; a repository with an
+existing rule file merges these rules in by hand.
 
 `protected_paths` (default `specs/*/spec.md` and `.specify/memory/constitution.md`)
 names the paths a task pull request may not touch; see Invariants above.
@@ -201,11 +242,13 @@ bash packages/spec-kit-code-review/scripts/conformance/publish.sh
 uv run pytest packages/spec-kit-code-review/tests/conformance -v   # the real binary
 ```
 
-The conformance scripts drive the *installed* extension in a temporary Spec Kit
-consumer, with this repository's own fakes for `ocr` and `gh`. Verifying the
-**real** binary is a separate step (`tests/conformance/test_real_ocr.py`); it
-uses whatever `doctor --fix` installed at the canonical path, and skips loudly
-rather than passing quietly when the pinned version is not there.
+`review.sh` is fake-tool conformance evidence: it drives the *installed*
+extension in a temporary consumer and checks late-task, shared multi-task,
+full-feature, ledger-free short-path, receipt, packet-limit, and checkout
+invariants with the repository's fake `ocr` and `gh`. This does not establish
+entry 23 live-host acceptance. The separate `tests/conformance/test_real_ocr.py`
+checks the pinned binary installed by `doctor --fix` and skips loudly when
+that binary is unavailable.
 
 Install into a temporary consumer with
 `specify extension add /path/to/spec-kit-code-review --dev`. The installed copy
