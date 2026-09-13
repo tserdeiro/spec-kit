@@ -634,7 +634,23 @@ class DoctorTests(CliTestCase):
         warning = next(item for item in payload["diagnostics"] if item["code"] == "review_state_missing")
         self.assertEqual(warning["severity"], "warning")
         self.assertIn("onboard", warning["message"])
+        self.assertIn("projected onto started_state_id", warning["message"])
         self.assertEqual(self._files(), before)
+
+    def test_warns_that_review_tasks_keep_their_state_when_no_fallback_is_configured(self) -> None:
+        config_path = self.fixture_root / ROOT_CONFIG_FILENAME
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + '\nlifecycle:\n  completed_state_id: "77777777-7777-4777-8777-777777777777"\n'
+            '  open_state_id: "88888888-8888-4888-8888-888888888888"\n',
+            encoding="utf-8",
+        )
+
+        _result, payload = self._invoke(["doctor", "--offline", "--root", str(self.fixture_root), "--json"])
+
+        warning = next(item for item in payload["diagnostics"] if item["code"] == "review_state_missing")
+        self.assertIn("left at their current state", warning["message"])
+        self.assertNotIn("projected onto started_state_id", warning["message"])
 
     def test_does_not_warn_about_the_review_state_when_it_is_configured(self) -> None:
         config_path = self.fixture_root / ROOT_CONFIG_FILENAME
