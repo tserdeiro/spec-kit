@@ -57,7 +57,7 @@ from .reconciler import apply_plan
 from .remote_discovery import RemoteDiscovery, discover_and_adopt
 from .reporting import observation_report, render_status_table, render_work_item_table, status_report
 from .view_discovery import conventional_view_name, resolve_shared_views_by_name
-from .work_items import WorkItemState, derive_work_items, issue_key_pattern, issue_numbers
+from .work_items import WorkItemState, derive_work_items, issue_numbers
 from .work_state import TaskWorkState, derive_task_states
 from .work_item_resolution import resolve_work_item
 
@@ -1003,6 +1003,11 @@ def _select_feature_directories(root: Path, args: argparse.Namespace) -> list[Pa
     silently project nothing.
     """
 
+    # Hook/session callers that have already resolved a native work item must
+    # not let the implicit `.specify/feature.json` fallback select unrelated
+    # feature artifacts.  Work-item lifecycle is feature-independent.
+    if getattr(args, "work_items_only", False):
+        return []
     if args.feature or args.current or has_feature_directories(root):
         return select_features(root, explicit_feature=args.feature, current=args.current, all_features=args.all_features)
     return []
@@ -1306,9 +1311,9 @@ def _format_diagnostic_warning(diagnostic: Mapping[str, object]) -> str:
     return f"{diagnostic.get('code', 'failure')}{location}: {redact_text(diagnostic.get('message', 'operation failed'))}"
 
 
-def _load_hook_config(root: Path) -> Mapping[str, object] | None:
+def _load_hook_config(root: Path) -> tuple[Mapping[str, object], Path] | None:
     try:
-        config, _shared_path = load_config(root, None)
+        config, shared_path = load_config(root, None)
     except AppError as error:
         if not any(diagnostic.code == "config_missing" for diagnostic in error.diagnostics):
             _emit_hook_error_warning(error)
@@ -1321,7 +1326,7 @@ def _load_hook_config(root: Path) -> Mapping[str, object] | None:
         sys.stderr.write("warning: reconciliation failure: unexpected configured configuration error\n")
         sys.stderr.flush()
         return None
-    return config
+    return config, shared_path
 
 
 def _format_apply_evidence(result: object) -> str | None:
@@ -1342,28 +1347,52 @@ def _format_apply_evidence(result: object) -> str | None:
 
 def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
     """Resolve the branch shape and run `push --hook`; shared by both event handlers (D4, FR-006)."""
-    config = _load_hook_config(root)
-    if config is None or not hooks_gate(config, "lifecycle_enabled"):
+    loaded = _load_hook_config(root)
+    if loaded is None:
         return None, None
-    branch = work_item_identifier = None
-    branch_error = False
+    config, shared_path = loaded
+    if not hooks_gate(config, "lifecycle_enabled"):
+        return None, None
     try:
         branch = _current_branch(root)
-        if branch and not FEATURE_RE.fullmatch(branch):
-            _team_id, team_key = team_binding(config)
-            match = issue_key_pattern(team_key).fullmatch(branch)
-            work_item_identifier = f"{team_key.upper()}-{int(match.group(1))}" if match else None
     except Exception:
-        branch_error = True
-
-    # A work item resolves `--current` only through `.specify/feature.json`, often
-    # absent; a feature/task branch resolves it by name, so only the former skips it.
-    if branch_error:
         sys.stderr.write("warning: reconciliation failure: unexpected configured branch error\n")
         sys.stderr.flush()
+        return None, None
+    work_item_identifier = None
+    work_items_only = not branch or FEATURE_RE.fullmatch(branch) is None
+    if branch and work_items_only:
+        # The native resolver is the only identity source for work-item
+        # branches.  In particular, do not turn a failed or unresolved read
+        # into `current=True`, which would select stale feature context.
+        try:
+            resolution = resolve_work_item(
+                {"branch_names": [branch]},
+                root=root,
+                config_path=str(shared_path),
+            )
+            _emit_hook_result_warning(resolution)
+            resolution_status = resolution.get("status")
+            if resolution_status not in {"resolved", "partial", "unresolved", "conflict", "excluded", "absent"}:
+                return None, None
+        except AppError as error:
+            _emit_hook_error_warning(error)
+            return None, None
+        except Exception:
+            sys.stderr.write("warning: reconciliation failure: unexpected configured identity error\n")
+            sys.stderr.flush()
+            return None, None
+
+        observations = resolution.get("observations")
+        observation = observations[0] if isinstance(observations, list) and len(observations) == 1 else None
+        context = observation.get("resolution") if isinstance(observation, Mapping) else None
+        identifier = context.get("identifier") if isinstance(context, Mapping) else None
+        if isinstance(identifier, str) and identifier and observation.get("status") == "resolved":
+            work_item_identifier = identifier
 
     hook_args = argparse.Namespace(
-        root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False,
+        root=str(root), config=None, feature=None, current=not work_items_only,
+        work_items_only=work_items_only, all_features=False,
         dry_run=False, apply=False, hook=True,
     )
     try:
@@ -1442,7 +1471,10 @@ def _session_start_context_line(root: Path, branch: str, work_item_identifier: s
     # A feature/task branch resolves `--current` through its own name; a work
     # item has no feature to resolve, so `current` is False for it and this
     # lookup never raises for that reason (caller already resolved the id).
-    status_args = argparse.Namespace(root=str(root), config=None, feature=None, current=work_item_identifier is None, all_features=False)
+    status_args = argparse.Namespace(
+        root=str(root), config=None, feature=None, current=work_item_identifier is None,
+        work_items_only=work_item_identifier is not None, all_features=False,
+    )
     status_payload = run_status(status_args)
     _emit_hook_result_warning(status_payload)
     status = status_payload["status"]
