@@ -77,9 +77,9 @@ def _strict_keys(branch: str) -> list[str]:
     )
 
 
-def _tracker_keys(body: object, team_key: str, source: str) -> list[str]:
+def _tracker_keys(body: object, team_key: str, source: str) -> tuple[list[str], tuple[Diagnostic, ...]]:
     if body is None:
-        return []
+        return [], ()
     if not isinstance(body, str):
         raise _input(f"{source}.body must be a string or null")
     lines = body.splitlines()
@@ -90,19 +90,26 @@ def _tracker_keys(body: object, team_key: str, source: str) -> list[str]:
         for section in TRACKER_SECTION_RE.finditer(visible)
         for match in TRACKER_LINE_RE.finditer(section.group("section"))
     ]
-    matches = [TRACKER_VALUE_RE.fullmatch(value) for value in values]
-    if not all(matches):
-        raise _error(
-            "work_item_identity_conflict",
-            "Tracker evidence contains an invalid Issue key",
-            category="conflict",
-        )
-    return list(
-        dict.fromkeys(
-            _key(match.group("key"), team_key, f"{source}.body Work item Tracker")
-            for match in matches
-        )
-    )
+    keys: list[str] = []
+    diagnostics: list[Diagnostic] = []
+    for value in values:
+        match = TRACKER_VALUE_RE.fullmatch(value)
+        if match is None:
+            diagnostics.append(Diagnostic(
+                "work_item_identity_conflict",
+                "Tracker evidence contains an invalid Issue key",
+            ))
+            continue
+        try:
+            key = _key(match.group("key"), team_key, f"{source}.body Work item Tracker")
+        except AppError as caught:
+            if caught.category == "usage":
+                raise
+            diagnostics.extend(caught.diagnostics)
+            continue
+        if key not in keys:
+            keys.append(key)
+    return keys, tuple(diagnostics)
 
 
 def _entry(
@@ -110,6 +117,7 @@ def _entry(
     branch: str,
     *,
     keys: list[str] | None = None,
+    affected_keys: list[str] | None = None,
     status: str = "active",
     diagnostics: list[Diagnostic] | None = None,
 ) -> dict[str, object]:
@@ -117,6 +125,7 @@ def _entry(
         "kind": kind,
         "branch": branch,
         "keys": keys or [],
+        "_affected": affected_keys if affected_keys is not None else keys or [],
         "status": status,
         "diagnostics": diagnostics or ([OBSERVATION_CONFLICT] if status == "conflict" else []),
     }
@@ -150,7 +159,7 @@ def _observations(payload: Mapping[str, object], team_key: str) -> tuple[str | N
             else:
                 keys = _strict_keys(branch)
                 status = "conflict" if keys and keys[0].partition("-")[0].casefold() != team_key.casefold() else "active"
-                observations.append(_entry("branch", branch, keys=keys[:1], status=status))
+                observations.append(_entry("branch", branch, keys=keys[:1], affected_keys=keys[:1], status=status))
 
     pull_requests = payload.get("pull_requests")
     if pull_requests is not None:
@@ -169,17 +178,21 @@ def _observations(payload: Mapping[str, object], team_key: str) -> tuple[str | N
             status = "active"
             diagnostics: list[Diagnostic] = []
             try:
-                tracker = _tracker_keys(value.get("body"), team_key, "pull_requests")
+                tracker, tracker_diagnostics = _tracker_keys(value.get("body"), team_key, "pull_requests")
             except AppError as caught:
                 if caught.category == "usage":
                     raise
-                tracker, status, diagnostics = [], "conflict", caught.diagnostics
+                tracker, tracker_diagnostics, status, diagnostics = [], caught.diagnostics, "conflict", list(caught.diagnostics)
             strict = _strict_keys(branch)
             keys = list(dict.fromkeys(([strict[0]] if strict else []) + tracker))
+            affected = list(dict.fromkeys(strict[:1] + tracker))
+            if tracker_diagnostics:
+                status = "conflict"
+                diagnostics = list(tracker_diagnostics)
             if (strict and strict[0].partition("-")[0].casefold() != team_key.casefold()) or (strict and tracker and tracker != [strict[0]]):
                 status = "conflict"
-                diagnostics = [Diagnostic("work_item_identity_conflict", "branch and Tracker evidence disagree within one pull request")]
-            entry = _entry("pull_request", branch, keys=keys, status=status, diagnostics=diagnostics)
+                diagnostics = diagnostics or [Diagnostic("work_item_identity_conflict", "branch and Tracker evidence disagree within one pull request")]
+            entry = _entry("pull_request", branch, keys=keys, affected_keys=affected, status=status, diagnostics=diagnostics)
             entry["_tracker"] = tracker
             observations.append(entry)
     if not observations:
@@ -234,6 +247,7 @@ def _result(
         "observation": {"kind": item["kind"], "value": item["branch"]},
         "status": status,
         "resolution": resolution,
+        "affected_issue_keys": sorted(item.get("_affected", item.get("keys", []))),
         "diagnostics": [diagnostic.as_dict() for diagnostic in diagnostics],
     }
 
@@ -306,9 +320,11 @@ def resolve_work_item(
     native = client.resolve_branch_issues(list(dict.fromkeys(str(item["branch"]) for item in active)))
     branch_keys: dict[str, set[str]] = {}
     tracker_keys: dict[str, set[str]] = {}
+    affected_keys: dict[str, set[str]] = {}
     ambiguous_branches = {str(item["branch"]) for item in active if len(_strict_keys(str(item["branch"]))) > 1}
     for item in active:
         branch = str(item["branch"])
+        affected_keys.setdefault(branch, set()).update(item.get("_affected", item["keys"]))
         if item["keys"]:
             branch_keys.setdefault(branch, set()).update(item["keys"])
         if item.get("_tracker"):
@@ -318,7 +334,8 @@ def resolve_work_item(
         if not item["keys"] and len(evidence) == 1:
             item["keys"] = list(evidence)
     conflicting_branches = {str(item["branch"]) for item in active if item["status"] == "conflict"} | {branch for branch, keys in branch_keys.items() if len(keys) > 1}
-    for branch, keys in branch_keys.items():
+    for branch in dict.fromkeys(str(item["branch"]) for item in active):
+        keys = branch_keys.get(branch, set())
         context = native.get(branch)
         if context is None:
             if branch in ambiguous_branches and len(tracker_keys.get(branch, ())) != 1:
@@ -328,6 +345,7 @@ def resolve_work_item(
             native_key = _key(context.identifier, team_key, "Linear Issue identifier")
         except AppError:
             continue
+        affected_keys.setdefault(branch, set()).add(native_key)
         if keys and native_key not in keys:
             conflicting_branches.add(branch)
     missing = list(
@@ -342,6 +360,8 @@ def resolve_work_item(
     contexts = client.resolve_issue_contexts(team_id, missing) if missing else {}
     results: list[dict[str, object]] = []
     resolved_count = 0
+    for item in active:
+        item["_affected"] = sorted(affected_keys.get(str(item["branch"]), ()))
     for item in observations:
         if item["status"] != "active":
             results.append(_result(item, item["status"], diagnostics=item["diagnostics"]))

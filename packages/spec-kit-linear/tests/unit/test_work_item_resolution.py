@@ -227,6 +227,26 @@ class WorkItemResolutionTests(unittest.TestCase):
                 result = self.resolve({"pull_requests": [{"head_branch": "old-title", "body": body}]})
                 self.assertEqual(result["observations"][0]["status"], expected)
 
+    def test_affected_keys_keep_valid_tracker_evidence_with_malformed_entries(self) -> None:
+        result = self.resolve(
+            {"pull_requests": [{"head_branch": "old-title", "body": "## Work item\n\n- Tracker: Fixes WOR-12\n- Tracker: Fixes N/A"}]}
+        )
+        observation = result["observations"][0]
+        self.assertEqual(observation["status"], "conflict")
+        self.assertEqual(observation["affected_issue_keys"], ["WOR-12"])
+
+    def test_affected_keys_include_native_identity_and_ignore_unrelated_unknown_heads(self) -> None:
+        self.client.issue = context("WOR-12", branch="old-title")
+        resolved = self.resolve({"branch_names": ["old-title"]})["observations"][0]
+        self.assertEqual(resolved["affected_issue_keys"], ["WOR-12"])
+        self.client.issue = None
+        unresolved = self.resolve({"branch_names": ["old-title"]})["observations"][0]
+        self.assertEqual((unresolved["status"], unresolved["affected_issue_keys"]), ("unresolved", []))
+
+    def test_affected_keys_exclude_prefix_and_slug_tokens(self) -> None:
+        result = self.resolve({"branch_names": ["user-2/WOR-12-fix-999"]})
+        self.assertEqual(result["observations"][0]["affected_issue_keys"], ["WOR-12"])
+
     def test_tracker_and_strict_branch_conflict_stays_per_observation(self) -> None:
         result = self.resolve(
             {"pull_requests": [{"head_branch": "WOR-1-fix", "body": "## Work item\n\n- Tracker: Fixes WOR-2"}]}
@@ -274,6 +294,8 @@ class WorkItemResolutionTests(unittest.TestCase):
                 self.client.issue = native
                 result = self.resolve(payload)
                 self.assertEqual([item["status"] for item in result["observations"]], ["conflict", "conflict"])
+                expected_keys = ["WOR-1", "WOR-12", "WOR-13"] if native is not None else ["WOR-12", "WOR-13"]
+                self.assertEqual([item["affected_issue_keys"] for item in result["observations"]], [expected_keys, expected_keys])
         self.assertEqual(self.client.calls, [("branches", ("old-title",))] * 2)
 
     def test_same_head_branch_and_conflicting_tracker_have_no_resolved_row(self) -> None:
