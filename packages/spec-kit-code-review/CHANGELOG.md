@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- The review packet emits each source once: the engine's `delegate preview`
+  and `delegate rule` outputs are no longer quoted verbatim — §2.1 and §3.2
+  point at `raw/*.stdout` with its sha256 and byte count — and §3.2 is a rule
+  catalog (`R1`, `R2`, … in first-appearance order) that §3.3 references per
+  file instead of repeating every rule under every file.
+
 ## 0.5.0
 
 - A `pre_tool_use` guard blocks, before it takes effect — even behind a

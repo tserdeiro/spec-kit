@@ -695,3 +695,74 @@ class DegradedContextTests(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover - convenience for local runs
     unittest.main()
+
+
+class SourceOnceTests(unittest.TestCase):
+    """Each packet source is emitted once; the engine's stdout stays under raw/."""
+
+    def _rules_for(self, *assignments: tuple[str, tuple[str, ...]], raw: str = "# Resolved rules\n") -> EngineRules:
+        return EngineRules(raw=raw, assignments=tuple(RuleAssignment(path, rules) for path, rules in assignments))
+
+    def test_the_catalog_lists_each_rule_text_once_in_first_appearance_order(self) -> None:
+        packet = _assemble(
+            rule_assignments=self._rules_for(
+                ("src/a.py", ("Validate every input.", "Log nothing secret.")),
+                ("src/b.py", ("Log nothing secret.", "Validate every input.", "Keep it small.")),
+            )
+        )
+
+        section = packet.text.split("### 3.2 Rule catalog")[1].split("### 3.3 Rules per file")[0]
+        self.assertEqual(
+            re.findall(r"(?m)^- (R\d+): (.*)$", section),
+            [("R1", "Validate every input."), ("R2", "Log nothing secret."), ("R3", "Keep it small.")],
+        )
+        self.assertEqual(packet.text.count("Validate every input."), 1)
+
+    def test_the_per_file_lists_reference_catalog_indices(self) -> None:
+        packet = _assemble(
+            rule_assignments=self._rules_for(
+                ("src/a.py", ("Validate every input.", "Log nothing secret.")),
+                ("src/b.py", ("Log nothing secret.",)),
+                ("src/c.py", ()),
+            )
+        )
+
+        section = packet.text.split("### 3.3 Rules per file")[1].split("## 4.")[0]
+        self.assertEqual(
+            re.findall(r"(?m)^- (.*)$", section),
+            ["`src/a.py`: R1, R2", "`src/b.py`: R2", "`src/c.py`: —"],
+        )
+
+    def test_the_engine_output_is_a_pointer_carrying_its_digest(self) -> None:
+        preview_raw = "# Delegate preview\n\n## Files\n\n- `src/module.py`\n"
+        rule_raw = "# Resolved rules\n\n## src/module.py\n\n- Validate every input.\n"
+        packet = _assemble(
+            preview=parse_preview(preview_raw),
+            rule_assignments=self._rules_for(("src/module.py", ("Validate every input.",)), raw=rule_raw),
+        )
+
+        for name, raw in (("ocr-delegate-preview.stdout", preview_raw), ("ocr-delegate-rule.stdout", rule_raw)):
+            self.assertIn(
+                f"- engine output: `raw/{name}` (sha256 {sha256_text(raw)}, {len(raw.encode('utf-8'))} bytes)",
+                packet.text,
+            )
+        self.assertNotIn("```untrusted-a7f3c1e9\n# Delegate preview", packet.text)
+        self.assertNotIn("```untrusted-a7f3c1e9\n# Resolved rules", packet.text)
+
+    def test_the_pull_request_body_text_appears_once(self) -> None:
+        body = "## Outcome\n\nA sentence only the body says.\n"
+        packet = _assemble(pull_request=FakePullRequest(body=body))
+
+        self.assertEqual(packet.text.count("A sentence only the body says."), 1)
+        self.assertIn("The body's text lives in section 0.2", packet.text.split("### 4.7 Pull-request body")[1])
+
+    def test_the_engine_output_never_reaches_the_inventory(self) -> None:
+        with_raw = _assemble()
+        without_raw = _assemble(
+            preview=PreviewResult(raw="", entries=parse_preview(PREVIEW_RAW).entries),
+            rule_assignments=self._rules_for(("src/module.py", ("Validate every input.",)), raw=""),
+        )
+
+        self.assertEqual(with_raw.inventory, without_raw.inventory)
+        self.assertEqual(with_raw.inventory_sha256, without_raw.inventory_sha256)
+        self.assertNotEqual(with_raw.packet_sha256, without_raw.packet_sha256)

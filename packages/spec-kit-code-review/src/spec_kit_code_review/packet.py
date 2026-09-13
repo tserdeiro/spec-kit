@@ -475,15 +475,7 @@ def assemble(
         )
         body_sections = [
             _section_candidate(candidate, advisory=advisory),
-            _section_scope(
-                preview,
-                suffix=session_suffix,
-                warnings=block_warnings,
-                truncations=block_truncations,
-                max_bytes=max_bytes_per_artifact,
-                escape=escape,
-                source_budget=source_budget,
-            ),
+            _section_scope(preview),
             _section_rules(
                 rules,
                 rule_assignments,
@@ -884,34 +876,29 @@ def _section_candidate(candidate: Any, *, advisory: bool = False) -> str:
     )
 
 
-def _section_scope(
-    preview: Any,
-    *,
-    suffix: str,
-    warnings: list[Diagnostic],
-    truncations: list[Truncation],
-    max_bytes: int,
-    escape: bool = False,
-    source_budget: _SourceBudget | None = None,
-) -> str:
-    raw, truncation = _source_text(
-        getattr(preview, "raw", "") or "",
-        path="(engine preview output)",
-        command="cat <evidence>/raw/ocr-delegate-preview.stdout",
-        budget=source_budget,
-        limit=max_bytes,
-    )
-    if truncation:
-        truncations.append(truncation)
-    block = contain(
-        raw,
-        suffix=suffix,
-        origin="the review engine's `delegate preview` output",
-        escape_on_collision=escape,
-    )
-    warnings.extend(block.warnings)
+def _raw_pointer(name: str, raw: str) -> str:
+    """Point at the engine's stdout under the session's ``raw/`` instead of quoting it.
 
-    lines = ["## 2. File scope", "", "### 2.1 Engine output (verbatim)", "", block.text, "", "### 2.2 Normalized list", ""]
+    The packet used to carry that output verbatim *and* its normalized form; the
+    reviewer read both. The file on disk is what ``session.write_text`` wrote --
+    the redacted text -- so the digest is taken over exactly that.
+    """
+
+    encoded = redact_text(raw).encode("utf-8")
+    return f"- engine output: `raw/{name}` (sha256 {hashlib.sha256(encoded).hexdigest()}, {len(encoded)} bytes)"
+
+
+def _section_scope(preview: Any) -> str:
+    lines = [
+        "## 2. File scope",
+        "",
+        "### 2.1 Engine output",
+        "",
+        _raw_pointer("ocr-delegate-preview.stdout", getattr(preview, "raw", "") or ""),
+        "",
+        "### 2.2 Normalized list",
+        "",
+    ]
     narrowing = getattr(preview, "narrowing", "") or ""
     if narrowing:
         # `local --staged` reviews a subset of what the engine previewed; saying
@@ -963,32 +950,33 @@ def _section_rules(
         # content, in one of this module's own list items.
         lines.append(f"- fail-closed: {_one_line(visible(rules.reason))}")
 
-    raw_text, truncation = _source_text(
-        getattr(assignments, "raw", "") or "",
-        path="(engine rule output)",
-        command="cat <evidence>/raw/ocr-delegate-rule.stdout",
-        budget=source_budget,
-        limit=max_bytes,
+    # Each rule text once: the catalog is derived from the resolved assignments,
+    # indexed in first-appearance order, so no rule that governs a file is lost
+    # and none is repeated under every file it applies to.
+    grouped = getattr(assignments, "assignments", ()) or ()
+    catalog: dict[str, str] = {}
+    for assignment in grouped:
+        for rule in assignment.rules:
+            catalog.setdefault(rule, f"R{len(catalog) + 1}")
+    lines.extend(
+        [
+            "",
+            "### 3.2 Rule catalog",
+            "",
+            _raw_pointer("ocr-delegate-rule.stdout", getattr(assignments, "raw", "") or ""),
+            "",
+        ]
     )
-    if truncation:
-        truncations.append(truncation)
-    block = contain(
-        raw_text,
-        suffix=suffix,
-        origin="the review engine's `delegate rule` output",
-        escape_on_collision=escape,
-    )
-    warnings.extend(block.warnings)
-    lines.extend(["", "### 3.2 Engine output (verbatim)", "", block.text])
+    if not catalog:
+        lines.append("_The engine resolved no rules._")
+    for rule, index in catalog.items():
+        lines.append(f"- {index}: {_one_line(visible(rule))}")
 
     lines.extend(["", "### 3.3 Rules per file", ""])
-    grouped = getattr(assignments, "assignments", ()) or ()
     if not grouped:
         lines.append("_No per-file rules were resolved._")
     for assignment in grouped:
-        lines.append(f"- {code_span(assignment.path)}")
-        for rule in assignment.rules:
-            lines.append(f"  - {_one_line(visible(rule))}")
+        lines.append(f"- {code_span(assignment.path)}: {', '.join(catalog[rule] for rule in assignment.rules) or '—'}")
 
     if rules.candidate is not None and rules.candidate_path is not None:
         candidate_text, candidate_truncation = _source_text(
