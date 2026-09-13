@@ -69,9 +69,11 @@ before use, never guessed.
 
 ## Verification strategy
 
-| Requirement or risk | Evidence | Command or review |
-| --- | --- | --- |
-| [FR/SC/risk] | [test, inspection, or artifact] | `[reproducible command]` |
+| Surface | Suite or command | Verifies (FR/SC) | When (change / candidate close / CI) |
+| --- | --- | --- | --- |
+| [changed surface] | `[reproducible command]` | [FR/SC IDs] | [change / candidate close / CI] |
+
+Each task's Evidence line points at rows of this table.
 
 ## Source layout
 

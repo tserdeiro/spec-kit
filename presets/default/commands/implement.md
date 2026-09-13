@@ -134,6 +134,15 @@ That independence is what makes the verdict worth anything: a reused findings fi
 - **Each round leaves one PR comment**: session path, head, verdict, `delivery.decision` — the durable record of the rounds and their duration.
 - **The final feature audit** (the feature PR) keeps a fresh, independent context; reviewer continuity is per task only.
 
+### Verification
+
+- **Implementer**: focused tests while changing; at candidate close, the full suite of every package the task touched (`uv run pytest packages/<pkg>/tests`, `uv run pytest presets/default/tests`), and the conformance script only when the task touches assets it covers — preset commands, scripts, bundles. It records, per command, the command, its result line (passed/failed counts) and the head it ran on, in the ledger's Completion evidence and the PR table, from one run.
+- **Orchestrator**: runs no tests. It checks that the implementer's returned result lines cover the task's Evidence commands and that each says pass; a missing or failing line is a blocker for the implementer, never a reason to run the suite itself.
+- **Reviewer**: verifies the claims against the evidence and the diff; re-runs a command only to settle a concrete doubt it names in the finding. It never re-runs a suite because the evidence came from another agent.
+- **CI is the required gate**: a local run never replaces reading its result (checks, once — below), and reading CI never requires a local re-run.
+- **A full suite runs again only when** the head changed since the recorded run; the recorded result is missing or unverifiable; a different environment is required; a finding asks for it. "A different agent is looking" is never a reason.
+- **Environment once**: the interpreter and dependencies are resolved before the first delegation (`uv sync --frozen`, the doctor). A sub-agent that hits a cache or dependency failure reports it as a prerequisite failure — distinct from a test failure and from a test not run — and does not investigate the environment.
+
 **Carrying a fix through the stack.** Whenever a commit lands on a task branch that has open task PRs stacked on it — a review fix on an earlier task, a reviewer's comment fixed later:
 
 ```bash
