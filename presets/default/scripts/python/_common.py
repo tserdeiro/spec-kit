@@ -88,7 +88,7 @@ def parse_ledger(text: str) -> list[Task]:
 def first_unchecked(tasks: list[Task]) -> Task | None:
     return next((task for task in tasks if not task.checked), None)
 
-def delivery_base(repo_root: Path) -> str:
+def delivery_base(repo_root: Path, origin: str | None = None) -> str:
     """Explicit non-empty trunk: else the GitHub default branch."""
     config = repo_root / ".specify" / "extensions" / "git" / "git-config.yml"
     try:
@@ -98,7 +98,7 @@ def delivery_base(repo_root: Path) -> str:
     trunk = next((m.group(1) for line in text.splitlines() if (m := _TRUNK_RE.match(line))), "")
     if trunk:
         return trunk
-    result = run_gh("repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name", cwd=repo_root)
+    result = run_gh("repo", "view", *((origin,) if origin else ()), "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name", cwd=repo_root)
     if result.returncode != 0:
         die(result.stderr.strip() or "gh repo view failed")
     return result.stdout.strip()
