@@ -50,9 +50,7 @@ class RuleRead:
     evidence: str = ""
     classic: "ClassicProtection | None" = None
     details: tuple["RulesetDetail", ...] = ()
-    details_complete: bool = True
-    details_cause: str = ""
-    details_evidence: str = ""
+    detail_errors: tuple[tuple[tuple[str, str, int], tuple[str, str]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -143,7 +141,7 @@ def parse_branch_page_items(pages: Iterable[Iterable[Any]]) -> tuple[str, ...] |
     return tuple(dict.fromkeys(names))
 
 
-def parse_active_rules(payload: Any) -> tuple[ActiveRule, ...] | None:
+def parse_active_rules(payload: Any, *, partial: bool = False) -> tuple[ActiveRule, ...] | None:
     pages = parse_page_collection(payload)
     if pages is None:
         return None
@@ -152,7 +150,7 @@ def parse_active_rules(payload: Any) -> tuple[ActiveRule, ...] | None:
     for page in pages:
         for item in page:
             if not isinstance(item, dict):
-                return None
+                return tuple(parsed) if partial else None
             rule_type = item.get("type")
             source_type = item.get("ruleset_source_type")
             source = item.get("ruleset_source")
@@ -166,10 +164,10 @@ def parse_active_rules(payload: Any) -> tuple[ActiveRule, ...] | None:
                 or not source
                 or type(ruleset_id) is not int
             ):
-                return None
+                return tuple(parsed) if partial else None
             parameters = item.get("parameters")
             if parameters is not None and not isinstance(parameters, dict):
-                return None
+                return tuple(parsed) if partial else None
             rule = ActiveRule(rule_type, source_type, source, ruleset_id, parameters)
             identity = (*rule.identity, rule.type)
             if identity not in seen:
@@ -241,7 +239,8 @@ def parse_ruleset_detail(payload: Any) -> RulesetDetail | None:
             if not isinstance(actor_type, str) or not actor_type or not isinstance(bypass_mode, str) or not bypass_mode:
                 return None
             actor_id = actor.get("actor_id")
-            if actor_id is not None and type(actor_id) is not int:
+            requires_actor_id = actor_type in {"Team", "Integration", "RepositoryRole", "User"}
+            if type(actor_id) is not int and (actor_id is not None or requires_actor_id):
                 return None
             parsed.append(BypassActor(actor_type, bypass_mode, actor_id))
         actors_value: tuple[BypassActor, ...] | None = tuple(parsed)
@@ -252,24 +251,31 @@ def parse_ruleset_detail(payload: Any) -> RulesetDetail | None:
 
 def evaluate_force_push(branch: str, read: RuleRead) -> Result:
     """Combine effective rules, classic protection, and bypass visibility."""
-    if not read.complete:
-        return Result(
-            UNVERIFIED,
-            read.cause or "partial-read",
-            read.evidence or "effective branch rules were not completely observed",
-            "Retry the GitHub rules read after confirming access to repository metadata",
-        )
     active = tuple(rule for rule in read.rules if rule.type == "non_fast_forward")
     details = {detail.identity: detail for detail in read.details}
     protected: list[str] = []
     unknown: list[str] = []
+    unavailable: list[tuple[str, str, str]] = []
     exceptions: list[str] = []
     uncertain_cause = ""
+    if not read.complete:
+        evidence = read.evidence or "effective branch rules were not completely observed"
+        if read.cause == "plan-limitation":
+            unavailable.append((read.cause, evidence, cause_action(read.cause, "effective branch rules")))
+        else:
+            unknown.append(evidence)
+            uncertain_cause = read.cause or "partial-read"
     for rule in active:
         detail = details.get(rule.identity)
         if detail is None:
-            unknown.append(f"{rule.label()} bypass detail missing")
-            uncertain_cause = uncertain_cause or read.details_cause or "bypass-coverage-unobserved"
+            error = dict(read.detail_errors).get(rule.identity)
+            cause = error[0] if error else "bypass-coverage-unobserved"
+            evidence = f"{rule.label()} bypass detail unavailable: {error[1]}" if error else f"{rule.label()} bypass detail missing"
+            if cause == "plan-limitation":
+                unavailable.append((cause, evidence, cause_action(cause, "ruleset detail")))
+            else:
+                unknown.append(evidence)
+                uncertain_cause = uncertain_cause or cause
             continue
         if detail.enforcement == "active":
             protected.append(rule.label())
@@ -293,9 +299,13 @@ def evaluate_force_push(branch: str, read: RuleRead) -> Result:
 
     classic = read.classic
     classic_unknown = classic is None or not classic.complete
-    if classic_unknown:
-        unknown.append((classic.evidence if classic else "classic protection was not read") or "classic protection was not read")
-        uncertain_cause = uncertain_cause or (classic.cause if classic else "classic-protection-unobserved")
+    if classic is not None and classic.cause == "plan-limitation":
+        unavailable.append((classic.cause, classic.evidence or "classic protection was unavailable on the current plan", cause_action(classic.cause, "classic protection")))
+    elif classic_unknown:
+        evidence = (classic.evidence if classic else "classic protection was not read") or "classic protection was not read"
+        cause = classic.cause if classic else "classic-protection-unobserved"
+        unknown.append(evidence)
+        uncertain_cause = uncertain_cause or cause
     elif classic.protected and classic.allow_force_pushes is False:
         protected.append("classic protection allow_force_pushes.enabled=false")
         if classic.enforce_admins is False:
@@ -310,15 +320,13 @@ def evaluate_force_push(branch: str, read: RuleRead) -> Result:
         evidence.append("classic protection absent (GitHub reported Branch not protected)")
     if exceptions:
         evidence.append("exceptions: " + "; ".join(exceptions))
+    if unavailable:
+        cause, detail, action = unavailable[0]
+        return Result(CAPABILITY_UNAVAILABLE, cause, "; ".join([*evidence, detail, *unknown]), action)
     if unknown:
         evidence.extend(unknown)
         cause = uncertain_cause or ("classic-protection-unobserved" if classic_unknown else "read-failure")
-        return Result(
-            UNVERIFIED,
-            cause,
-            "; ".join(evidence) or "force-push protection evidence is incomplete",
-            "Retry the GitHub protection and ruleset detail reads after confirming access",
-        )
+        return Result(UNVERIFIED, cause, "; ".join(evidence) or "force-push protection evidence is incomplete", cause_action(cause, "GitHub protection and ruleset detail"))
     if protected:
         return Result(COMPATIBLE, "", "; ".join(evidence), "")
     return Result(
@@ -334,8 +342,34 @@ def unknown_branch_result(reason: str = "branch-rules-unobserved") -> Result:
         UNVERIFIED,
         reason,
         "active rules and classic protection are not completely observed",
-        "Retry the GitHub rules read after confirming access to repository metadata",
+        cause_action(reason, "GitHub rules"),
     )
+
+
+def cause_action(cause: str, target: str) -> str:
+    if cause == "github-cli-unavailable":
+        return "Install GitHub CLI and authenticate it, then rerun the doctor"
+    if cause == "plan-limitation":
+        return f"Ask the GitHub owner to enable {target} on a plan that supports it, then rerun the doctor"
+    if cause == "authentication-failure":
+        return f"Run gh auth login and retry the {target} read"
+    if cause == "insufficient-permissions":
+        if target == "ruleset detail":
+            return "Ask the GitHub ruleset owner or organization administrator to inspect bypass exceptions with ruleset access, then retry"
+        return f"Ask the repository or organization owner for read access needed for the {target} read, then retry"
+    if cause == "rate-limited":
+        return f"Retry the {target} read after GitHub's rate limit resets"
+    if cause == "ambiguous-read":
+        return f"Retry the {target} read after confirming repository visibility and access"
+    if cause == "hidden-fields":
+        return f"Ask the GitHub owner for visibility of the fields needed by the {target} read, then retry"
+    if cause in {"bypass-coverage-unobserved", "unsupported-bypass-mode", "ruleset-detail-mismatch"}:
+        return "Ask the GitHub ruleset owner or organization administrator to inspect its bypass fields and enforcement, then retry"
+    if cause in {"malformed-response", "unsupported-rule-semantics"}:
+        return f"Retry the {target} read and inspect the response fields before relying on it"
+    if cause in {"branch-disappeared", "branch-missing"}:
+        return "Retry after confirming the branch still exists on GitHub"
+    return f"Retry the {target} read after confirming access to repository metadata"
 
 
 _NEUTRAL_RULES = {
@@ -368,8 +402,11 @@ def _bypass_notes(rule: ActiveRule, details: dict[tuple[str, str, int], RulesetD
 
 def _detail_gap(rule: ActiveRule, read: RuleRead, details: dict[tuple[str, str, int], RulesetDetail], operation: str) -> tuple[str, str]:
     detail = details.get(rule.identity)
-    if not read.details_complete or detail is None:
-        return f"{rule.label()} {operation} detail unavailable: {read.details_evidence or 'ruleset detail was not observed'}", read.details_cause or "bypass-coverage-unobserved"
+    if detail is None:
+        error = dict(read.detail_errors).get(rule.identity)
+        cause = error[0] if error else "bypass-coverage-unobserved"
+        evidence = error[1] if error else "ruleset detail was not observed"
+        return f"{rule.label()} {operation} detail unavailable: {evidence}", cause
     if detail.enforcement != "active":
         return f"{detail.label()} enforcement changed to {detail.enforcement}", "ruleset-detail-mismatch"
     if detail.bypass_actors is None:
@@ -388,15 +425,17 @@ def _finish(
     unknown_action: str,
     notes: list[str] | None = None,
 ) -> Result:
-    evidence = "; ".join(conflicts + (notes or []) + unknown) or "all required delivery constraints were observed"
+    unavailable_evidence = [detail for _, detail, _ in unavailable]
+    evidence = "; ".join(conflicts + (notes or []) + unknown + unavailable_evidence) or "all required delivery constraints were observed"
     action = "; ".join(dict.fromkeys(actions))
     if conflicts:
         return Result(INCOMPATIBLE, "conflicting-configuration", evidence, action or unknown_action)
     if unavailable:
         cause, detail, suggested = unavailable[0]
-        return Result(CAPABILITY_UNAVAILABLE, cause, "; ".join([detail, *unknown]), suggested)
+        return Result(CAPABILITY_UNAVAILABLE, cause, "; ".join([*conflicts, *(notes or []), *unknown, detail]), suggested or cause_action(cause, "GitHub delivery rules"))
     if unknown:
-        return Result(UNVERIFIED, unknown_cause, evidence, action or unknown_action)
+        retry_causes = {"authentication-failure", "insufficient-permissions", "rate-limited", "ambiguous-read", "hidden-fields", "plan-limitation"}
+        return Result(UNVERIFIED, unknown_cause, evidence, action or (cause_action(unknown_cause, "GitHub delivery rules") if unknown_cause in retry_causes else unknown_action))
     return Result(COMPATIBLE, "", evidence, "")
 
 
@@ -421,17 +460,24 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
         unknown_cause = unknown_cause or repository_setting.cause or "read-failure"
 
     if not read.complete:
-        unknown.append(read.evidence or "effective branch rules were not completely observed")
-        unknown_cause = read.cause or unknown_cause or "partial-read"
+        evidence = read.evidence or "effective branch rules were not completely observed"
+        if read.cause == "plan-limitation":
+            unavailable.append((read.cause, evidence, cause_action(read.cause, "effective branch rules")))
+        else:
+            unknown.append(evidence)
+            unknown_cause = read.cause or unknown_cause or "partial-read"
     details = {detail.identity: detail for detail in read.details}
-    rules = read.rules if read.complete else ()
+    rules = read.rules
     for rule in rules:
         label = rule.label()
         if rule.type in {"required_linear_history", "pull_request", "merge_queue", "update"}:
             gap, cause = _detail_gap(rule, read, details, "merge")
             if gap:
-                unknown.append(gap)
-                unknown_cause = unknown_cause or cause
+                if cause == "plan-limitation":
+                    unavailable.append((cause, gap, cause_action(cause, "ruleset detail")))
+                else:
+                    unknown.append(gap)
+                    unknown_cause = unknown_cause or cause
             else:
                 notes.extend(_bypass_notes(rule, details, "ordinary merge updates"))
         if rule.type == "required_linear_history":
@@ -442,6 +488,7 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
             methods = parameters.get("allowed_merge_methods") if isinstance(parameters, dict) else None
             if not isinstance(methods, list):
                 unknown.append(f"{label} pull_request.allowed_merge_methods was not observed")
+                unknown_cause = unknown_cause or "hidden-fields"
                 actions.append(f"Inspect {label} pull_request.allowed_merge_methods before relying on merge-commit delivery for {branch}")
             elif not methods or not all(isinstance(method, str) for method in methods):
                 unknown.append(f"{label} pull_request.allowed_merge_methods had unsupported values")
@@ -457,6 +504,7 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
             method = parameters.get("merge_method") if isinstance(parameters, dict) else None
             if not isinstance(method, str):
                 unknown.append(f"{label} merge_queue.parameters.merge_method was not observed")
+                unknown_cause = unknown_cause or "hidden-fields"
                 actions.append(f"Inspect {label} merge_queue.parameters.merge_method before relying on merge-commit delivery for {branch}")
             elif method not in {"MERGE", "SQUASH", "REBASE"}:
                 unknown.append(f"{label} merge_queue has unsupported merge_method {method}")
@@ -478,9 +526,13 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
             unknown_cause = unknown_cause or "unsupported-rule-semantics"
 
     classic = read.classic
-    if classic is None or not classic.complete:
-        unknown.append((classic.evidence if classic else "classic protection was not read") or "classic protection was not read")
-        unknown_cause = unknown_cause or (classic.cause if classic else "classic-protection-unobserved")
+    if classic is not None and classic.cause == "plan-limitation":
+        unavailable.append((classic.cause, classic.evidence or "classic protection was unavailable on the current plan", cause_action(classic.cause, "classic protection")))
+    elif classic is None or not classic.complete:
+        evidence = (classic.evidence if classic else "classic protection was not read") or "classic protection was not read"
+        cause = classic.cause if classic else "classic-protection-unobserved"
+        unknown.append(evidence)
+        unknown_cause = unknown_cause or cause
     elif classic.protected is None:
         unknown.append("classic protection state was not observed")
         unknown_cause = unknown_cause or "missing-field"
@@ -490,13 +542,13 @@ def evaluate_merge(branch: str, read: RuleRead, repository_setting: Result | Non
             actions.append(f"Set required_linear_history.enabled=false in classic protection for {branch}, preserving checks, reviews, and bypass policy")
         elif classic.required_linear_history is None:
             unknown.append("classic protection required_linear_history was not observed")
-            unknown_cause = unknown_cause or "missing-field"
+            unknown_cause = unknown_cause or classic.cause or "missing-field"
         if classic.lock_branch is True:
             conflicts.append(f"classic protection lock_branch.enabled=true makes {branch} read-only")
             actions.append(f"Set lock_branch.enabled=false in classic protection for {branch}, preserving checks, reviews, and bypass policy")
         elif classic.lock_branch is None:
             unknown.append("classic protection lock_branch was not observed")
-            unknown_cause = unknown_cause or "missing-field"
+            unknown_cause = unknown_cause or classic.cause or "missing-field"
 
     return _finish(
         conflicts,
@@ -536,18 +588,25 @@ def evaluate_cleanup(
         unknown_cause = unknown_cause or repository_setting.cause or "read-failure"
 
     if not read.complete:
-        unknown.append(read.evidence or "effective branch rules were not completely observed")
-        unknown_cause = read.cause or unknown_cause or "partial-read"
+        evidence = read.evidence or "effective branch rules were not completely observed"
+        if read.cause == "plan-limitation":
+            unavailable.append((read.cause, evidence, cause_action(read.cause, "effective branch rules")))
+        else:
+            unknown.append(evidence)
+            unknown_cause = read.cause or unknown_cause or "partial-read"
     details = {detail.identity: detail for detail in read.details}
-    for rule in read.rules if read.complete else ():
+    for rule in read.rules:
         label = rule.label()
         if rule.type == "deletion":
             conflicts.append(f"{label} deletion restricts {branch} to bypass actors")
             actions.append(f"Adjust {label} deletion scope to permit cleanup of integrated feature/task branches while retaining trunk and preserving checks, reviews, and bypass policy")
             gap, cause = _detail_gap(rule, read, details, "cleanup")
             if gap:
-                unknown.append(gap)
-                unknown_cause = unknown_cause or cause
+                if cause == "plan-limitation":
+                    unavailable.append((cause, gap, cause_action(cause, "ruleset detail")))
+                else:
+                    unknown.append(gap)
+                    unknown_cause = unknown_cause or cause
             else:
                 unknown.extend(_bypass_notes(rule, details, "ordinary branch deletion"))
         elif rule.type not in _NEUTRAL_RULES | {"required_linear_history", "pull_request", "merge_queue", "update"}:
@@ -556,9 +615,13 @@ def evaluate_cleanup(
             unknown_cause = unknown_cause or "unsupported-rule-semantics"
 
     classic = read.classic
-    if classic is None or not classic.complete:
-        unknown.append((classic.evidence if classic else "classic protection was not read") or "classic protection was not read")
-        unknown_cause = unknown_cause or (classic.cause if classic else "classic-protection-unobserved")
+    if classic is not None and classic.cause == "plan-limitation":
+        unavailable.append((classic.cause, classic.evidence or "classic protection was unavailable on the current plan", cause_action(classic.cause, "classic protection")))
+    elif classic is None or not classic.complete:
+        evidence = (classic.evidence if classic else "classic protection was not read") or "classic protection was not read"
+        cause = classic.cause if classic else "classic-protection-unobserved"
+        unknown.append(evidence)
+        unknown_cause = unknown_cause or cause
     elif classic.protected is None:
         unknown.append("classic protection state was not observed")
         unknown_cause = unknown_cause or "missing-field"
@@ -568,13 +631,13 @@ def evaluate_cleanup(
             actions.append(f"Set allow_deletions.enabled=true in classic protection for integrated {branch} cleanup, preserving checks, reviews, and bypass policy")
         elif classic.allow_deletions is None:
             unknown.append("classic protection allow_deletions was not observed")
-            unknown_cause = unknown_cause or "missing-field"
+            unknown_cause = unknown_cause or classic.cause or "missing-field"
         if classic.lock_branch is True:
             conflicts.append(f"classic protection lock_branch.enabled=true blocks cleanup of {branch}")
             actions.append(f"Set lock_branch.enabled=false in classic protection for integrated {branch} cleanup, preserving checks, reviews, and bypass policy")
         elif classic.lock_branch is None:
             unknown.append("classic protection lock_branch was not observed")
-            unknown_cause = unknown_cause or "missing-field"
+            unknown_cause = unknown_cause or classic.cause or "missing-field"
 
     return _finish(
         conflicts,

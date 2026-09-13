@@ -59,13 +59,13 @@
 **Goal**: Distinguish configuration, capability, and access/read failures with a usable next action.
 **Independent evidence**: `uv run --frozen --offline pytest presets/default/tests/test_github_delivery.py presets/default/tests/test_github_delivery_rules.py -q`
 
-- [ ] T005 [US2] Complete cause-specific remedies and safe failure reporting in presets/default/scripts/python/github_delivery.py
+- [x] T005 [US2] Complete cause-specific remedies and safe failure reporting in presets/default/scripts/python/github_delivery.py
   - **Traces**: FR-006, FR-007, FR-008, FR-009, C-002, C-004, SC-002, SC-003; outcome: every gap carries evidence and the correct administrative or retry action without leaking secrets or misreporting capability.
   - **Depends on**: T004
   - **Boundaries**: Extend both helpers and focused tests with the complete cause matrix in plan D4. Distinguish explicit plan limits, denied permissions, hidden fields, rate limits, transient/partial reads, and unknown semantics; generic 403/404 or private visibility proves no plan limit. Sanitize bounded errors, retain independent verified/conflicting subresults, and give native owner/access/plan/retry guidance. Verify the existing doctor preserves these findings in category 6 on plain and `--fix` paths and never forwards mutation flags to the helper.
   - **Evidence**: `uv run --frozen --offline pytest presets/default/tests/test_github_delivery.py presets/default/tests/test_github_delivery_rules.py -q` -> the complete SC-002 cause matrix, mixed success/failure, same-input repeatability, successful retry, hostile error text with synthetic credentials, zero mutation calls, and unchanged consumer configuration all pass. `git diff --check` -> clean.
   - **Delivery**: single PR (~280 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #160; 55 focused and 126 preset tests passed; budget 399/400; diff check clean. Partial-page conflicts and ruleset-specific failure causes have regression coverage. Independent native review of 2f3e762 returned no-blocking-findings. Current-head review and CI gate readiness.
 
 ## Final phase: Cross-cutting verification
 
