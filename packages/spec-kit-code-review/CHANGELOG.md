@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The session, `result-open.json`/`result-close.json` and the compact
+  documents name the runtime (`runtime.extension_version`, and the
+  extension root in `session.json`). `doctor` warns `runtime_source_drift`
+  when the running extension differs from the source tree in
+  `packages/spec-kit-code-review/`; `--fix` never touches installed copies.
 - `review --json` prints a compact operational document; the full one is
   written to the session directory (`result-open.json`,
   `result-close.json`) and printed by `--json --verbose`. The close carries

@@ -47,18 +47,19 @@ class CompactCloseTests(unittest.TestCase):
         }
 
     def test_a_close_without_publication_carries_no_publication_keys(self) -> None:
-        document = compact_close(self._payload())
+        document = compact_close(self._payload(), extension_version="0.6.0")
 
         self.assertNotIn("publication", document)
         self.assertNotIn("operations", document)
         self.assertEqual(document["findings"]["path"], "/tmp/ev/s/findings.md")
+        self.assertEqual(document["runtime"], {"extension_version": "0.6.0"})
 
     def test_a_published_close_keeps_what_the_publication_did(self) -> None:
         payload = self._payload()
         payload["publication"] = {"executed": True, "event": "REQUEST_CHANGES", "posted_inline": 1, "review_urls": ["u"], "summary_comment_url": "s", "summary_marker": "hidden"}
         payload["operations"] = [{"kind": "review"}, {"kind": "comment"}]
 
-        document = compact_close(payload)
+        document = compact_close(payload, extension_version="0.6.0")
 
         self.assertEqual(document["publication"], {"executed": True, "event": "REQUEST_CHANGES", "posted_inline": 1, "review_urls": ["u"], "summary_comment_url": "s"})
         self.assertEqual(document["operations"], 2)

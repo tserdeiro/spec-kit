@@ -1735,7 +1735,7 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
     write_json(session.path / RESULT_CLOSE_FILENAME, payload)
     if _verbose_requested(args) or not args.json:
         return payload
-    return compact_close(payload)
+    return compact_close(payload, extension_version=__version__)
 
 
 @dataclass(frozen=True)
