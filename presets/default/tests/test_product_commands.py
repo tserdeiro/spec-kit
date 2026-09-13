@@ -138,6 +138,14 @@ def test_feature_publication_observes_state_and_uses_idempotent_writes() -> None
     assert publication.index('git diff "$base"...HEAD --stat') < publication.index(
         "gh pr create"
     )
+    assert publication.index("gh pr view <branch> --json number,state,headRefName,baseRefName,headRefOid") < publication.index(
+        "git push -u origin"
+    )
+    assert re.search(r"known\s+push\s+failure\s+stops before PR or Linear writes", publication)
+    assert re.search(
+        r"same\s+number, state, head branch, base branch, and remote head\s+OID",
+        publication,
+    )
     assert publication.index("status --current") < publication.index("gh pr create")
     assert "reuse its body verbatim" in publication
     assert re.search(r"stable\s+Linear IDs, states, assignees", preparation)
@@ -168,6 +176,8 @@ def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() ->
         "lost push",
         "lost or ambiguous response",
         "ambiguous response",
+        "known commit or push failure",
+        "lost response or timeout",
         "Two unchanged retries",
         "zero duplicate",
         "push --current --apply",
@@ -179,7 +189,8 @@ def test_feature_close_covers_interrupted_retries_and_handoff_prerequisites() ->
     assert re.search(r"completion\s+checkboxes and completion\s+evidence alone", pr, re.I)
 
     task_flow = pr.split("## 6. Open task or work-item delivery PRs", 1)[1]
-    assert task_flow.index("1. Observe") < task_flow.index("2. Push") < task_flow.index("3. Observe")
+    assert task_flow.index("1. Observe") < task_flow.index("2. Immediately before pushing") < task_flow.index("3. Observe")
+    assert task_flow.index("2. Immediately before pushing") < task_flow.index("git push -u origin")
     assert "Fixes WOR-123" in task_flow
     assert "N/A" in task_flow
     assert "(chore)" in task_flow

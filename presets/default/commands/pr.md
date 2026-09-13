@@ -77,6 +77,15 @@ Classify each command separately:
   push.
 - `git ls-remote` with no matching ref is confirmed remote-branch absence. A
   failed remote lookup is **publication lookup failed**, not absence.
+- A known commit or push failure with a deterministic rejection, permission,
+  authentication, validation, or network diagnostic stops publication. Do not
+  run a later push, PR, Linear, or body write; report the failed operation and
+  its recovery action.
+- A lost response or timeout after a possible write is uncertain, not a known
+  failure. Read back the affected resource and continue only after an
+  unambiguous expected result: `HEAD` and the feature diff for commit, the
+  remote OID for push, and the PR identity/body for create or edit. Otherwise
+  stop without another mutation.
 
 Do not treat an existing local commit or a lost command response as proof that
 the operation needs repeating. After an interrupted or ambiguous write,
@@ -142,9 +151,32 @@ success:
    git diff --cached --name-only
    git commit --only -m "docs(specs): <feature>" -- specs/<feature-directory>/
    ```
-3. Observe `HEAD` and the remote ref again. Push with
-   `git push -u origin <branch>` only when the remote OID is absent or differs.
-   Read back the remote OID after a successful or ambiguous push.
+   A known commit failure stops before any push, PR, Linear, or body write. A
+   lost commit response requires the commit readback in step 3 before anything
+   else continues.
+3. Immediately before any push, reread and compare the mutation boundary:
+
+   ```bash
+   git rev-parse HEAD
+   git ls-remote --heads origin <branch>
+   gh pr view <branch> --json number,state,headRefName,baseRefName,headRefOid
+   ```
+
+   Compare these results with step 1 and the confirmed commit result. If the
+   initial PR was absent, it must still be absent; if it was OPEN, the same
+   number, state, head branch, base branch, and remote head OID must remain.
+   Any concurrent PR identity/state/head/base change, failed lookup, or remote
+   OID change stops before push. A confirmed own commit may change local `HEAD`;
+   push only when the observed remote OID is absent or differs from that local
+   `HEAD`:
+
+   ```bash
+   git push -u origin <branch>
+   ```
+
+   Read back the remote OID after a successful or ambiguous push. A known push
+   failure stops before PR or Linear writes; an uncertain response continues
+   only after that readback proves the expected remote OID.
 4. Observe the PR again. If it is absent, resolve the base with `pr_create.py`
    without creating the PR; if it is OPEN, use its observed `baseRefName`.
    Recompute the Changes section from the effective commit and keep the
@@ -220,14 +252,20 @@ not create or edit the PR while preparing this body.
 1. Observe the existing PR and remote head first. Reuse only an OPEN PR; a
    CLOSED or MERGED PR is a human decision, and a failed lookup stops without a
    create or push.
-2. Push the branch before opening a new PR, using the same observed remote OID
-   rule as the feature flow:
+2. Immediately before pushing, reread the PR identity/state/head/base and
+   remote OID and compare them with step 1. A confirmed initial PR absence must
+   remain absent; an OPEN PR must retain the same number, head, base, and remote
+   OID. Any concurrent change or failed lookup stops before push. Then push the
+   branch before opening a new PR, using the same observed remote OID rule as
+   the feature flow:
 
    ```bash
    git push -u origin <branch>
    ```
 
-   Read back the remote OID after a successful or ambiguous push.
+   Read back the remote OID after a successful or ambiguous push. A known push
+   failure stops before PR creation; an uncertain response continues only
+   after readback proves the expected remote OID.
 3. Observe the PR again. If absence is confirmed, create the draft with the
    canonical body file and reread it. If an OPEN PR exists, update its body
    only when the body differs, then reread it. Never inline the body:
