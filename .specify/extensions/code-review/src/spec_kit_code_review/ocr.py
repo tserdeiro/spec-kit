@@ -7,30 +7,29 @@ answers only the two deterministic questions -- **which files are in scope** and
 
 Two properties of this module matter more than its size:
 
-- **The output is Markdown on stdout, not an API.** "Riesgos abiertos" says so
-  explicitly: a minor upstream change can break the parser. So the raw output is
-  preserved verbatim, the parser is defensive about cosmetics and strict about
-  shape, and anything it does not recognize is exit code 9 with the raw output
-  referenced -- never a guessed scope. Guessing which files are under review is
-  the one failure mode that would silently shrink a review.
+- **The output is JSON, verified by ``schema_version``.** Since ocr v1.9.0
+  ``delegate preview`` and ``delegate rule`` both accept ``--format json``,
+  which is the machine-readable contract this adapter reads instead of
+  scraping the Markdown rendering meant for a terminal. The raw output is
+  still preserved verbatim before parsing, and a shape this adapter does not
+  recognize -- wrong JSON, a ``schema_version`` it was not verified against --
+  is exit code 9 with the raw output referenced, never a guessed scope.
 - **The output is untrusted content.** It is candidate-influenced (paths, rule
-  text) and reaches logs, evidence and, in a later stage, the packet. Every path
-  is validated as repository-relative before it propagates anywhere, and every
-  message this module raises goes through redaction.
+  text) and reaches logs, evidence and, in a later stage, the packet. Every
+  path is validated as repository-relative before it propagates anywhere, and
+  every message this module raises goes through redaction.
 
-The shapes below are derived from the contract's description of the output.
-Whether they match the pinned binary byte for byte is what
-``tests/conformance/test_real_ocr.py`` exists to prove; until a person runs it
-against the real ``ocr``, both this parser and the fake are **unverified**.
+Verified against the pinned binary by ``tests/conformance/test_real_ocr.py``;
+the shape read here is ``delegate_cmd.go``'s ``schema_version: "1"``.
 """
 
 from __future__ import annotations
 
+import json
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .errors import EXIT_ENGINE, AppError, Diagnostic
 from .evidence import harden_directories
@@ -41,10 +40,14 @@ from .redaction import redact_text
 
 # Bumped whenever the parsing contract changes, and recorded in the evidence so
 # a stored session says which adapter read its raw output.
-# Bumped when the shape this adapter reads changes. Version 2 is the first one
-# verified against the real binary: open-code-review v1.8.3 (80a579466). What
+# Version 3 is the first one that reads ``--format json`` instead of scraping
+# Markdown, verified against open-code-review v1.12.0 (494bf1c8d). What
 # changed is recorded in tests/conformance/evidence/real-ocr.md.
-ADAPTER_VERSION = "2"
+ADAPTER_VERSION = "3"
+
+# The ``schema_version`` this adapter has been verified against. ocr's own
+# delegate JSON contract, not this adapter's ``ADAPTER_VERSION``.
+SUPPORTED_SCHEMA_VERSION = "1"
 
 OCR_CONFIG_ENV = "OCR_CONFIG_PATH"
 
@@ -55,51 +58,6 @@ OCR_CONFIG_ENV = "OCR_CONFIG_PATH"
 # telemetry, and never force-disables a decision the operator made.
 MINIMAL_CONFIG: dict[str, Any] = {"language": "English"}
 
-_HEADER_RE = re.compile(
-    r"^\s*(?:[-*+]\s*)?(?:\*{1,2}|_{1,2})?(?P<key>mode|from|to|merge[ _-]?base|repo(?:sitory)?"
-    r"|total[ _-]?insertions|total[ _-]?deletions)"
-    r"(?:\*{1,2}|_{1,2})?\s*[:=]\s*(?P<value>.+?)\s*$",
-    re.IGNORECASE,
-)
-# The real binary prints its metadata as list items *inside* the file section,
-# before the entries (verified against v1.8.3). They are recognized by their
-# key, and only when the line carries no delimited path token -- so a file
-# genuinely named `mode` still reports as the file it is.
-_METADATA_KEYS = frozenset({"mode", "from", "to", "merge_base", "repo", "repository", "total_insertions", "total_deletions"})
-# An entry the engine struck through: the wrapper spans the whole item, dash
-# included (`~~- `path` [status] (excluded: reason)~~`). Recognized only in that
-# whole-item shape -- `~~` is not accepted as a delimiter anywhere it pleases.
-_STRIKETHROUGH_ITEM_RE = re.compile(r"^\s*~~(?P<body>(?:[-*+]|\d+[.)])\s+.+?)~~\s*$")
-# A metadata line is only ever *text*; an entry names its path in a backticked
-# or quoted token. Emphasis is not part of that test: both shapes of this
-# engine's own metadata use it (`- **Mode**: range`, `- mode: range`), so
-# treating bold as a path delimiter here would lose the metadata entirely.
-_QUOTED_TOKEN_RE = re.compile(r"^\s*[`\"]")
-_HEADING_RE = re.compile(r"^\s{0,3}(?P<hashes>#{1,6})\s*(?P<text>.*?)\s*#*\s*$")
-_FILES_HEADING_TEXT_RE = re.compile(r"\b(files?|scope|selected|changes?|excluded|skipped)\b", re.IGNORECASE)
-# The state marker is only ever read from what *follows* the path token, never
-# from the whole line: a file legitimately named `excluded.py` or `filtered.go`
-# must not remove itself from the review.
-_EXCLUDED_RE = re.compile(r"\b(excluded?|skipp?ed|ignored|filtered)\b", re.IGNORECASE)
-_REASON_RE = re.compile(
-    r"\b(?:excluded?|skipp?ed|ignored|filtered)\b\s*(?:by|because|due to)?\s*[:\-—–(\[]?\s*(?P<reason>[^)\]]+)",
-    re.IGNORECASE,
-)
-_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s*)?(?P<body>.+?)\s*$")
-_TABLE_ROW_RE = re.compile(r"^\s*\|(?P<cells>.+)\|\s*$")
-_CODE_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
-# A delimited path wins over everything else on the line.
-_DELIMITED_RE = re.compile(r"^\s*(?:`(?P<token>[^`]+)`|\"(?P<q>[^\"]+)\"|~~(?P<s>[^~]+)~~|\*\*(?P<b>[^*]+)\*\*)")
-# Otherwise the path ends at the first explicit separator.
-_SEPARATOR_RE = re.compile(r"\s+[—–]\s+|\s+[-]\s+|\s*[:(\[]\s*|\s{2,}")
-# What may legitimately follow a delimited path: an annotation, never more path.
-_ANNOTATION_START_RE = re.compile(r"^\s*(?:[—–:|(\[]|-\s|$)")
-# A token made only of decoration is not a path.
-_DECORATION_ONLY = "`~*_ \t"
-# Markdown decoration comes in matching pairs, so it is unwrapped once -- never
-# stripped character by character, which would rename `__init__.py`.
-_WRAPPERS: tuple[str, ...] = ("```", "``", "`", "***", "**", "*", "___", "__", "_", "~~")
-
 
 @dataclass(frozen=True)
 class ScopeEntry:
@@ -108,9 +66,19 @@ class ScopeEntry:
     path: str
     included: bool
     reason: str | None = None
+    status: str | None = None
+    insertions: int | None = None
+    deletions: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {"path": self.path, "state": "included" if self.included else "excluded", "reason": self.reason}
+        return {
+            "path": self.path,
+            "state": "included" if self.included else "excluded",
+            "reason": self.reason,
+            "status": self.status,
+            "insertions": self.insertions,
+            "deletions": self.deletions,
+        }
 
 
 @dataclass(frozen=True)
@@ -150,6 +118,26 @@ class PreviewResult:
 
 
 @dataclass(frozen=True)
+class RuleGroup:
+    """One resolved rule group the engine reported, and the files it covers."""
+
+    group_id: int
+    source: str
+    pattern: str
+    files: tuple[str, ...]
+    rule: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "group_id": self.group_id,
+            "source": self.source,
+            "pattern": self.pattern,
+            "files": list(self.files),
+            "rule": self.rule,
+        }
+
+
+@dataclass(frozen=True)
 class RuleAssignment:
     """The rules the engine resolved for one path."""
 
@@ -166,6 +154,7 @@ class RuleResolution:
 
     raw: str
     assignments: tuple[RuleAssignment, ...]
+    groups: tuple[RuleGroup, ...] = ()
     adapter_version: str = ADAPTER_VERSION
 
     def as_dict(self) -> dict[str, Any]:
@@ -290,7 +279,7 @@ class Ocr:
         entirely is the workspace mode the pre-pull-request review uses.
         """
 
-        arguments = ["delegate", "preview", "--repo", str(repository)]
+        arguments = ["delegate", "preview", "--repo", str(repository), "--format", "json"]
         if (from_ref is None) != (to_ref is None):
             raise AppError(
                 "the engine range needs both ends or neither",
@@ -318,42 +307,34 @@ class Ocr:
         paths: Sequence[str],
         *,
         rule_path: Path | None = None,
-        batch_size: int = 100,
         on_raw: Callable[[str], None] | None = None,
     ) -> RuleResolution:
         """Ask the engine which rules apply to exactly the selected files.
 
-        Long file lists are split into fixed batches (``engine.rule_batch_size``)
-        and the outputs concatenated in batch order -- which is the deterministic
-        order ``preview`` produced, so the result does not depend on the batch
-        size.
+        Every selected path goes into one ``delegate rule`` call: the engine
+        groups files by the rule content they share, and splitting the request
+        into batches would only recombine what the engine had already grouped
+        for us, for no benefit.
         """
 
         if not paths:
             return RuleResolution(raw="", assignments=())
-        size = max(int(batch_size or 100), 1)
-        raw_chunks: list[str] = []
-        assignments: list[RuleAssignment] = []
-        for start in range(0, len(paths), size):
-            batch = list(paths[start : start + size])
-            arguments = ["delegate", "rule", "--repo", str(repository)]
-            if rule_path is not None:
-                arguments.extend(["--rule", str(rule_path)])
-            # Doc "Inyeccion de opciones": paths go after every flag, and each
-            # one was validated as a repository-relative path before getting
-            # here, so none can look like an option.
-            # `--` closes the flag list: with it, a candidate file named `--rule`
-            # is a path, not a second flag that would redirect the criteria.
-            arguments.append("--")
-            arguments.extend(batch)
-            result = self.run(*arguments)
-            raw_chunks.append(result.stdout)
-            if on_raw is not None:
-                on_raw("\n".join(raw_chunks))
-            if not result.ok:
-                raise _engine_failure("`ocr delegate rule` failed", result)
-            assignments.extend(parse_rules(result.stdout, expected_paths=batch).assignments)
-        return RuleResolution(raw="\n".join(raw_chunks), assignments=tuple(assignments))
+        arguments = ["delegate", "rule", "--repo", str(repository), "--format", "json"]
+        if rule_path is not None:
+            arguments.extend(["--rule", str(rule_path)])
+        # Doc "Inyeccion de opciones": paths go after every flag, and each one
+        # was validated as a repository-relative path before getting here, so
+        # none can look like an option.
+        # `--` closes the flag list: with it, a candidate file named `--rule` is
+        # a path, not a second flag that would redirect the criteria.
+        arguments.append("--")
+        arguments.extend(paths)
+        result = self.run(*arguments)
+        if on_raw is not None:
+            on_raw(result.stdout)
+        if not result.ok:
+            raise _engine_failure("`ocr delegate rule` failed", result)
+        return parse_rules(result.stdout, expected_paths=paths)
 
 
 def _engine_failure(message: str, result: CommandResult) -> AppError:
@@ -373,16 +354,14 @@ def _engine_failure(message: str, result: CommandResult) -> AppError:
     )
 
 
-
 # -- parsing ---------------------------------------------------------------
 #
-# Two invariants hold this together, and they are deliberately independent of
-# how the engine formats anything:
+# Two invariants hold this together:
 #
-# 1. **Conservation.** Every list item and every table row inside the file
-#    section produces exactly one entry. A line that cannot be turned into an
-#    entry is exit code 9 -- never a silent discard, which is the failure mode
-#    that shrinks a review without saying so.
+# 1. **Shape verification.** The JSON must decode, and its ``schema_version``
+#    must be the one this adapter has been verified against. Anything else is
+#    exit code 9 -- never a silent discard, which is the failure mode that
+#    shrinks a review without saying so.
 # 2. **Cross-verification against git** (``verify_scope_against_git``). The set
 #    of paths the engine reports must be exactly the set git reports for the
 #    same range. This is the only defence that does not depend on the output
@@ -390,83 +369,58 @@ def _engine_failure(message: str, result: CommandResult) -> AppError:
 
 
 def parse_preview(raw: str) -> PreviewResult:
-    """Read the file selection out of the engine's Markdown.
+    """Read the file selection out of the engine's ``delegate preview`` JSON."""
 
-    Tolerant about presentation -- bullets, numbering, emphasis, checkboxes,
-    tables, heading depth -- and unforgiving about structure. The file section
-    must be identifiable, every entry line must yield an entry, and a path that
-    cannot be extracted cleanly is a failure rather than an omission.
-    """
+    document = _load_json(raw, "delegate preview")
+    _check_schema_version(document, raw)
 
-    if not raw or not raw.strip():
-        raise _unparseable("the engine produced no output at all", raw)
-
-    headers: dict[str, str] = {}
     entries: list[ScopeEntry] = []
-    section_level: int | None = None
-    in_code_fence = False
-    saw_files_section = False
-    pending_table_header: int | None = None
-
-    for number, line in enumerate(raw.splitlines(), start=1):
-        if _CODE_FENCE_RE.match(line):
-            in_code_fence = not in_code_fence
-            continue
-        if in_code_fence or not line.strip():
-            continue
-
-        heading = _HEADING_RE.match(line)
-        if heading is not None:
-            level = len(heading.group("hashes"))
-            if _FILES_HEADING_TEXT_RE.search(heading.group("text")):
-                # A files heading opens (or re-opens) the section at its level.
-                section_level = level
-                saw_files_section = True
-                pending_table_header = None
-                continue
-            if section_level is not None and level > section_level:
-                # A *deeper* heading is a sub-grouping inside the file section --
-                # by directory, by language -- and must not truncate it.
-                continue
-            section_level = None
-            continue
-
-        header = _HEADER_RE.match(line)
-        if header is not None and not _QUOTED_TOKEN_RE.match(_LIST_BODY(line)):
-            key = re.sub(r"[ _-]+", "_", header.group("key").strip().lower())
-            if key in _METADATA_KEYS:
-                # Metadata, wherever the engine chose to print it: v1.8.3 puts
-                # it inside the file section, as list items, before the entries.
-                headers.setdefault(key, _unwrap(header.group("value").strip()))
-                continue
-
-        if section_level is None:
-            continue
-
-        if _is_table_separator(line):
-            # The row above a `| --- |` separator was the table's header.
-            if pending_table_header is not None and entries:
-                del entries[pending_table_header]
-            pending_table_header = None
-            continue
-
-        entry = _parse_scope_line(line, number=number, raw=raw)
-        pending_table_header = len(entries) if _TABLE_ROW_RE.match(line) else None
-        entries.append(entry)
-
-    if not saw_files_section:
-        raise _unparseable(
-            "the engine's output has no recognizable file section, so the review scope is unknown",
-            raw,
-        )
+    for item in _files_array(document, "reviewable_files", raw):
+        entries.append(_scope_entry(item, included=True, raw=raw))
+    for item in _files_array(document, "excluded_files", raw):
+        entries.append(_scope_entry(item, included=False, raw=raw))
 
     return PreviewResult(
         raw=raw,
         entries=_deduplicate(entries, raw),
-        mode=headers.get("mode"),
-        from_ref=headers.get("from"),
-        to_ref=headers.get("to"),
-        merge_base=headers.get("merge_base"),
+        mode=_optional_str(document, "mode"),
+        from_ref=_optional_str(document, "from"),
+        to_ref=_optional_str(document, "to"),
+        merge_base=_optional_str(document, "merge_base"),
+    )
+
+
+def _files_array(document: dict[str, Any], key: str, raw: str) -> list[Any]:
+    value = document.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise _unparseable(f"the engine's {key!r} is not a list", raw)
+    return value
+
+
+def _scope_entry(item: Any, *, included: bool, raw: str) -> ScopeEntry:
+    if not isinstance(item, dict):
+        raise _unparseable("a reported file entry is not an object", raw)
+    path = item.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise _unparseable("a reported file entry has no path", raw)
+    path = _clean_path(path, raw=raw)
+    reason = item.get("exclude_reason")
+    reason = reason.strip() if isinstance(reason, str) and reason.strip() else None
+    status = item.get("status")
+    status = status if isinstance(status, str) and status.strip() else None
+    insertions = item.get("insertions")
+    insertions = insertions if isinstance(insertions, int) and not isinstance(insertions, bool) else None
+    deletions = item.get("deletions")
+    deletions = deletions if isinstance(deletions, int) and not isinstance(deletions, bool) else None
+    return ScopeEntry(
+        path=path,
+        included=included,
+        reason=reason if not included else None,
+        status=status,
+        insertions=insertions,
+        deletions=deletions,
     )
 
 
@@ -487,101 +441,15 @@ def _deduplicate(entries: list[ScopeEntry], raw: str) -> tuple[ScopeEntry, ...]:
     return tuple(seen.values())
 
 
-def _LIST_BODY(line: str) -> str:
-    """The body of a list item, or the line itself when it is not one."""
-
-    item = _LIST_ITEM_RE.match(line)
-    return item.group("body") if item else line.strip()
-
-
-def _parse_scope_line(line: str, *, number: int, raw: str) -> ScopeEntry:
-    """Turn one entry line into exactly one entry, or fail loudly.
-
-    The path is read as a **delimited token** -- a backticked or quoted span, a
-    table cell, or the text up to an explicit separator -- and the state is read
-    only from what follows that separator. Scanning the whole line for the word
-    "excluded" would make a file called ``excluded.py`` or ``filtered.go``
-    vanish from the scope, which a pull request chooses simply by naming a file.
-    """
-
-    table = _TABLE_ROW_RE.match(line)
-    if table:
-        cells = [cell.strip() for cell in table.group("cells").split("|")]
-        cells = [cell for cell in cells if cell]
-        if not cells:
-            raise _unparseable(f"line {number} is a table row with no cells", raw)
-        path = _clean_path(cells[0], line=line, number=number, raw=raw)
-        rest = " ".join(cells[1:])
-        excluded = bool(_EXCLUDED_RE.search(rest))
-        return ScopeEntry(path=path, included=not excluded, reason=_reason(rest) if excluded else None)
-
-    struck = _STRIKETHROUGH_ITEM_RE.match(line)
-    if struck is not None:
-        # Presentation, not structure: v1.8.3 strikes through the whole item for
-        # an excluded file. The wrapper is removed and the item inside is parsed
-        # exactly like any other, so the state still comes from what follows the
-        # path token and never from the decoration around it.
-        line = struck.group("body")
-
-    item = _LIST_ITEM_RE.match(line)
-    if item is None:
-        raise _unparseable(
-            f"line {number} of the file section is neither a list item nor a table row: {line.strip()[:80]!r}",
-            raw,
-        )
-    body = item.group("body").strip()
-    token, remainder = _split_entry(body)
-    path = _clean_path(token, line=line, number=number, raw=raw)
-    excluded = bool(_EXCLUDED_RE.search(remainder))
-    return ScopeEntry(path=path, included=not excluded, reason=_reason(remainder) if excluded else None)
-
-
-def _split_entry(body: str) -> tuple[str, str]:
-    """Separate the path token from whatever annotates it.
-
-    A delimited path wins outright: ``` `src/excluded.py` ``` is a path, whatever
-    the rest of the line says. Otherwise the first explicit separator ends the
-    path -- and if there is none, the whole body is the path, because file names
-    may contain spaces.
-    """
-
-    delimited = _DELIMITED_RE.match(body)
-    if delimited:
-        token = next(group for group in delimited.groups() if group)
-        remainder = body[delimited.end() :]
-        if remainder.strip() and not _ANNOTATION_START_RE.match(remainder):
-            # `a`b.py` closes its span early: the line could mean two different
-            # paths and there is no honest way to choose between them.
-            raise _ambiguous(body)
-        return token, remainder
-    separator = _SEPARATOR_RE.search(body)
-    if separator:
-        return body[: separator.start()], body[separator.end() :]
-    return body, ""
-
-
-def _reason(text: str) -> str | None:
-    match = _REASON_RE.search(text)
-    if not match:
-        return None
-    reason = match.group("reason").strip().strip("`*_ \t:-—–()[]")
-    return reason or None
-
-
-def _clean_path(token: str, *, line: str, number: int, raw: str) -> str:
-    """Normalize and validate one reported path, or fail.
+def _clean_path(text: str, *, raw: str) -> str:
+    """Validate one reported path, or fail.
 
     Doc "Contenido no confiable": scope paths are validated as repository
     relative -- no ``..``, no absolute path, no NUL, and no leading ``-`` -- and
     a path that fails validation is a parse failure, never a dropped file.
     """
 
-    text = _unwrap(token).strip().strip("\"'").strip()
-    if not text.strip(_DECORATION_ONLY):
-        raise _unparseable(
-            f"line {number} of the file section has no path in it: {line.strip()[:80]!r}",
-            raw,
-        )
+    text = text.strip()
     try:
         validate_repository_relative_path(text)
     except AppError as error:
@@ -591,29 +459,6 @@ def _clean_path(token: str, *, line: str, number: int, raw: str) -> str:
             diagnostics=[Diagnostic("engine_path_invalid", redact_text(str(error)), text)],
         ) from error
     return text
-
-
-def _unwrap(token: str) -> str:
-    """Remove **one** matching Markdown wrapper, never inner characters.
-
-    A single pass, on purpose: iterating would turn ``__init__`` into ``init``
-    and ``_private_`` into ``private``, silently renaming real files.
-    """
-
-    text = token.strip()
-    for wrapper in _WRAPPERS:
-        if len(text) > 2 * len(wrapper) and text.startswith(wrapper) and text.endswith(wrapper):
-            return text[len(wrapper) : -len(wrapper)].strip()
-    return text
-
-
-def _is_table_separator(line: str) -> bool:
-    table = _TABLE_ROW_RE.match(line)
-    if not table:
-        return False
-    cells = [cell.strip() for cell in table.group("cells").split("|")]
-    filled = [cell for cell in cells if cell]
-    return bool(filled) and all(set(cell) <= set("-: ") for cell in filled)
 
 
 def verify_scope_against_git(preview: PreviewResult, changed_paths: Sequence[str]) -> None:
@@ -662,35 +507,50 @@ def verify_scope_against_git(preview: PreviewResult, changed_paths: Sequence[str
     )
 
 
-def parse_rules(raw: str, *, expected_paths: Iterable[str]) -> RuleResolution:
-    """Read the resolved rule cascade, anchored on the paths we asked about.
+def parse_rules(raw: str, *, expected_paths: Sequence[str]) -> RuleResolution:
+    """Read the resolved rule cascade out of the engine's ``delegate rule`` JSON.
 
-    Anchoring on our own request rather than on the engine's headings means a
-    cosmetic change to how a group is titled cannot make the parser miss a
-    group, and a group for a path nobody asked about is never invented. The
-    anchors are matched on **path boundaries**: without them ``a.py`` would
-    swallow the rules of ``vendor/a.py``, and ``vendor/a.py`` would lose its own.
-
-    Every requested path must appear. A partial answer is exit code 9, because
-    "this file has no rules" and "the engine did not tell us about this file"
-    have to stay distinguishable.
+    Every requested path must appear in some group. A partial answer is exit
+    code 9, because "this file has no rules" and "the engine did not tell us
+    about this file" have to stay distinguishable.
     """
 
     wanted = list(expected_paths)
     if not wanted:
         return RuleResolution(raw=raw, assignments=())
-    if not raw or not raw.strip():
-        raise _unparseable("the engine produced no rule output for the selected files", raw)
 
-    positions: list[tuple[int, str]] = []
-    found: set[str] = set()
-    for path in wanted:
-        pattern = re.compile(rf"(?<![\w./\\-]){re.escape(path)}(?![\w./\\-])")
-        for match in pattern.finditer(raw):
-            positions.append((match.start(), path))
-            found.add(path)
+    document = _load_json(raw, "delegate rule")
+    _check_schema_version(document, raw)
 
-    absent = [path for path in wanted if path not in found]
+    raw_groups = document.get("groups")
+    if not isinstance(raw_groups, list):
+        raise _unparseable("the engine's 'groups' is not a list", raw)
+
+    groups: list[RuleGroup] = []
+    rules_by_path: dict[str, list[str]] = {path: [] for path in wanted}
+    for item in raw_groups:
+        if not isinstance(item, dict):
+            raise _unparseable("a rule group is not an object", raw)
+        group_id = item.get("group_id")
+        source = item.get("source")
+        pattern = item.get("pattern")
+        rule_text = item.get("rule")
+        files = item.get("files")
+        if (
+            not isinstance(group_id, int)
+            or not isinstance(source, str)
+            or not isinstance(pattern, str)
+            or not isinstance(rule_text, str)
+            or not isinstance(files, list)
+            or not all(isinstance(entry, str) for entry in files)
+        ):
+            raise _unparseable("a rule group has an unexpected shape", raw)
+        groups.append(RuleGroup(group_id=group_id, source=source, pattern=pattern, files=tuple(files), rule=rule_text))
+        for path in files:
+            if path in rules_by_path:
+                rules_by_path[path].append(rule_text)
+
+    absent = [path for path in wanted if not rules_by_path[path]]
     if absent:
         raise _unparseable(
             "the engine's rule output does not mention "
@@ -698,149 +558,34 @@ def parse_rules(raw: str, *, expected_paths: Iterable[str]) -> RuleResolution:
             raw,
         )
 
-    grouped = _parse_rule_groups(raw, wanted)
-    if grouped is not None:
-        return RuleResolution(raw=raw, assignments=grouped)
-
-    positions.sort()
-    assignments: list[RuleAssignment] = []
-    claimed: set[str] = set()
-    for index, (start, path) in enumerate(positions):
-        if path in claimed:
-            continue
-        claimed.add(path)
-        end = len(raw)
-        for later_start, later_path in positions[index + 1 :]:
-            if later_path not in claimed:
-                end = later_start
-                break
-        # A group also ends at the engine's *next* group heading, even when that
-        # heading names a file this batch did not ask about: without that bound
-        # `a.py` would absorb every rule printed after it.
-        end = min(end, _next_group_boundary(raw, start))
-        assignments.append(RuleAssignment(path=path, rules=_rule_texts(raw[start:end], path)))
-    order = {path: position for position, path in enumerate(wanted)}
-    assignments.sort(key=lambda assignment: order.get(assignment.path, len(order)))
-    return RuleResolution(raw=raw, assignments=tuple(assignments))
+    assignments = tuple(RuleAssignment(path=path, rules=tuple(rules_by_path[path])) for path in wanted)
+    return RuleResolution(raw=raw, assignments=assignments, groups=tuple(groups))
 
 
-# The shape v1.8.3 actually prints: a numbered group heading, the paths it
-# applies to, and the rule text under its own sub-heading.
-#
-#     ### Rule Group 1: custom / src/**
-#
-#     Applies to:
-#     - src/m.py
-#
-#     #### Content
-#
-#     <the rule text, which itself contains headings and list items>
-#
-# Reading it group-first matters for a reason the positional fallback made
-# invisible: slicing from the first mention of a path to the next heading stops
-# at `#### Content`, so every file came back with **zero rules** and nothing
-# failed. An empty answer that looks like a valid one is worse than an error.
-_RULE_GROUP_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s*Rule\s+Group\b(?P<title>[^\n]*)$", re.IGNORECASE)
-_APPLIES_TO_RE = re.compile(r"(?m)^\s*(?:\*{1,2})?Applies\s+to(?:\*{1,2})?\s*:?\s*$", re.IGNORECASE)
-_CONTENT_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s*Content\s*$", re.IGNORECASE)
-_GROUP_BOUNDARY_RE = re.compile(r"(?m)^(?:\s{0,3}#{1,6}\s|\s*\*\*[^*\n]+\*\*\s*:?\s*$)")
+def _load_json(raw: str, label: str) -> dict[str, Any]:
+    if not raw or not raw.strip():
+        raise _unparseable(f"the engine produced no output for {label}", raw)
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise _unparseable(f"the engine's {label} output is not valid JSON: {error}", raw) from error
+    if not isinstance(document, dict):
+        raise _unparseable(f"the engine's {label} output is not a JSON object", raw)
+    return document
 
 
-def _parse_rule_groups(raw: str, wanted: Sequence[str]) -> tuple[RuleAssignment, ...] | None:
-    """Read the engine's own grouping, when it prints one.
-
-    Returns ``None`` when the output carries no recognizable groups, so the
-    positional reading stays as the fallback for a shape this version has not
-    seen. Every requested path must still be accounted for: a path in no group
-    at all sends the whole parse back to the fallback rather than silently
-    receiving no rules.
-    """
-
-    starts = [match.start() for match in _RULE_GROUP_RE.finditer(raw)]
-    if not starts:
-        return None
-
-    remaining = set(wanted)
-    texts: dict[str, tuple[str, ...]] = {}
-    bounds = [*starts, len(raw)]
-    for index, start in enumerate(starts):
-        block = raw[start : bounds[index + 1]]
-        applies = _APPLIES_TO_RE.search(block)
-        content = _CONTENT_HEADING_RE.search(block)
-        if applies is None or content is None:
-            return None
-        listed = {
-            line.strip().lstrip("-*+ ").strip("`\"' ")
-            for line in block[applies.end() : content.start()].splitlines()
-            if line.strip()
-        }
-        body = block[content.end() :]
-        rules = _rule_texts(body, "")
-        for path in wanted:
-            if path in listed:
-                texts.setdefault(path, ())
-                texts[path] = texts[path] + rules
-                remaining.discard(path)
-
-    if remaining:
-        return None
-    if not any(texts.values()):
-        # The groups parsed and every one of them was empty. That is not a
-        # review with no criteria; it is a shape this adapter misread.
+def _check_schema_version(document: dict[str, Any], raw: str) -> None:
+    version = document.get("schema_version")
+    if version != SUPPORTED_SCHEMA_VERSION:
         raise _unparseable(
-            "the engine's rule groups were recognized but none of them carried any rule text",
+            f"the engine's schema_version is {version!r}, not the verified {SUPPORTED_SCHEMA_VERSION!r}",
             raw,
         )
-    return tuple(RuleAssignment(path=path, rules=texts.get(path, ())) for path in wanted)
 
 
-def _next_group_boundary(raw: str, start: int) -> int:
-    """Where the group that begins at ``start`` stops, structurally."""
-
-    line_end = raw.find("\n", start)
-    if line_end == -1:
-        return len(raw)
-    match = _GROUP_BOUNDARY_RE.search(raw, line_end + 1)
-    return match.start() if match else len(raw)
-
-
-def _rule_texts(block: str, path: str) -> tuple[str, ...]:
-    texts: list[str] = []
-    for line in block.splitlines():
-        stripped = line.strip()
-        if not stripped or _CODE_FENCE_RE.match(line):
-            continue
-        stripped = re.sub(r"^\s*(?:[-*+]|\d+[.)])\s+", "", stripped)
-        stripped = stripped.strip("`*_ ")
-        if not stripped or (path and stripped == path) or stripped.startswith("#"):
-            continue
-        if stripped.startswith(">"):
-            # A block quote in the engine's own preamble is guidance about how
-            # to review, not a rule about this file.
-            stripped = stripped.lstrip("> ").strip()
-            if not stripped:
-                continue
-        # A line that only repeats the path is a title in disguise, not a rule.
-        if stripped.replace(path, "").strip(" :-—–") == "":
-            continue
-        texts.append(stripped)
-    return tuple(texts)
-
-
-def _ambiguous(body: str) -> AppError:
-    """Exit code 9 for a line that could mean two different paths."""
-
-    return AppError(
-        "the review engine reported a file entry this adapter cannot read unambiguously",
-        code=EXIT_ENGINE,
-        diagnostics=[
-            Diagnostic(
-                "engine_entry_ambiguous",
-                "the path token does not span the whole entry, so the line could name more than one file; "
-                f"the raw output is preserved in the session evidence. Entry: {redact_text(body[:120])}",
-            )
-        ],
-    )
+def _optional_str(document: dict[str, Any], key: str) -> str | None:
+    value = document.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _unparseable(message: str, raw: str) -> AppError:
@@ -860,14 +605,9 @@ def _unparseable(message: str, raw: str) -> AppError:
     )
 
 
-
 def write_minimal_config(path: Path) -> Path:
     """Generate the delegate-mode configuration and point ``OCR_CONFIG_PATH`` at it."""
-
-    import json
 
     harden_directories(path.parent)
     path.write_text(json.dumps(MINIMAL_CONFIG, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     return path
-
-
