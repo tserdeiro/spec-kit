@@ -65,6 +65,12 @@ class CliCase(unittest.TestCase):
         self.addCleanup(self.repository.cleanup)
         self.addCleanup(self._prune_worktrees)
         copy_consumer_fixture(self.repository.path)
+        extension = self.repository.path / ".specify/extensions/code-review"
+        package = Path(__file__).resolve().parents[2]
+        for relative in ("scripts/bash/commit-msg.sh", "src/spec_kit_code_review/commit_msg.py", "src/spec_kit_code_review/commit_policy.py"):
+            destination = extension / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(package / relative, destination)
         self.repository.git("add", "--all")
         self.repository.git("commit", "-m", "consumer fixture")
         self.repository.add_remote("origin", "git@github.com:tserdeiro/consumer.git")
@@ -454,7 +460,7 @@ class DoctorCommandTests(CliCase):
         _, payload = self.invoke_json("doctor")
         codes = {item["code"] for item in payload["diagnostics"]}
 
-        self.assertIn("git_hooks_absent", codes)
+        self.assertIn("git_hooks_missing", codes)
 
     def test_doctor_never_contacts_github_for_a_write(self) -> None:
         # The fake gh refuses every endpoint outside the read allowlist, so an
