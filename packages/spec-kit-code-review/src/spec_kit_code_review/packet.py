@@ -439,6 +439,8 @@ def assemble(
     generated_at: str = "",
     advisory: bool = False,
     working_sources: Sequence[Mapping[str, Any]] = (),
+    code_sources: Sequence[Mapping[str, Any]] = (),
+    code_ranges: Sequence[Mapping[str, Any]] = (),
 ) -> Packet:
     """Assemble the packet in the documented section order.
 
@@ -507,6 +509,7 @@ def assemble(
         ]
         inventory = _context_inventory(review_scope, context_selection, sdd, block_truncations, candidate=candidate,
                                        working_sources=working_sources,
+                                       code_sources=code_sources, code_ranges=code_ranges,
                                        per_source=source_limit, total=max_total_bytes, advisory=advisory,
                                        intent_body=redact_text(metadata["title"] + "\n" + metadata["body"]) if pull_request else "",
                                        intent_version=metadata_digest, intent_selected=include_pr_body,
@@ -662,11 +665,14 @@ def _normalize(text: str, *, suffix: str) -> str:
 def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any | None,
                        truncations: Sequence[Truncation] = (), candidate: Any | None = None,
                        working_sources: Sequence[Mapping[str, Any]] = (),
+                       code_sources: Sequence[Mapping[str, Any]] = (),
+                       code_ranges: Sequence[Mapping[str, Any]] = (),
                        per_source: int = DEFAULT_MAX_BYTES_PER_ARTIFACT, total: int = DEFAULT_MAX_TOTAL_BYTES,
                        advisory: bool = False, intent_body: str = "", intent_version: str = "",
                        intent_selected: bool = True, intent_command: str = "") -> dict[str, Any]:
     scope = review_scope.as_dict() if hasattr(review_scope, "as_dict") else dict(review_scope or {})
     selected = selection.as_dict() if hasattr(selection, "as_dict") else dict(selection or {})
+    code_ref = "working-tree" if advisory else getattr(candidate, "head_commit", None)
     sources = []
     if sdd is not None:
         for artifact in sdd.artifacts():
@@ -676,6 +682,13 @@ def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any
     if advisory:
         known = {item["path"] for item in sources}
         sources.extend(dict(item) for item in working_sources if item.get("path") not in known)
+    known_code_sources = {item["path"] for item in sources}
+    for item in code_sources:
+        if item.get("path") not in known_code_sources:
+            entry = dict(item)
+            entry.setdefault("version", code_ref)
+            sources.append(entry)
+            known_code_sources.add(entry["path"])
     if intent_body and not advisory:
         sources.append({"path": "<pull-request-intent>", "sha256": hashlib.sha256(intent_body.encode("utf-8")).hexdigest(),
                         "version": intent_version})
@@ -708,6 +721,13 @@ def _context_inventory(review_scope: Any | None, selection: Any | None, sdd: Any
     intent_omitted = []
     required_ranges = ranges("required")
     selected_ranges = ranges("selected", clip=True)
+    for item in code_ranges:
+        path = str(item.get("path", ""))
+        start, end = int(item.get("start", 1)), int(item.get("end", 1))
+        command = (
+            f"cat {shlex.quote(path)}" if advisory else f"git show {shlex.quote(str(code_ref))}:{shlex.quote(path)}"
+        )
+        required_ranges.append({"path": path, "start": start, "end": end, "reason": "changed hunk", "command": command})
     if intent_body and not advisory:
         intent_range = {"path": "<pull-request-intent>", "start": 1, "end": len(intent_body.splitlines()),
                         "reason": "frozen pull-request intent", "command": intent_command}
@@ -1455,6 +1475,7 @@ def _section_instructions(*, advisory: bool = False) -> str:
                 "Before reporting the advisory result, compare every current source hash with the packet inventory and compare the complete set of reviewed paths as well. A tracked deletion remains valid while the path stays absent; an unavailable or symlinked path is an explicit coverage gap. If any source differs or is added or removed, discard this record and create a fresh advisory packet; do not report findings as covered from stale reads.",
                 "Recompute the path set as the union of `git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only --end-of-options HEAD` and `git ls-files --others --exclude-standard -z`; the first covers staged and unstaged tracked changes and the second adds untracked paths.",
                 "This `coverage.json` is advisory evidence only. Do not reuse it as coverage for a pull-request review, which requires a fresh packet and its session `findings.json` envelope.",
+                "`required` is not only the Spec Kit artifacts: every in-scope file's changed lines are required reads too, with the same receipt obligation.",
             ] if advisory else [
                 "For PR closure, inspect context-inventory.json beside this packet and report every required range read.",
                 "Selected text or a retrieval command earns no credit. Hash the exact source UTF-8 bytes, preserving line ends;",
@@ -1462,6 +1483,7 @@ def _section_instructions(*, advisory: bool = False) -> str:
                 "Use each inventoried source version and its frozen retrieval action, including the PR-intent snapshot.",
                 "Additional reads may close only the matching uncovered ranges; unrelated receipts do not close other gaps.",
                 "If an inconclusive review has already closed, reopen the candidate before submitting new reading receipts.",
+                "`required` is not only the Spec Kit artifacts and the frozen intent: every in-scope file's changed hunks are required reads too, exactly like a contract artifact.",
             ]),
             "",
             "### 7.5 Anchoring",

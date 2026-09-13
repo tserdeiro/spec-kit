@@ -328,6 +328,44 @@ class NormalizationTests(NormalizationCase):
         self.assertIn("not inside a hunk", finding.degraded_reason)
         self.assertIn("findings_degraded", [item.code for item in result.diagnostics])
 
+    def test_a_mislocated_finding_reanchors_by_its_unique_existing_code(self) -> None:
+        # The declared range (2-3) misses every hunk, but `existing_code` quotes
+        # exactly the two lines the candidate added at 11-12, and nowhere else.
+        result = self._normalize(
+            [entry(start_line=2, end_line=3, existing_code="  added_a = 1  \nadded_b = 2\n")]
+        )
+
+        finding = result.findings[0]
+        self.assertTrue(finding.anchorable)
+        self.assertEqual((finding.start_line, finding.end_line), (11, 12))
+        self.assertIn("finding_reanchored", [item.code for item in result.diagnostics])
+
+    def test_existing_code_matching_nowhere_still_degrades_without_discarding(self) -> None:
+        result = self._normalize(
+            [entry(start_line=2, end_line=3, existing_code="this snippet appears nowhere in the diff")]
+        )
+
+        finding = result.findings[0]
+        self.assertEqual(result.discarded, ())
+        self.assertFalse(finding.anchorable)
+        self.assertEqual((finding.start_line, finding.end_line), (2, 3))
+        self.assertIn("not inside a hunk", finding.degraded_reason)
+
+    def test_existing_code_matching_twice_still_degrades_without_discarding(self) -> None:
+        # Two hunks quote the identical line `line_0`, so the snippet locates
+        # ambiguously and must not be guessed at.
+        hunks = HunkMap(hunks=(Hunk("src/module.py", 1, 1), Hunk("src/module.py", 1, 1)))
+        result = self._normalize(
+            [entry(start_line=2, end_line=3, existing_code="line_0")],
+            hunks=hunks,
+        )
+
+        finding = result.findings[0]
+        self.assertEqual(result.discarded, ())
+        self.assertFalse(finding.anchorable)
+        self.assertEqual((finding.start_line, finding.end_line), (2, 3))
+        self.assertIn("not inside a hunk", finding.degraded_reason)
+
     def test_a_left_side_finding_is_never_anchored_but_never_lost(self) -> None:
         # Line 3 exists in the merge base, which is the frame a LEFT finding is
         # numbered in.

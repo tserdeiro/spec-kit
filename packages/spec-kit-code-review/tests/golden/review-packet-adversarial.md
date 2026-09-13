@@ -231,6 +231,7 @@ give a scope-linked assessment. Receipts are reviewer-reported and source-valida
 Use each inventoried source version and its frozen retrieval action, including the PR-intent snapshot.
 Additional reads may close only the matching uncovered ranges; unrelated receipts do not close other gaps.
 If an inconclusive review has already closed, reopen the candidate before submitting new reading receipts.
+`required` is not only the Spec Kit artifacts and the frozen intent: every in-scope file's changed hunks are required reads too, exactly like a contract artifact.
 
 ### 7.5 Anchoring
 

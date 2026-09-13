@@ -153,6 +153,18 @@ class AdvisoryReviewTests(WorkingTreeCase):
         self.assertTrue(source["available"])
         self.assertEqual(source["sha256"], hashlib.sha256((self.root / source["path"]).read_bytes()).hexdigest())
 
+    def test_advisory_inventory_requires_the_whole_untracked_file(self) -> None:
+        # An untracked file carries no hunk against HEAD, so it is required
+        # whole rather than silently earning no coverage requirement at all.
+        self._dirty("src/uncommitted.py", lines=3)
+        self._engine_reports("src/uncommitted.py")
+
+        _code, payload = self.invoke_json("review")
+
+        required = [item for item in self._inventory(payload)["required"] if item["path"] == "src/uncommitted.py"]
+        self.assertEqual(required, [{"path": "src/uncommitted.py", "start": 1, "end": 3,
+                                     "reason": "changed hunk", "command": "cat src/uncommitted.py"}])
+
     def test_advisory_code_only_drift_changes_code_hash_without_sdd_change(self) -> None:
         self._dirty("src/uncommitted.py")
         self._engine_reports("src/uncommitted.py")

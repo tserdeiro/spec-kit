@@ -538,6 +538,13 @@ class AnchoredReviewTests(RunCommandCase):
         self.assertEqual(session["packet"]["inventory_sha256"], hashlib.sha256(
             json.dumps(inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest())
+        # The candidate's own changed code, not only its SDD artifacts, is
+        # required reading: `src/feature.py` is a whole new file, so its one
+        # hunk covers its only line.
+        code_required = [item for item in inventory["required"] if item["path"] == "src/feature.py"]
+        self.assertEqual(code_required, [{"path": "src/feature.py", "start": 1, "end": 1,
+                                          "reason": "changed hunk", "command": f"git show {self.head}:src/feature.py"}])
+        self.assertIn("src/feature.py", {item["path"] for item in inventory["sources"]})
 
     def test_the_operators_checkout_is_never_touched(self) -> None:
         self.repository.write("README.md", "operator edit\n")

@@ -241,6 +241,7 @@ Copy source entries and required ranges from context-inventory.json. Read each e
 Before reporting the advisory result, compare every current source hash with the packet inventory and compare the complete set of reviewed paths as well. A tracked deletion remains valid while the path stays absent; an unavailable or symlinked path is an explicit coverage gap. If any source differs or is added or removed, discard this record and create a fresh advisory packet; do not report findings as covered from stale reads.
 Recompute the path set as the union of `git -c diff.autoRefreshIndex=false diff -z --no-renames --name-only --end-of-options HEAD` and `git ls-files --others --exclude-standard -z`; the first covers staged and unstaged tracked changes and the second adds untracked paths.
 This `coverage.json` is advisory evidence only. Do not reuse it as coverage for a pull-request review, which requires a fresh packet and its session `findings.json` envelope.
+`required` is not only the Spec Kit artifacts: every in-scope file's changed lines are required reads too, with the same receipt obligation.
 
 ### 7.5 Anchoring
 

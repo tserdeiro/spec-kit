@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `context-inventory.json`'s `required` list now covers every in-scope,
+  non-deletion file's changed hunks (the same ranges `anchors.py` anchors
+  findings against), not only the SDD artifacts and the frozen pull-request
+  intent — coverage of the diff itself is now mandatory. An advisory review
+  adds the equivalent requirement against `HEAD`, whole untracked files
+  included. The human report now names how many in-scope files were fully
+  covered versus left with a gap.
+- A finding whose declared range misses every hunk but carries
+  `existing_code` is located among the candidate's changed lines by
+  whitespace-insensitive text match before it degrades to the summary;
+  exactly one match re-anchors it there instead.
+- `presets/default/commands/implement.md`'s task-closing review step now
+  splits the packet's in-scope files into per-package/per-directory groups of
+  at most 10 files, one fresh sub-agent per group, instead of one sub-agent
+  reading the whole packet; a group over the packet's per-artifact byte cap
+  splits into one sub-agent per file. The feature pull request gets a second
+  fresh pass over the first pass's findings before closing.
 - The pinned engine moves from open-code-review v1.8.3 to v1.12.0. The
   adapter now runs `delegate preview --format json` and
   `delegate rule --format json` and reads the engine's JSON directly instead

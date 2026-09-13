@@ -100,6 +100,14 @@ def render_human(
         covered = coverage.get("covered", ())
         uncovered = coverage.get("uncovered", ())
         lines.append(f"coverage: {len(covered)} covered range(s); {len(uncovered)} uncovered range(s)")
+        gapped_paths = {item.get("path") for item in uncovered}
+        scoped_paths = gapped_paths | {item.get("path") for item in covered}
+        lines.append(
+            f"files: {len(scoped_paths)} in scope; {len(scoped_paths - gapped_paths)} fully covered; "
+            f"{len(gapped_paths)} with gaps"
+        )
+        for path in sorted(gapped_paths):
+            lines.append(f"  - gap: {path}")
         for item in uncovered:
             lines.append(
                 f"  - uncovered {item.get('path')}:{item.get('start_line')}-{item.get('end_line')} "

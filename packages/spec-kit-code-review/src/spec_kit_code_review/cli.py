@@ -80,7 +80,7 @@ from .session import (
 )
 from .lockfile import SELF_PIN_FILENAME, first_line, lock_path, platform_key, version_matches_pin
 from .ocr import ADAPTER_VERSION, Ocr, verify_scope_against_git, write_minimal_config
-from .anchors import load_hunks
+from .anchors import load_hunks, load_working_tree_hunks
 from .contract import matches_protected_path, protected_path_findings
 from .findings import load_document_bytes, normalize as normalize_findings, render_markdown as render_findings_markdown
 from .finding_corrections import (finish as finish_correction, has_invalid_categories,
@@ -101,7 +101,7 @@ from .verdict import derive as derive_verdict
 from .sdd_context import CommitReader, WorkingTreeReader, load_context, parse_tasks, resolve_feature
 from .review_context import resolve_scope, select_context
 from .rules import RuleResolution, parse_rule_document, resolve_rules
-from .process import resolve_executable, run_command, sha256_file
+from .process import resolve_executable, run_command, sha256_file, sha256_text
 from .redaction import redact_payload, redact_text
 
 
@@ -831,6 +831,10 @@ def _assemble_packet(
     )
     diagnostics.extend(budget_report.diagnostics)
 
+    hunks = load_hunks(context.git, merge_base=candidate.merge_base, head_commit=candidate.head_commit)
+    diagnostics.extend(hunks.diagnostics)
+    code_sources, code_ranges = _code_inventory(reader, engine["preview_result"], hunks)
+
     assembled = assemble_packet(
         candidate=candidate,
         pull_request=pull_request,
@@ -850,6 +854,8 @@ def _assemble_packet(
         include_pr_body=bool(config.get("packet", "include_pr_body", True)),
         include_checklists=bool(config.get("packet", "include_checklists", True)),
         generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        code_sources=code_sources,
+        code_ranges=code_ranges,
     )
     diagnostics.extend(assembled.warnings)
     for truncation in assembled.truncations:
@@ -1105,6 +1111,9 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
     )
     diagnostics.extend(budget_report.diagnostics)
 
+    working_hunks = load_working_tree_hunks(context.git)
+    code_sources, code_ranges = _advisory_code_inventory(context.root, preview, working_hunks)
+
     packet = assemble_packet(
         candidate=origin,
         pull_request=None,
@@ -1126,6 +1135,8 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         advisory=True,
         working_sources=advisory_sources,
+        code_sources=code_sources,
+        code_ranges=code_ranges,
     )
     diagnostics.extend(packet.warnings)
     for truncation in packet.truncations:
@@ -1177,6 +1188,69 @@ def _run_working_tree(args: argparse.Namespace, exit_stack: ExitStack) -> dict[s
         },
         packet={**packet.as_dict(), "path": str(packet_path)},
     )
+
+
+# Every status string the engine reports for a file whose content no longer
+# exists at the head: it has nothing to read, so it earns no changed-hunk
+# requirement -- the coverage contract that follows treats an absent range as
+# an unreadable one, not as a legitimate gap.
+_DELETION_STATUSES = {"deleted", "removed"}
+
+
+def _code_inventory(reader: Any, preview: Any, hunks: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Sources and required ranges for every changed hunk of an in-scope file.
+
+    Doc 1 "Required code ranges": coverage of the diff itself is mandatory, not
+    only of the SDD artifacts. Every included, non-deletion file's changed
+    hunks -- the same hunks `anchors.py` anchors findings against -- become
+    required reading receipts through the same generic `coverage.validate`.
+    """
+
+    sources: list[dict[str, Any]] = []
+    ranges: list[dict[str, Any]] = []
+    for entry in preview.entries:
+        if not entry.included or (entry.status or "").strip().lower() in _DELETION_STATUSES:
+            continue
+        file_hunks = hunks.for_path(entry.path)
+        if not file_hunks:
+            continue
+        text = reader.read(entry.path)
+        if text is None:
+            continue
+        sources.append({"path": entry.path, "sha256": sha256_text(text)})
+        for hunk in file_hunks:
+            ranges.append({"path": entry.path, "start": hunk.start, "end": hunk.end})
+    return sources, ranges
+
+
+def _advisory_code_inventory(root: Path, preview: Any, hunks: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The advisory counterpart of `_code_inventory`: reads from disk, and a file
+
+    with no hunk against `HEAD` -- an untracked file, invisible to `git diff` --
+    is required whole rather than skipped.
+    """
+
+    sources: list[dict[str, Any]] = []
+    ranges: list[dict[str, Any]] = []
+    for entry in preview.entries:
+        if not entry.included or (entry.status or "").strip().lower() in _DELETION_STATUSES:
+            continue
+        try:
+            validate_repository_relative_path(entry.path)
+            target = root / entry.path
+            if not target.is_file() or target.is_symlink():
+                continue
+            text = target.read_text(encoding="utf-8")
+        except (AppError, OSError, UnicodeDecodeError):
+            continue
+        sources.append({"path": entry.path, "sha256": sha256_text(text)})
+        file_hunks = hunks.for_path(entry.path)
+        if file_hunks:
+            for hunk in file_hunks:
+                ranges.append({"path": entry.path, "start": hunk.start, "end": hunk.end})
+        else:
+            ranges.append({"path": entry.path, "start": 1, "end": len(text.splitlines()) or 1})
+    return sources, ranges
 
 
 def _capture_advisory_sources(root: Path, git: Git, paths: list[str]) -> tuple[dict[str, Any], ...]:

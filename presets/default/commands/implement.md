@@ -76,19 +76,18 @@ python3 .specify/presets/default/scripts/python/budget_stop.py <T###> <base>
 
 (`base` is what step 1 printed.) It stops the task — no PR opens — when the authored executable lines pass the smaller of twice the task's `Delivery` forecast and 400, naming what does not fit. **A forecast or a budget is never amended in the PR that exceeds it**: a human changes it in the ledger, on the feature branch, outside that PR — or grants an explicit exception in the conversation, recorded in the PR's evidence, letting the PR open as is.
 
-Run `/speckit.pr`: it guarantees the branch invariant and opens the draft PR with the canonical body. Self-review it next: the fresh reviewer's brief is fixed text, the packet path (or the diff and PR body, below) prepended:
+Run `/speckit.pr`: it guarantees the branch invariant and opens the draft PR with the canonical body. Self-review it next: every sub-agent's brief is fixed text, its group's file list prepended:
 
 > Verify the implementer's claims in the packet's evidence instead of
 > repeating its experiments. Before asking for an edge case, ask
 > whether the mechanism is needed at all — a simpler design that meets
 > the requirement is a `major` finding, a new runtime dependency is
-> `blocking`, per the repository's review rules. A packet over 100 KB
-> (`wc -c`) is reviewed one file at a time, findings consolidated at
-> the end. Write `findings.json` inside the review session directory
-> when there is one; otherwise, return the findings directly to the
-> orchestrator.
+> `blocking`, per the repository's review rules. Read every changed
+> range of your assigned files, and the contract ranges (spec, plan,
+> tasks, frozen intent) you need to judge them; return your findings and
+> the reading receipts for what you read.
 
-- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session — orchestrated like the tasks: on hosts with sub-agents, open the review session but neither read the packet nor write the findings yourself — hand the packet path and the brief, nothing else, to a **fresh sub-agent** with no implementation residue, which reads the packet in full, reviews the candidate, and writes `findings.json` **inside the review session directory**; close the review with that file. Without sub-agents, run the review yourself — findings still written inside the session directory, fresh per review, never copied from an earlier one.
+- **With `code-review` in the set**, review it with `/speckit.code-review <PR number>` — only the PR form opens a review session. On hosts with sub-agents: read the packet's in-scope file list and group it into groups of at most 10 related files (same package or directory, following the packet's rule groups); dispatch one **fresh sub-agent** per group — no implementation residue — with the packet path, that group's file list, and the brief above; a group whose files' changed lines exceed the packet's per-artifact byte cap splits into one sub-agent per file instead of one per group. Each sub-agent reads only its assigned files and the contract ranges it needs, and returns findings plus receipts for what it read; merge every sub-agent's findings and receipts into the session's single `findings.json` and close the review with that file. Without sub-agents, run the review yourself — findings still written inside the session directory, fresh per review, never copied from an earlier one. For the feature PR (the one whose base is the trunk branch), run a second fresh pass with the first pass's findings as context, and close once that second pass adds nothing.
 - **Without `code-review`**, hand a fresh sub-agent (or, without one, a fresh context) the PR's diff and body — `gh pr diff <n>` and `gh pr view <n>` — and the brief, nothing else carried over. It returns its findings; post them as one PR comment (`gh pr comment <n>`) — no session, no verdict, the degraded mode — and name that comment in the Completion evidence.
 
 That independence is what makes the verdict worth anything: a reused findings file is not a review. Fix what it finds on the task branch, whichever path produced it.

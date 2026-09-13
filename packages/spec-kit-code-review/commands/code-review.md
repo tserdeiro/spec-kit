@@ -186,6 +186,11 @@ and include a short assessment tied to the reviewed scope:
 This `coverage` envelope belongs to pull-request sessions only. Advisory
 reviews use the separate host-reported `coverage.json` record above.
 
+`context-inventory.json`'s `required` list is not only the SDD artifacts and
+the frozen pull-request intent: every in-scope file's changed hunks are
+required reads too, with the same receipt obligation. A code file without a
+receipt for its changed lines is a gap, exactly like an unread spec section.
+
 The session validates every receipt against the immutable candidate and frozen
 inventory. Duplicate receipts are deduplicated and overlapping receipts are
 unioned; they do not over-credit coverage. Missing, partial, or invalid

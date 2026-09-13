@@ -41,6 +41,12 @@ tracked changes against `HEAD`, and the second adds untracked paths. Any changed
 source requires a fresh packet. This evidence is host-reported and advisory only. It is never reusable for pull-request
 coverage, which uses the session findings envelope below.
 
+`context-inventory.json`'s `required` list is not only the Spec Kit artifacts
+and the frozen pull-request intent: every in-scope file's changed hunks — the
+same ranges `git diff --unified=0` anchors findings against — are required
+reads too, with the same receipt obligation. A code file without a receipt for
+its changed lines is a gap, exactly like an unread spec section.
+
 An anchored review runs in two internal invocations — a CLI cannot wait for the
 agent to read a packet, because the agent is what invokes it. The agent-facing
 command file (`commands/code-review.md`) drives both, so a person runs one
@@ -86,6 +92,12 @@ Substantive edits require a fresh review and new analysis.
 
 Severities: `blocking`, `major`, `minor`, `nit`, `info`. Categories are listed
 in the packet's generated catalog; any other value refuses the whole file.
+
+A finding whose range misses every hunk is not discarded outright when it
+carries `existing_code`: the close command looks for that exact text,
+whitespace-insensitively, among the candidate's changed lines for that path.
+Exactly one match re-anchors the finding there; zero or several matches leave
+it reported in the summary, the same place a `side: LEFT` finding is reported.
 
 ## Guards
 
