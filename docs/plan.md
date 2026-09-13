@@ -74,9 +74,9 @@ taskstoissues).
 - `speckit.code-review` — the single review command. It detects its
   context: on a working tree it reviews the pending diff; on a PR it
   reviews the anchored candidate and can `--publish`. The packet/findings
-  two-phase protocol is internal, never user-facing. It warns when the
-  diff exceeds the review budget and blocks a task PR that touches a
-  protected path (`protected_paths`) with an automatic finding.
+  two-phase protocol is internal, never user-facing. It blocks a task PR
+  that touches a protected path (`protected_paths`) with an automatic
+  finding.
   Delegates to pinned OCR; fails closed.
 - `doctor` (with `--fix`) — environment diagnosis; `--fix` installs the
   pinned engine into the distribution's data root and verifies its digest
@@ -99,11 +99,10 @@ command exposes only what its step needs.
   `ready for review` — checks the box and records completion evidence,
   so a checked box reaches the feature branch only through the human
   merge. In the Linear derivation an open PR outranks the checkbox.
-- Review budget: a reviewed PR stays under ~400 authored executable lines;
-  larger tasks split into stacked PRs. The loop stops a task at twice its
-  `Delivery` forecast, or at the budget, whichever comes first, and
-  returns it to the human; a forecast is never widened in the PR that
-  exceeds it.
+- The review engine scopes every changed file; each in-scope file's changed
+  hunks are required reads with receipts. The review dispatches by groups
+  of at most 10 related files. Size is recorded from the engine's own
+  `insertions`/`deletions` counts, never gated or forecast.
 - The developer self-reviews with `speckit.code-review` before
   `ready for review`; the reviewer runs the same command plus human review
   before approving.

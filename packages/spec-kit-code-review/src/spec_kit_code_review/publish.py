@@ -309,7 +309,6 @@ def summary_body(
     findings: Sequence[Finding],
     degraded: Sequence[Finding],
     truncated: Sequence[Finding],
-    budget: Any | None,
     packet_sha256: str,
     suffix: str,
     evidence_path: str | None = None,
@@ -338,11 +337,6 @@ def summary_body(
         f"- findings: {len(findings)}"
         + (f" ({', '.join(f'{count} {name}' for name, count in sorted(counts.items()))})" if counts else ""),
     ]
-    if budget is not None:
-        lines.append(
-            f"- budget: {budget.counted} counted line(s) against {budget.limit}"
-            + (" — **over budget**" if budget.over_budget else "")
-        )
     for cause in verdict.causes:
         lines.append(f"- not covered ({cause.kind}): {visible(cause.detail)}")
     if coverage is not None:
@@ -407,7 +401,6 @@ def build_plan(
     findings: Sequence[Finding],
     packet_sha256: str,
     suffix: str,
-    budget: Any | None = None,
     event_ceiling: str = "request-changes",
     request_changes: bool = False,
     authenticated_user: str | None = None,
@@ -464,7 +457,6 @@ def build_plan(
         findings=findings,
         degraded=degraded,
         truncated=truncated,
-        budget=budget,
         packet_sha256=packet_sha256,
         suffix=suffix,
         evidence_path=evidence_path,

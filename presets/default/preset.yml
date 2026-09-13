@@ -3,7 +3,7 @@ schema_version: "1.0"
 preset:
   id: "default"
   name: "Default Workflow Templates"
-  version: "0.10.0"
+  version: "0.11.0"
   description: "Spec, plan, tasks, and checklist templates with the integration-branch delivery workflow and its commands"
   author: "tserdeiro"
   repository: "https://github.com/tserdeiro/spec-kit"
@@ -95,12 +95,6 @@ provides:
       name: "product-gate"
       file: "scripts/python/product_gate.py"
       description: "Validate the active feature's published product handoff"
-      strategy: "replace"
-
-    - type: "script"
-      name: "budget-stop"
-      file: "scripts/python/budget_stop.py"
-      description: "Stop a task before its authored lines pass the review budget"
       strategy: "replace"
 
     - type: "script"

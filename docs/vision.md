@@ -92,10 +92,7 @@ SDD (Spec-Driven Development) + code review, con Linear como seguimiento:
 4. **Implementación** — el desarrollador completa las tareas de a una
    (`/speckit.implement`), **un branch por tarea** (`NNN-T###-slug`) →
    *In Progress*.
-5. **Pull Request** — un PR en `draft` por tarea terminada. Un PR revisado
-   se mantiene bajo ~400 líneas ejecutables autoradas; una tarea mayor se
-   parte en [Stacked PRs](https://docs.github.com/en/pull-requests/get-started/stacked-prs-quickstart),
-   cada uno nombrando sobre cuál se apila.
+5. **Pull Request** — un PR en `draft` por tarea terminada.
 6. **Auto-revisión** — el desarrollador ejecuta `/speckit.code-review` y
    corrige antes de marcar `ready for review` → *In Review*.
 7. **Revisión final** — el revisor ejecuta el mismo comando con `--publish`
