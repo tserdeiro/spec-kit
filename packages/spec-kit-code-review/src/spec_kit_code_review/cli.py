@@ -289,8 +289,7 @@ def _success(message: str, *, diagnostics: list[Diagnostic], operations: list[di
 
 
 def _write_non_info_diagnostics(payload: Mapping[str, Any]) -> None:
-    # A compact document carries only its non-info diagnostics, as `warnings`.
-    for diagnostic in payload.get("diagnostics", payload.get("warnings", [])):
+    for diagnostic in payload["diagnostics"]:
         if diagnostic["severity"] == "info":
             continue
         location = f" ({diagnostic['path']})" if "path" in diagnostic else ""
@@ -697,7 +696,7 @@ def _review_phase_one(args: argparse.Namespace) -> dict[str, Any]:
     # The full document stays on disk; what reaches the orchestrator's context
     # is the compact one unless it asked for everything.
     write_json(session.path / RESULT_OPEN_FILENAME, payload)
-    if _verbose_requested(args):
+    if _verbose_requested(args) or not args.json:
         return payload
     return compact_open(payload, extension_version=__version__)
 
@@ -1734,11 +1733,9 @@ def _review_phase_two(args: argparse.Namespace) -> dict[str, Any]:
         payload["diagnostics"] = [item.as_dict() for item in diagnostics]
         payload["message"] = published["message"]
     write_json(session.path / RESULT_CLOSE_FILENAME, payload)
-    if _verbose_requested(args):
+    if _verbose_requested(args) or not args.json:
         return payload
-    compact = compact_close(payload)
-    compact["human"] = payload["human"]
-    return compact
+    return compact_close(payload)
 
 
 @dataclass(frozen=True)

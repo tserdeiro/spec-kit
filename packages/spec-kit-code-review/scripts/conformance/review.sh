@@ -318,6 +318,7 @@ session=$(echo "$opened" | json '["session"]["path"]')
 # The compact document: the full one is in the session directory.
 test "$(printf '%s' "$opened" | wc -c | tr -d ' ')" -lt 4096
 test "$(echo "$opened" | json '["next"]["findings_path"]')" = "$session/findings.json"
+test "$(echo "$opened" | json '["packet"]["path"]')" = "$session/review-packet.md"
 worktree=$(json '["environment"]["worktree_path"]' <"$session/session.json")
 test -d "$worktree"
 test -f "$session/review-packet.md"

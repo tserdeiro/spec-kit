@@ -138,6 +138,8 @@ publication operation and diagnostic — are written into the session directory
 as `result-open.json` and `result-close.json`, and `--json --verbose` prints
 the full document instead of the compact one. The human render adds one
 `DELIVERY:` line after `VERDICT:`.
+With `--publish`, the compact close also carries `publication` (`executed`,
+`event`, `posted_inline`, the URLs) and the count of `operations`.
 
 The candidate is materialized in a temporary worktree under the evidence root,
 so the user's branch, index and untracked files are never touched. If step 2

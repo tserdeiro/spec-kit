@@ -10,10 +10,12 @@ everything, which is the failure this verdict exists to prevent.
 
 from __future__ import annotations
 
+import shlex
 from typing import Any, Mapping, Sequence
 
 from .errors import EXIT_CATEGORIES, Diagnostic
 from .findings import FindingSet
+from .session import FINDINGS_FILENAME, FINDINGS_MARKDOWN_FILENAME, INVENTORY_FILENAME, PACKET_FILENAME
 from .verdict import Verdict, delivery as derive_delivery, describe, describe_delivery
 
 
@@ -161,20 +163,25 @@ def compact_open(payload: Mapping[str, Any], *, extension_version: str) -> dict[
 
     packet = payload.get("packet") or {}
     session = payload.get("session") or {}
-    findings_path = f"{session.get('path')}/findings.json"
+    session_path = str(session.get("path") or "")
+    findings_path = f"{session_path}/{FINDINGS_FILENAME}"
     return {
         **_head(payload),
         "session": _pick(session, ("path", "phase", "opened_at")),
         "packet": {
-            **_pick(packet, ("path", "inventory_path", "bytes", "packet_sha256", "inventory_sha256")),
+            # The packet's own record carries digests, never its location: the
+            # paths are the session's, and the loop hands them to the reviewer.
+            "path": f"{session_path}/{PACKET_FILENAME}",
+            "inventory_path": f"{session_path}/{INVENTORY_FILENAME}",
+            **_pick(packet, ("bytes", "packet_sha256", "inventory_sha256")),
             "truncations": len(packet.get("truncations") or ()),
         },
         "budget": _pick(payload.get("budget"), ("counted", "limit", "over_budget")),
-        "scope": {"files": len((payload.get("scope") or {}).get("files") or ())},
+        "scope": _pick(payload.get("scope"), ("included_count",)),
         "runtime": {"extension_version": extension_version},
         "next": {
             "findings_path": findings_path,
-            "close": f"review --findings {findings_path} --session {session.get('path')}",
+            "close": f"review --findings {shlex.quote(findings_path)} --session {shlex.quote(session_path)}",
         },
     }
 
@@ -186,7 +193,7 @@ def compact_close(payload: Mapping[str, Any]) -> dict[str, Any]:
     record = payload["delivery"]
     coverage = payload.get("coverage")
     session = payload.get("session") or {}
-    return {
+    document = {
         **_head(payload),
         "session": _pick(session, ("path", "phase")),
         "verdict": {
@@ -202,10 +209,18 @@ def compact_close(payload: Mapping[str, Any]) -> dict[str, Any]:
         "findings": {
             "count": len(payload.get("findings") or ()),
             "discarded": len(payload.get("discarded_findings") or ()),
-            "path": f"{session.get('path')}/findings.md",
+            "path": f"{session.get('path')}/{FINDINGS_MARKDOWN_FILENAME}",
         },
         "next": _next_sentence(verdict, record),
     }
+    if "publication" in payload:
+        # A published close keeps what the publication did; the plan and the
+        # per-operation detail stay in the full document.
+        document["publication"] = _pick(
+            payload["publication"], ("executed", "event", "posted_inline", "review_urls", "summary_comment_url")
+        )
+        document["operations"] = len(payload.get("operations") or ())
+    return document
 
 
 def _next_sentence(verdict: Mapping[str, Any], record: Mapping[str, Any]) -> str:

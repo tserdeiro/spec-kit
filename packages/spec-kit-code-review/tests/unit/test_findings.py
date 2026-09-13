@@ -13,13 +13,13 @@ import json
 import re
 import unittest
 
-from spec_kit_code_review.reporting import compact_open
-from spec_kit_code_review.verdict import delivery, derive
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from spec_kit_code_review.anchors import HunkMap, Hunk
 from spec_kit_code_review.errors import EXIT_USAGE, AppError
+from spec_kit_code_review.reporting import compact_open
+from spec_kit_code_review.verdict import delivery, derive
 from spec_kit_code_review.findings import (
     MAX_CONTENT_CHARS,
     MAX_FINDINGS,
