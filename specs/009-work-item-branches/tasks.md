@@ -14,8 +14,10 @@
   Final review and merge remain human. The user authorized commits, push, PRs,
   and Linear synchronization on 2026-09-12.
 - Forecasts include implementation, tests, fixtures, and conformance. Respect
-  400 authored executable lines and the existing 2× forecast stop. Protected
-  spec/constitution and unrelated dirty documentation remain untouched.
+  the existing 2× forecast stop. The user explicitly waived the 400-line limit
+  for this delivery and rejected adding T010; record actual size and the exception
+  in each affected PR. Preserve forecasts, review requirements, protected
+  spec/constitution, and unrelated dirty documentation.
 - MVP: T001, T002, T009, T003, and T004 demonstrate configured/unconfigured start and safe adoption.
   Full delivery includes cross-surface behavior, installed evidence, an Astra
   Extra High whole-feature audit, Luna fixes, and final extension review.
@@ -67,8 +69,8 @@ one branch/PR and preserves commits; conflicting evidence prevents mutation.
 - [ ] T004 [US2] Adopt existing branch or PR work in presets/default/scripts/python/work_item_start.py
   - **Traces**: FR-005, FR-006, C-004, SC-002, SC-003; outcome: uniquely identified local/remote work wins over the current suggested name.
   - **Depends on**: T003
-  - **Boundaries**: Extend start helper and tests with complete remote-head/PR observation, canonical Tracker linkage, native head resolution, local/remote deduplication, unique-open-PR precedence, and tracking adoption. Cover changed title/format/assignee, multiple candidates, fork heads, closed unmerged PRs, unavailable refs, dirty work, and another worktree. Preserve history and stop before speculative switches/creation on failed evidence.
-  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` -> repeated starts adopt exact existing heads, including an old title-only PR head with canonical Tracker identity and null native branch lookup; preserve history/files and report conflicts/failures without duplicate work.
+  - **Boundaries**: Extend the Linear resolver to return per-observation `affected_issue_keys`, grouped by exact head, retaining valid canonical Tracker identities alongside malformed evidence and validated native/leading strict identity. Exclude prefix/slug tokens and reserved feature/task refs. Use this evidence in the start helper to block conflicting title-only PR adoption without a second identity parser. Extend start helper and tests with complete remote-head/PR observation, canonical Tracker linkage, native head resolution, local/remote deduplication, unique-open-PR precedence, and tracking adoption. Cover changed title/format/assignee, multiple candidates, fork heads, closed unmerged PRs, unavailable refs, dirty work, and another worktree. Preserve history and stop before speculative switches/creation on failed evidence.
+  - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest presets/default/tests -q` -> repeated starts adopt exact existing heads, including an old title-only PR head with canonical Tracker identity and null native branch lookup; conflicting or partly malformed Trackers retain affected identities and prevent duplicate work; preserve history/files and report conflicts/failures without duplicate work.
   - **Delivery**: single PR (~370 authored lines)
   - **Completion evidence**: Pending
 
@@ -81,7 +83,7 @@ feature/task-stack behavior and reviewer-only portability remain intact.
 - [ ] T005 [US3] Resolve native branch and PR observations before Linear projection in packages/spec-kit-linear/src/spec_kit_linear/work_items.py
   - **Traces**: FR-006, FR-007, FR-009, FR-010, SC-003, SC-004; outcome: canonical transient Issue identity drives existing lifecycle precedence.
   - **Depends on**: T004
-  - **Boundaries**: Update `work_items.py`, `github.py`, `_observe` in `cli.py`, and focused tests to retain canonical PR linkage and native branch associations. Reuse T009 observation resolution; retire obsolete recognition. Keep exact feature/task refs outside work items even with task Issue links. Preserve complete/failed/incomplete scan semantics and affected Issue state on unresolved/conflicting identity. Preserve all existing mutation restrictions.
+  - **Boundaries**: Update `work_items.py`, `github.py`, `_observe` in `cli.py`, and focused tests to retain canonical PR linkage and native branch associations. Reuse T009 observation resolution and T004 affected identity evidence; retire obsolete recognition. Keep exact feature/task refs outside work items even with task Issue links. Preserve complete/failed/incomplete scan semantics and affected Issue state on unresolved/conflicting identity. Preserve all existing mutation restrictions.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-linear pytest packages/spec-kit-linear/tests -q` -> key-only, nested/user/title-based native names and changed suggestions derive correctly; uncertain scans, conflicts, and feature/task fixtures preserve expected state.
   - **Delivery**: single PR (~360 authored lines)
   - **Completion evidence**: Pending
@@ -121,5 +123,6 @@ feature/task-stack behavior and reviewer-only portability remain intact.
   forecasts, requirements, and the review budget remain unchanged. Native client
   batching and its client tests belong to T001; T009 owns observation resolution.
   Both updated candidates require independent review before delivery continues.
+- **Size exception**: The user explicitly instructed “Continúa, sin agregar un T10. Ignora el límite de 400”. T004 includes the resolver evidence needed for safe adoption; the confirmed order and existing task IDs remain unchanged.
 - **Execution assignment**: each task is assigned to a fresh Luna Extra High agent
   at dispatch; the orchestrator reviews delivery and preserves human Linear ownership.
