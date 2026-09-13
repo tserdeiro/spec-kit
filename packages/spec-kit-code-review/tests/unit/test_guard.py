@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from spec_kit_code_review.cli import run_guard
+from spec_kit_code_review.commit_policy import is_valid_commit_subject
 from tests.support.repo import TemporaryRepository
 
 
@@ -54,6 +55,12 @@ class CommitSubjectTests(GuardTestCase):
         ):
             with self.subTest(command=command):
                 self.assertEqual(self._run(_bash(command)), (0, ""))
+
+    def test_guard_matches_the_shared_subject_policy(self) -> None:
+        for subject in ("feat(x): good", "fix(scope-name): ok", "bad subject", "Feat(x): no"):
+            with self.subTest(subject=subject):
+                code, _stderr = self._run(_bash(f'git commit -m "{subject}"'))
+                self.assertEqual(code == 0, is_valid_commit_subject(subject))
 
     def test_a_commit_without_a_message_flag_is_not_checked(self) -> None:
         self.assertEqual(self._run(_bash("git commit")), (0, ""))

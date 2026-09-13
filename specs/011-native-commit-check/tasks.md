@@ -24,13 +24,13 @@ existing doctor installation path.
 **Independent evidence**: Real commits in a temporary installed consumer accept
 valid subjects and reject invalid editor/file subjects without creating commits.
 
-- [ ] T001 [US1] Share the subject rule and deliver the installed message-file validator in packages/spec-kit-code-review/src/spec_kit_code_review/commit_msg.py
+- [x] T001 [US1] Share the subject rule and deliver the installed message-file validator in packages/spec-kit-code-review/src/spec_kit_code_review/commit_msg.py
   - **Traces**: FR-003, FR-004, FR-010, C-003, C-004, SC-001; outcome: guard and native entry point use one unchanged predicate, with explicit success/rejection/prerequisite results.
   - **Depends on**: none
   - **Boundaries**: Add `commit_policy.py`, `commit_msg.py`, `scripts/bash/commit-msg.sh`, and `tests/unit/test_commit_msg.py`; update `cli.py` and `test_guard.py` to share the predicate. Implement plan D2: one message-file argument, first-line extraction, UTF-8 replacement behavior, preserved file bytes, existing consumer interpreter resolution, and exit 0/1/4. Keep guard command extraction and unreadable-input behavior; the installed entry point directly imports the pure policy and avoids review setup. Handle missing/wrong interpreter and arguments with exact remediation.
   - **Evidence**: `uv run --frozen --offline --project packages/spec-kit-code-review pytest packages/spec-kit-code-review/tests/unit/test_guard.py packages/spec-kit-code-review/tests/unit/test_commit_msg.py -q` -> shared corpus parity, multiline/CRLF/non-ASCII/empty subjects, paths with spaces, file preservation, missing runtime/input, and zero engine/network calls pass.
   - **Delivery**: single PR (~210 authored lines)
-  - **Completion evidence**: Pending
+  - **Completion evidence**: PR #150; focused suite: 75 passed, 69 subtests passed; `git diff --check` clean; independent review of `6693072` returned `no-blocking-findings`; committed budget 259/400.
 
 - [ ] T002 [US1] Diagnose and install one native registration in packages/spec-kit-code-review/src/spec_kit_code_review/commit_hook.py
   - **Traces**: FR-001, FR-002, FR-005, FR-008, FR-009, FR-010, C-001, SC-002, SC-003; outcome: doctor observes Git's effective arrangement and repairs one safely owned entry idempotently.
