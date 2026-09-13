@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from spec_kit_code_review import EXTENSION_ROOT, __version__
 from spec_kit_code_review.env_files import EnvSnapshot
 from spec_kit_code_review.errors import EXIT_DRIFT, EXIT_USAGE, AppError
 from spec_kit_code_review.evidence import FILE_MODE, resolve_evidence_root
@@ -79,6 +80,14 @@ class SessionDocumentTests(SessionCase):
         self.assertEqual(payload["environment"]["worktree_path"], "/tmp/evidence/worktree")
         self.assertEqual(payload["config_sha256"], "deadbeef")
         self.assertIsNone(payload["packet_sha256"])
+
+    def test_the_session_names_the_runtime_that_opened_it(self) -> None:
+        session = self._open()
+        payload = json.loads(session.document.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["runtime"]["extension_version"], __version__)
+        self.assertEqual(Path(payload["runtime"]["extension_root"]).expanduser(), EXTENSION_ROOT)
+        self.assertEqual(session.summary()["runtime"]["extension_version"], __version__)
 
     def test_evidence_documents_are_not_world_readable(self) -> None:
         session = self._open()

@@ -15,7 +15,7 @@ from .errors import AppError, Diagnostic
 from .linear_client import RemoteWorkItem
 from .remote_discovery import FeatureAdoption, RemoteDiscovery
 from .work_items import WorkItemState
-from .work_state import STATE_COMPLETED, STATE_REVIEW, STATE_STARTED, STATE_UNSTARTED, TaskWorkState
+from .work_state import LIFECYCLE_FIELDS_BY_STATE, TaskWorkState
 
 
 PLAN_SCHEMA_VERSION = "2.0"
@@ -459,18 +459,6 @@ def _needed_content(remote_content: str, marker: str, desired_content_block: str
     return None
 
 
-# Which `lifecycle` id each derived state writes to, in fallback order. The
-# `review` fallback is the documented degradation: a Team with no "In Review"
-# workflow state projects a ready-for-review task onto its "In Progress" one
-# rather than leaving the Issue stale.
-_LIFECYCLE_FIELDS_BY_STATE: dict[str, tuple[str, ...]] = {
-    STATE_COMPLETED: ("completed_state_id",),
-    STATE_REVIEW: ("review_state_id", "started_state_id"),
-    STATE_STARTED: ("started_state_id",),
-    STATE_UNSTARTED: ("open_state_id",),
-}
-
-
 def _task_state(work_states: Mapping[str, TaskWorkState], task: DesiredTask) -> str | None:
     if task.identity not in work_states:
         raise AppError(
@@ -494,7 +482,7 @@ def _desired_state_id(config: Mapping[str, object] | None, state: str | None) ->
     lifecycle = config.get("lifecycle")
     if not isinstance(lifecycle, Mapping):
         return None
-    for field in _LIFECYCLE_FIELDS_BY_STATE.get(state, ()):
+    for field in LIFECYCLE_FIELDS_BY_STATE.get(state, ()):
         value = lifecycle.get(field)
         if isinstance(value, str) and value:
             return value

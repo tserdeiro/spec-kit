@@ -7,8 +7,7 @@ repository:
 
 engine:
   mode: "delegate"
-  ocr_version: "v1.8.3"
-  rule_batch_size: 100
+  ocr_version: "v1.12.0"
   timeout_seconds: 300
 
 packet:
@@ -16,19 +15,6 @@ packet:
   max_total_bytes: 400000
   include_checklists: true
   include_pr_body: true
-
-budget:
-  limit: 400
-  executable_globs:
-    - "src/**"
-    - "tests/**"
-  excluded_globs:
-    - "**/*.md"
-    - "uv.lock"
-  generated_markers:
-    - "@generated"
-    - "DO NOT EDIT"
-  generated_marker_scan_lines: 5
 
 publish:
   event: "request-changes"
