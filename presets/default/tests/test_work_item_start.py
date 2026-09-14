@@ -181,6 +181,17 @@ def test_configured_start_returns_exact_native_context(feature_repo: Path) -> No
     assert _branch(feature_repo) == "users/alice/003-T001-task"
 
 
+def test_configured_start_rejects_native_suggestion_with_different_leading_issue(feature_repo: Path) -> None:
+    _resolver(feature_repo, {"status": "resolved", "resolution": {
+        "identifier": "WOR-123", "title": "Native title", "description": "Native context",
+        "branch_name": "WOR-124-cache", "url": "",
+    }})
+
+    with pytest.raises(SystemExit):
+        work_item_start.start(feature_repo, "WOR-123")
+    assert _branch(feature_repo) == "003-feature"
+
+
 @pytest.mark.parametrize("branch", ["003-feature", "003-T001-task", "@{-1}"])
 def test_configured_start_rejects_reserved_or_expanding_names(feature_repo: Path, branch: str) -> None:
     _resolver(feature_repo, {"status": "resolved", "resolution": {
@@ -221,6 +232,32 @@ def test_unconfigured_title_only_tracker_adopts_open_head(feature_repo: Path, fa
     _set_prs(monkeypatch, [_pr("users/alice/old-title", body="## Work item\n\n- Tracker: Fixes WOR-123\n")])
     context = task_base.work_item(feature_repo, "WOR-123", "New title")
     assert context.branch_name == "users/alice/old-title"
+
+
+def test_unconfigured_lowercase_branch_adopts_uppercase_tracker_head(
+    feature_repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_trunk(feature_repo)
+    _push_branch(feature_repo, "wor-123-fix-parser")
+    _set_prs(monkeypatch, [_pr("wor-123-fix-parser", body="## Work item\n\n- Tracker: Fixes WOR-123\n")])
+
+    context = task_base.work_item(feature_repo, "WOR-123", "New title")
+
+    assert context.branch_name == "wor-123-fix-parser"
+    assert _branch(feature_repo) == context.branch_name
+
+
+def test_unconfigured_tracker_field_spelling_is_case_insensitive(
+    feature_repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_trunk(feature_repo)
+    _push_branch(feature_repo, "users/alice/old-title")
+    _set_prs(monkeypatch, [_pr("users/alice/old-title", body="## work item\n\n- tracker: fixes wor-123\n")])
+
+    context = task_base.work_item(feature_repo, "WOR-123", "New title")
+
+    assert context.branch_name == "users/alice/old-title"
+    assert _branch(feature_repo) == context.branch_name
 
 
 @pytest.mark.parametrize(

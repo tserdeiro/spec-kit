@@ -342,7 +342,13 @@ def resolve_feature(
     # title-only branch whose canonical Tracker field carries the identity.
     if not reserved_sdd_branch:
         identity_candidates = tuple(dict.fromkeys((*branch_keys, *tracker_keys)))
-        if tracker_conflict or len(tracker_keys) > 1 or len(branch_keys) > 1:
+        # A strict key at the start of the branch is the branch's only
+        # identity.  Additional Issue-like tokens are title evidence: they
+        # stay ambiguous without a canonical Tracker, but an agreeing
+        # Tracker resolves the title suffix.  A malformed or empty Tracker
+        # remains a conflict so review agrees with the native resolver.
+        leading_branch_key = branch_keys[0] if branch_keys else None
+        if tracker_conflict or len(tracker_keys) > 1 or (len(branch_keys) > 1 and not tracker_keys):
             diagnostics.append(
                 Diagnostic(
                     "work_item_identity_conflict",
@@ -358,7 +364,7 @@ def resolve_feature(
                 identity_conflict=True,
                 diagnostics=tuple(diagnostics),
             )
-        if branch_keys and tracker_keys and tracker_keys[0] not in branch_keys:
+        if leading_branch_key and tracker_keys and tracker_keys[0] != leading_branch_key:
             diagnostics.append(
                 Diagnostic(
                     "work_item_identity_conflict",
@@ -375,7 +381,7 @@ def resolve_feature(
                 identity_conflict=True,
                 diagnostics=tuple(diagnostics),
             )
-        work_item_key = tracker_keys[0] if tracker_keys else (branch_keys[0] if len(branch_keys) == 1 else None)
+        work_item_key = tracker_keys[0] if tracker_keys else leading_branch_key
         if work_item_key:
             bugs = _bugs_touched(changed_paths)
             bug_slug = bugs[0] if len(bugs) == 1 else None
@@ -502,6 +508,12 @@ def _issue_keys_from_branch(branch: str) -> tuple[str, ...]:
 
     if not branch or _reserved_sdd_branch(branch):
         return ()
+    # Keep this layout in lockstep with the installed Linear resolver.  A
+    # user-prefixed branch may have one prefix segment, but a deeper nested
+    # path is title evidence only; its final leaf must not become a guessed
+    # Issue identity during review.
+    if re.fullmatch(r"^(?:[^/]+/)?[A-Za-z][A-Za-z0-9]*-\d+(?:-[^/]*)?$", branch) is None:
+        return ()
     leaf = branch.rsplit("/", 1)[-1]
     if re.match(r"^[A-Za-z][A-Za-z0-9]*-\d+(?:-|$)", leaf) is None:
         return ()
@@ -534,7 +546,8 @@ def _tracker_keys_from_pr_body(body: str | None) -> tuple[tuple[str, ...], bool]
     keys: list[str] = []
     conflict = False
     for value in values:
-        if not value or value.upper() == "N/A" or value.startswith("<!--"):
+        if not value:
+            conflict = True
             continue
         match = _TRACKER_VALUE_RE.fullmatch(value)
         if match is None:

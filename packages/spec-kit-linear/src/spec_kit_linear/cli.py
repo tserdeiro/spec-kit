@@ -31,7 +31,7 @@ from .config import (
     validate_config,
 )
 from .credentials import load_credentials
-from .discovery import FEATURE_RE, has_feature_directories, select_features
+from .discovery import has_feature_directories, select_features
 from .domain import DesiredState
 from .endpoint import (
     ALWAYS_ANNOUNCE_COMMANDS,
@@ -66,6 +66,9 @@ EXIT_SUCCESS = 0
 EXIT_USAGE = 2
 EXIT_CONFIGURATION = 3
 EXIT_PREREQUISITE = 4
+
+_SDD_REF_RE = re.compile(r"^([0-9]{3})-[A-Za-z0-9._-]+$")
+_TRUNK_RE = re.compile(r'''^\s*trunk:\s*["']?([^"'#\s]*)''')
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -948,6 +951,7 @@ def _observe(
     diagnostics: list[Diagnostic],
     *,
     native_config_path: Path,
+    native_resolution: Mapping[str, object] | None = None,
 ) -> tuple[dict[str, TaskWorkState], tuple[WorkItemState, ...], PullRequestScan]:
     """Observe the repository once and derive everything that follows from it.
 
@@ -970,11 +974,12 @@ def _observe(
             for item in scan.pull_requests
         ],
     }
-    native_resolution = resolve_work_item(
-        resolution_payload,
-        root=root,
-        config_path=str(native_config_path),
-    )
+    if native_resolution is None:
+        native_resolution = resolve_work_item(
+            resolution_payload,
+            root=root,
+            config_path=str(native_config_path),
+        )
     work_states = derive_task_states(
         desired_states, branches=branches, scan=scan
     )
@@ -1027,6 +1032,61 @@ def _select_feature_directories(root: Path, args: argparse.Namespace) -> list[Pa
     return []
 
 
+def _resolve_implicit_work_item(root: Path, args: argparse.Namespace, config_path: Path) -> None:
+    """Guard implicit feature selection with the current native branch.
+
+    Direct status/push calls and the installed ``push --hook`` bridge do not
+    carry the event handler's precomputed selector. Resolve a non-SDD head
+    before consulting ``feature.json`` so a stale feature cannot capture a
+    native work item. The full observation pass still runs afterward, since
+    it must include every branch and PR in the repository.
+    """
+
+    if getattr(args, "work_items_only", False):
+        return
+    if any(getattr(args, name, False) for name in ("feature", "current", "all_features")):
+        return
+    branch = _current_branch(root)
+    delivery_branch = _delivery_branch(root)
+    if not branch or (delivery_branch and branch.casefold() == delivery_branch.casefold()) or _SDD_REF_RE.fullmatch(branch):
+        return
+    resolution = resolve_work_item(
+        {"branch_names": [branch]},
+        root=root,
+        config_path=str(config_path),
+    )
+    status = resolution.get("status")
+    if status not in {"resolved", "partial", "unresolved", "conflict", "excluded", "absent"}:
+        raise AppError(
+            "configured Linear work-item resolution failed",
+            code=EXIT_CONFIGURATION,
+            category="remote_identity",
+            diagnostics=[Diagnostic("work_item_resolution", "native work-item resolution returned an invalid status")],
+        )
+    setattr(args, "work_items_only", True)
+
+
+def _delivery_branch(root: Path) -> str | None:
+    """Find the repository's delivery branch from its local Git evidence."""
+
+    config_path = root / ".specify" / "extensions" / "git" / "git-config.yml"
+    try:
+        for line in config_path.read_text(encoding="utf-8").splitlines():
+            match = _TRUNK_RE.match(line)
+            if match and match.group(1):
+                return match.group(1)
+    except (OSError, UnicodeDecodeError):
+        pass
+    result = subprocess.run(
+        ["git", "-C", str(root), "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"],
+        check=False, text=True, capture_output=True,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value.removeprefix("origin/") or None
+
+
 def _tasks_pending(feature_dir: Path) -> Diagnostic:
     """Info diagnostic for a feature whose `tasks.md` does not exist yet (plan D15)."""
 
@@ -1059,6 +1119,7 @@ def run_push(args: argparse.Namespace) -> dict[str, Any]:
     else:
         config, shared_path = load_config(root, args.config)
 
+    _resolve_implicit_work_item(root, args, shared_path)
     feature_dirs = _select_feature_directories(root, args)
     binding = repository_binding(config)
     diagnostics = [Diagnostic("config", "configuration loaded by spec-kit-linear", str(shared_path), severity="info")]
@@ -1233,6 +1294,7 @@ def _linear_client() -> LinearClient:
 def run_status(args: argparse.Namespace) -> dict[str, Any]:
     root = _root_from_args(args.root)
     config, shared_path = load_config(root, args.config)
+    _resolve_implicit_work_item(root, args, shared_path)
     feature_dirs = _select_feature_directories(root, args)
     diagnostics = [
         Diagnostic("read_only", "Linear inspection used query-only GraphQL operations", severity="info"),
@@ -1374,7 +1436,7 @@ def _reconcile_hook(root: Path) -> tuple[str | None, str | None]:
         sys.stderr.flush()
         return None, None
     work_item_identifier = None
-    work_items_only = not branch or FEATURE_RE.fullmatch(branch) is None
+    work_items_only = not branch or _SDD_REF_RE.fullmatch(branch) is None
     if branch and work_items_only:
         # The native resolver is the only identity source for work-item
         # branches.  In particular, do not turn a failed or unresolved read
@@ -1478,7 +1540,7 @@ def _session_start_context_line(root: Path, branch: str, work_item_identifier: s
 
     if not branch:
         return None
-    feature_match = FEATURE_RE.fullmatch(branch)
+    feature_match = _SDD_REF_RE.fullmatch(branch)
     if feature_match is None and work_item_identifier is None:
         return None
 

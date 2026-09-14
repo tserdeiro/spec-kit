@@ -30,4 +30,9 @@ the remote state; they never substitute checkbox, branch, or partial PR
 evidence. Complete observations use draft → ready → merged precedence and the
 same lowest-number witness as `push`.
 
+For configured work items, status resolves the native Issue `branchName` before
+using a canonical PR Tracker (`Fixes TEAM-number`) as fallback. It preserves
+the exact branch identity, reports conflicts or missing native evidence as
+unresolved, and never invents an Issue from a title slug.
+
 Set exactly one of `LINEAR_API_KEY` or `LINEAR_OAUTH_ACCESS_TOKEN`.

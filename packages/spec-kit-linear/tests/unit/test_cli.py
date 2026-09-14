@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, _is_reconcile_command, main, run_post_tool_use, run_session_start
+from spec_kit_linear.cli import _format_feature_context, _format_work_item_context, _is_reconcile_command, _resolve_implicit_work_item, main, run_post_tool_use, run_push, run_session_start
 from spec_kit_linear.config import ROOT_CONFIG_FILENAME, load_config, repository_binding
 from spec_kit_linear.errors import AppError, Diagnostic
 from spec_kit_linear.github import PullRequest, PullRequestScan
@@ -287,6 +287,51 @@ class CliTestCase(unittest.TestCase):
 
 
 class PushTests(CliTestCase):
+    def test_direct_native_push_does_not_select_stale_feature(self) -> None:
+        args = SimpleNamespace(
+            root=str(self.fixture_root), config=None, feature=None, current=False,
+            all_features=False, dry_run=True, apply=False, hook=True,
+        )
+        resolution = {
+            "status": "resolved",
+            "observations": [{"status": "resolved", "resolution": {"identifier": "WOR-123"}, "affected_issue_keys": ["WOR-123"]}],
+        }
+        with patch("spec_kit_linear.cli._current_branch", return_value="users/alice/native-title"), \
+             patch("spec_kit_linear.cli.resolve_work_item", return_value=resolution) as resolver, \
+             patch("spec_kit_linear.cli._select_feature_directories", return_value=[]) as select, \
+             patch("spec_kit_linear.cli._linear_client", return_value=_FakeClient()), \
+             patch("spec_kit_linear.cli._observe", return_value=({}, (), PullRequestScan("complete"))), \
+             patch("spec_kit_linear.cli.discover_and_adopt"), \
+             patch("spec_kit_linear.cli._remote_work_items", return_value={}), \
+             patch("spec_kit_linear.cli.build_work_item_plan", return_value=({"operations": []}, [])):
+            result = run_push(args)
+
+        self.assertEqual(result["operations"], [])
+        resolver.assert_called_once_with(
+            {"branch_names": ["users/alice/native-title"]},
+            root=self.fixture_root.resolve(),
+            config_path=str((self.fixture_root / ROOT_CONFIG_FILENAME).resolve()),
+        )
+        self.assertTrue(select.call_args.args[1].work_items_only)
+
+    def test_native_default_name_resolves_when_it_is_not_the_delivery_branch(self) -> None:
+        args = SimpleNamespace(
+            root=str(self.fixture_root), config=None, feature=None, current=False,
+            all_features=False, work_items_only=False,
+        )
+        root = self.fixture_root.resolve()
+        with patch("spec_kit_linear.cli._current_branch", return_value="dev"), \
+             patch("spec_kit_linear.cli._delivery_branch", return_value="main"), \
+             patch("spec_kit_linear.cli.resolve_work_item", return_value={"status": "unresolved"}) as resolver:
+            _resolve_implicit_work_item(root, args, root / ROOT_CONFIG_FILENAME)
+
+        resolver.assert_called_once_with(
+            {"branch_names": ["dev"]},
+            root=self.fixture_root.resolve(),
+            config_path=str((self.fixture_root / ROOT_CONFIG_FILENAME).resolve()),
+        )
+        self.assertTrue(args.work_items_only)
+
     def test_public_failure_renders_partial_evidence_and_nonzero_exit(self) -> None:
         first = ApplyResult(("first",), (), 1)
         failed = ApplyResult(("second",), (), 1, "third", "issue.create", "task:002", ("fourth", "work-item"), "mutation", "unconfirmed")
@@ -1780,6 +1825,22 @@ class SessionStartTests(CliTestCase):
         self.assertEqual(code, 0)
         self.assertIn("reconciliation failure: Linear request was denied", errors.getvalue())
         run_push.assert_not_called()
+
+    def test_numeric_prefixed_path_is_not_mistaken_for_an_sdd_feature(self) -> None:
+        self._set_hooks(lifecycle_enabled=True)
+        unresolved = {
+            "status": "unresolved",
+            "observations": [{"status": "unresolved", "resolution": None, "affected_issue_keys": [], "diagnostics": []}],
+            "diagnostics": [],
+        }
+        with patch("spec_kit_linear.cli._current_branch", return_value="123-group/fix-cache"), \
+             patch("spec_kit_linear.cli.resolve_work_item", return_value=unresolved) as resolver, \
+             patch("spec_kit_linear.cli.run_push", return_value={"diagnostics": []}) as run_push, redirect_stderr(StringIO()):
+            code = run_session_start(SimpleNamespace(root=str(self.fixture_root)))
+
+        self.assertEqual(code, 0)
+        resolver.assert_called_once()
+        self.assertTrue(run_push.call_args.args[0].work_items_only)
 
     def test_current_branch_without_identity_reconciles_work_items_without_context(self) -> None:
         self._set_hooks(lifecycle_enabled=True)

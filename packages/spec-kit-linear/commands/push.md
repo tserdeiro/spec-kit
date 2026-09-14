@@ -49,6 +49,12 @@ selected and even when the repository has no feature at all; all keys are
 resolved in one batched query, and a branch naming an Issue that does not
 exist is a warning, never an operation.
 
+Configured observations use Linear's native `branchName` identity first and
+preserve it exactly, including provider prefixes. A PR's single canonical
+`Work item` Tracker (`Fixes TEAM-number`) is the explicit fallback when native
+lookup has no result. Conflicting or incomplete branch and Tracker evidence is
+left unresolved and cannot drive a lifecycle mutation.
+
 Select the feature with `--feature NNN`, `--current`, or `--all`; with none of
 them a single feature directory is used. `--feature`/`--current` always
 resolve or fail; every other selection projects no feature at all in a

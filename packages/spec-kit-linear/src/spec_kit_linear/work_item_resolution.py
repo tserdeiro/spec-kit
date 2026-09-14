@@ -19,9 +19,18 @@ from .parser import _matchable_lines
 KEY_RE = re.compile(r"^(?P<team>[A-Za-z][A-Za-z0-9]*)-(?P<number>[0-9]+)$")
 ISSUE_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])(?P<team>[A-Za-z][A-Za-z0-9]*)-(?P<number>[0-9]+)(?![A-Za-z0-9])")
 FEATURE_RE = re.compile(r"^[0-9]{3}-[^/]+$")
-TRACKER_SECTION_RE = re.compile(r"(?ms)^##[ \t]+Work item[ \t]*\r?\n(?P<section>.*?)(?=^#{1,6}[ \t]+|\Z)")
-TRACKER_LINE_RE = re.compile(r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]*(?P<value>.*?)[ \t]*$")
-TRACKER_VALUE_RE = re.compile(r"^Fixes[ \t]+(?P<key>[A-Za-z][A-Za-z0-9]*-[0-9]+)[ \t]*$")
+TRACKER_SECTION_RE = re.compile(
+    r"(?ms)^##[ \t]+Work item[ \t]*\r?\n(?P<section>.*?)(?=^#{1,6}[ \t]+|\Z)",
+    re.IGNORECASE,
+)
+TRACKER_LINE_RE = re.compile(
+    r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]*(?P<value>.*?)[ \t]*$",
+    re.IGNORECASE,
+)
+TRACKER_VALUE_RE = re.compile(
+    r"^Fixes[ \t]+(?P<key>[A-Za-z][A-Za-z0-9]*-[0-9]+)[ \t]*$",
+    re.IGNORECASE,
+)
 OBSERVATION_CONFLICT = Diagnostic(
     "work_item_identity_conflict",
     "multiple observations for one branch carry different Issue keys",

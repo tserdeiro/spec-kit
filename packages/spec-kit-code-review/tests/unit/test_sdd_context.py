@@ -106,6 +106,18 @@ class DiscoveryOrderTests(SddCase):
         self.assertEqual(resolution.source, SOURCE_WORK_ITEM)
         self.assertEqual(resolution.work_item_key, "OPS-42")
 
+    def test_tracker_field_spelling_is_case_insensitive(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="users/alice/fix-timeout",
+            pr_body="## work item\n\n- tracker: fixes ops-42\n",
+        )
+
+        self.assertEqual(resolution.source, SOURCE_WORK_ITEM)
+        self.assertEqual(resolution.work_item_key, "OPS-42")
+        self.assertFalse(resolution.identity_conflict)
+
     def test_unsupported_native_title_without_tracker_stays_unresolved(self) -> None:
         resolution = resolve_feature(
             CommitReader(self.git, self.head),
@@ -129,7 +141,19 @@ class DiscoveryOrderTests(SddCase):
         self.assertTrue(resolution.identity_conflict)
         self.assertEqual(set(resolution.work_item_candidates), {"OPS-42", "OPS-43"})
 
-    def test_multiple_branch_keys_remain_conflicting_when_tracker_matches_one(self) -> None:
+    def test_multiple_branch_keys_resolve_when_tracker_matches_leading_key(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-OPS-43-fix-timeout",
+            pr_body="## Work item\n\n- Tracker: Fixes OPS-42\n",
+        )
+
+        self.assertFalse(resolution.ambiguous)
+        self.assertFalse(resolution.identity_conflict)
+        self.assertEqual(resolution.work_item_key, "OPS-42")
+
+    def test_multiple_branch_keys_remain_conflicting_when_tracker_matches_second(self) -> None:
         resolution = resolve_feature(
             CommitReader(self.git, self.head),
             changed_paths=["src/timeout.py"],
@@ -141,6 +165,44 @@ class DiscoveryOrderTests(SddCase):
         self.assertTrue(resolution.identity_conflict)
         self.assertEqual(set(resolution.work_item_candidates), {"OPS-42", "OPS-43"})
         self.assertIsNone(resolution.work_item_key)
+
+    def test_empty_tracker_conflicts_with_a_strict_branch_identity(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="OPS-42-fix-timeout",
+            pr_body="## Work item\n\n- Tracker:\n",
+        )
+
+        self.assertTrue(resolution.ambiguous)
+        self.assertTrue(resolution.identity_conflict)
+        self.assertEqual(resolution.work_item_candidates, ("OPS-42",))
+
+    def test_deeply_nested_native_branch_uses_tracker_without_leaf_guessing(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="users/alice/OPS-43-cache",
+            pr_body="## Work item\n\n- Tracker: Fixes OPS-42\n",
+        )
+
+        self.assertEqual(resolution.source, SOURCE_WORK_ITEM)
+        self.assertEqual(resolution.work_item_key, "OPS-42")
+        self.assertFalse(resolution.identity_conflict)
+
+    def test_malformed_tracker_values_conflict_with_a_strict_branch_identity(self) -> None:
+        for value in ("N/A", "<!-- Fixes OPS-43 -->"):
+            with self.subTest(value=value):
+                resolution = resolve_feature(
+                    CommitReader(self.git, self.head),
+                    changed_paths=["src/timeout.py"],
+                    head_ref_name="OPS-42-cache",
+                    pr_body=f"## Work item\n\n- Tracker: {value}\n",
+                )
+
+                self.assertTrue(resolution.identity_conflict)
+                self.assertEqual(resolution.work_item_candidates, ("OPS-42",))
+                self.assertIsNone(resolution.work_item_key)
 
     def test_feature_resolution_serializes_only_the_canonical_work_item_key(self) -> None:
         resolution = resolve_feature(

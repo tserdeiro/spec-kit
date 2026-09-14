@@ -212,6 +212,7 @@ class WorkItemResolutionTests(unittest.TestCase):
     def test_tracker_section_cases(self) -> None:
         cases = [
             ("Mention WOR-12 here.\n\n## Work item\n\n- Tracker: Fixes WOR-12\n\n## Outcome\n\nWOR-99", "resolved"),
+            ("## work item\n\n- tracker: fixes wor-12", "resolved"),
             ("## Work item\n\n- Tracker: Fixes WOR-12\n\n## Outcome\n\n## Work item\n\n- Tracker: Fixes WOR-13", "conflict"),
             ("## Work item\n\n```markdown\n- Tracker: Fixes WOR-12\n```\n", "unresolved"),
             ("## Work item\n\n    - Tracker: Fixes WOR-12\n\n\t- Tracker: Fixes WOR-13", "unresolved"),

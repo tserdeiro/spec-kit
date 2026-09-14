@@ -67,6 +67,7 @@ cp "$repository_root/tests/fixtures/consumer/.specify/feature.json" "$consumer_r
 (
   cd "$consumer_root"
   specify extension add "$repository_root" --dev >/dev/null
+  specify preset add --dev "$repository_root/../../presets/default" >/dev/null
 )
 
 installed_root="$consumer_root/.specify/extensions/code-review"
@@ -76,6 +77,16 @@ test -f "$installed_root/commands/code-review.md"
 test -f "$installed_root/commands/doctor.md"
 test -x "$installed_root/scripts/bash/run.sh"
 test -f "$consumer_root/.specify/extensions/.registry"
+test -f "$consumer_root/.agents/skills/speckit-pr/SKILL.md"
+grep -Fq 'exact native `branchName`' "$consumer_root/.agents/skills/speckit-pr/SKILL.md"
+if [ -d "$consumer_root/.specify/extensions/linear" ]; then
+  echo "review conformance must not install the Linear extension" >&2
+  exit 1
+fi
+if [ -e "$installed_root/scripts/python/resolve_work_item.py" ]; then
+  echo "review runtime must not carry the Linear bridge" >&2
+  exit 1
+fi
 
 # The installed runtime must not reference the development checkout.
 if grep -R -F -- "$repository_root" "$installed_root" >/dev/null 2>&1; then
@@ -146,12 +157,12 @@ run() {
   return "$result"
 }
 set_pr() {
-  python3 - "$gh_state" "$1" "$2" "$3" <<'PY'
+  python3 - "$gh_state" "$1" "$2" "$3" "${4:-}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-state_path, base, head, branch = sys.argv[1:]
+state_path, base, head, branch, body = sys.argv[1:]
 state = json.loads(Path(state_path).read_text(encoding="utf-8"))
 state["pull_requests"]["128"] = {
     "number": 128,
@@ -165,7 +176,7 @@ state["pull_requests"]["128"] = {
     "state": "OPEN",
     "url": "https://github.com/tserdeiro/consumer/pull/128",
     "title": "context conformance",
-    "body": "",
+    "body": body,
     "author": {"login": "contributor"},
     "labels": [],
 }
@@ -711,6 +722,28 @@ test "$(echo "$bug_opened" | json '["review_scope"]["task_ids"]' | tr -d '[]' | 
 bug_session=$(echo "$bug_opened" | json '["session"]["path"]')
 generate_findings "$bug_session" "$bug_session/findings.json"
 run review --root "$consumer_root" --findings "$bug_session/findings.json" --session "$bug_session" --json >/dev/null
+
+# A provider-prefixed native branch is a work-item short path. The reviewer
+# reads its canonical Tracker locally and never needs the Linear extension or
+# its bridge to resolve the identity.
+git -C "$consumer_root" switch --quiet context-base
+git -C "$consumer_root" switch --quiet --create users/alice/WOR-12-native-shape
+printf '%s\n' 'native = reviewed' >"$consumer_root/src/native.py"
+git -C "$consumer_root" add src/native.py
+git -C "$consumer_root" commit --quiet -m "review native work item"
+native_head=$(git -C "$consumer_root" rev-parse HEAD)
+engine_state <<STATE
+{"files": [{"path": "src/native.py"}], "rules": {"src/native.py": ["Validate every input."]}, "record_invocations": "$engine_log"}
+STATE
+set_pr "$context_base" "$native_head" "users/alice/WOR-12-native-shape" $'## work item\n\n- tracker: fixes wor-12\n'
+native_opened=$(run review --root "$consumer_root" 128 --json --verbose)
+test "$(echo "$native_opened" | json '["review_scope"]["kind"]')" = "short-path"
+test "$(echo "$native_opened" | json '["review_scope"]["work_item_key"]')" = "WOR-12"
+test "$(echo "$native_opened" | json '["review_scope"]["head_ref_name"]')" = "users/alice/WOR-12-native-shape"
+test "$(echo "$native_opened" | json '["review_scope"]["gaps"]')" = "[]"
+native_session=$(echo "$native_opened" | json '["session"]["path"]')
+generate_findings "$native_session" "$native_session/findings.json"
+run review --root "$consumer_root" --findings "$native_session/findings.json" --session "$native_session" --json >/dev/null
 
 git -C "$consumer_root" switch --quiet main
 test "$(git -C "$consumer_root" status --porcelain)" = "$status_before"
