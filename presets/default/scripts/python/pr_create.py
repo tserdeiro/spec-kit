@@ -9,6 +9,7 @@ this script printed.
 from __future__ import annotations
 
 import re
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,40 @@ def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def _is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
     return run_git("merge-base", "--is-ancestor", ancestor, descendant, cwd=repo_root).returncode == 0
+
+def _validate_work_item_identity(repo_root: Path) -> None:
+    """Require the installed resolver to confirm a native PR head."""
+
+    branch = _git(repo_root, "branch", "--show-current").stdout.strip()
+    if not branch:
+        die("work-item PR routing requires a checked-out branch")
+    script = repo_root / ".specify" / "extensions" / "linear" / "scripts" / "python" / "resolve_work_item.py"
+    if not script.is_file():
+        return
+    result = subprocess.run(
+        [sys.executable, str(script), "--root", str(repo_root)],
+        cwd=repo_root,
+        input=json.dumps({"branch_names": [branch]}),
+        text=True,
+        capture_output=True,
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        die("configured Linear work-item resolver returned invalid JSON")
+    if result.returncode != 0 or not isinstance(payload, dict) or payload.get("status") == "error":
+        message = payload.get("message") if isinstance(payload, dict) else None
+        die(f"configured Linear work-item resolution failed: {message or 'resolver failed'}")
+    if payload.get("status") == "absent":
+        return
+    observations = payload.get("observations")
+    observation = observations[0] if isinstance(observations, list) and len(observations) == 1 else None
+    if not isinstance(observation, dict) or observation.get("status") != "resolved":
+        status = observation.get("status") if isinstance(observation, dict) else payload.get("status", "unknown")
+        die(f"configured Linear work-item identity is {status}; PR routing stopped for {branch}")
+    resolution = observation.get("resolution")
+    if not isinstance(resolution, dict) or not isinstance(resolution.get("identifier"), str):
+        die(f"configured Linear work-item resolver returned incomplete identity for {branch}")
 
 def feature_or_work_item(repo_root: Path) -> str:
     base = delivery_base(repo_root)
@@ -63,6 +98,8 @@ def main(argv: list[str]) -> int:
     kind, rest = argv[0], argv[1:]
     repo_root = Path.cwd()
     if kind in ("feature", "work-item"):
+        if kind == "work-item":
+            _validate_work_item_identity(repo_root)
         base = feature_or_work_item(repo_root)
     elif kind == "task":
         base = task(repo_root, rest[0] if rest else "")

@@ -508,6 +508,12 @@ def _issue_keys_from_branch(branch: str) -> tuple[str, ...]:
 
     if not branch or _reserved_sdd_branch(branch):
         return ()
+    # Keep this layout in lockstep with the installed Linear resolver.  A
+    # user-prefixed branch may have one prefix segment, but a deeper nested
+    # path is title evidence only; its final leaf must not become a guessed
+    # Issue identity during review.
+    if re.fullmatch(r"^(?:[^/]+/)?[A-Za-z][A-Za-z0-9]*-\d+(?:-[^/]*)?$", branch) is None:
+        return ()
     leaf = branch.rsplit("/", 1)[-1]
     if re.match(r"^[A-Za-z][A-Za-z0-9]*-\d+(?:-|$)", leaf) is None:
         return ()
@@ -542,8 +548,6 @@ def _tracker_keys_from_pr_body(body: str | None) -> tuple[tuple[str, ...], bool]
     for value in values:
         if not value:
             conflict = True
-            continue
-        if value.upper() == "N/A" or value.startswith("<!--"):
             continue
         match = _TRACKER_VALUE_RE.fullmatch(value)
         if match is None:

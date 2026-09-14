@@ -149,6 +149,10 @@ git -C "$consumer_root" add .
 git -C "$consumer_root" commit -qm conformance
 mkdir -p "$consumer_root/.specify/extensions/git"
 printf 'trunk: "main"\n' >"$consumer_root/.specify/extensions/git/git-config.yml"
+# The preset work-item setup starts from `origin/<trunk>` just like a real
+# consumer. Keep that ref local so this isolated fixture exercises the setup
+# command rather than creating its result by hand.
+git -C "$consumer_root" update-ref refs/remotes/origin/main HEAD
 
 # 1. The installed artifact materializes its commands.
 test -f "$installed_root/extension.yml"
@@ -333,9 +337,12 @@ class Handler(BaseHTTPRequestHandler):
                 for number in variables.get("numbers", [])
             ], "pageInfo": {"hasNextPage": False, "endCursor": None}}}
         elif "query IssueContexts" in query:
+            # A strict textual key with no native branch match stays
+            # unresolved; the direct issue-key start query below still
+            # returns its canonical context.
             data = {"issues": {"nodes": [
                 context(f"WOR-{int(number)}", f"wor-{int(number)}-native")
-                for number in variables.get("numbers", [])
+                for number in variables.get("numbers", []) if int(number) != 12
             ], "pageInfo": {"hasNextPage": False, "endCursor": None}}}
         elif "query IssueContext" in query:
             identifier = str(variables["id"]).upper()
@@ -414,10 +421,13 @@ PY
 # The installed preset helpers and extension entry points cross their real
 # subprocess boundaries. The active feature fixture is deliberately stale so
 # successful native status/push runs prove the resolver wins before ledger
-# selection; all checks below are read-only.
+# selection. Setup is exercised through task_base.py; only its isolated
+# origin/main ref is synthetic.
 start_helper="$consumer_root/.specify/presets/default/scripts/python/work_item_start.py"
+task_base_helper="$consumer_root/.specify/presets/default/scripts/python/task_base.py"
 pr_helper="$consumer_root/.specify/presets/default/scripts/python/pr_create.py"
-native_start=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$start_helper" WOR-12)
+git -C "$consumer_root" switch -q main
+native_start=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$task_base_helper" work-item WOR-12)
 python3 - "$native_start" <<'PY'
 import json
 import sys
@@ -427,6 +437,8 @@ assert payload["issue_key"] == "WOR-12"
 assert payload["branch_name"] == "users/alice/WOR-12-native-shape"
 assert payload["configured"] is True
 PY
+test "$(git -C "$consumer_root" branch --show-current)" = "users/alice/WOR-12-native-shape"
+test "$(git -C "$consumer_root" rev-parse HEAD)" = "$(git -C "$consumer_root" rev-parse origin/main)"
 
 mv "$consumer_root/speckit-linear.yml" "$consumer_root/speckit-linear.configured.yml"
 fallback_start=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$start_helper" WOR-13 "Fallback title")
@@ -444,6 +456,20 @@ PY
 pr_base=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$pr_helper" work-item)
 test "$pr_base" = "base=main"
 
+# Repeating start from the delivery branch adopts the exact existing native
+# head. A conflicting native head then blocks before checkout changes.
+git -C "$consumer_root" switch -q main
+adopted_start=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$task_base_helper" work-item WOR-12)
+python3 - "$adopted_start" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["branch_name"] == "users/alice/WOR-12-native-shape"
+assert payload["configured"] is True
+PY
+test "$(git -C "$consumer_root" branch --show-current)" = "users/alice/WOR-12-native-shape"
+
 fake_bin="$temporary_root/bin"
 mkdir -p "$fake_bin"
 cat >"$fake_bin/gh" <<'SH'
@@ -453,9 +479,33 @@ SH
 chmod +x "$fake_bin/gh"
 export PATH="$fake_bin:$PATH"
 
-git -C "$consumer_root" branch users/alice/WOR-12-native-shape main
 git -C "$consumer_root" branch users/alice/unresolved-title main
+git -C "$consumer_root" branch WOR-12-unresolved main
 git -C "$consumer_root" branch WOR-99-conflict main
+git -C "$consumer_root" switch -q main
+set +e
+unresolved_start=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$task_base_helper" work-item WOR-12 2>"$temporary_root/unresolved-start.err")
+unresolved_code=$?
+set -e
+if [ "$unresolved_code" -ne 2 ] || ! grep -Fq "existing branch identity is unresolved" "$temporary_root/unresolved-start.err"; then
+  echo "unresolved native setup must stop before checkout" >&2
+  cat "$temporary_root/unresolved-start.err" >&2
+  exit 1
+fi
+test "$(git -C "$consumer_root" branch --show-current)" = "main"
+git -C "$consumer_root" branch -D -q WOR-12-unresolved
+set +e
+conflict_start=$(cd "$consumer_root" && uv run --frozen --offline --project "$repository_root" python "$task_base_helper" work-item WOR-12 2>"$temporary_root/conflict-start.err")
+conflict_code=$?
+set -e
+if [ "$conflict_code" -ne 2 ] || ! grep -Fq "existing branch identity is conflict" "$temporary_root/conflict-start.err"; then
+  echo "conflicting native setup must stop before checkout" >&2
+  cat "$temporary_root/conflict-start.err" >&2
+  exit 1
+fi
+test "$(git -C "$consumer_root" branch --show-current)" = "main"
+git -C "$consumer_root" branch WOR-12-unresolved main
+
 git -C "$consumer_root" switch -q users/alice/WOR-12-native-shape
 before_head=$(git -C "$consumer_root" rev-parse HEAD)
 native_status=$("$runtime" status --root "$consumer_root" --json)
@@ -491,6 +541,30 @@ assert payload["code"] == 0
 assert payload["status"]["task_rows"] == []
 PY
 
+git -C "$consumer_root" switch -q WOR-12-unresolved
+unresolved_identity_status=$("$runtime" status --root "$consumer_root" --json)
+python3 - "$unresolved_identity_status" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["code"] == 0
+assert payload["status"]["task_rows"] == []
+items = payload["status"]["work_items"]
+assert [(item["identifier"], item["derived_state"], item["state_source"]) for item in items] == [("WOR-12", None, "unknown"), ("WOR-99", None, "unknown")]
+PY
+
+unresolved_push=$("$runtime" push --root "$consumer_root" --dry-run --json)
+python3 - "$unresolved_push" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["code"] == 0
+assert payload["plans"] == []
+assert payload["work_item_plan"]["operations"] == []
+PY
+
 git -C "$consumer_root" switch -q WOR-99-conflict
 conflict_status=$("$runtime" status --root "$consumer_root" --json)
 python3 - "$conflict_status" <<'PY'
@@ -500,6 +574,19 @@ import sys
 payload = json.loads(sys.argv[1])
 assert payload["code"] == 0
 assert payload["status"]["task_rows"] == []
+items = payload["status"]["work_items"]
+assert [(item["identifier"], item["derived_state"], item["state_source"]) for item in items] == [("WOR-12", None, "unknown"), ("WOR-99", None, "unknown")]
+PY
+
+conflict_push=$("$runtime" push --root "$consumer_root" --dry-run --json)
+python3 - "$conflict_push" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+assert payload["code"] == 0
+assert payload["plans"] == []
+assert payload["work_item_plan"]["operations"] == []
 PY
 
 test "$(git -C "$consumer_root" rev-parse HEAD)" = "$before_head"

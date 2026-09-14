@@ -208,17 +208,23 @@ def _validate_native_identity(issue_key: str, branch: str) -> None:
 
 
 def _same_issue(left: str, right: str) -> bool:
-    if not KEY_RE.fullmatch(left.strip()) or not KEY_RE.fullmatch(right.strip()):
-        return False
-    left_team, left_number = left.strip().split("-", 1)
-    right_team, right_number = right.strip().split("-", 1)
-    return left_team.casefold() == right_team.casefold() and int(left_number) == int(right_number)
+    left_canonical = _canonical_issue(left)
+    right_canonical = _canonical_issue(right)
+    return left_canonical is not None and left_canonical == right_canonical
+
+
+def _canonical_issue(value: str) -> str | None:
+    match = KEY_RE.fullmatch(value.strip())
+    if match is None:
+        return None
+    team, number = value.strip().split("-", 1)
+    return f"{team.upper()}-{int(number)}"
 
 
 def _strict_keys(branch: str) -> list[str]:
     if re.fullmatch(r"(?:[^/]+/)?[A-Za-z][A-Za-z0-9]*-[0-9]+(?:-[^/]*)?", branch) is None:
         return []
-    return list(dict.fromkeys(match.group(0) for match in ISSUE_TOKEN_RE.finditer(branch.rsplit("/", 1)[-1])))
+    return list(dict.fromkeys(_canonical_issue(match.group(0)) for match in ISSUE_TOKEN_RE.finditer(branch.rsplit("/", 1)[-1])))
 
 
 def _fence_start(line: str) -> tuple[str, int] | None:
@@ -272,7 +278,10 @@ def _local_tracker_keys(body: str) -> tuple[list[str], bool]:
         if match is None:
             malformed = True
             continue
-        key = match.group("key")
+        key = _canonical_issue(match.group("key"))
+        if key is None:
+            malformed = True
+            continue
         if key not in keys:
             keys.append(key)
     return keys, malformed

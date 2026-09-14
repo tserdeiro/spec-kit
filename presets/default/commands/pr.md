@@ -23,8 +23,9 @@ GitHub.
 - Before selecting the active feature's first unchecked task, resolve the
   current head and any existing PR through the installed Linear resolver.
   Pass the current branch as `branch_names` and each matching PR's
-  `head_branch` and body as `pull_requests`; invoke the resolver with
-  `python .specify/extensions/linear/scripts/python/resolve_work_item.py --root .`.
+  `head_branch` and body as `pull_requests`; use the consumer interpreter
+  selected below (`.venv/bin/python` when it exists, else `python3`) to invoke
+  `.specify/extensions/linear/scripts/python/resolve_work_item.py --root .`.
   Treat every complete `NNN-slug`/`NNN-T###-slug` ref as an SDD ref only
   after checking the whole ref. For a native or title-only branch, including
   a prefixed path or a key-only ref, use the resolved Issue identity and

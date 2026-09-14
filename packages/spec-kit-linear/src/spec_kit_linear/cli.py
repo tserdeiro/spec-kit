@@ -68,7 +68,7 @@ EXIT_CONFIGURATION = 3
 EXIT_PREREQUISITE = 4
 
 _SDD_REF_RE = re.compile(r"^([0-9]{3})-[A-Za-z0-9._-]+$")
-_DEFAULT_BRANCHES = frozenset({"main", "master", "develop", "development", "dev", "trunk"})
+_TRUNK_RE = re.compile(r'''^\s*trunk:\s*["']?([^"'#\s]*)''')
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -1047,7 +1047,8 @@ def _resolve_implicit_work_item(root: Path, args: argparse.Namespace, config_pat
     if any(getattr(args, name, False) for name in ("feature", "current", "all_features")):
         return
     branch = _current_branch(root)
-    if not branch or branch.casefold() in _DEFAULT_BRANCHES or _SDD_REF_RE.fullmatch(branch):
+    delivery_branch = _delivery_branch(root)
+    if not branch or (delivery_branch and branch.casefold() == delivery_branch.casefold()) or _SDD_REF_RE.fullmatch(branch):
         return
     resolution = resolve_work_item(
         {"branch_names": [branch]},
@@ -1063,6 +1064,27 @@ def _resolve_implicit_work_item(root: Path, args: argparse.Namespace, config_pat
             diagnostics=[Diagnostic("work_item_resolution", "native work-item resolution returned an invalid status")],
         )
     setattr(args, "work_items_only", True)
+
+
+def _delivery_branch(root: Path) -> str | None:
+    """Find the repository's delivery branch from its local Git evidence."""
+
+    config_path = root / ".specify" / "extensions" / "git" / "git-config.yml"
+    try:
+        for line in config_path.read_text(encoding="utf-8").splitlines():
+            match = _TRUNK_RE.match(line)
+            if match and match.group(1):
+                return match.group(1)
+    except (OSError, UnicodeDecodeError):
+        pass
+    result = subprocess.run(
+        ["git", "-C", str(root), "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"],
+        check=False, text=True, capture_output=True,
+    )
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value.removeprefix("origin/") or None
 
 
 def _tasks_pending(feature_dir: Path) -> Diagnostic:

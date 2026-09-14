@@ -23,6 +23,8 @@ def test_pr_command_documents_native_identity_contract() -> None:
     assert "preserves the checkout" in command
     assert "keep an adopted" in command
     assert "existing head" in command
+    assert "`.venv/bin/python` when it exists, else `python3`" in command
+    assert "python .specify/extensions/linear/scripts/python/resolve_work_item.py" not in command
 
 def _set_trunk(repo: Path, branch: str) -> None:
     config = repo / ".specify/extensions/git/git-config.yml"
@@ -42,6 +44,16 @@ def _push_branch(repo: Path, name: str) -> None:
     _switch(repo, name)
     subprocess.run(["git", "push", "-q", "origin", name], cwd=repo, check=True, capture_output=True)
     subprocess.run(["git", "switch", "-q", "003-feature"], cwd=repo, check=True, capture_output=True)
+
+def _resolver(repo: Path, payload: dict[str, object], code: int = 0) -> None:
+    path = repo / ".specify/extensions/linear/scripts/python/resolve_work_item.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "import json\n"
+        f"print(json.dumps({payload!r}))\n"
+        f"raise SystemExit({code})\n",
+        encoding="utf-8",
+    )
 
 @pytest.mark.parametrize("kind", ["feature", "work-item"])
 def test_main_prints_the_configured_trunk(feature_repo: Path, kind: str, monkeypatch: pytest.MonkeyPatch,
@@ -84,6 +96,30 @@ def test_task_branch_mismatch_exits_2(feature_repo: Path) -> None:
     _switch(feature_repo, "003-T003-slug")
     with pytest.raises(SystemExit) as excinfo:
         pr_create.task(feature_repo, "")
+    assert excinfo.value.code == 2
+
+def test_work_item_routes_through_the_installed_native_resolver(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_trunk(feature_repo, "main")
+    _switch(feature_repo, "users/alice/WOR-123-native")
+    _resolver(feature_repo, {
+        "status": "resolved",
+        "observations": [{"status": "resolved", "resolution": {"identifier": "WOR-123"}}],
+    })
+
+    monkeypatch.chdir(feature_repo)
+    assert pr_create.main(["work-item"]) == 0
+
+def test_work_item_stops_when_native_identity_is_unresolved(feature_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_trunk(feature_repo, "main")
+    _switch(feature_repo, "users/alice/title-only")
+    _resolver(feature_repo, {
+        "status": "unresolved",
+        "observations": [{"status": "unresolved", "resolution": None}],
+    })
+
+    monkeypatch.chdir(feature_repo)
+    with pytest.raises(SystemExit) as excinfo:
+        pr_create.main(["work-item"])
     assert excinfo.value.code == 2
 
 def test_task_no_unchecked_task_exits_2(feature_repo: Path) -> None:

@@ -234,6 +234,19 @@ def test_unconfigured_title_only_tracker_adopts_open_head(feature_repo: Path, fa
     assert context.branch_name == "users/alice/old-title"
 
 
+def test_unconfigured_lowercase_branch_adopts_uppercase_tracker_head(
+    feature_repo: Path, fake_gh: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_trunk(feature_repo)
+    _push_branch(feature_repo, "wor-123-fix-parser")
+    _set_prs(monkeypatch, [_pr("wor-123-fix-parser", body="## Work item\n\n- Tracker: Fixes WOR-123\n")])
+
+    context = task_base.work_item(feature_repo, "WOR-123", "New title")
+
+    assert context.branch_name == "wor-123-fix-parser"
+    assert _branch(feature_repo) == context.branch_name
+
+
 @pytest.mark.parametrize(
     "body",
     [
