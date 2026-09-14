@@ -265,9 +265,199 @@ def test_symlinked_feature_parent_stops(published: tuple[Path, dict[str, object]
     _reject(repo, state)
 
 
+def test_in_repo_feature_alias_is_rejected_before_realpath_inventory(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    feature = repo / "specs/003-feature"
+    feature.mkdir(parents=True)
+    (feature / "spec.md").write_text("spec\n", encoding="utf-8")
+    (repo / "alias").symlink_to(repo / "specs", target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        product_gate._feature_paths(repo, repo / "alias/003-feature")
+    assert error.value.code == 2
+    (repo / "repo-alias").symlink_to(repo, target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        product_gate._feature_paths(repo, repo / "repo-alias/specs/003-feature")
+    assert error.value.code == 2
+
+
+def test_external_repository_alias_is_allowed(tmp_path: Path) -> None:
+    repo = tmp_path / "real-repo"
+    feature = repo / "specs/003-feature"
+    feature.mkdir(parents=True)
+    (feature / "spec.md").write_text("spec\n", encoding="utf-8")
+    alias = tmp_path / "external-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    resolved, relative = product_gate._feature_paths(repo, alias / "specs/003-feature")
+    assert resolved == feature and relative == "specs/003-feature"
+
+
+def test_external_alias_with_internal_repository_alias_is_rejected(tmp_path: Path) -> None:
+    repo = tmp_path / "real-repo"
+    feature = repo / "specs/003-feature"
+    feature.mkdir(parents=True)
+    (feature / "spec.md").write_text("spec\n", encoding="utf-8")
+    (repo / "internal").symlink_to(repo, target_is_directory=True)
+    alias = tmp_path / "external-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        product_gate._feature_paths(repo, alias / "internal/specs/003-feature")
+    assert error.value.code == 2
+
+
 @pytest.mark.parametrize("command", [("switch", "-c", "unrelated"), ("switch", "--detach")])
 def test_gate_requires_the_published_feature_checkout(published: tuple[Path, dict[str, object]],
                                                       command: tuple[str, ...]) -> None:
     repo, state = published
     _git(repo, *command)
     _reject(repo, state)
+
+
+def test_gate_accepts_a_task_branch_in_the_published_feature_stack(published: tuple[Path, dict[str, object]]) -> None:
+    repo, _state = published
+    _git(repo, "switch", "-q", "-c", "003-T002-task-entry")
+    product_gate.check(repo)
+
+
+def test_selected_task_base_must_match_the_published_product(published: tuple[Path, dict[str, object]]) -> None:
+    repo, state = published
+    _git(repo, "switch", "-q", "-c", "003-T001-prior")
+    plan = repo / "specs/003-feature/plan.md"
+    plan.write_text("unapproved stack change\n", encoding="utf-8")
+    _git(repo, "add", "specs/003-feature/plan.md")
+    _git(repo, "commit", "-q", "-m", "stack drift")
+    _git(repo, "push", "-q", "origin", "003-T001-prior")
+    selected = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    _git(repo, "switch", "-q", "003-feature")
+    before = _snapshot(repo)
+    with pytest.raises(SystemExit) as error:
+        product_gate.check(repo, selected)
+    assert error.value.code == 2
+    assert _snapshot(repo) == before
+    assert not state["gh_writes"]
+
+
+def test_added_supporting_artifact_stops(published: tuple[Path, dict[str, object]]) -> None:
+    repo, state = published
+    (repo / "specs/003-feature/research.md").write_text("new research\n", encoding="utf-8")
+    _reject(repo, state)
+
+
+def test_deleted_supporting_artifact_stops(published: tuple[Path, dict[str, object]]) -> None:
+    repo, state = published
+    artifact = repo / "specs/003-feature/research.md"
+    artifact.write_text("published research\n", encoding="utf-8")
+    _git(repo, "add", "specs/003-feature/research.md")
+    _git(repo, "commit", "-q", "-m", "publish research")
+    _git(repo, "push", "-q", "origin", "003-feature")
+    state["oid"] = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    artifact.unlink()
+    _reject(repo, state)
+
+
+def test_executable_mode_substitution_stops(published: tuple[Path, dict[str, object]]) -> None:
+    repo, state = published
+    (repo / "specs/003-feature/spec.md").chmod(0o755)
+    _reject(repo, state)
+
+
+def test_index_conflict_stops_before_product_inventory(published: tuple[Path, dict[str, object]]) -> None:
+    repo, state = published
+    path = "specs/003-feature/spec.md"
+    original = _git(repo, "rev-parse", f"HEAD:{path}").stdout.strip()
+    alternate = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=repo,
+                               input="conflict\n", text=True, capture_output=True, check=True).stdout.strip()
+    subprocess.run(["git", "update-index", "--index-info"], cwd=repo,
+                   input=f"100644 {original} 2\t{path}\n100644 {alternate} 3\t{path}\n",
+                   text=True, capture_output=True, check=True)
+    _reject(repo, state)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("headRefName", "003-other-feature"),
+    ("baseRefName", "release"),
+    ("state", "CLOSED"),
+    ("headRefOid", "0" * 40),
+])
+def test_gate_rechecks_moving_pr_identity(published: tuple[Path, dict[str, object]],
+                                          monkeypatch: pytest.MonkeyPatch,
+                                          field: str, value: str) -> None:
+    repo, state = published
+    calls = 0
+    original = product_gate.run_gh
+
+    def moving_run_gh(*args, **kwargs):
+        nonlocal calls
+        if args[:2] == ("pr", "view"):
+            calls += 1
+            payload = product_gate._gh_json(repo, *args)
+            if calls == 2:
+                payload[field] = value
+            return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(product_gate, "run_gh", moving_run_gh)
+    _reject(repo, state)
+    assert calls == 2
+
+
+def test_multiline_completion_progress_is_the_only_tasks_drift_allowed(
+    published: tuple[Path, dict[str, object]],
+) -> None:
+    repo, _state = published
+    (repo / "specs/003-feature/tasks.md").write_text(
+        "- [x] T001 Work\n"
+        "  - **Completion evidence**: done\n"
+        "    - first evidence line\n"
+        "    - second evidence line\n",
+        encoding="utf-8",
+    )
+    product_gate.check(repo)
+
+
+@pytest.mark.parametrize("changed", [
+    "- [ ] T001 Renamed\n  - **Completion evidence**: Pending\n",
+    "- [ ] T001 Work\n  - **Completion evidence**: Pending\n- [ ] T002 Added\n",
+])
+def test_task_identity_changes_stop(published: tuple[Path, dict[str, object]], changed: str) -> None:
+    repo, state = published
+    (repo / "specs/003-feature/tasks.md").write_text(changed, encoding="utf-8")
+    _reject(repo, state)
+
+
+@pytest.mark.parametrize("old,new", [
+    ("  - **Traces**: FR-006", "  - **Traces**: FR-999"),
+    ("  - **Depends on**: T003", "  - **Depends on**: T001"),
+    ("  - **Boundaries**: preserve", "  - **Boundaries**: change"),
+    ("  - **Evidence**: command -> pass", "  - **Evidence**: command -> fail"),
+    ("  - **Delivery**: single PR (~390 authored lines)",
+     "  - **Delivery**: single PR (~391 authored lines)"),
+])
+def test_immutable_ledger_fields_and_forecast_stop(published: tuple[Path, dict[str, object]],
+                                                    old: str, new: str) -> None:
+    repo, state = published
+    baseline = (
+        "- [ ] T001 Work\n"
+        "  - **Traces**: FR-006\n"
+        "  - **Depends on**: T003\n"
+        "  - **Boundaries**: preserve\n"
+        "  - **Evidence**: command -> pass\n"
+        "  - **Delivery**: single PR (~390 authored lines)\n"
+        "  - **Completion evidence**: Pending\n"
+    )
+    path = repo / "specs/003-feature/tasks.md"
+    path.write_text(baseline, encoding="utf-8")
+    _git(repo, "add", "specs/003-feature/tasks.md")
+    _git(repo, "commit", "-q", "-m", "publish ledger fields")
+    _git(repo, "push", "-q", "origin", "003-feature")
+    state["oid"] = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    path.write_text(baseline.replace(old, new), encoding="utf-8")
+    _reject(repo, state)
+
+
+@pytest.mark.parametrize("branch", ["004-T002-wrong-feature", "003-T002", "003-other-task", "003-T002-task"])
+def test_task_context_requires_a_complete_matching_branch_name(published: tuple[Path, dict[str, object]],
+                                                                branch: str) -> None:
+    if branch == "003-T002-task":
+        assert product_gate._is_task_context(branch, "003-feature")
+    else:
+        assert not product_gate._is_task_context(branch, "003-feature")

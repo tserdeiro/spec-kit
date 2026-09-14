@@ -77,6 +77,17 @@ def install_fake_linear(repo: Path) -> Path:
     run_sh.chmod(0o755)
     return calls
 
+
+@pytest.fixture
+def product_gate_pass(monkeypatch: pytest.MonkeyPatch):
+    """Keep base-resolution fixtures focused on the post-gate behavior."""
+    def allow(_repo: Path, _selected_ref: str | None = None) -> None:
+        return None
+
+    monkeypatch.setattr("task_base.product_gate.check", allow, raising=False)
+    monkeypatch.setattr("pr_create.product_gate.check", allow, raising=False)
+    return allow
+
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A throwaway, initialized git repository. Every later git call this

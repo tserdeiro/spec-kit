@@ -18,6 +18,7 @@ FIELDS = (
     "headRefName,baseRefName,headRefOid"
 )
 _TASK = re.compile(r"^(\s*-\s+\[)[ xX](\]\s+T[0-9]{3}\b)")
+_TASK_BRANCH = re.compile(r"^(?P<feature>[0-9]+)-T[0-9]{3}-.+$")
 _EVIDENCE = re.compile(r"^(\s*-\s+\*\*Completion evidence\*\*:)[ \t]*")
 _FIELD = re.compile(r"^\s*-\s+\*\*[^*]+\*\*:")
 _REQUIRED = {"spec.md", "plan.md", "tasks.md"}
@@ -78,8 +79,9 @@ def _check_push_destinations(repo: Path, expected_url: str) -> None:
             _pending("origin push URL targets another repository")
 
 
-def _feature_branch(repo: Path, feature: str, origin: str) -> str:
-    current = _git(repo, "branch", "--show-current").stdout.strip()
+def _feature_branch(repo: Path, feature: str, origin: str, current: str | None = None) -> str:
+    if current is None:
+        current = _git(repo, "branch", "--show-current").stdout.strip()
     candidates = _gh_json(repo, "pr", "list", "--repo", origin, "--state", "open", "--limit", "1000", "--json", "headRefName")
     if not isinstance(candidates, list) or len(candidates) >= 1000:
         _pending("published feature refs could not be observed without truncation")
@@ -100,6 +102,12 @@ def _feature_branch(repo: Path, feature: str, origin: str) -> str:
     _pending(f"current branch does not identify feature {feature}; use the published feature branch")
 
 
+def _is_task_context(branch: str, feature: str) -> bool:
+    """Return whether a checked-out branch is a task in this feature's stack."""
+    match = _TASK_BRANCH.match(branch.rsplit("/", 1)[-1])
+    return bool(match and match.group("feature") == feature.split("-", 1)[0])
+
+
 def _pr(repo: Path, origin: str, branch: str) -> dict[str, Any]:
     result = run_gh("pr", "view", branch, "--repo", origin, "--json", FIELDS, cwd=repo)
     if result.returncode:
@@ -117,17 +125,37 @@ def _pr(repo: Path, origin: str, branch: str) -> dict[str, Any]:
 
 
 def _feature_paths(repo: Path, feature_path: Path) -> tuple[Path, str]:
-    repo_path = Path(os.path.abspath(repo))
-    candidate = Path(os.path.abspath(feature_path))
+    # ``pwd`` and ``git`` may spell the same temporary directory through
+    # different system aliases (for example ``/var`` and ``/private/var``).
+    # Resolve those aliases before calculating the repository-relative path;
+    # inspect the original components separately so an in-repository symlink
+    # remains a rejection.
+    raw_candidate = Path(os.path.abspath(feature_path))
+    repo_path = Path(os.path.realpath(repo))
+    candidate = Path(os.path.realpath(feature_path))
     try:
         relative = candidate.relative_to(repo_path)
     except ValueError:
         _pending("the active feature directory is outside the repository")
-    component = repo_path
-    for part in relative.parts:
-        component /= part
-        if component.is_symlink():
-            _pending("the active feature directory contains a symlinked path")
+    raw_repo = Path(os.path.abspath(repo))
+    if raw_candidate == repo_path or raw_candidate.is_relative_to(repo_path):
+        lexical_repo: Path | None = repo_path
+    elif raw_candidate == raw_repo or raw_candidate.is_relative_to(raw_repo):
+        lexical_repo = raw_repo
+    else:
+        matches: list[Path] = []
+        cursor = raw_candidate
+        while cursor != cursor.parent:
+            if Path(os.path.realpath(cursor)) == repo_path:
+                matches.append(cursor)
+            cursor = cursor.parent
+        lexical_repo = min(matches, key=lambda path: len(path.parts)) if matches else None
+    if lexical_repo is not None:
+        lexical_relative = raw_candidate.relative_to(lexical_repo)
+        for index in range(1, len(lexical_relative.parts) + 1):
+            component = lexical_repo.joinpath(*lexical_relative.parts[:index])
+            if component.is_symlink():
+                _pending("the active feature directory contains a symlinked path")
     try:
         if not candidate.resolve().is_relative_to(repo_path.resolve()):
             _pending("the active feature directory resolves outside the repository")
@@ -306,12 +334,21 @@ def _compare(remote: dict[str, tuple[str, str, bytes]], sources: list[tuple[str,
                 reason = "committed product changes are unpublished"
             elif name == "index":
                 reason = "staged product changes are unpublished"
+            elif name == "selected task base":
+                reason = "selected task base product changes are unpublished"
             else:
                 reason = "working-tree product changes are unpublished"
             _pending(f"{reason}; rerun product analysis and obtain approval before publication")
 
 
-def check(repo: Path | None = None) -> None:
+def check(repo: Path | None = None, selected_ref: str | None = None) -> None:
+    """Validate the published gate and, optionally, a fetched task-base tree.
+
+    A normal check compares the selected feature's HEAD, index, and worktree.
+    A task-base check compares only the exact fetched commit that will be
+    checked out, allowing task setup to validate a moving stack without
+    mutating the current checkout first.
+    """
     repo = repo or Path.cwd()
     paths = check_prerequisites(repo)
     feature_path = Path(paths["FEATURE_DIR"])
@@ -323,9 +360,9 @@ def check(repo: Path | None = None) -> None:
     expected_repo = _repository(repo, origin)
     expected_url = _repository_url(repo, origin)
     _check_push_destinations(repo, expected_url)
-    branch = _feature_branch(repo, feature, origin)
     current = _git(repo, "branch", "--show-current").stdout.strip()
-    if current != branch:
+    branch = _feature_branch(repo, feature, origin, current)
+    if current != branch and not _is_task_context(current, feature):
         _pending(f"checked-out branch {current or '<detached>'!r} does not match published feature ref {branch!r}")
     try:
         expected_base = delivery_base(repo, origin)
@@ -335,10 +372,14 @@ def check(repo: Path | None = None) -> None:
     _check_identity(first, expected_repo, branch, expected_base)
     remote_oid = _remote_oid(repo, origin, branch, first["headRefOid"])
     remote = _tree(repo, remote_oid, feature_rel)
-    head = _tree(repo, "HEAD", feature_rel)
-    index = _index(repo, feature_rel)
-    worktree = _worktree(repo, feature_path)
-    _compare(remote, [("HEAD", head), ("index", index), ("worktree", worktree)])
+    if selected_ref is None:
+        head = _tree(repo, "HEAD", feature_rel)
+        index = _index(repo, feature_rel)
+        worktree = _worktree(repo, feature_path)
+        _compare(remote, [("HEAD", head), ("index", index), ("worktree", worktree)])
+    else:
+        selected = _tree(repo, selected_ref, feature_rel)
+        _compare(remote, [("selected task base", selected)])
     final = _pr(repo, origin, branch)
     if any(final.get(field) != first.get(field) for field in FIELDS.split(",")):
         _pending("feature gate changed while its published artifacts were being checked; re-observe and reconcile the feature PR, rerun product analysis, and obtain fresh approval/publication before implementation")
