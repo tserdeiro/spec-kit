@@ -291,6 +291,19 @@ def test_external_repository_alias_is_allowed(tmp_path: Path) -> None:
     assert resolved == feature and relative == "specs/003-feature"
 
 
+def test_external_alias_with_internal_repository_alias_is_rejected(tmp_path: Path) -> None:
+    repo = tmp_path / "real-repo"
+    feature = repo / "specs/003-feature"
+    feature.mkdir(parents=True)
+    (feature / "spec.md").write_text("spec\n", encoding="utf-8")
+    (repo / "internal").symlink_to(repo, target_is_directory=True)
+    alias = tmp_path / "external-alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    with pytest.raises(SystemExit) as error:
+        product_gate._feature_paths(repo, alias / "internal/specs/003-feature")
+    assert error.value.code == 2
+
+
 @pytest.mark.parametrize("command", [("switch", "-c", "unrelated"), ("switch", "--detach")])
 def test_gate_requires_the_published_feature_checkout(published: tuple[Path, dict[str, object]],
                                                       command: tuple[str, ...]) -> None:

@@ -138,16 +138,18 @@ def _feature_paths(repo: Path, feature_path: Path) -> tuple[Path, str]:
     except ValueError:
         _pending("the active feature directory is outside the repository")
     raw_repo = Path(os.path.abspath(repo))
-    if raw_candidate == raw_repo or raw_candidate.is_relative_to(raw_repo):
-        lexical_repo: Path | None = raw_repo
+    if raw_candidate == repo_path or raw_candidate.is_relative_to(repo_path):
+        lexical_repo: Path | None = repo_path
+    elif raw_candidate == raw_repo or raw_candidate.is_relative_to(raw_repo):
+        lexical_repo = raw_repo
     else:
-        lexical_repo = None
+        matches: list[Path] = []
         cursor = raw_candidate
         while cursor != cursor.parent:
             if Path(os.path.realpath(cursor)) == repo_path:
-                lexical_repo = cursor
-                break
+                matches.append(cursor)
             cursor = cursor.parent
+        lexical_repo = min(matches, key=lambda path: len(path.parts)) if matches else None
     if lexical_repo is not None:
         lexical_relative = raw_candidate.relative_to(lexical_repo)
         for index in range(1, len(lexical_relative.parts) + 1):
