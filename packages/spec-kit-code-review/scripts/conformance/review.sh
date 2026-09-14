@@ -735,7 +735,7 @@ native_head=$(git -C "$consumer_root" rev-parse HEAD)
 engine_state <<STATE
 {"files": [{"path": "src/native.py"}], "rules": {"src/native.py": ["Validate every input."]}, "record_invocations": "$engine_log"}
 STATE
-set_pr "$context_base" "$native_head" "users/alice/WOR-12-native-shape" $'## Work item\n\n- Tracker: Fixes WOR-12\n'
+set_pr "$context_base" "$native_head" "users/alice/WOR-12-native-shape" $'## work item\n\n- tracker: fixes wor-12\n'
 native_opened=$(run review --root "$consumer_root" 128 --json --verbose)
 test "$(echo "$native_opened" | json '["review_scope"]["kind"]')" = "short-path"
 test "$(echo "$native_opened" | json '["review_scope"]["work_item_key"]')" = "WOR-12"

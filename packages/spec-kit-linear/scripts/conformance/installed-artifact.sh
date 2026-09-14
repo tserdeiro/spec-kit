@@ -395,7 +395,7 @@ assert resolution["branch_name"] == "users/alice/WOR-12-native-shape"
 assert resolution["team"]["key"] == "WOR"
 PY
 
-observed=$(bridge_json '{"branch_names":["users/alice/WOR-12-native-shape","old-title","WOR-99-conflict","009-feature"],"pull_requests":[{"head_branch":"users/alice/old-title","body":"## Work item\n\n- Tracker: Fixes WOR-13\n"},{"head_branch":"users/alice/conflicting","body":"## Work item\n\n- Tracker: Fixes WOR-12\n- Tracker: Fixes WOR-13\n"},{"head_branch":"009-feature","body":""}]}')
+observed=$(bridge_json '{"branch_names":["users/alice/WOR-12-native-shape","old-title","WOR-99-conflict","009-feature"],"pull_requests":[{"head_branch":"users/alice/old-title","body":"## work item\n\n- tracker: fixes wor-13\n"},{"head_branch":"users/alice/conflicting","body":"## Work item\n\n- Tracker: Fixes WOR-12\n- Tracker: Fixes WOR-13\n"},{"head_branch":"009-feature","body":""}]}')
 python3 - "$observed" <<'PY'
 import json
 import sys

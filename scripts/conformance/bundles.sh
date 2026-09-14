@@ -799,7 +799,8 @@ reset_command_logs
 output=$(run_pr_create work-item main "") || fail "trunk: work-item PR create failed"
 [ "$output" = "base=unused" ] || fail "trunk: work-item PR printed the wrong base"
 [ ! -s "$gh_calls" ] || fail "trunk: work-item PR queried GitHub"
-[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch unused)" ] ||
+[ "$(cat "$git_calls")" = "$(json_argv branch --show-current)
+$(json_argv check-ref-format --branch unused)" ] ||
   fail "trunk: work-item PR did not validate its configured base"
 
 set_config __missing_file__
@@ -808,7 +809,8 @@ output=$(run_pr_create work-item 'default$(safe)' "") || fail "trunk: work-item 
 [ "$output" = 'base=default$(safe)' ] || fail "trunk: work-item PR printed the wrong base"
 [ "$(cat "$gh_calls")" = "$repo_view" ] ||
   fail "trunk: work-item PR did not resolve the GitHub default at runtime"
-[ "$(cat "$git_calls")" = "$(json_argv check-ref-format --branch 'default$(safe)')" ] ||
+[ "$(cat "$git_calls")" = "$(json_argv branch --show-current)
+$(json_argv check-ref-format --branch 'default$(safe)')" ] ||
   fail "trunk: work-item PR did not validate its fallback base"
 
 # The chore and bugfix commands no longer carry their own branch-creation

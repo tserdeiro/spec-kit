@@ -8,13 +8,14 @@ this script printed.
 
 from __future__ import annotations
 
-import re
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 from _common import check_prerequisites, delivery_base, die, first_unchecked, open_task_prs, parse_ledger, run_git
+from work_item_start import _configured, _same_issue, pull_requests
 
 def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     result = run_git(*args, cwd=repo_root)
@@ -26,7 +27,7 @@ def _is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
     return run_git("merge-base", "--is-ancestor", ancestor, descendant, cwd=repo_root).returncode == 0
 
 def _validate_work_item_identity(repo_root: Path) -> None:
-    """Require the installed resolver to confirm a native PR head."""
+    """Require the installed resolver to confirm the complete native PR identity."""
 
     branch = _git(repo_root, "branch", "--show-current").stdout.strip()
     if not branch:
@@ -34,10 +35,18 @@ def _validate_work_item_identity(repo_root: Path) -> None:
     script = repo_root / ".specify" / "extensions" / "linear" / "scripts" / "python" / "resolve_work_item.py"
     if not script.is_file():
         return
+    configured = _configured(repo_root)
+    matching_prs = tuple(item for item in pull_requests(repo_root) if item.head_branch == branch) if configured else ()
+    request: dict[str, object] = {"branch_names": [branch]}
+    if configured:
+        request["pull_requests"] = [
+            {"head_branch": item.head_branch, "body": item.body}
+            for item in matching_prs
+        ]
     result = subprocess.run(
         [sys.executable, str(script), "--root", str(repo_root)],
         cwd=repo_root,
-        input=json.dumps({"branch_names": [branch]}),
+        input=json.dumps(request),
         text=True,
         capture_output=True,
     )
@@ -51,13 +60,34 @@ def _validate_work_item_identity(repo_root: Path) -> None:
     if payload.get("status") == "absent":
         return
     observations = payload.get("observations")
-    observation = observations[0] if isinstance(observations, list) and len(observations) == 1 else None
-    if not isinstance(observation, dict) or observation.get("status") != "resolved":
-        status = observation.get("status") if isinstance(observation, dict) else payload.get("status", "unknown")
-        die(f"configured Linear work-item identity is {status}; PR routing stopped for {branch}")
-    resolution = observation.get("resolution")
-    if not isinstance(resolution, dict) or not isinstance(resolution.get("identifier"), str):
+    if not isinstance(observations, list) or len(observations) != len(matching_prs) + 1:
         die(f"configured Linear work-item resolver returned incomplete identity for {branch}")
+    if not all(isinstance(item, dict) for item in observations):
+        die(f"configured Linear work-item resolver returned malformed identity for {branch}")
+
+    branch_observation = observations[0]
+    pr_observations = observations[1:]
+    branch_status = branch_observation.get("status")
+    if branch_status not in {"resolved", "unresolved"}:
+        die(f"configured Linear work-item identity is {branch_status or 'unknown'}; PR routing stopped for {branch}")
+    resolved = [
+        item for item in observations
+        if item.get("status") == "resolved"
+        and isinstance(item.get("resolution"), dict)
+        and isinstance(item["resolution"].get("identifier"), str)
+    ]
+    if not resolved:
+        status = branch_observation.get("status", payload.get("status", "unknown"))
+        die(f"configured Linear work-item identity is {status}; PR routing stopped for {branch}")
+    if any(item.get("status") != "resolved" for item in pr_observations):
+        status = next(item.get("status", "unknown") for item in pr_observations if item.get("status") != "resolved")
+        die(f"configured Linear work-item PR identity is {status}; PR routing stopped for {branch}")
+    if branch_status != "resolved" and not pr_observations:
+        status = branch_status
+        die(f"configured Linear work-item identity is {status}; PR routing stopped for {branch}")
+    identifiers = [item["resolution"]["identifier"] for item in resolved]
+    if any(not _same_issue(identifier, identifiers[0]) for identifier in identifiers[1:]):
+        die(f"configured Linear work-item identity is conflicting; PR routing stopped for {branch}")
 
 def feature_or_work_item(repo_root: Path) -> str:
     base = delivery_base(repo_root)

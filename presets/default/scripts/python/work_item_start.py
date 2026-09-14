@@ -47,9 +47,18 @@ class PullRequestObservation:
 
 
 ISSUE_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]*)-([0-9]+)(?![A-Za-z0-9])")
-TRACKER_SECTION_RE = re.compile(r"(?ms)^##[ \t]+Work item[ \t]*\r?\n(?P<section>.*?)(?=^#{1,6}[ \t]+|\Z)")
-TRACKER_LINE_RE = re.compile(r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]*(?P<value>.*?)[ \t]*$")
-TRACKER_VALUE_RE = re.compile(r"^Fixes[ \t]+(?P<key>[A-Za-z][A-Za-z0-9]*-[0-9]+)[ \t]*$")
+TRACKER_SECTION_RE = re.compile(
+    r"(?ms)^##[ \t]+Work item[ \t]*\r?\n(?P<section>.*?)(?=^#{1,6}[ \t]+|\Z)",
+    re.IGNORECASE,
+)
+TRACKER_LINE_RE = re.compile(
+    r"(?m)^[ ]{0,3}-[ \t]+Tracker:[ \t]*(?P<value>.*?)[ \t]*$",
+    re.IGNORECASE,
+)
+TRACKER_VALUE_RE = re.compile(
+    r"^Fixes[ \t]+(?P<key>[A-Za-z][A-Za-z0-9]*-[0-9]+)[ \t]*$",
+    re.IGNORECASE,
+)
 
 
 def _issue_key(value: str) -> str:

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,6 +32,9 @@ def _set_trunk(repo: Path, branch: str) -> None:
     config.parent.mkdir(parents=True)
     config.write_text(f'trunk: "{branch}"\n', encoding="utf-8")
 
+def _set_linear_config(repo: Path) -> None:
+    (repo / "speckit-linear.yml").write_text("linear: {}\n", encoding="utf-8")
+
 def _write_ledger(repo: Path, text: str) -> None:
     path = repo / "specs/003-feature/tasks.md"
     path.parent.mkdir(parents=True)
@@ -54,6 +58,18 @@ def _resolver(repo: Path, payload: dict[str, object], code: int = 0) -> None:
         f"raise SystemExit({code})\n",
         encoding="utf-8",
     )
+
+def _recording_resolver(repo: Path, payload: dict[str, object]) -> Path:
+    path = repo / ".specify/extensions/linear/scripts/python/resolve_work_item.py"
+    capture = repo / "resolver-request.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "import json, pathlib, sys\n"
+        f"pathlib.Path({str(capture)!r}).write_text(json.dumps(json.load(sys.stdin)), encoding='utf-8')\n"
+        f"print(json.dumps({payload!r}))\n",
+        encoding="utf-8",
+    )
+    return capture
 
 @pytest.mark.parametrize("kind", ["feature", "work-item"])
 def test_main_prints_the_configured_trunk(feature_repo: Path, kind: str, monkeypatch: pytest.MonkeyPatch,
@@ -118,6 +134,50 @@ def test_work_item_stops_when_native_identity_is_unresolved(feature_repo: Path, 
     })
 
     monkeypatch.chdir(feature_repo)
+    with pytest.raises(SystemExit) as excinfo:
+        pr_create.main(["work-item"])
+    assert excinfo.value.code == 2
+
+def test_work_item_pr_boundary_passes_canonical_tracker_to_resolver(
+    feature_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_trunk(feature_repo, "main")
+    _set_linear_config(feature_repo)
+    _switch(feature_repo, "users/alice/old-title")
+    capture = _recording_resolver(feature_repo, {
+        "status": "partial",
+        "observations": [
+            {"status": "unresolved", "resolution": None},
+            {"status": "resolved", "resolution": {"identifier": "WOR-123"}},
+        ],
+    })
+    matching = SimpleNamespace(head_branch="users/alice/old-title", body="## work item\n\n- tracker: fixes wor-123\n")
+    monkeypatch.setattr(pr_create, "pull_requests", lambda _repo: (matching,))
+    monkeypatch.chdir(feature_repo)
+
+    assert pr_create.main(["work-item"]) == 0
+    assert json.loads(capture.read_text(encoding="utf-8")) == {
+        "branch_names": ["users/alice/old-title"],
+        "pull_requests": [{"head_branch": "users/alice/old-title", "body": "## work item\n\n- tracker: fixes wor-123\n"}],
+    }
+
+def test_work_item_pr_boundary_rejects_conflicting_tracker(
+    feature_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _set_trunk(feature_repo, "main")
+    _set_linear_config(feature_repo)
+    _switch(feature_repo, "users/alice/old-title")
+    _resolver(feature_repo, {
+        "status": "partial",
+        "observations": [
+            {"status": "resolved", "resolution": {"identifier": "WOR-123"}},
+            {"status": "conflict", "resolution": None},
+        ],
+    })
+    matching = SimpleNamespace(head_branch="users/alice/old-title", body="## Work item\n\n- Tracker: Fixes WOR-999\n")
+    monkeypatch.setattr(pr_create, "pull_requests", lambda _repo: (matching,))
+    monkeypatch.chdir(feature_repo)
+
     with pytest.raises(SystemExit) as excinfo:
         pr_create.main(["work-item"])
     assert excinfo.value.code == 2

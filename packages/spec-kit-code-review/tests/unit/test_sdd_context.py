@@ -106,6 +106,18 @@ class DiscoveryOrderTests(SddCase):
         self.assertEqual(resolution.source, SOURCE_WORK_ITEM)
         self.assertEqual(resolution.work_item_key, "OPS-42")
 
+    def test_tracker_field_spelling_is_case_insensitive(self) -> None:
+        resolution = resolve_feature(
+            CommitReader(self.git, self.head),
+            changed_paths=["src/timeout.py"],
+            head_ref_name="users/alice/fix-timeout",
+            pr_body="## work item\n\n- tracker: fixes ops-42\n",
+        )
+
+        self.assertEqual(resolution.source, SOURCE_WORK_ITEM)
+        self.assertEqual(resolution.work_item_key, "OPS-42")
+        self.assertFalse(resolution.identity_conflict)
+
     def test_unsupported_native_title_without_tracker_stays_unresolved(self) -> None:
         resolution = resolve_feature(
             CommitReader(self.git, self.head),
